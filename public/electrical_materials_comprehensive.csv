@@ -1,0 +1,422 @@
+id,name,category,description,unit,baseCost,laborHours
+rec_15a_wh,15A Duplex Receptacle White,Receptacles,Standard 15A tamper resistant duplex receptacle white,ea,2.50,0.35
+rec_15a_iv,15A Duplex Receptacle Ivory,Receptacles,Standard 15A tamper resistant duplex receptacle ivory,ea,2.50,0.35
+rec_15a_br,15A Duplex Receptacle Brown,Receptacles,Standard 15A tamper resistant duplex receptacle brown,ea,2.75,0.35
+rec_20a_wh,20A Duplex Receptacle White,Receptacles,Standard 20A tamper resistant duplex receptacle white,ea,3.50,0.40
+rec_20a_iv,20A Duplex Receptacle Ivory,Receptacles,Standard 20A tamper resistant duplex receptacle ivory,ea,3.50,0.40
+gfci_15a_wh,15A GFCI Receptacle White,Receptacles,15A ground fault circuit interrupter self-test white,ea,18.00,0.50
+gfci_15a_iv,15A GFCI Receptacle Ivory,Receptacles,15A ground fault circuit interrupter self-test ivory,ea,18.00,0.50
+gfci_20a_wh,20A GFCI Receptacle White,Receptacles,20A ground fault circuit interrupter self-test white,ea,22.00,0.50
+gfci_20a_iv,20A GFCI Receptacle Ivory,Receptacles,20A ground fault circuit interrupter self-test ivory,ea,22.00,0.50
+afci_15a,15A AFCI Receptacle,Receptacles,15A arc fault circuit interrupter outlet,ea,35.00,0.60
+afci_20a,20A AFCI Receptacle,Receptacles,20A arc fault circuit interrupter outlet,ea,38.00,0.60
+usb_rec_wh,USB Duplex Receptacle White,Receptacles,Duplex receptacle with USB-A charging ports white,ea,28.00,0.40
+usb_c_rec_wh,USB-C Duplex Receptacle White,Receptacles,Duplex receptacle with USB-C fast charging white,ea,35.00,0.40
+dryer_rec_3p,3-Prong Dryer Receptacle,Receptacles,30A 3-wire dryer receptacle NEMA 10-30R,ea,12.00,0.75
+dryer_rec_4p,4-Prong Dryer Receptacle,Receptacles,30A 4-wire dryer receptacle NEMA 14-30R,ea,14.00,0.75
+range_rec_3p,3-Prong Range Receptacle,Receptacles,50A 3-wire range receptacle NEMA 10-50R,ea,15.00,0.80
+range_rec_4p,4-Prong Range Receptacle,Receptacles,50A 4-wire range receptacle NEMA 14-50R,ea,18.00,0.80
+floor_rec,Floor Receptacle Brass,Receptacles,Floor mounted pop-up receptacle assembly brass,ea,85.00,1.50
+weatherproof_rec,Weatherproof Receptacle,Receptacles,15A weatherproof GFCI receptacle with cover,ea,32.00,0.60
+sw_single_wh,Single Pole Switch White,Switches,15A single pole toggle switch white,ea,1.75,0.30
+sw_single_iv,Single Pole Switch Ivory,Switches,15A single pole toggle switch ivory,ea,1.75,0.30
+sw_3way_wh,3-Way Switch White,Switches,15A 3-way toggle switch white,ea,3.50,0.35
+sw_3way_iv,3-Way Switch Ivory,Switches,15A 3-way toggle switch ivory,ea,3.50,0.35
+sw_4way_wh,4-Way Switch White,Switches,15A 4-way toggle switch white,ea,6.00,0.40
+dimmer_single,Single Pole Dimmer,Switches,600W incandescent/LED dimmer single pole,ea,18.00,0.40
+dimmer_3way,3-Way Dimmer,Switches,600W incandescent/LED dimmer 3-way,ea,28.00,0.45
+dimmer_smart,Smart Dimmer Wi-Fi,Switches,Smart dimmer switch with Wi-Fi app control,ea,45.00,0.50
+motion_sw,Motion Sensor Switch,Switches,Occupancy sensor switch automatic shutoff,ea,22.00,0.45
+timer_sw,Timer Switch,Switches,24-hour programmable timer switch,ea,20.00,0.40
+pilot_light_sw,Pilot Light Switch,Switches,Single pole switch with pilot light indicator,ea,8.50,0.35
+romex_14_2,14/2 NM-B Romex,Wire,14 AWG 2-conductor with ground NM-B cable,ft,0.55,0.01
+romex_14_3,14/3 NM-B Romex,Wire,14 AWG 3-conductor with ground NM-B cable,ft,0.75,0.01
+romex_12_2,12/2 NM-B Romex,Wire,12 AWG 2-conductor with ground NM-B cable,ft,0.75,0.01
+romex_12_3,12/3 NM-B Romex,Wire,12 AWG 3-conductor with ground NM-B cable,ft,1.10,0.01
+romex_10_2,10/2 NM-B Romex,Wire,10 AWG 2-conductor with ground NM-B cable,ft,1.40,0.012
+romex_10_3,10/3 NM-B Romex,Wire,10 AWG 3-conductor with ground NM-B cable,ft,1.95,0.012
+romex_8_3,8/3 NM-B Romex,Wire,8 AWG 3-conductor with ground NM-B cable,ft,3.50,0.015
+romex_6_3,6/3 NM-B Romex,Wire,6 AWG 3-conductor with ground NM-B cable,ft,5.25,0.018
+thhn_14_bk,14 AWG THHN Black,Wire,14 AWG THHN/THWN-2 stranded black,ft,0.28,0.008
+thhn_14_wh,14 AWG THHN White,Wire,14 AWG THHN/THWN-2 stranded white,ft,0.28,0.008
+thhn_14_rd,14 AWG THHN Red,Wire,14 AWG THHN/THWN-2 stranded red,ft,0.28,0.008
+thhn_14_gn,14 AWG THHN Green,Wire,14 AWG THHN/THWN-2 stranded green,ft,0.30,0.008
+thhn_12_bk,12 AWG THHN Black,Wire,12 AWG THHN/THWN-2 stranded black,ft,0.42,0.009
+thhn_12_wh,12 AWG THHN White,Wire,12 AWG THHN/THWN-2 stranded white,ft,0.42,0.009
+thhn_12_rd,12 AWG THHN Red,Wire,12 AWG THHN/THWN-2 stranded red,ft,0.42,0.009
+thhn_10_bk,10 AWG THHN Black,Wire,10 AWG THHN/THWN-2 stranded black,ft,0.68,0.010
+thhn_10_wh,10 AWG THHN White,Wire,10 AWG THHN/THWN-2 stranded white,ft,0.68,0.010
+thhn_8_bk,8 AWG THHN Black,Wire,8 AWG THHN/THWN-2 stranded black,ft,1.15,0.012
+thhn_6_bk,6 AWG THHN Black,Wire,6 AWG THHN/THWN-2 stranded black,ft,1.85,0.014
+emt_half,1/2 EMT Conduit,Conduit,1/2 inch electrical metallic tubing 10ft stick,ft,0.85,0.04
+emt_three_quarter,3/4 EMT Conduit,Conduit,3/4 inch electrical metallic tubing 10ft stick,ft,1.25,0.045
+emt_one,1 EMT Conduit,Conduit,1 inch electrical metallic tubing 10ft stick,ft,2.10,0.05
+emt_one_quarter,1-1/4 EMT Conduit,Conduit,1-1/4 inch electrical metallic tubing 10ft stick,ft,3.25,0.055
+emt_one_half,1-1/2 EMT Conduit,Conduit,1-1/2 inch electrical metallic tubing 10ft stick,ft,4.50,0.06
+emt_two,2 EMT Conduit,Conduit,2 inch electrical metallic tubing 10ft stick,ft,6.75,0.07
+pvc_half,1/2 PVC Conduit,Conduit,1/2 inch schedule 40 PVC conduit 10ft stick,ft,0.45,0.035
+pvc_three_quarter,3/4 PVC Conduit,Conduit,3/4 inch schedule 40 PVC conduit 10ft stick,ft,0.65,0.04
+pvc_one,1 PVC Conduit,Conduit,1 inch schedule 40 PVC conduit 10ft stick,ft,1.10,0.045
+pvc_one_quarter,1-1/4 PVC Conduit,Conduit,1-1/4 inch schedule 40 PVC conduit 10ft stick,ft,1.75,0.05
+pvc_one_half,1-1/2 PVC Conduit,Conduit,1-1/2 inch schedule 40 PVC conduit 10ft stick,ft,2.40,0.055
+pvc_two,2 PVC Conduit,Conduit,2 inch schedule 40 PVC conduit 10ft stick,ft,3.25,0.06
+flex_half,1/2 Flex Conduit,Conduit,1/2 inch flexible metal conduit 100ft coil,ft,0.95,0.025
+flex_three_quarter,3/4 Flex Conduit,Conduit,3/4 inch flexible metal conduit 100ft coil,ft,1.35,0.028
+liq_tight_half,1/2 Liquid Tight,Conduit,1/2 inch liquid tight flexible conduit,ft,1.45,0.03
+liq_tight_three_quarter,3/4 Liquid Tight,Conduit,3/4 inch liquid tight flexible conduit,ft,1.95,0.032
+box_1g_nw,1-Gang New Work Box,Boxes,Single gang new work nail-on box,ea,1.25,0.15
+box_2g_nw,2-Gang New Work Box,Boxes,2-gang new work nail-on box,ea,2.50,0.18
+box_1g_ow,1-Gang Old Work Box,Boxes,Single gang cut-in old work box,ea,1.75,0.25
+box_2g_ow,2-Gang Old Work Box,Boxes,2-gang cut-in old work box,ea,3.25,0.30
+box_ceil_fan,Ceiling Fan Box,Boxes,4 inch ceiling fan rated box with brace,ea,18.00,0.45
+box_ceil_std,4 Inch Round Ceiling Box,Boxes,4 inch round ceiling box with bracket,ea,2.50,0.20
+box_octagon,Octagon Box,Boxes,4 inch octagon metal box,ea,3.50,0.20
+box_4x4,4x4 Square Box,Boxes,4x4 inch square metal junction box,ea,4.25,0.20
+box_4x4_ext,4x4 Square Box Extension,Boxes,4x4 square box 1-1/2 inch extension ring,ea,2.75,0.10
+jbox_6x6,6x6 Junction Box,Boxes,6x6x4 inch PVC junction box with cover,ea,8.50,0.30
+jbox_8x8,8x8 Junction Box,Boxes,8x8x4 inch PVC junction box with cover,ea,12.00,0.35
+jbox_pvc_4,4 Inch PVC Junction Box,Boxes,4 inch round PVC junction box,ea,3.50,0.18
+weatherproof_box,Weatherproof Box 1-Gang,Boxes,Weatherproof outlet box with flip cover,ea,12.00,0.30
+breaker_15a_sp,15A Single Pole Breaker,Breakers,15 amp single pole circuit breaker,ea,6.50,0.20
+breaker_20a_sp,20A Single Pole Breaker,Breakers,20 amp single pole circuit breaker,ea,7.00,0.20
+breaker_30a_sp,30A Single Pole Breaker,Breakers,30 amp single pole circuit breaker,ea,12.00,0.22
+breaker_40a_sp,40A Single Pole Breaker,Breakers,40 amp single pole circuit breaker,ea,18.00,0.22
+breaker_50a_sp,50A Single Pole Breaker,Breakers,50 amp single pole circuit breaker,ea,22.00,0.25
+breaker_15a_dp,15A Double Pole Breaker,Breakers,15 amp 2-pole circuit breaker 240V,ea,14.00,0.25
+breaker_20a_dp,20A Double Pole Breaker,Breakers,20 amp 2-pole circuit breaker 240V,ea,15.00,0.25
+breaker_30a_dp,30A Double Pole Breaker,Breakers,30 amp 2-pole circuit breaker 240V,ea,22.00,0.28
+breaker_40a_dp,40A Double Pole Breaker,Breakers,40 amp 2-pole circuit breaker 240V,ea,28.00,0.28
+breaker_50a_dp,50A Double Pole Breaker,Breakers,50 amp 2-pole circuit breaker 240V,ea,35.00,0.30
+gfci_breaker_20a,20A GFCI Breaker,Breakers,20 amp single pole GFCI circuit breaker,ea,55.00,0.35
+afci_breaker_15a,15A AFCI Breaker,Breakers,15 amp single pole AFCI circuit breaker,ea,48.00,0.35
+afci_breaker_20a,20A AFCI Breaker,Breakers,20 amp single pole AFCI circuit breaker,ea,52.00,0.35
+combo_breaker_20a,20A AFCI/GFCI Breaker,Breakers,20 amp combination AFCI/GFCI breaker,ea,75.00,0.40
+plate_1g_wh,1-Gang Wall Plate White,Covers,Single gang decorator wall plate white,ea,0.45,0.05
+plate_1g_iv,1-Gang Wall Plate Ivory,Covers,Single gang decorator wall plate ivory,ea,0.45,0.05
+plate_2g_wh,2-Gang Wall Plate White,Covers,2-gang decorator wall plate white,ea,0.85,0.05
+plate_2g_iv,2-Gang Wall Plate Ivory,Covers,2-gang decorator wall plate ivory,ea,0.85,0.05
+plate_3g_wh,3-Gang Wall Plate White,Covers,3-gang decorator wall plate white,ea,1.50,0.05
+plate_4g_wh,4-Gang Wall Plate White,Covers,4-gang decorator wall plate white,ea,2.25,0.05
+led_can_4,4 Inch LED Recessed,Lighting,4 inch LED recessed downlight 9W 650 lumens,ea,18.00,0.75
+led_can_6,6 Inch LED Recessed,Lighting,6 inch LED recessed downlight 15W 1050 lumens,ea,22.00,0.80
+led_can_adj,4 Inch Adjustable LED,Lighting,4 inch adjustable gimbal LED recessed light,ea,28.00,0.80
+led_flush_12,12 Inch LED Flush Mount,Lighting,12 inch round LED flush mount ceiling light,ea,35.00,1.00
+led_flush_15,15 Inch LED Flush Mount,Lighting,15 inch round LED flush mount ceiling light,ea,45.00,1.10
+led_wrap_2ft,2ft LED Wraparound,Lighting,2 foot LED wraparound fixture 2200 lumens,ea,42.00,0.90
+led_wrap_4ft,4ft LED Wraparound,Lighting,4 foot LED wraparound fixture 4400 lumens,ea,58.00,1.00
+led_strip_4ft,4ft LED Strip Light,Lighting,4 foot LED strip light fixture 4000 lumens,ea,35.00,0.70
+led_highbay,LED High Bay 150W,Lighting,150W LED high bay fixture 19500 lumens,ea,185.00,2.50
+led_vapor_70w,70W LED Vapor Tight,Lighting,70W LED vapor tight fixture 8750 lumens,ea,125.00,1.80
+exit_sign_led,LED Exit Sign,Lighting,LED exit sign with battery backup,ea,32.00,0.60
+emergency_light,Emergency Light LED,Lighting,Twin head LED emergency light with backup,ea,48.00,0.75
+under_cab_led,Under Cabinet LED,Lighting,18 inch under cabinet LED light bar,ea,28.00,0.50
+pendant_mini,Mini Pendant Light,Lighting,Mini pendant light fixture with shade,ea,42.00,0.70
+vanity_3light,3-Light Vanity Fixture,Lighting,3-light bathroom vanity bar fixture,ea,68.00,1.20
+chandelier_5light,5-Light Chandelier,Lighting,Traditional 5-light chandelier fixture,ea,185.00,2.00
+ceiling_fan_52,52 Inch Ceiling Fan,Lighting,52 inch ceiling fan with light kit and remote,ea,145.00,1.80
+outdoor_wall_led,LED Outdoor Wall Light,Lighting,LED outdoor wall lantern fixture,ea,58.00,0.80
+flood_led_30w,30W LED Flood Light,Lighting,30W LED outdoor flood light fixture,ea,38.00,0.60
+motion_flood_led,LED Motion Flood 40W,Lighting,40W LED motion sensor flood light,ea,65.00,0.75
+panel_100a_12sp,100A 12-Space Panel,Panels,100 amp main breaker load center 12 space,ea,95.00,3.00
+panel_100a_20sp,100A 20-Space Panel,Panels,100 amp main breaker load center 20 space,ea,125.00,3.50
+panel_150a_24sp,150A 24-Space Panel,Panels,150 amp main breaker load center 24 space,ea,175.00,4.00
+panel_200a_30sp,200A 30-Space Panel,Panels,200 amp main breaker load center 30 space,ea,245.00,4.50
+panel_200a_40sp,200A 40-Space Panel,Panels,200 amp main breaker load center 40 space,ea,285.00,5.00
+subpanel_100a,100A Sub Panel,Panels,100 amp sub panel MLO 24 space,ea,115.00,3.50
+subpanel_200a,200A Sub Panel,Panels,200 amp sub panel MLO 30 space,ea,195.00,4.00
+disco_60a_nf,60A Non-Fused Disconnect,Panels,60 amp 240V non-fused safety disconnect,ea,45.00,1.20
+disco_60a_fused,60A Fused Disconnect,Panels,60 amp 240V fused safety disconnect,ea,65.00,1.30
+disco_100a_nf,100A Non-Fused Disconnect,Panels,100 amp 240V non-fused safety disconnect,ea,75.00,1.50
+meter_socket_200a,200A Meter Socket,Panels,200 amp single phase meter socket,ea,85.00,2.50
+surge_protector,Whole House Surge,Panels,Whole house surge protector 80kA,ea,165.00,0.80
+emt_conn_half,1/2 EMT Connector,Fittings,1/2 inch EMT compression connector,ea,0.65,0.05
+emt_conn_three_quarter,3/4 EMT Connector,Fittings,3/4 inch EMT compression connector,ea,0.95,0.05
+emt_conn_one,1 EMT Connector,Fittings,1 inch EMT compression connector,ea,1.85,0.06
+emt_coup_half,1/2 EMT Coupling,Fittings,1/2 inch EMT set screw coupling,ea,0.45,0.04
+emt_coup_three_quarter,3/4 EMT Coupling,Fittings,3/4 inch EMT set screw coupling,ea,0.75,0.04
+emt_coup_one,1 EMT Coupling,Fittings,1 inch EMT set screw coupling,ea,1.45,0.05
+emt_elbow_half,1/2 EMT 90° Elbow,Fittings,1/2 inch EMT 90 degree elbow,ea,3.50,0.08
+emt_elbow_three_quarter,3/4 EMT 90° Elbow,Fittings,3/4 inch EMT 90 degree elbow,ea,5.25,0.08
+emt_elbow_one,1 EMT 90° Elbow,Fittings,1 inch EMT 90 degree elbow,ea,8.50,0.10
+emt_strap_half,1/2 EMT Strap,Fittings,1/2 inch EMT one-hole strap,ea,0.25,0.02
+emt_strap_three_quarter,3/4 EMT Strap,Fittings,3/4 inch EMT one-hole strap,ea,0.35,0.02
+emt_strap_one,1 EMT Strap,Fittings,1 inch EMT one-hole strap,ea,0.55,0.02
+pvc_conn_half,1/2 PVC Male Adapter,Fittings,1/2 inch PVC male adapter,ea,0.35,0.03
+pvc_conn_three_quarter,3/4 PVC Male Adapter,Fittings,3/4 inch PVC male adapter,ea,0.55,0.03
+pvc_coup_half,1/2 PVC Coupling,Fittings,1/2 inch PVC coupling,ea,0.25,0.03
+pvc_coup_three_quarter,3/4 PVC Coupling,Fittings,3/4 inch PVC coupling,ea,0.40,0.03
+pvc_elbow_half,1/2 PVC 90° Elbow,Fittings,1/2 inch PVC schedule 40 90 degree elbow,ea,0.45,0.04
+pvc_elbow_three_quarter,3/4 PVC 90° Elbow,Fittings,3/4 inch PVC schedule 40 90 degree elbow,ea,0.75,0.04
+pvc_lb_half,1/2 PVC LB Fitting,Fittings,1/2 inch PVC LB conduit body with cover,ea,2.85,0.08
+pvc_lb_three_quarter,3/4 PVC LB Fitting,Fittings,3/4 inch PVC LB conduit body with cover,ea,3.95,0.08
+pvc_cement,PVC Cement 8oz,Fittings,8 oz PVC cement with applicator,ea,5.50,0
+pvc_primer,PVC Primer 8oz,Fittings,8 oz PVC primer purple,ea,4.50,0
+flex_conn_half,1/2 Flex Connector,Fittings,1/2 inch flex conduit connector,ea,0.85,0.04
+flex_conn_three_quarter,3/4 Flex Connector,Fittings,3/4 inch flex conduit connector,ea,1.25,0.04
+liq_conn_half,1/2 Liquid Tight Conn,Fittings,1/2 inch liquid tight connector,ea,1.85,0.05
+liq_conn_three_quarter,3/4 Liquid Tight Conn,Fittings,3/4 inch liquid tight connector,ea,2.45,0.05
+wire_nut_gray,Gray Wire Nuts 22-16,Accessories,Gray wire nuts 22-16 AWG 100 pack,pk,3.50,0
+wire_nut_blue,Blue Wire Nuts 16-14,Accessories,Blue wire nuts 16-14 AWG 100 pack,pk,4.25,0
+wire_nut_orange,Orange Wire Nuts 14-12,Accessories,Orange wire nuts 14-12 AWG 100 pack,pk,5.50,0
+wire_nut_yellow,Yellow Wire Nuts 12-10,Accessories,Yellow wire nuts 12-10 AWG 100 pack,pk,6.75,0
+wire_nut_red,Red Wire Nuts 10-8,Accessories,Red wire nuts 10-8 AWG 100 pack,pk,8.50,0
+grease_pull,Wire Pulling Lube,Accessories,Wire pulling lubricant 1 quart,qt,12.00,0
+tape_elect_black,Black Electrical Tape,Accessories,3/4 inch x 60ft black electrical tape,ea,1.85,0
+tape_elect_colors,Colored Electrical Tape,Accessories,3/4 inch x 60ft colored phase tape,ea,2.25,0
+tape_duct,Duct Tape 2 Inch,Accessories,2 inch x 60yd professional duct tape,ea,8.50,0
+anti_ox_paste,Anti-Oxidant Paste,Accessories,Anti-oxidant compound for aluminum 4oz,ea,8.00,0
+splice_kit_wire,Wire Splice Kit,Accessories,Crimp splice connector assortment kit,ea,18.00,0
+fish_tape_50,50ft Fish Tape,Accessories,50 foot steel fish tape with case,ea,22.00,0
+fish_tape_100,100ft Fish Tape,Accessories,100 foot fiberglass fish tape with case,ea,48.00,0
+cable_tie_8,8 Inch Cable Ties,Fasteners,8 inch UV resistant cable ties 100 pack,pk,5.50,0
+cable_tie_12,12 Inch Cable Ties,Fasteners,12 inch UV resistant cable ties 100 pack,pk,8.00,0
+cable_tie_mount,Cable Tie Mount,Fasteners,Adhesive cable tie mounting base 100 pack,pk,12.00,0
+romex_staple,Romex Cable Staples,Fasteners,Romex cable staples 100 pack,pk,4.50,0
+conduit_hanger,Conduit Hanger 1/2,Fasteners,1/2 inch conduit hanger with bolt,ea,0.85,0.03
+threaded_rod_3_8,3/8 Threaded Rod 10ft,Fasteners,3/8 inch threaded rod 10 foot length,ea,8.50,0.02
+beam_clamp_3_8,3/8 Beam Clamp,Fasteners,3/8 inch beam clamp for threaded rod,ea,3.25,0.05
+hex_nut_3_8,3/8 Hex Nuts,Fasteners,3/8 inch hex nuts 100 pack,pk,8.00,0
+flat_washer_3_8,3/8 Flat Washers,Fasteners,3/8 inch flat washers 100 pack,pk,6.50,0
+lock_washer_3_8,3/8 Lock Washers,Fasteners,3/8 inch lock washers 100 pack,pk,7.50,0
+anchor_tap_1_4,1/4 Tapcon Anchors,Fasteners,1/4 x 2-1/4 inch tapcon anchors 100 pack,pk,22.00,0
+anchor_wedge_3_8,3/8 Wedge Anchors,Fasteners,3/8 x 3 inch wedge anchors 50 pack,pk,28.00,0
+anchor_toggle_1_8,1/8 Toggle Bolts,Fasteners,1/8 inch toggle bolts hollow wall 50 pack,pk,18.00,0
+screw_wood_8,#8 Wood Screws,Fasteners,#8 x 1-1/4 inch wood screws 100 pack,pk,5.50,0
+screw_drywall,Drywall Screws,Fasteners,#6 x 1-5/8 inch drywall screws 1 lb box,lb,6.50,0
+box_nail,Box Nails 8d,Fasteners,8d box nails 1 lb box,lb,4.50,0
+smoke_detect_ac,AC Smoke Detector,Devices,Hardwired smoke detector with battery backup,ea,22.00,0.60
+smoke_detect_combo,Smoke CO Combo,Devices,Hardwired smoke and CO detector combo,ea,48.00,0.65
+co_detect,CO Detector Hardwired,Devices,Hardwired carbon monoxide detector,ea,35.00,0.50
+doorbell_wired,Wired Doorbell,Devices,Wired doorbell chime 2-note,ea,18.00,0.80
+doorbell_button,Doorbell Button,Devices,Lighted doorbell push button,ea,8.50,0.25
+doorbell_trans,Doorbell Transformer,Devices,16V 30VA doorbell transformer,ea,12.00,0.40
+fan_control,Ceiling Fan Control,Devices,Ceiling fan speed control switch,ea,18.00,0.35
+thermostat_prog,Programmable Thermostat,Devices,7-day programmable thermostat,ea,65.00,0.75
+thermostat_smart,Smart Wi-Fi Thermostat,Devices,Smart Wi-Fi thermostat with app control,ea,145.00,1.00
+mc_cable_12_2,12/2 MC Cable,Wire,12 AWG 2-conductor MC cable aluminum armor,ft,1.85,0.012
+mc_cable_12_3,12/3 MC Cable,Wire,12 AWG 3-conductor MC cable aluminum armor,ft,2.45,0.012
+mc_cable_10_2,10/2 MC Cable,Wire,10 AWG 2-conductor MC cable aluminum armor,ft,2.85,0.014
+mc_cable_10_3,10/3 MC Cable,Wire,10 AWG 3-conductor MC cable aluminum armor,ft,3.75,0.014
+mc_cable_8_3,8/3 MC Cable,Wire,8 AWG 3-conductor MC cable aluminum armor,ft,5.95,0.016
+thhn_4_bk,4 AWG THHN Black,Wire,4 AWG THHN/THWN-2 stranded black,ft,2.95,0.016
+thhn_2_bk,2 AWG THHN Black,Wire,2 AWG THHN/THWN-2 stranded black,ft,4.50,0.018
+thhn_1_bk,1 AWG THHN Black,Wire,1 AWG THHN/THWN-2 stranded black,ft,5.85,0.020
+thhn_1_0_bk,1/0 AWG THHN Black,Wire,1/0 AWG THHN/THWN-2 stranded black,ft,7.50,0.022
+thhn_2_0_bk,2/0 AWG THHN Black,Wire,2/0 AWG THHN/THWN-2 stranded black,ft,9.25,0.024
+bare_copper_6,6 AWG Bare Copper,Wire,6 AWG solid bare copper ground wire,ft,1.95,0.010
+bare_copper_4,4 AWG Bare Copper,Wire,4 AWG stranded bare copper ground wire,ft,3.25,0.012
+green_thhn_6,6 AWG Green THHN,Wire,6 AWG THHN/THWN-2 stranded green ground,ft,2.15,0.012
+cat5e_cable,Cat5e Cable Blue,Data,Cat5e ethernet cable 1000ft box,ft,0.15,0.008
+cat6_cable,Cat6 Cable Blue,Data,Cat6 ethernet cable 1000ft box,ft,0.22,0.008
+cat6_jack,Cat6 RJ45 Jack,Data,Cat6 keystone jack RJ45 white,ea,3.50,0.15
+cat6_plate,Cat6 Wall Plate 1-Port,Data,Single port Cat6 keystone wall plate,ea,2.25,0.05
+cat6_patch_3ft,Cat6 Patch Cable 3ft,Data,Cat6 ethernet patch cable 3 foot,ea,4.50,0
+cat6_patch_6ft,Cat6 Patch Cable 6ft,Data,Cat6 ethernet patch cable 6 foot,ea,5.50,0
+coax_rg6,RG6 Coax Cable,Data,RG6 coaxial cable 1000ft box,ft,0.25,0.008
+coax_connector,Coax F-Connector,Data,RG6 compression F-connector,ea,0.65,0.03
+coax_splitter,Coax 2-Way Splitter,Data,2-way coaxial cable splitter,ea,4.50,0.10
+phone_wire_4c,4-Conductor Phone Wire,Data,4-conductor telephone wire 1000ft,ft,0.12,0.006
+doorbell_wire,18/2 Doorbell Wire,Wire,18 AWG 2-conductor doorbell wire,ft,0.18,0.008
+speaker_wire_16,16/2 Speaker Wire,Wire,16 AWG 2-conductor speaker wire,ft,0.32,0.008
+low_volt_box,Low Voltage Box 1-Gang,Boxes,Single gang low voltage mounting bracket,ea,1.85,0.12
+data_box_2g,2-Gang Low Voltage Box,Boxes,2-gang low voltage mounting bracket,ea,2.95,0.15
+grd_rod_8ft,8ft Ground Rod,Grounding,5/8 inch x 8 foot copper ground rod,ea,18.00,0.80
+grd_rod_clamp,Ground Rod Clamp,Grounding,5/8 inch ground rod clamp,ea,2.85,0.10
+grd_bar_neutral,Neutral Ground Bar,Grounding,Panel neutral ground bar kit,ea,12.00,0.25
+grd_bushing_1,1 Inch Grounding Bushing,Grounding,1 inch insulated grounding bushing,ea,3.95,0.08
+grd_bushing_1_25,1-1/4 Inch Grounding Bushing,Grounding,1-1/4 inch insulated grounding bushing,ea,5.25,0.08
+bonding_jumper_4,#4 Bonding Jumper,Grounding,#4 AWG bonding jumper with lugs,ea,18.00,0.20
+lug_mech_2_0,2/0 Mechanical Lug,Connectors,2/0 AWG mechanical lug connector,ea,8.50,0.15
+lug_compress_1_0,1/0 Compression Lug,Connectors,1/0 AWG compression lug,ea,5.95,0.15
+split_bolt_2,#2 Split Bolt,Connectors,#2 AWG split bolt connector,ea,3.25,0.10
+burndy_2_0,2/0 Burndy Connector,Connectors,2/0 AWG crimp connector Burndy,ea,6.50,0.12
+wire_marker_book,Wire Marker Book,Accessories,Wire marker label book 0-15,ea,8.50,0
+phase_tape_set,Phase Tape Set,Accessories,Electrical phase tape color set,set,12.00,0
+cord_grip_half,1/2 Cord Grip,Fittings,1/2 inch cord grip strain relief,ea,2.85,0.05
+cord_grip_three_quarter,3/4 Cord Grip,Fittings,3/4 inch cord grip strain relief,ea,3.95,0.05
+bushing_plastic_half,1/2 Plastic Bushing,Fittings,1/2 inch plastic insulating bushing,ea,0.25,0.02
+bushing_plastic_three_quarter,3/4 Plastic Bushing,Fittings,3/4 inch plastic insulating bushing,ea,0.35,0.02
+reducer_three_quarter_half,3/4 to 1/2 Reducer,Fittings,3/4 inch to 1/2 inch reducing bushing,ea,0.85,0.03
+reducer_one_three_quarter,1 to 3/4 Reducer,Fittings,1 inch to 3/4 inch reducing bushing,ea,1.45,0.03
+knockout_seal_half,1/2 Knockout Seal,Fittings,1/2 inch knockout seal plug,ea,0.35,0.02
+knockout_seal_three_quarter,3/4 Knockout Seal,Fittings,3/4 inch knockout seal plug,ea,0.45,0.02
+rec_30a_twist,30A Twist Lock Receptacle,Receptacles,30A 125V twist lock receptacle L5-30R,ea,18.00,0.60
+rec_50a_twist,50A Twist Lock Receptacle,Receptacles,50A 125/250V twist lock receptacle L14-50R,ea,32.00,0.75
+rec_20a_hospital,20A Hospital Grade Receptacle,Receptacles,20A hospital grade receptacle green dot,ea,12.00,0.40
+rec_20a_isolated,20A Isolated Ground Receptacle,Receptacles,20A isolated ground receptacle orange,ea,15.00,0.45
+rec_welder,50A Welder Receptacle,Receptacles,50A welder receptacle NEMA 6-50R,ea,22.00,0.80
+plug_15a_3prong,15A 3-Prong Plug,Plugs,15A 125V 3-prong straight plug,ea,3.50,0.15
+plug_20a_3prong,20A 3-Prong Plug,Plugs,20A 125V 3-prong straight plug,ea,4.95,0.15
+plug_30a_dryer,30A Dryer Plug 4-Wire,Plugs,30A 4-wire dryer plug NEMA 14-30P,ea,12.00,0.25
+plug_50a_range,50A Range Plug 4-Wire,Plugs,50A 4-wire range plug NEMA 14-50P,ea,16.00,0.30
+cord_12_3_sjtw,12/3 SJTW Extension,Cord,12 AWG 3-conductor SJTW portable cord,ft,1.85,0
+cord_10_3_soow,10/3 SOOW Cord,Cord,10 AWG 3-conductor SOOW portable cord,ft,2.95,0
+timer_24hr_mech,24-Hour Mechanical Timer,Controls,24-hour mechanical plug-in timer,ea,12.00,0.10
+timer_7day_digital,7-Day Digital Timer,Controls,7-day programmable digital timer,ea,22.00,0.15
+photocell_120v,120V Photo Control,Controls,120V dusk to dawn photo control,ea,18.00,0.30
+photocell_208v,208-277V Photo Control,Controls,208-277V dusk to dawn photo control,ea,24.00,0.30
+contactor_30a,30A Lighting Contactor,Controls,30A 120V coil lighting contactor 2-pole,ea,48.00,0.60
+contactor_60a,60A Lighting Contactor,Controls,60A 120V coil lighting contactor 3-pole,ea,85.00,0.75
+relay_spdt,SPDT Control Relay,Controls,SPDT 120V coil control relay,ea,18.00,0.25
+transformer_75va,75VA Transformer,Transformers,75VA 120/24V control transformer,ea,45.00,0.50
+transformer_150va,150VA Transformer,Transformers,150VA 120/24V control transformer,ea,75.00,0.60
+transformer_300va,300VA Transformer,Transformers,300VA 120/24V control transformer,ea,125.00,0.75
+ballast_t8_2lamp,T8 2-Lamp Ballast,Ballasts,T8 electronic ballast 2-lamp 32W,ea,18.00,0.40
+ballast_t8_4lamp,T8 4-Lamp Ballast,Ballasts,T8 electronic ballast 4-lamp 32W,ea,28.00,0.45
+led_driver_60w,60W LED Driver,Drivers,60W constant voltage LED driver 12VDC,ea,32.00,0.30
+led_driver_100w,100W LED Driver,Drivers,100W constant voltage LED driver 24VDC,ea,48.00,0.35
+enclosure_4x4_nema1,4x4 NEMA 1 Enclosure,Enclosures,4x4x4 inch NEMA 1 steel enclosure,ea,22.00,0.40
+enclosure_6x6_nema1,6x6 NEMA 1 Enclosure,Enclosures,6x6x4 inch NEMA 1 steel enclosure,ea,32.00,0.45
+enclosure_8x8_nema1,8x8 NEMA 1 Enclosure,Enclosures,8x8x4 inch NEMA 1 steel enclosure,ea,48.00,0.50
+enclosure_12x12_nema3r,12x12 NEMA 3R Enclosure,Enclosures,12x12x6 inch NEMA 3R weatherproof box,ea,95.00,0.75
+handy_box,Handy Box 4x2,Boxes,4x2-1/8 inch handy utility box,ea,2.25,0.15
+handy_box_cover,Handy Box Cover,Covers,4x2-1/8 inch handy box blank cover,ea,0.95,0.03
+nail_plate,Steel Nail Plate,Accessories,Steel cable protection nail plate,ea,0.45,0.02
+bushing_insul_1,1 Inch Insulating Bushing,Fittings,1 inch threaded insulating bushing,ea,0.85,0.03
+locknut_steel_half,1/2 Steel Locknut,Fittings,1/2 inch steel locknut,ea,0.18,0.02
+locknut_steel_three_quarter,3/4 Steel Locknut,Fittings,3/4 inch steel locknut,ea,0.25,0.02
+locknut_steel_one,1 Inch Steel Locknut,Fittings,1 inch steel locknut,ea,0.45,0.02
+sealtite_conn_half,1/2 Sealtite Connector,Fittings,1/2 inch liquid tight sealtite connector,ea,2.45,0.05
+sealtite_conn_three_quarter,3/4 Sealtite Connector,Fittings,3/4 inch liquid tight sealtite connector,ea,3.25,0.05
+emt_offset_half,1/2 EMT Offset Nipple,Fittings,1/2 inch EMT offset nipple,ea,2.85,0.06
+emt_nipple_close_half,1/2 EMT Close Nipple,Fittings,1/2 inch EMT close nipple,ea,1.85,0.04
+pvc_bushing_half,1/2 PVC Bushing,Fittings,1/2 inch PVC terminal adapter bushing,ea,0.35,0.02
+pvc_cap_half,1/2 PVC End Cap,Fittings,1/2 inch PVC schedule 40 end cap,ea,0.45,0.02
+expansion_joint_half,1/2 Expansion Joint,Fittings,1/2 inch PVC expansion joint coupling,ea,4.50,0.06
+conduit_seal_half,1/2 Conduit Sealing Compound,Accessories,Conduit sealing compound 1 lb,lb,12.00,0
+silicone_clear,Clear Silicone Sealant,Accessories,Clear silicone sealant caulk tube,tube,5.50,0
+foam_sealant,Spray Foam Sealant,Accessories,Expanding spray foam insulation can,can,8.50,0
+uf_cable_12_2,12/2 UF Cable,Wire,12 AWG 2-conductor UF-B underground cable,ft,1.25,0.012
+uf_cable_10_2,10/2 UF Cable,Wire,10 AWG 2-conductor UF-B underground cable,ft,2.15,0.014
+ser_cable_2_2_2_4,2-2-2-4 SER Cable,Wire,2-2-2-4 AWG service entrance cable,ft,4.95,0.020
+ser_cable_4_4_4_6,4-4-4-6 SER Cable,Wire,4-4-4-6 AWG service entrance cable,ft,6.50,0.022
+thhn_4_wh,4 AWG THHN White,Wire,4 AWG THHN/THWN-2 stranded white,ft,2.95,0.016
+thhn_4_rd,4 AWG THHN Red,Wire,4 AWG THHN/THWN-2 stranded red,ft,2.95,0.016
+thhn_2_wh,2 AWG THHN White,Wire,2 AWG THHN/THWN-2 stranded white,ft,4.50,0.018
+thhn_2_rd,2 AWG THHN Red,Wire,2 AWG THHN/THWN-2 stranded red,ft,4.50,0.018
+alarm_wire_22_2,22/2 Alarm Wire,Wire,22 AWG 2-conductor alarm cable solid,ft,0.18,0.006
+alarm_wire_18_2,18/2 Alarm Wire,Wire,18 AWG 2-conductor alarm cable solid,ft,0.24,0.008
+coax_rg59,RG59 Coax Cable,Data,RG59 coaxial cable for CCTV,ft,0.18,0.008
+fiber_patch_sm,Fiber Patch Cable SM,Data,Single mode fiber optic patch cable LC-LC,ea,32.00,0
+fiber_patch_mm,Fiber Patch Cable MM,Data,Multi mode fiber optic patch cable LC-LC,ea,28.00,0
+hdmi_cable_6ft,HDMI Cable 6ft,Data,High speed HDMI cable 6 foot,ea,12.00,0
+usb_outlet_plate,USB Outlet Plate,Covers,Decorator USB outlet wall plate,ea,0.95,0.05
+gfci_plate,GFCI Wall Plate,Covers,GFCI decorator wall plate,ea,0.75,0.05
+dryer_plate,Dryer Outlet Plate,Covers,Surface mount dryer outlet cover plate,ea,3.50,0.05
+range_plate,Range Outlet Plate,Covers,Surface mount range outlet cover plate,ea,4.25,0.05
+blank_plate_1g,1-Gang Blank Plate,Covers,Single gang blank wall plate,ea,0.35,0.03
+blank_plate_2g,2-Gang Blank Plate,Covers,2-gang blank wall plate,ea,0.65,0.03
+stainless_plate_1g,Stainless Steel Plate 1G,Covers,Stainless steel 1-gang wall plate,ea,8.50,0.05
+weather_cover_vert,Weatherproof Cover Vertical,Covers,Weatherproof in-use cover vertical,ea,18.00,0.15
+weather_cover_horiz,Weatherproof Cover Horizontal,Covers,Weatherproof in-use cover horizontal,ea,22.00,0.15
+mud_ring_1g,1-Gang Mud Ring,Boxes,Single gang raised plaster ring 1/2 inch,ea,1.85,0.08
+mud_ring_2g,2-Gang Mud Ring,Boxes,2-gang raised plaster ring 1/2 inch,ea,2.95,0.10
+nail_on_box_deep,Deep 1-Gang Nail On,Boxes,Deep single gang new work box 3-1/2 inch,ea,2.25,0.18
+ceiling_pan,Ceiling Pan 4 Inch,Boxes,4 inch steel ceiling outlet pan box,ea,3.95,0.22
+box_ext_1g,1-Gang Box Extension,Boxes,Single gang box extension ring,ea,2.25,0.10
+box_gangable,Gangable Switch Box,Boxes,Gangable steel switch box with ears,ea,2.85,0.15
+pvc_1900_box,PVC 1900 Box,Boxes,PVC 1900 utility box 4x4,ea,4.50,0.20
+metal_1900_box,Metal 1900 Box,Boxes,Steel 1900 utility box 4x4,ea,3.95,0.20
+floor_box_brass,Floor Box Brass Deep,Boxes,Deep floor box assembly brass finish,ea,125.00,2.00
+wiremold_channel,Wiremold 500 Channel,Raceway,Wiremold 500 series raceway channel 5ft,ea,18.00,0.40
+wiremold_elbow,Wiremold 500 Elbow,Raceway,Wiremold 500 series flat elbow,ea,3.95,0.08
+wiremold_coupling,Wiremold 500 Coupling,Raceway,Wiremold 500 series coupling connector,ea,2.25,0.05
+surface_raceway_6ft,Surface Raceway 6ft,Raceway,Surface mount cable raceway 6 foot,ea,12.00,0.30
+raceway_elbow_int,Raceway Internal Elbow,Raceway,Surface raceway internal corner elbow,ea,2.85,0.06
+raceway_end_cap,Raceway End Cap,Raceway,Surface raceway end cap fitting,ea,1.25,0.03
+led_bulb_a19_60w,LED A19 Bulb 60W Equiv,Bulbs,LED A19 bulb 60W equivalent 800 lumens,ea,3.50,0
+led_bulb_a19_100w,LED A19 Bulb 100W Equiv,Bulbs,LED A19 bulb 100W equivalent 1500 lumens,ea,5.50,0
+led_bulb_br30,LED BR30 Flood,Bulbs,LED BR30 flood bulb 65W equivalent,ea,6.50,0
+led_bulb_par38,LED PAR38 Flood,Bulbs,LED PAR38 outdoor flood 90W equivalent,ea,12.00,0
+cfl_bulb_23w,23W CFL Bulb,Bulbs,23W compact fluorescent bulb 100W equivalent,ea,4.50,0
+incand_60w,60W Incandescent,Bulbs,60W incandescent bulb standard,ea,0.85,0
+t8_led_tube_4ft,4ft T8 LED Tube,Bulbs,4 foot T8 LED tube 18W 2200 lumens,ea,12.00,0
+t8_fluor_tube_4ft,4ft T8 Fluorescent,Bulbs,4 foot T8 fluorescent tube 32W,ea,3.50,0
+night_light_led,LED Night Light,Lighting,LED plugin night light dusk to dawn,ea,4.50,0.10
+rope_light_led,LED Rope Light Kit,Lighting,LED rope light kit 16ft with controller,ea,35.00,0.60
+strip_light_led_5m,LED Strip Light 5m,Lighting,LED strip light 5 meter roll with power,ea,28.00,1.20
+track_light_head,Track Light Head,Lighting,Adjustable track lighting head fixture,ea,22.00,0.30
+track_light_8ft,8ft Track Rail,Lighting,8 foot track lighting rail kit,ea,58.00,1.50
+pendant_track,Track Pendant Adapter,Lighting,Pendant light track adapter,ea,18.00,0.25
+recessed_trim_white,4 Inch Recessed Trim,Lighting,4 inch recessed light baffle trim white,ea,6.50,0.15
+recessed_trim_gimbal,4 Inch Gimbal Trim,Lighting,4 inch adjustable gimbal trim,ea,12.00,0.15
+step_light_led,LED Step Light,Lighting,LED recessed step light fixture,ea,32.00,0.80
+well_light_led,LED Well Light,Lighting,LED in-ground well light bronze,ea,48.00,1.20
+path_light_led,LED Path Light,Lighting,LED landscape path light fixture,ea,38.00,0.60
+spot_light_12v,12V MR16 Spot Light,Lighting,12V MR16 halogen spot light fixture,ea,18.00,0.40
+transformer_12v_60w,60W 12V Transformer,Transformers,60W 12V low voltage transformer,ea,28.00,0.35
+transformer_12v_300w,300W 12V Transformer,Transformers,300W 12V landscape lighting transformer,ea,85.00,0.75
+gfi_cord_15ft,15ft GFCI Extension Cord,Cord,15ft GFCI protected extension cord 12 AWG,ea,42.00,0
+ext_cord_25ft_12g,25ft Extension Cord 12/3,Cord,25ft outdoor extension cord 12 AWG SJTW,ea,28.00,0
+ext_cord_50ft_12g,50ft Extension Cord 12/3,Cord,50ft outdoor extension cord 12 AWG SJTW,ea,48.00,0
+ext_cord_100ft_12g,100ft Extension Cord 12/3,Cord,100ft outdoor extension cord 12 AWG SJTW,ea,85.00,0
+power_strip_6out,6-Outlet Power Strip,Accessories,6-outlet surge protector power strip,ea,18.00,0
+power_strip_surge,Surge Protector 12-Out,Accessories,12-outlet surge protector with USB,ea,32.00,0
+junction_splice,In-Line Splice Kit,Accessories,Waterproof in-line wire splice kit,ea,8.50,0
+heat_shrink_kit,Heat Shrink Kit,Accessories,Heat shrink tubing assortment kit,ea,22.00,0
+conduit_bender_half,1/2 EMT Bender,Tools,1/2 inch EMT hand bender,ea,35.00,0
+conduit_bender_three_quarter,3/4 EMT Bender,Tools,3/4 inch EMT hand bender,ea,42.00,0
+knockout_punch_half,1/2 Knockout Punch,Tools,1/2 inch knockout punch set,ea,48.00,0
+hole_saw_2_5,2-1/2 Inch Hole Saw,Tools,2-1/2 inch bi-metal hole saw with arbor,ea,18.00,0
+hole_saw_4,4 Inch Hole Saw,Tools,4 inch bi-metal hole saw with arbor,ea,28.00,0
+wire_stripper,Wire Stripper Tool,Tools,Professional wire stripper 10-18 AWG,ea,22.00,0
+multi_tool_elect,Electrician Multi-Tool,Tools,Electrician multi-tool with crimper,ea,35.00,0
+voltage_tester,Non-Contact Voltage Tester,Tools,Non-contact voltage detector pen,ea,18.00,0
+multimeter_digital,Digital Multimeter,Tools,Digital multimeter auto-ranging,ea,48.00,0
+circuit_finder,Circuit Breaker Finder,Tools,Circuit breaker finder and tracer tool,ea,65.00,0
+stud_finder,Stud Finder Tool,Tools,Electronic stud finder wall scanner,ea,28.00,0
+level_torpedo,Torpedo Level 9 Inch,Tools,9 inch magnetic torpedo level,ea,12.00,0
+drill_bit_set,Drill Bit Set,Tools,Drill bit set 1/16 to 1/2 inch 29 piece,ea,32.00,0
+spade_bit_set,Spade Bit Set,Tools,Spade bit set 3/8 to 1-1/2 inch 6 piece,ea,22.00,0
+step_bit,Step Drill Bit,Tools,Step drill bit 1/4 to 3/4 inch,ea,18.00,0
+paddle_bit_1,1 Inch Paddle Bit,Tools,1 inch wood paddle bit,ea,8.50,0
+auger_bit_3_4,3/4 Inch Auger Bit,Tools,3/4 inch x 18 inch auger bit,ea,22.00,0
+conduit_reamer,Conduit Reamer,Tools,Ratcheting conduit reamer 1/2 to 2 inch,ea,35.00,0
+tube_cutter,Tubing Cutter,Tools,Tubing cutter for EMT 1/8 to 1-1/8 inch,ea,28.00,0
+utility_knife,Utility Knife,Tools,Retractable utility knife with blades,ea,8.50,0
+tape_measure_25ft,25ft Tape Measure,Tools,25 foot tape measure with lock,ea,15.00,0
+tool_bag_elect,Electrician Tool Bag,Tools,Heavy duty electrician tool bag canvas,ea,48.00,0
+tool_belt,Electrician Tool Belt,Tools,Leather electrician tool belt pouch,ea,85.00,0
+headlamp_led,LED Headlamp,Tools,Rechargeable LED headlamp 500 lumens,ea,28.00,0
+flashlight_led,LED Flashlight,Tools,Tactical LED flashlight 1000 lumens,ea,22.00,0
+hardhat_white,White Hard Hat,Safety,Class E hard hat white ANSI approved,ea,18.00,0
+safety_glasses,Safety Glasses Clear,Safety,ANSI Z87 safety glasses clear lens,ea,5.50,0
+work_gloves,Work Gloves L,Safety,Electrician work gloves leather palm large,pr,12.00,0
+knee_pads,Knee Pads,Safety,Professional knee pads with straps,pr,28.00,0
+ear_plugs,Foam Ear Plugs,Safety,Disposable foam ear plugs 10 pair,pk,4.50,0
+dust_mask,Dust Mask N95,Safety,N95 disposable dust mask 10 pack,pk,18.00,0
+first_aid_kit,First Aid Kit,Safety,Portable first aid kit OSHA compliant,ea,32.00,0
+fire_ext_5lb,5lb Fire Extinguisher,Safety,5 lb ABC fire extinguisher with bracket,ea,48.00,0.60
+ladder_6ft,6ft Step Ladder,Tools,6 foot fiberglass step ladder Type IA,ea,145.00,0
+ladder_ext_24ft,24ft Extension Ladder,Tools,24 foot fiberglass extension ladder,ea,285.00,0
+cart_platform,Platform Cart,Tools,Platform utility cart 500lb capacity,ea,95.00,0
+dolly_hand,Hand Truck Dolly,Tools,Hand truck dolly 600lb capacity,ea,85.00,0
+breaker_lockout,Breaker Lockout Device,Safety,Circuit breaker lockout device kit,ea,22.00,0
+panel_lockout,Panel Lockout Kit,Safety,Electrical panel lockout tagout kit,ea,48.00,0
+glow_stick,Glow Sticks Chemical,Safety,Chemical light sticks 6 inch 10 pack,pk,8.50,0
+caution_tape,Caution Tape Roll,Safety,Yellow caution tape 3 inch x 1000ft,ea,12.00,0
+traffic_cone_28,28 Inch Traffic Cone,Safety,28 inch traffic safety cone orange,ea,22.00,0
+barricade_tape,Barricade Tape,Safety,Reflective barricade tape roll,ea,18.00,0
+cable_protector,Cable Protector Ramp,Safety,Rubber cable protector ramp 2 channel,ea,65.00,0
+warning_sign,Electrical Warning Sign,Safety,Electrical hazard warning sign OSHA,ea,12.00,0
+arc_flash_label,Arc Flash Label,Safety,Arc flash warning label NFPA 70E,ea,3.50,0
+wire_id_tag,Wire Identification Tags,Accessories,Plastic wire ID tags assorted pack 100,pk,12.00,0
+cable_marker,Cable Marker Clips,Accessories,Cable marker clips numbered 0-9 100 pack,pk,18.00,0
+velcro_cable_tie,Velcro Cable Ties,Accessories,Reusable velcro cable ties 8 inch 50 pack,pk,15.00,0
+spiral_wrap,Spiral Cable Wrap,Accessories,Spiral cable wrap 1/2 inch x 25ft,ea,12.00,0
+cord_reel,Extension Cord Reel,Accessories,Retractable extension cord reel 30ft,ea,58.00,0
+junction_pull,Junction Box Pull Elbow,Fittings,PVC junction box pull elbow LB style,ea,8.50,0.12
+conduit_clip_half,1/2 Conduit Clip,Fasteners,1/2 inch plastic conduit clip,ea,0.15,0.01
+conduit_clip_three_quarter,3/4 Conduit Clip,Fasteners,3/4 inch plastic conduit clip,ea,0.22,0.01
+j_hook_cable,J-Hook Cable Support,Fasteners,J-hook cable support hanger,ea,1.85,0.03
+bridle_ring,Bridle Ring 4 Inch,Fasteners,4 inch cable support bridle ring,ea,2.45,0.03
+madison_clip,Madison Strap Clip,Fasteners,Madison strap hold-down clip,ea,0.35,0.02
+plaster_washer,Plaster Washer,Fasteners,Domed plaster washers 100 pack,pk,4.50,0
+all_thread_half,1/2 All Thread Rod 10ft,Fasteners,1/2 inch threaded rod 10 foot,ea,12.00,0.02
+unistrut_10ft,Unistrut Channel 10ft,Fasteners,Unistrut P1000 channel 10 foot,ea,28.00,0.05
+unistrut_connector,Unistrut Connector,Fasteners,Unistrut channel connector fitting,ea,3.25,0.03
+spring_nut_3_8,3/8 Spring Nut Unistrut,Fasteners,3/8 inch spring nut for unistrut,ea,0.65,0.01
+beam_clamp_adj,Adjustable Beam Clamp,Fasteners,Adjustable beam clamp for rod,ea,8.50,0.05
+concrete_anchor_3_8,3/8 Concrete Anchors,Fasteners,3/8 x 3-3/4 inch concrete wedge anchor,ea,1.25,0.05
+hammer_drill_bit_3_8,3/8 Hammer Drill Bit,Tools,3/8 inch masonry hammer drill bit,ea,12.00,0
+sds_bit_3_8,3/8 SDS Plus Bit,Tools,3/8 inch SDS plus masonry bit,ea,15.00,0

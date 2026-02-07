@@ -1,0 +1,43 @@
+{
+  "expo": {
+    "name": "TradeFlow",
+    "slug": "timeclock-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "tradeflow",
+    "icon": "./assets/images/icon.png",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "plugins": [
+      [
+        "expo-router",
+        {
+          "origin": "tradeflow://"
+        }
+      ]
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.tradeflow.timeclock"
+    },
+    "android": {
+      "package": "com.tradeflow.timeclock",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "tradeflow",
+              "host": "*"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+    "web": {
+      "favicon": "./assets/images/favicon.png"
+    }
+  }
+}

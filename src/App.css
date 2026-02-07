@@ -1,0 +1,249 @@
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+.card {
+  padding: 2em;
+}
+
+.read-the-docs {
+  color: #888;
+}
+/* ===== Mobile sidebar toggle (desktop unchanged) ===== */
+:root {
+  --sidebar-w: 220px; /* narrower left sidebar */
+  /* unified header height variable — change here to move everything down */
+  --header-h: 96px;
+}
+
+/* App shell should not have padding-top since header is fixed */
+.appShell {
+  display: flex;
+  min-height: 100vh;
+  padding-top: 0;
+}
+
+.sidebar {
+    width: var(--sidebar-w);
+    flex: 0 0 var(--sidebar-w);
+    position: fixed;
+    top: var(--header-h);
+    left: 0;
+    bottom: 0;
+    background: #0b0b0b;
+    color: #fff;
+    border-right: 1px solid #000;
+    box-shadow: 2px 0 8px rgba(0,0,0,0.25);
+    padding: 16px 12px;
+    overflow-y: auto;
+    z-index: 900;
+    box-sizing: border-box;
+    border-radius: 0 8px 8px 0;
+  }
+.main {
+  flex: 1;
+  min-width: 0;
+  /* ensure content is below fixed header */
+  padding-top: calc(var(--header-h) + 24px);
+  margin-left: var(--sidebar-w);
+}
+
+/* On desktop, header should span full width */
+@media (min-width: 821px) {
+  .siteHeader .headerInner {
+    width: 100%;
+    margin-left: 0;
+    display: grid;
+    grid-template-columns: 240px 1fr 300px;
+    align-items: center;
+    gap: 12px;
+    padding-left: 18px;
+    padding-right: 18px;
+    box-sizing: border-box;
+  }
+  .siteHeader .leftBrand { grid-column: 1; }
+  .siteHeader .center { grid-column: 2; text-align: center; }
+  .siteHeader .rightSection { grid-column: 3; justify-self: end; position: relative; z-index: 2; }
+}
+
+@media (max-width: 820px) {
+  .siteHeader .headerInner { 
+    width: 100%; 
+    margin-left: 0; 
+    padding-left: 18px; 
+    padding-right: 18px; 
+  }
+}
+
+/* Mobile behavior */
+@media (max-width: 820px) {
+  .appShell { display: block; }
+
+  .topbar {
+    display: flex;
+    position: sticky;
+    top: 0;
+    height: var(--header-h);
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid #2a2a2a;
+    background: #111;
+    z-index: 20;
+  }
+
+  .hamburgerBtn {
+    padding: 10px 12px;
+    border: 1px solid #333;
+    border-radius: 10px;
+    background: #1a1a1a;
+  }
+
+  .sidebar {
+    position: fixed;
+    /* ensure the mobile sidebar appears below the global header */
+    top: var(--header-h);
+    left: 0;
+    bottom: 0;
+    width: var(--sidebar-w);
+    transform: translateX(-105%);
+    transition: transform 180ms ease;
+    background: #111;
+    z-index: 30;
+    overflow-y: auto;
+    padding-top: 16px; /* small breathing room when opened */
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .backdrop {
+    position: fixed;
+    top: var(--header-h);
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 25;
+  }
+
+  .main { padding: 12px; margin-left: 0; }
+}
+
+/* Header should be fixed and full width */
+.siteHeader {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  background-color: #0b3ea8;
+  color: #fff;
+  z-index: 1000;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+.siteHeader .leftBrand {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.siteHeader .center {
+  text-align: center;
+  font-size: 24px;
+  font-weight: bold;
+}
+
+.siteHeader .rightSection {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Sidebar adjustments */
+.sidebar {
+  background-color: #000;
+  color: #fff;
+  border-right: 2px solid #333;
+}
+
+/* Main content alignment */
+.main {
+  margin: 0 auto;
+  padding: 20px;
+  width: 100%;
+  max-width: none;
+}
+
+/* Adjust layout for narrow screens */
+@media (max-width: 820px) {
+  .siteHeader {
+    width: 100%;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px;
+    background-color: #0b3ea8;
+  }
+
+  .siteHeader .headerInner {
+    width: 100%;
+    flex-direction: column;
+    align-items: center;
+    padding: 0;
+  }
+
+  .sidebar {
+    width: 100%;
+    position: relative;
+    margin-top: 10px;
+    border: none;
+    box-shadow: none;
+    background-color: #000;
+    color: #fff;
+  }
+
+  .main {
+    width: 100%;
+    margin: 0;
+    padding: 10px;
+    text-align: center;
+  }
+
+  .main > * {
+    max-width: 90%;
+    margin: 0 auto;
+  }
+}

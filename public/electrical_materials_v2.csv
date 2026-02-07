@@ -1,0 +1,97 @@
+id,name,category,description,unit,baseCost,laborHours
+led_can_4,4 Inch LED Recessed,Lighting,4 inch LED recessed downlight 9W 650 lumens,ea,18.00,0.75
+led_can_6,6 Inch LED Recessed,Lighting,6 inch LED recessed downlight 15W 1050 lumens,ea,22.00,0.80
+led_can_adj,4 Inch Adjustable LED,Lighting,4 inch adjustable gimbal LED recessed light,ea,28.00,0.80
+led_flush_12,12 Inch LED Flush Mount,Lighting,12 inch round LED flush mount ceiling light,ea,35.00,1.00
+led_flush_15,15 Inch LED Flush Mount,Lighting,15 inch round LED flush mount ceiling light,ea,45.00,1.10
+led_wrap_2ft,2ft LED Wraparound,Lighting,2 foot LED wraparound fixture 2200 lumens,ea,42.00,0.90
+led_wrap_4ft,4ft LED Wraparound,Lighting,4 foot LED wraparound fixture 4400 lumens,ea,58.00,1.00
+led_strip_4ft,4ft LED Strip Light,Lighting,4 foot LED strip light fixture 4000 lumens,ea,35.00,0.70
+led_highbay,LED High Bay 150W,Lighting,150W LED high bay fixture 19500 lumens,ea,185.00,2.50
+led_vapor_70w,70W LED Vapor Tight,Lighting,70W LED vapor tight fixture 8750 lumens,ea,125.00,1.80
+exit_sign_led,LED Exit Sign,Lighting,LED exit sign with battery backup,ea,32.00,0.60
+emergency_light,Emergency Light LED,Lighting,Twin head LED emergency light with backup,ea,48.00,0.75
+under_cab_led,Under Cabinet LED,Lighting,18 inch under cabinet LED light bar,ea,28.00,0.50
+pendant_mini,Mini Pendant Light,Lighting,Mini pendant light fixture with shade,ea,42.00,0.70
+vanity_3light,3-Light Vanity Fixture,Lighting,3-light bathroom vanity bar fixture,ea,68.00,1.20
+chandelier_5light,5-Light Chandelier,Lighting,Traditional 5-light chandelier fixture,ea,185.00,2.00
+ceiling_fan_52,52 Inch Ceiling Fan,Lighting,52 inch ceiling fan with light kit and remote,ea,145.00,1.80
+outdoor_wall_led,LED Outdoor Wall Light,Lighting,LED outdoor wall lantern fixture,ea,58.00,0.80
+flood_led_30w,30W LED Flood Light,Lighting,30W LED outdoor flood light fixture,ea,38.00,0.60
+motion_flood_led,LED Motion Flood 40W,Lighting,40W LED motion sensor flood light,ea,65.00,0.75
+panel_100a_12sp,100A 12-Space Panel,Panels,100 amp main breaker load center 12 space,ea,95.00,3.00
+panel_100a_20sp,100A 20-Space Panel,Panels,100 amp main breaker load center 20 space,ea,125.00,3.50
+panel_150a_24sp,150A 24-Space Panel,Panels,150 amp main breaker load center 24 space,ea,175.00,4.00
+panel_200a_30sp,200A 30-Space Panel,Panels,200 amp main breaker load center 30 space,ea,245.00,4.50
+panel_200a_40sp,200A 40-Space Panel,Panels,200 amp main breaker load center 40 space,ea,285.00,5.00
+subpanel_100a,100A Sub Panel,Panels,100 amp sub panel MLO 24 space,ea,115.00,3.50
+subpanel_200a,200A Sub Panel,Panels,200 amp sub panel MLO 30 space,ea,195.00,4.00
+disco_60a_nf,60A Non-Fused Disconnect,Panels,60 amp 240V non-fused safety disconnect,ea,45.00,1.20
+disco_60a_fused,60A Fused Disconnect,Panels,60 amp 240V fused safety disconnect,ea,65.00,1.30
+disco_100a_nf,100A Non-Fused Disconnect,Panels,100 amp 240V non-fused safety disconnect,ea,75.00,1.50
+meter_socket_200a,200A Meter Socket,Panels,200 amp single phase meter socket,ea,85.00,2.50
+surge_protector,Whole House Surge,Panels,Whole house surge protector 80kA,ea,165.00,0.80
+emt_conn_half,1/2 EMT Connector,Fittings,1/2 inch EMT compression connector,ea,0.65,0.05
+emt_conn_three_quarter,3/4 EMT Connector,Fittings,3/4 inch EMT compression connector,ea,0.95,0.05
+emt_conn_one,1 EMT Connector,Fittings,1 inch EMT compression connector,ea,1.85,0.06
+emt_coup_half,1/2 EMT Coupling,Fittings,1/2 inch EMT set screw coupling,ea,0.45,0.04
+emt_coup_three_quarter,3/4 EMT Coupling,Fittings,3/4 inch EMT set screw coupling,ea,0.75,0.04
+emt_coup_one,1 EMT Coupling,Fittings,1 inch EMT set screw coupling,ea,1.45,0.05
+emt_elbow_half,1/2 EMT 90° Elbow,Fittings,1/2 inch EMT 90 degree elbow,ea,3.50,0.08
+emt_elbow_three_quarter,3/4 EMT 90° Elbow,Fittings,3/4 inch EMT 90 degree elbow,ea,5.25,0.08
+emt_elbow_one,1 EMT 90° Elbow,Fittings,1 inch EMT 90 degree elbow,ea,8.50,0.10
+emt_strap_half,1/2 EMT Strap,Fittings,1/2 inch EMT one-hole strap,ea,0.25,0.02
+emt_strap_three_quarter,3/4 EMT Strap,Fittings,3/4 inch EMT one-hole strap,ea,0.35,0.02
+emt_strap_one,1 EMT Strap,Fittings,1 inch EMT one-hole strap,ea,0.55,0.02
+pvc_conn_half,1/2 PVC Male Adapter,Fittings,1/2 inch PVC male adapter,ea,0.35,0.03
+pvc_conn_three_quarter,3/4 PVC Male Adapter,Fittings,3/4 inch PVC male adapter,ea,0.55,0.03
+pvc_coup_half,1/2 PVC Coupling,Fittings,1/2 inch PVC coupling,ea,0.25,0.03
+pvc_coup_three_quarter,3/4 PVC Coupling,Fittings,3/4 inch PVC coupling,ea,0.40,0.03
+pvc_elbow_half,1/2 PVC 90° Elbow,Fittings,1/2 inch PVC schedule 40 90 degree elbow,ea,0.45,0.04
+pvc_elbow_three_quarter,3/4 PVC 90° Elbow,Fittings,3/4 inch PVC schedule 40 90 degree elbow,ea,0.75,0.04
+pvc_lb_half,1/2 PVC LB Fitting,Fittings,1/2 inch PVC LB conduit body with cover,ea,2.85,0.08
+pvc_lb_three_quarter,3/4 PVC LB Fitting,Fittings,3/4 inch PVC LB conduit body with cover,ea,3.95,0.08
+pvc_cement,PVC Cement 8oz,Fittings,8 oz PVC cement with applicator,ea,5.50,0
+pvc_primer,PVC Primer 8oz,Fittings,8 oz PVC primer purple,ea,4.50,0
+flex_conn_half,1/2 Flex Connector,Fittings,1/2 inch flex conduit connector,ea,0.85,0.04
+flex_conn_three_quarter,3/4 Flex Connector,Fittings,3/4 inch flex conduit connector,ea,1.25,0.04
+liq_conn_half,1/2 Liquid Tight Conn,Fittings,1/2 inch liquid tight connector,ea,1.85,0.05
+liq_conn_three_quarter,3/4 Liquid Tight Conn,Fittings,3/4 inch liquid tight connector,ea,2.45,0.05
+wire_nut_gray,Gray Wire Nuts 22-16,Accessories,Gray wire nuts 22-16 AWG 100 pack,pk,3.50,0
+wire_nut_blue,Blue Wire Nuts 16-14,Accessories,Blue wire nuts 16-14 AWG 100 pack,pk,4.25,0
+wire_nut_orange,Orange Wire Nuts 14-12,Accessories,Orange wire nuts 14-12 AWG 100 pack,pk,5.50,0
+wire_nut_yellow,Yellow Wire Nuts 12-10,Accessories,Yellow wire nuts 12-10 AWG 100 pack,pk,6.75,0
+wire_nut_red,Red Wire Nuts 10-8,Accessories,Red wire nuts 10-8 AWG 100 pack,pk,8.50,0
+grease_pull,Wire Pulling Lube,Accessories,Wire pulling lubricant 1 quart,qt,12.00,0
+tape_elect_black,Black Electrical Tape,Accessories,3/4 inch x 60ft black electrical tape,ea,1.85,0
+tape_elect_colors,Colored Electrical Tape,Accessories,3/4 inch x 60ft colored phase tape,ea,2.25,0
+tape_duct,Duct Tape 2 Inch,Accessories,2 inch x 60yd professional duct tape,ea,8.50,0
+anti_ox_paste,Anti-Oxidant Paste,Accessories,Anti-oxidant compound for aluminum 4oz,ea,8.00,0
+splice_kit_wire,Wire Splice Kit,Accessories,Crimp splice connector assortment kit,ea,18.00,0
+fish_tape_50,50ft Fish Tape,Accessories,50 foot steel fish tape with case,ea,22.00,0
+fish_tape_100,100ft Fish Tape,Accessories,100 foot fiberglass fish tape with case,ea,48.00,0
+cable_tie_8,8 Inch Cable Ties,Fasteners,8 inch UV resistant cable ties 100 pack,pk,5.50,0
+cable_tie_12,12 Inch Cable Ties,Fasteners,12 inch UV resistant cable ties 100 pack,pk,8.00,0
+cable_tie_mount,Cable Tie Mount,Fasteners,Adhesive cable tie mounting base 100 pack,pk,12.00,0
+romex_staple,Romex Cable Staples,Fasteners,Romex cable staples 100 pack,pk,4.50,0
+conduit_hanger,Conduit Hanger 1/2,Fasteners,1/2 inch conduit hanger with bolt,ea,0.85,0.03
+threaded_rod_3_8,3/8 Threaded Rod 10ft,Fasteners,3/8 inch threaded rod 10 foot length,ea,8.50,0.02
+beam_clamp_3_8,3/8 Beam Clamp,Fasteners,3/8 inch beam clamp for threaded rod,ea,3.25,0.05
+hex_nut_3_8,3/8 Hex Nuts,Fasteners,3/8 inch hex nuts 100 pack,pk,8.00,0
+flat_washer_3_8,3/8 Flat Washers,Fasteners,3/8 inch flat washers 100 pack,pk,6.50,0
+lock_washer_3_8,3/8 Lock Washers,Fasteners,3/8 inch lock washers 100 pack,pk,7.50,0
+anchor_tap_1_4,1/4 Tapcon Anchors,Fasteners,1/4 x 2-1/4 inch tapcon anchors 100 pack,pk,22.00,0
+anchor_wedge_3_8,3/8 Wedge Anchors,Fasteners,3/8 x 3 inch wedge anchors 50 pack,pk,28.00,0
+anchor_toggle_1_8,1/8 Toggle Bolts,Fasteners,1/8 inch toggle bolts hollow wall 50 pack,pk,18.00,0
+screw_wood_8,#8 Wood Screws,Fasteners,#8 x 1-1/4 inch wood screws 100 pack,pk,5.50,0
+screw_drywall,Drywall Screws,Fasteners,#6 x 1-5/8 inch drywall screws 1 lb box,lb,6.50,0
+box_nail,Box Nails 8d,Fasteners,8d box nails 1 lb box,lb,4.50,0
+smoke_detect_ac,AC Smoke Detector,Devices,Hardwired smoke detector with battery backup,ea,22.00,0.60
+smoke_detect_combo,Smoke CO Combo,Devices,Hardwired smoke and CO detector combo,ea,48.00,0.65
+co_detect,CO Detector Hardwired,Devices,Hardwired carbon monoxide detector,ea,35.00,0.50
+doorbell_wired,Wired Doorbell,Devices,Wired doorbell chime 2-note,ea,18.00,0.80
+doorbell_button,Doorbell Button,Devices,Lighted doorbell push button,ea,8.50,0.25
+doorbell_trans,Doorbell Transformer,Devices,16V 30VA doorbell transformer,ea,12.00,0.40
+fan_control,Ceiling Fan Control,Devices,Ceiling fan speed control switch,ea,18.00,0.35
+thermostat_prog,Programmable Thermostat,Devices,7-day programmable thermostat,ea,65.00,0.75
+thermostat_smart,Smart Wi-Fi Thermostat,Devices,Smart Wi-Fi thermostat with app control,ea,145.00,1.00

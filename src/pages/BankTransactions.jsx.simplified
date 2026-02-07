@@ -1,0 +1,233 @@
+// SIMPLIFIED handleToggleCleared - REPLACE THE ENTIRE FUNCTION
+async function handleToggleCleared(transaction) {
+    try {
+      const newClearedStatus = !transaction.is_cleared;
+      
+      // STEP 1: Update the is_cleared status
+      const { error: updateError } = await supabase
+        .from('bank_transactions')
+        .update({ is_cleared: newClearedStatus })
+        .eq('id', transaction.id);
+
+      if (updateError) {
+        console.error('Error updating is_cleared:', updateError);
+        alert('Failed to update transaction status');
+        return;
+      }
+
+      // STEP 2: If linked to invoice/expense, handle status updates
+      if (newClearedStatus && transaction.linked_invoice_id) {
+        const { data: fullInvoice } = await supabase
+          .from('invoices')
+          .select('*')
+          .eq('id', transaction.linked_invoice_id)
+          .single();
+
+        if (fullInvoice) {
+          await supabase
+            .from('invoices')
+            .update({ 
+              payment_status: 'paid',
+              payment_date: new Date().toISOString(),
+              amount_paid: fullInvoice.total,
+              balance_due: 0
+            })
+            .eq('id', transaction.linked_invoice_id);
+        }
+        
+        await loadData();
+        return;
+      }
+
+      if (!newClearedStatus && transaction.linked_invoice_id) {
+        await supabase
+          .from('invoices')
+          .update({ payment_status: 'unpaid', payment_date: null })
+          .eq('id', transaction.linked_invoice_id);
+      }
+
+      // STEP 3: If UNCLEARING, delete journal entry
+      if (!newClearedStatus && !transaction.linked_invoice_id && !transaction.linked_expense_id) {
+        await deleteJournalEntryForTransaction(transaction.id);
+        alert('✅ Transaction uncleared!');
+      }
+
+      // STEP 4: If CLEARING without invoice/expense link, create journal entry
+      if (newClearedStatus && !transaction.linked_invoice_id && !transaction.linked_expense_id) {
+        // Simple journal entry creation - no complexity
+        if (!transaction.category) {
+          alert('⚠️ Please select a Category before clearing this transaction.');
+          
+          // Revert the is_cleared update
+          await supabase
+            .from('bank_transactions')
+            .update({ is_cleared: false })
+            .eq('id', transaction.id);
+          
+          await loadData();
+          return;
+        }
+
+        // Create journal entry - use transaction data as-is
+        try {
+          const { data: bankAccountRecord } = await supabase
+            .from('bank_accounts')
+            .select('chart_account_id')
+            .eq('id', accountId)
+            .single();
+
+          if (!bankAccountRecord?.chart_account_id) {
+            alert('⚠️ Bank account is not linked to Chart of Accounts.');
+            await supabase
+              .from('bank_transactions')
+              .update({ is_cleared: false })
+              .eq('id', transaction.id);
+            await loadData();
+            return;
+          }
+
+          // Get next entry number
+          const { data: lastEntry } = await supabase
+            .from('journal_entries')
+            .select('entry_number')
+            .eq('company_id', user.id)
+            .order('entry_number', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          let nextEntryNumber = 1000;
+          if (lastEntry?.entry_number) {
+            try {
+              const entryStr = String(lastEntry.entry_number).trim();
+              if (entryStr.includes('-')) {
+                const parts = entryStr.split('-');
+                const numPart = parseInt(parts[parts.length - 1], 10);
+                if (!isNaN(numPart) && numPart > 0) nextEntryNumber = numPart + 1;
+              } else {
+                const lastNum = parseInt(entryStr, 10);
+                if (!isNaN(lastNum) && lastNum > 0) nextEntryNumber = lastNum + 1;
+              }
+            } catch (e) {
+              console.warn('Could not parse entry number');
+            }
+          }
+
+          const currentYear = new Date().getFullYear();
+          const formattedEntryNumber = `JE-${currentYear}-${String(nextEntryNumber).padStart(5, '0')}`;
+
+          // Get offset account type
+          const { data: offsetAccount } = await supabase
+            .from('accounts')
+            .select('account_type, normal_balance')
+            .eq('id', transaction.category)
+            .single();
+
+          if (!offsetAccount) {
+            alert('⚠️ Selected account not found');
+            await supabase
+              .from('bank_transactions')
+              .update({ is_cleared: false })
+              .eq('id', transaction.id);
+            await loadData();
+            return;
+          }
+
+          // Calculate debit/credit amounts
+          const absAmount = Math.abs(transaction.amount);
+          const bankDebit = transaction.amount > 0 ? absAmount : 0;
+          const bankCredit = transaction.amount < 0 ? absAmount : 0;
+
+          let offsetDebit, offsetCredit;
+          if (offsetAccount.normal_balance === 'credit') {
+            offsetDebit = bankCredit;
+            offsetCredit = bankDebit;
+          } else {
+            offsetDebit = bankCredit;
+            offsetCredit = bankDebit;
+          }
+
+          // Create journal entry
+          const journalEntry = {
+            entry_number: formattedEntryNumber,
+            entry_date: transaction.transaction_date,
+            description: `${transaction.description || 'Bank transaction'}`,
+            reference_type: 'bank_transaction',
+            reference_id: transaction.id,
+            is_posted: true,
+            created_by: user.id,
+            company_id: user.id
+          };
+
+          const { data: newEntry, error: entryError } = await supabase
+            .from('journal_entries')
+            .insert([journalEntry])
+            .select()
+            .single();
+
+          if (entryError) {
+            console.error('Failed to create journal entry:', entryError);
+            await supabase
+              .from('bank_transactions')
+              .update({ is_cleared: false })
+              .eq('id', transaction.id);
+            alert('⚠️ Failed to create journal entry');
+            await loadData();
+            return;
+          }
+
+          // Create journal entry lines
+          const lines = [
+            {
+              entry_id: newEntry.id,
+              line_number: 1,
+              account_id: bankAccountRecord.chart_account_id,
+              debit: bankDebit,
+              credit: bankCredit,
+              description: 'Bank transaction'
+            },
+            {
+              entry_id: newEntry.id,
+              line_number: 2,
+              account_id: transaction.category,
+              debit: offsetDebit,
+              credit: offsetCredit,
+              description: 'Transaction'
+            }
+          ];
+
+          const { error: linesError } = await supabase
+            .from('journal_entry_lines')
+            .insert(lines);
+
+          if (linesError) {
+            console.error('Failed to create journal lines:', linesError);
+            await supabase.from('journal_entries').delete().eq('id', newEntry.id);
+            await supabase
+              .from('bank_transactions')
+              .update({ is_cleared: false })
+              .eq('id', transaction.id);
+            alert('⚠️ Failed to create journal entry lines');
+            await loadData();
+            return;
+          }
+
+          console.log('✅ Journal entry created:', formattedEntryNumber);
+        } catch (err) {
+          console.error('Error creating journal entry:', err);
+          // Try to revert the is_cleared update
+          await supabase
+            .from('bank_transactions')
+            .update({ is_cleared: false })
+            .eq('id', transaction.id);
+          alert('⚠️ Error creating journal entry. Transaction reverted.');
+        }
+      }
+
+      // STEP 5: Reload data
+      await loadData();
+    } catch (err) {
+      console.error('Error in handleToggleCleared:', err);
+      alert('Failed to process transaction');
+      await loadData();
+    }
+  }

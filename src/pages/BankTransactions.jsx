@@ -1,0 +1,2529 @@
+import { useState, useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { supabase } from "../lib/supabase";
+import { useAuth } from "../contexts/AuthContext";
+import BankStatementUpload from "../Components/BankStatementUpload";
+import { createBankTransactionJournalEntry } from "../utils/accountingJournals";
+
+export default function BankTransactions() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const accountId = searchParams.get('accountId');
+
+  const [bankAccount, setBankAccount] = useState(null);
+  const [transactions, setTransactions] = useState([]);
+  const [filteredTransactions, setFilteredTransactions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showMatchesModal, setShowMatchesModal] = useState(false);
+  const [selectedTransaction, setSelectedTransaction] = useState(null);
+  const [editingTransaction, setEditingTransaction] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterType, setFilterType] = useState('all');
+  const [filterCleared, setFilterCleared] = useState('all');
+  const [expenses, setExpenses] = useState([]);
+  const [invoices, setInvoices] = useState([]);
+  const [accounts, setAccounts] = useState([]);
+  const [vendors, setVendors] = useState([]);
+  const [projects, setProjects] = useState([]);
+  const [selectedTransactions, setSelectedTransactions] = useState(new Set());
+  const [isClearing, setIsClearing] = useState(false);
+  const [selectedClearedTransactions, setSelectedClearedTransactions] = useState(new Set());
+  const [isUnclearing, setIsUnclearing] = useState(false);
+  
+  const [transactionForm, setTransactionForm] = useState({
+    transaction_date: new Date().toISOString().split('T')[0],
+    description: '',
+    reference_number: '',
+    amount: '',
+    transaction_type: 'deposit',
+    category: '',
+    payee: '',
+    notes: '',
+    project_id: ''
+  });
+
+  useEffect(() => {
+    if (!accountId) {
+      alert('No bank account specified');
+      navigate('/accounting/bank-accounts');
+      return;
+    }
+    loadData();
+    loadExpensesAndInvoices();
+    loadVendors();
+  }, [accountId, user]);
+
+  useEffect(() => {
+    applyFilters();
+  }, [transactions, searchTerm, filterType, filterCleared]);
+
+  async function loadData() {
+    try {
+      setLoading(true);
+      
+      // Load bank account details
+      const { data: accountData, error: accountError } = await supabase
+        .from("bank_accounts")
+        .select("*")
+        .eq("id", accountId)
+        .single();
+
+      if (accountError) throw accountError;
+      setBankAccount(accountData);
+
+      // Load transactions with project info
+      const { data: transactionsData, error: transactionsError } = await supabase
+        .from("bank_transactions")
+        .select(`
+          *,
+          projects:project_id (
+            id,
+            name
+          )
+        `)
+        .eq("bank_account_id", accountId)
+        .order("transaction_date", { ascending: false })
+        .order("created_at", { ascending: false});
+
+      if (transactionsError) throw transactionsError;
+      setTransactions(transactionsData || []);
+    } catch (err) {
+      console.error("Error loading data:", err);
+      alert("Failed to load transactions: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadExpensesAndInvoices() {
+    try {
+      // Load Chart of Accounts
+      const { data: accountsData, error: accountsError } = await supabase
+        .from("accounts")
+        .select("id, account_name, account_number, account_type")
+        .order("account_number", { ascending: true });
+
+      if (accountsError) throw accountsError;
+      setAccounts(accountsData || []);
+
+      // Load expenses - simplified query without project join
+      const { data: expensesData, error: expensesError } = await supabase
+        .from("expenses")
+        .select("id, expense_date, vendor, amount, description, category, project_id")
+        .order("expense_date", { ascending: false })
+        .limit(500);
+
+      if (expensesError) {
+        console.error("Error loading expenses:", expensesError);
+        setExpenses([]);
+      } else {
+        setExpenses(expensesData || []);
+      }
+
+      // Load projects separately - using only columns that exist (active projects only)
+      const { data: projectsData, error: projectsError } = await supabase
+        .from("projects")
+        .select("id, name, status")
+        .in("status", ["active", "in_progress"])
+        .order("name");
+      
+      if (projectsError) {
+        console.error("Error loading projects:", projectsError);
+      } else {
+        // Rename 'name' to 'project_name' for compatibility
+        const mappedProjects = (projectsData || []).map(p => ({
+          ...p,
+          project_name: p.name
+        }));
+        setProjects(mappedProjects);
+      }
+
+      // Load invoices - including new processing fee fields
+      const { data: invoicesData, error: invoicesError } = await supabase
+        .from("invoices")
+        .select("id, invoice_date, invoice_number, total, customer_name, processing_fee, net_deposit_amount")
+        .eq("created_by", user.id)
+        .order("invoice_date", { ascending: false })
+        .limit(500);
+
+      if (invoicesError) throw invoicesError;
+      // Rename 'total' to 'total_amount' for compatibility with the rest of the code
+      const mappedInvoices = (invoicesData || []).map(inv => ({
+        ...inv,
+        total_amount: inv.total,
+        net_deposit_amount: inv.net_deposit_amount || inv.total, // Use net_deposit_amount if available, otherwise use total
+        processing_fee: inv.processing_fee || 0,
+        customer_id: inv.customer_name // Map for compatibility
+      }));
+      setInvoices(mappedInvoices);
+    } catch (err) {
+      console.error("Error loading expenses/invoices:", err);
+    }
+  }
+
+  async function loadVendors() {
+    try {
+      const { data, error } = await supabase
+        .from("vendors")
+        .select("vendor_name")
+        .eq("company_id", user.id)
+        .eq("archived", false)
+        .order("vendor_name");
+
+      if (error) throw error;
+      setVendors(data || []);
+    } catch (err) {
+      console.error("Error loading vendors:", err);
+    }
+  }
+
+  async function deleteJournalEntryForTransaction(transactionId) {
+    try {
+      console.log('Starting deletion of journal entry for transaction:', transactionId);
+      
+      // IMPORTANT: First try to find by reference_type and reference_id (most reliable)
+      let { data: journalEntries, error: journalCheckError } = await supabase
+        .from('journal_entries')
+        .select('id, entry_number, reference_type, reference_id')
+        .eq('reference_type', 'bank_transaction')
+        .eq('reference_id', transactionId);
+
+      if (journalCheckError) {
+        console.error('Error checking for journal entry:', journalCheckError);
+        throw journalCheckError;
+      }
+
+      console.log('Journal entries found by reference:', journalEntries);
+
+      // If no entries found by reference, they might be orphaned - try to find by description containing transaction info
+      if (!journalEntries || journalEntries.length === 0) {
+        console.log('No entries found by reference, searching by description pattern...');
+        // This is a fallback in case the reference_id doesn't match
+        const { data: orphanedEntries, error: orphanError } = await supabase
+          .from('journal_entries')
+          .select('id, entry_number, description')
+          .ilike('description', `%Bank%transaction%`)
+          .limit(100);
+        
+        if (orphanError) {
+          console.error('Error searching for orphaned entries:', orphanError);
+        } else {
+          console.log('Orphaned entries found:', orphanedEntries?.length);
+        }
+      }
+
+      // Process ALL matching journal entries
+      if (journalEntries && journalEntries.length > 0) {
+        console.log(`Found ${journalEntries.length} journal entries to delete`);
+        
+        for (const journalEntry of journalEntries) {
+          console.log('Processing journal entry:', journalEntry.id, 'Reference:', journalEntry.reference_id);
+          
+          // FIRST: Delete ALL journal entry lines for this entry (with detailed logging)
+          console.log('Step 1: Deleting all journal entry lines for entry:', journalEntry.id);
+          const { error: linesDeleteError, count: linesDeleted } = await supabase
+            .from('journal_entry_lines')
+            .delete()
+            .eq('entry_id', journalEntry.id);
+
+          if (linesDeleteError) {
+            console.error('Error deleting journal entry lines:', linesDeleteError);
+            throw linesDeleteError;
+          }
+          console.log('✅ Deleted journal entry lines. Rows affected:', linesDeleted);
+
+          // SECOND: Delete the journal entry itself
+          console.log('Step 2: Deleting journal entry with ID:', journalEntry.id);
+          const { error: entryDeleteError, count: entriesDeleted } = await supabase
+            .from('journal_entries')
+            .delete()
+            .eq('id', journalEntry.id);
+
+          if (entryDeleteError) {
+            console.error('Error deleting journal entry:', entryDeleteError);
+            throw entryDeleteError;
+          }
+
+          console.log('✅ SUCCESSFULLY deleted journal entry:', journalEntry.id, 'Rows affected:', entriesDeleted);
+        }
+        return true;
+      } else {
+        console.log('⚠️ No journal entry found for transaction ID:', transactionId);
+        console.log('The transaction may have been cleared without creating a journal entry, or the reference_id may not match');
+        // Don't throw an error here - just return false so unclearing can still succeed
+        return false;
+      }
+    } catch (err) {
+      console.error('❌ Error in deleteJournalEntryForTransaction:', err);
+      console.log('Full error details:', err);
+      alert(`❌ WARNING: Could not automatically remove journal entry.\n\nError: ${err.message}\n\nPlease manually delete Entry #${err.entry_number || 'unknown'} from the General Ledger.`);
+      // Don't throw - allow the transaction to still be marked as uncleared
+      return false;
+    }
+  }
+
+  async function handleLinkExpense(transactionId, expenseId) {
+    try {
+      if (!expenseId) {
+        // Unlinking - just clear the link
+        const updates = {
+          linked_expense_id: null,
+          is_reconciled: false,
+          reconciled_at: null,
+          reconciled_by: null
+        };
+
+        const { error } = await supabase
+          .from('bank_transactions')
+          .update(updates)
+          .eq('id', transactionId);
+
+        if (error) throw error;
+      } else {
+        // Linking - copy vendor and category from expense
+        const expense = expenses.find(e => e.id === expenseId);
+        
+        if (!expense) {
+          alert('Expense not found');
+          return;
+        }
+
+        // Find the account ID for this category name
+        let categoryAccountId = null;
+        if (expense.category) {
+          const account = accounts.find(a => a.account_name === expense.category);
+          categoryAccountId = account?.id || null;
+        }
+
+        const updates = {
+          linked_expense_id: expenseId,
+          is_reconciled: true,
+          reconciled_at: new Date().toISOString(),
+          reconciled_by: user.id,
+          payee: expense.vendor || null,
+          category: categoryAccountId
+        };
+
+        const { error } = await supabase
+          .from('bank_transactions')
+          .update(updates)
+          .eq('id', transactionId);
+
+        if (error) throw error;
+      }
+
+      loadData();
+      setShowMatchesModal(false);
+    } catch (err) {
+      console.error('Error linking expense:', err);
+      alert('Failed to link expense');
+    }
+  }
+
+  async function handleLinkInvoice(transactionId, invoiceId) {
+    try {
+      if (!invoiceId) {
+        // Unlinking
+        const updates = {
+          linked_invoice_id: null,
+          is_reconciled: false,
+          reconciled_at: null,
+          reconciled_by: null
+        };
+
+        const { error } = await supabase
+          .from('bank_transactions')
+          .update(updates)
+          .eq('id', transactionId);
+
+        if (error) throw error;
+      } else {
+        // Linking - get the invoice details including bank account
+        const invoice = invoices.find(i => i.id === invoiceId);
+        
+        if (!invoice) {
+          alert('Invoice not found');
+          return;
+        }
+
+        // Get the full invoice record to find which bank account was used for payment
+        const { data: fullInvoice, error: invoiceError } = await supabase
+          .from('invoices')
+          .select('bank_account_id')
+          .eq('id', invoiceId)
+          .single();
+
+        if (invoiceError) {
+          console.error('Error fetching invoice details:', invoiceError);
+        }
+
+        let categoryAccountId = null;
+        
+        // If the invoice has a bank_account_id, get its chart_account_id
+        if (fullInvoice?.bank_account_id) {
+          const { data: bankAcct, error: bankError } = await supabase
+            .from('bank_accounts')
+            .select('chart_account_id')
+            .eq('id', fullInvoice.bank_account_id)
+            .single();
+
+          if (bankError) {
+            console.error('Error fetching bank account:', bankError);
+          } else if (bankAcct?.chart_account_id) {
+            categoryAccountId = bankAcct.chart_account_id;
+          }
+        }
+
+        const updates = {
+          linked_invoice_id: invoiceId,
+          is_reconciled: true,
+          reconciled_at: new Date().toISOString(),
+          reconciled_by: user.id,
+          category: categoryAccountId,
+          payee: invoice.customer_name || null
+        };
+
+        const { error } = await supabase
+          .from('bank_transactions')
+          .update(updates)
+          .eq('id', transactionId);
+
+        if (error) throw error;
+      }
+
+      loadData();
+      setShowMatchesModal(false);
+    } catch (err) {
+      console.error('Error linking invoice:', err);
+      alert('Failed to link invoice');
+    }
+  }
+
+
+  function openMatchesModal(transaction) {
+    setSelectedTransaction(transaction);
+    setShowMatchesModal(true);
+  }
+
+  function getMatchingExpenses(transaction) {
+    return expenses.filter(exp => Math.abs(exp.amount) === Math.abs(transaction.amount));
+  }
+
+  function getMatchingInvoices(transaction) {
+    // Match invoices with same amount (allowing for small floating point differences)
+    return invoices.filter(inv => {
+      const transAmount = Math.abs(parseFloat(transaction.amount) || 0);
+      
+      // First, try to match against net_deposit_amount (if payment had processing fees)
+      const netDepositAmount = Math.abs(parseFloat(inv.net_deposit_amount) || 0);
+      if (netDepositAmount > 0 && Math.abs(netDepositAmount - transAmount) < 0.01) {
+        return true;
+      }
+      
+      // Otherwise, match against total invoice amount
+      const invAmount = Math.abs(parseFloat(inv.total_amount) || 0);
+      // Allow 1 cent tolerance for floating point precision
+      return Math.abs(invAmount - transAmount) < 0.01;
+    });
+  }
+
+  function getMatchCount(transaction) {
+    const expenseMatches = getMatchingExpenses(transaction).length;
+    const invoiceMatches = getMatchingInvoices(transaction).length;
+    return expenseMatches + invoiceMatches;
+  }
+
+  function applyFilters() {
+    let filtered = [...transactions];
+
+    // Search filter
+    if (searchTerm) {
+      const search = searchTerm.toLowerCase();
+      filtered = filtered.filter(t => 
+        t.description?.toLowerCase().includes(search) ||
+        t.payee?.toLowerCase().includes(search) ||
+        t.reference_number?.toLowerCase().includes(search) ||
+        t.category?.toLowerCase().includes(search)
+      );
+    }
+
+    // Type filter
+    if (filterType !== 'all') {
+      filtered = filtered.filter(t => t.transaction_type === filterType);
+    }
+
+    // Cleared filter
+    if (filterCleared === 'cleared') {
+      filtered = filtered.filter(t => t.is_cleared === true);
+    } else if (filterCleared === 'uncleared') {
+      filtered = filtered.filter(t => t.is_cleared === false);
+    }
+
+    setFilteredTransactions(filtered);
+  }
+
+  function openAddModal() {
+    setEditingTransaction(null);
+    setTransactionForm({
+      transaction_date: new Date().toISOString().split('T')[0],
+      description: '',
+      reference_number: '',
+      amount: '',
+      transaction_type: 'deposit',
+      category: '',
+      payee: '',
+      notes: '',
+      project_id: ''
+    });
+    setShowModal(true);
+  }
+
+  function openEditModal(transaction) {
+    setEditingTransaction(transaction);
+    setTransactionForm({
+      transaction_date: transaction.transaction_date || new Date().toISOString().split('T')[0],
+      description: transaction.description || '',
+      reference_number: transaction.reference_number || '',
+      amount: Math.abs(transaction.amount).toString(),
+      transaction_type: transaction.transaction_type || 'deposit',
+      category: transaction.category || '',
+      payee: transaction.payee || '',
+      notes: transaction.notes || '',
+      project_id: transaction.project_id || ''
+    });
+    setShowModal(true);
+  }
+
+  async function handleSave() {
+    if (!transactionForm.description || !transactionForm.amount) {
+      alert('Please enter description and amount');
+      return;
+    }
+
+    try {
+      const amount = parseFloat(transactionForm.amount);
+      if (isNaN(amount) || amount <= 0) {
+        alert('Please enter a valid positive amount');
+        return;
+      }
+
+      // For deposits, amount is positive; for withdrawals, amount is negative
+      const finalAmount = transactionForm.transaction_type === 'withdrawal' || 
+                         transactionForm.transaction_type === 'fee' ? 
+                         -Math.abs(amount) : Math.abs(amount);
+
+      const transactionData = {
+        bank_account_id: accountId,
+        transaction_date: transactionForm.transaction_date,
+        description: transactionForm.description,
+        reference_number: transactionForm.reference_number || null,
+        amount: finalAmount,
+        transaction_type: transactionForm.transaction_type,
+        category: transactionForm.category || null,
+        payee: transactionForm.payee || null,
+        notes: transactionForm.notes || null,
+        project_id: transactionForm.project_id || null,
+        created_by: user.id
+      };
+
+      if (editingTransaction) {
+        const { error } = await supabase
+          .from('bank_transactions')
+          .update(transactionData)
+          .eq('id', editingTransaction.id);
+
+        if (error) throw error;
+        alert('Transaction updated successfully!');
+      } else {
+        const { error } = await supabase
+          .from('bank_transactions')
+          .insert([transactionData]);
+
+        if (error) throw error;
+        alert('Transaction added successfully!');
+      }
+
+      setShowModal(false);
+      setEditingTransaction(null);
+      loadData();
+    } catch (err) {
+      console.error('Error saving transaction:', err);
+      alert(`Failed to save: ${err.message}`);
+    }
+  }
+
+  async function handleToggleCleared(transaction) {
+    try {
+      const newClearedStatus = !transaction.is_cleared;
+      
+      // STEP 1: Update the is_cleared status
+      const { error: updateError } = await supabase
+        .from('bank_transactions')
+        .update({ is_cleared: newClearedStatus })
+        .eq('id', transaction.id);
+
+      if (updateError) {
+        console.error('Error updating is_cleared:', updateError);
+        alert('Failed to update transaction status');
+        return;
+      }
+
+      // STEP 2: If linked to invoice/expense, handle status updates
+      if (newClearedStatus && transaction.linked_invoice_id) {
+        // FIRST: Get the full invoice to know the amount
+        const { data: fullInvoice, error: invoiceLoadError } = await supabase
+          .from('invoices')
+          .select('*')
+          .eq('id', transaction.linked_invoice_id)
+          .single();
+
+        if (invoiceLoadError || !fullInvoice) {
+          console.warn('Could not load invoice details:', invoiceLoadError);
+          // Still reload even if there's an error
+          await loadData();
+          return;
+        }
+
+        // Just update invoice to mark as paid and set balance due to 0
+        // DO NOT create a journal entry - it was already created elsewhere
+        const { error: invoiceError } = await supabase
+          .from('invoices')
+          .update({ 
+            payment_status: 'paid',
+            payment_date: new Date().toISOString(),
+            amount_paid: fullInvoice.total,
+            balance_due: 0
+          })
+          .eq('id', transaction.linked_invoice_id);
+
+        if (invoiceError) {
+          console.warn('Failed to update invoice payment status:', invoiceError);
+        }
+        
+        console.log('✅ Linked invoice marked as paid - no duplicate journal entry created');
+        
+        // RELOAD DATA - this is critical to show the updated transaction in the list
+        await loadData();
+        return;
+      }
+
+      // If marking as NOT cleared and linked to an invoice, mark the invoice as unpaid
+      if (!newClearedStatus && transaction.linked_invoice_id) {
+        const { error: invoiceError } = await supabase
+          .from('invoices')
+          .update({ 
+            payment_status: 'unpaid',
+            payment_date: null
+          })
+          .eq('id', transaction.linked_invoice_id);
+
+        if (invoiceError) {
+          console.warn('Failed to update invoice payment status:', invoiceError);
+        }
+      }
+
+      // When UNCLEANING an UNLINKED transaction, DELETE the journal entry that was created
+      if (!newClearedStatus && !transaction.linked_invoice_id && !transaction.linked_expense_id) {
+        console.log('Removing journal entry for uncleared unlinked transaction:', transaction.id);
+        
+        // Delete journal entry for this transaction
+        await deleteJournalEntryForTransaction(transaction.id);
+        
+        // Remind user to refresh Chart of Accounts
+        alert('✅ Transaction uncleared! \n\n⚠️ IMPORTANT: Please go to Chart of Accounts > "Refresh Balances" to update the book values.');
+      }
+
+        // IMPORTANT: Always create a journal entry for CLEARED transactions
+        // This ensures all cleared transactions are recorded in the ledger
+        // SPECIAL HANDLING: For owner draws, ALWAYS create entry and cleanup orphaned entries
+        if (newClearedStatus && !transaction.linked_invoice_id && !transaction.linked_expense_id) {
+          console.log('Creating journal entry for cleared transaction:', transaction.id);
+
+        
+        // IMPORTANT: Reload the transaction from database to get the latest category value
+        // The in-memory transaction object may not have the category that was just selected in the UI
+        let { data: freshTransaction, error: freshTransError } = await supabase
+          .from('bank_transactions')
+          .select('*')
+          .eq('id', transaction.id)
+          .single();
+
+        if (freshTransError) {
+          console.error('Error reloading transaction:', freshTransError);
+          alert('Failed to reload transaction data');
+          return;
+        }
+
+        // FIRST: Validate/assign category
+        if (!freshTransaction || !freshTransaction.category) {
+          // SPECIAL CASE: For owner draw transactions, auto-assign the Owner Draws account
+          if (freshTransaction?.is_owner_draw) {
+            console.log('🏦 Owner draw detected - auto-assigning Owner Draws account...');
+            
+            // Find the Owner Draws account (usually #3100)
+            const { data: ownerDrawsAccount, error: odError } = await supabase
+              .from('accounts')
+              .select('id')
+              .eq('account_number', '3100')
+              .or('account_name.ilike.%owner%draw%')
+              .single();
+
+            if (odError || !ownerDrawsAccount) {
+              console.error('❌ Owner Draws account not found in Chart of Accounts');
+              alert('⚠️ Owner Draws account (#3100) not found in Chart of Accounts.\n\nPlease create an Owner Draws account first.');
+              
+              // Unclear since we can't find the account
+              const { error: unClearError } = await supabase
+                .from('bank_transactions')
+                .update({ is_cleared: false })
+                .eq('id', transaction.id);
+              
+              await loadData();
+              return;
+            }
+
+            // Auto-assign the Owner Draws account as the category
+            const { error: updateError } = await supabase
+              .from('bank_transactions')
+              .update({ category: ownerDrawsAccount.id })
+              .eq('id', transaction.id);
+
+            if (updateError) {
+              console.error('Error assigning Owner Draws account:', updateError);
+              alert('⚠️ Failed to assign Owner Draws account');
+              await loadData();
+              return;
+            }
+
+            // Reload the transaction with the newly assigned category
+            const { data: updatedTrans, error: reloadError } = await supabase
+              .from('bank_transactions')
+              .select('*')
+              .eq('id', transaction.id)
+              .single();
+
+            if (reloadError || !updatedTrans) {
+              console.error('Error reloading transaction:', reloadError);
+              alert('Failed to reload transaction');
+              return;
+            }
+
+            freshTransaction = updatedTrans;
+            console.log('✅ Owner Draws account auto-assigned:', ownerDrawsAccount.id);
+          } else {
+            // Non-owner-draw transaction without category - require user to select one
+            const { error: unClearError } = await supabase
+              .from('bank_transactions')
+              .update({ is_cleared: false })
+              .eq('id', transaction.id);
+            
+            alert('⚠️ Please select a Category (Chart of Accounts) before clearing this transaction.\n\nThis ensures the transaction is properly recorded in both your Bank Account and the Chart of Accounts.');
+            await loadData();
+            return;
+          }
+        }
+        
+        // CRITICAL: Reload transaction AGAIN after any category assignment to get the fresh data
+        const { data: finalTransaction, error: finalReloadError } = await supabase
+          .from('bank_transactions')
+          .select('*')
+          .eq('id', transaction.id)
+          .single();
+
+        if (finalReloadError || !finalTransaction) {
+          console.error('Error reloading transaction after category assignment:', finalReloadError);
+          alert('Failed to reload transaction');
+          return;
+        }
+
+        // Use the final transaction data with category guaranteed to exist
+        transaction = finalTransaction;
+        
+        // NOW CREATE THE JOURNAL ENTRY
+        try {
+          // DELETE any existing journal entry for this transaction, then create a fresh one
+          console.log('🏦 Checking and cleaning up any existing journal entries for transaction:', transaction.id);
+          
+          const { error: deleteError } = await supabase
+            .from('journal_entries')
+            .delete()
+            .eq('reference_type', 'bank_transaction')
+            .eq('reference_id', transaction.id);
+
+          if (deleteError) {
+            console.warn('Warning: could not delete existing entry:', deleteError);
+          } else {
+            console.log('✅ Cleaned up any existing entries');
+          }
+
+          // Get the bank account's Chart of Accounts ID
+          const { data: bankAccountRecord, error: bankRecordError } = await supabase
+            .from('bank_accounts')
+            .select('chart_account_id')
+            .eq('id', accountId)
+            .single();
+
+          if (bankRecordError) {
+            console.error('Error fetching bank account:', bankRecordError);
+            alert('⚠️ Error fetching bank account details. Please try again.');
+            return;
+          }
+
+          if (!bankAccountRecord?.chart_account_id) {
+            console.error('Bank account not linked to Chart of Accounts');
+            alert('⚠️ Bank account is not linked to Chart of Accounts.\n\nPlease go to Bank Accounts settings and link it to an account in your Chart of Accounts before clearing unlinked transactions.');
+            return;
+          }
+
+          // Proceed with journal entry creation
+          {
+            // Get next entry number - use auto-increment to avoid collisions
+            const { data: lastEntry } = await supabase
+              .from('journal_entries')
+              .select('entry_number')
+              .eq('company_id', user.id)
+              .order('entry_number', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            let nextEntryNumber = 1000; // Start at 1000 for readability
+            if (lastEntry?.entry_number) {
+              try {
+                const entryStr = String(lastEntry.entry_number).trim();
+                console.log('Raw entry_number from DB:', entryStr, 'Type:', typeof lastEntry.entry_number);
+                
+                // Handle "JE-YYYY-#####" format (e.g., "JE-2025-00001")
+                if (entryStr.includes('-')) {
+                  const parts = entryStr.split('-');
+                  if (parts.length >= 3) {
+                    const numPart = parseInt(parts[parts.length - 1], 10);
+                    if (!isNaN(numPart) && numPart > 0) {
+                      nextEntryNumber = numPart + 1;
+                      console.log('✅ Parsed JE format. Last number:', numPart, 'Next:', nextEntryNumber);
+                    }
+                  }
+                } else {
+                  // Handle pure integer format
+                  const lastNum = parseInt(entryStr, 10);
+                  if (!isNaN(lastNum) && lastNum > 0) {
+                    nextEntryNumber = lastNum + 1;
+                    console.log('✅ Parsed integer format. Last:', lastNum, 'Next:', nextEntryNumber);
+                  }
+                }
+              } catch (e) {
+                console.warn('⚠️ Could not parse entry number:', lastEntry.entry_number, e);
+              }
+            }
+            
+            // ENSURE entry_number is definitely an integer before insert
+            nextEntryNumber = Math.round(Number(nextEntryNumber));
+            console.log('Final entry_number for insert (should be integer):', nextEntryNumber, 'Type:', typeof nextEntryNumber);
+            
+            // Format entry_number as "JE-YYYY-#####" string (this is what the database expects)
+            const currentYear = new Date().getFullYear();
+            const formattedEntryNumber = `JE-${currentYear}-${String(nextEntryNumber).padStart(5, '0')}`;
+            console.log('Formatted entry_number:', formattedEntryNumber);
+
+            // Determine the offset account based on transaction type and category
+            let offsetAccountId = null;
+            let offsetAccountName = 'Uncategorized';
+
+            if (transaction.category) {
+              // Use the selected category account - NO QUESTIONS ASKED
+              // Works for ANY account type: Expense, Income, Equity, Asset, Liability, etc.
+              offsetAccountId = transaction.category;
+              console.log('Using selected category account ID:', offsetAccountId);
+              
+              // Get the account name for logging
+              const { data: catAccount, error: catError } = await supabase
+                .from('accounts')
+                .select('account_name, account_type')
+                .eq('id', transaction.category)
+                .single();
+              
+              if (catError) {
+                console.error('Error loading selected category account:', catError);
+              }
+              
+              if (catAccount) {
+                offsetAccountName = catAccount.account_name;
+                console.log('✅ Using account:', offsetAccountName, `(Type: ${catAccount.account_type})`);
+              } else {
+                console.error('Category account not found for ID:', transaction.category);
+                alert('⚠️ Selected account not found in Chart of Accounts. Please select a valid account and try again.');
+                return;
+              }
+            } else {
+              console.log('No category selected - will look for default offset accounts');
+              // Auto-select based on transaction type
+              // Try to find appropriate default accounts
+              const { data: allAccounts, error: acctError } = await supabase
+                .from('accounts')
+                .select('id, account_number, account_name, account_type')
+                .order('account_type, account_number');
+
+              console.log('All accounts:', allAccounts);
+
+              if (acctError) {
+                console.error('Error loading accounts:', acctError);
+                alert('⚠️ Could not load accounts. Please try again.');
+                return;
+              }
+
+              // SPECIAL CASE: Opening Balance transactions should go to Equity accounts, NOT Income
+              if (transaction.description && transaction.description.toLowerCase().includes('opening balance')) {
+                console.log('🏦 Detected Opening Balance transaction - using Equity account');
+                const equityAcct = allAccounts?.find(a => a.account_type === 'Equity');
+                if (equityAcct) {
+                  offsetAccountId = equityAcct.id;
+                  offsetAccountName = equityAcct.account_name;
+                  console.log('✅ Using Equity account for opening balance:', offsetAccountName);
+                } else {
+                  console.error('No Equity account found for opening balance. Available accounts:', allAccounts);
+                  alert('⚠️ No Equity account found in Chart of Accounts. Please create an Equity account (like Owner\'s Equity) first.');
+                  return;
+                }
+              } else if (transaction.amount < 0) {
+                // Withdrawal - look for ANY Expense account
+                const expenseAcct = allAccounts?.find(a => a.account_type === 'Expense');
+                if (expenseAcct) {
+                  offsetAccountId = expenseAcct.id;
+                  offsetAccountName = expenseAcct.account_name;
+                  console.log('Using Expense account:', offsetAccountName);
+                } else {
+                  console.error('No Expense account found. Available accounts:', allAccounts);
+                  alert('⚠️ No Expense account found in Chart of Accounts. Please create an Expense account first.');
+                  return;
+                }
+              } else {
+                // Deposit (but NOT opening balance) - look for ANY Income account
+                const incomeAcct = allAccounts?.find(a => a.account_type === 'Income');
+                if (incomeAcct) {
+                  offsetAccountId = incomeAcct.id;
+                  offsetAccountName = incomeAcct.account_name;
+                  console.log('Using Income account:', offsetAccountName);
+                } else {
+                  console.error('No Income account found. Available accounts:', allAccounts);
+                  alert('⚠️ No Income account found in Chart of Accounts. Please create an Income account first.');
+                  return;
+                }
+              }
+            }
+
+            if (!offsetAccountId) {
+              console.error('Could not determine offset account for journal entry');
+              alert('⚠️ Please select a category (Chart of Accounts) for this transaction before clearing it.');
+              return;
+            }
+
+            // Create journal entry
+            // Truncate description to fit database limit (50 chars max)
+            let fullDescription = `${transaction.description || 'Bank transaction'}`;
+            if (offsetAccountName) {
+              const maxLen = 50 - offsetAccountName.length - 3; // Reserve space for " - "
+              fullDescription = fullDescription.substring(0, Math.max(10, maxLen)) + ` - ${offsetAccountName.substring(0, 15)}`;
+            }
+            fullDescription = fullDescription.substring(0, 50); // Final truncation to 50 chars
+            
+            // entry_number should be the formatted string like "JE-2026-00043"
+            const journalEntry = {
+              entry_number: formattedEntryNumber,
+              entry_date: transaction.transaction_date,
+              description: fullDescription,
+              reference_type: 'bank_transaction',
+              reference_id: transaction.id,
+              created_by: user.id,
+              company_id: user.id
+            };
+
+            const { data: newEntry, error: entryError } = await supabase
+              .from('journal_entries')
+              .insert([journalEntry])
+              .select()
+              .single();
+
+            if (entryError) {
+              console.error('Failed to create journal entry:', entryError);
+              alert(`⚠️ Transaction cleared but journal entry failed: ${entryError.message}`);
+              return;
+            }
+
+            if (newEntry) {
+            // Create journal entry lines
+              // FIRST: Get the account type for the offset account so we can apply correct debit/credit rules
+              const { data: offsetAccount, error: offsetError } = await supabase
+                .from('accounts')
+                .select('account_type, normal_balance')
+                .eq('id', offsetAccountId)
+                .single();
+
+              if (offsetError || !offsetAccount) {
+                console.error('Error fetching offset account details:', offsetError);
+                alert('⚠️ Could not fetch account details. Please try again.');
+                // Delete the journal entry since we can't complete the posting
+                await supabase.from('journal_entries').delete().eq('id', newEntry.id);
+                return;
+              }
+
+              // Determine debit/credit for OFFSET ACCOUNT
+              let offsetDebit = 0;
+              let offsetCredit = 0;
+              const absAmount = Math.abs(transaction.amount);
+
+              // LOGIC: For any account type, debits REDUCE the balance shown, credits INCREASE it
+              // For a LIABILITY account (normal balance = credit, shown as negative):
+              //   - Debit = reduces the liability = makes balance LESS negative (good for payment)
+              //   - Credit = increases the liability = makes balance MORE negative (bad)
+              // For an ASSET/EXPENSE account (normal balance = debit, shown as positive):
+              //   - Debit = increases the balance
+              //   - Credit = reduces the balance
+              
+              // Bank account is ALWAYS an asset, so:
+              // - Positive amount (deposit): Bank DEBITS (increases)
+              // - Negative amount (payment): Bank CREDITS (decreases)
+              
+              const bankDebit = transaction.amount > 0 ? absAmount : 0;
+              const bankCredit = transaction.amount < 0 ? absAmount : 0;
+              
+              // Offset account needs to be the OPPOSITE to balance the entry
+              if (offsetAccount.normal_balance === 'credit') {
+                // CREDIT balance account (Liability, Income, Equity)
+                // If bank debits, offset CREDITS (both sides of + entry)
+                // If bank credits, offset DEBITS (both sides of - entry)
+                offsetDebit = bankCredit;  // opposite of bank
+                offsetCredit = bankDebit;  // opposite of bank
+              } else {
+                // DEBIT balance account (Asset, Expense)
+                // If bank debits, offset CREDITS
+                // If bank credits, offset DEBITS
+                offsetDebit = bankCredit;  // opposite of bank
+                offsetCredit = bankDebit;  // opposite of bank
+              }
+
+              // Create lines with proper debit/credit assignment
+
+              const lines = [
+                {
+                  entry_id: newEntry.id,
+                  line_number: 1,
+                  account_id: bankAccountRecord.chart_account_id, // Bank account (always ASSET with debit normal balance)
+                  debit: bankDebit,
+                  credit: bankCredit,
+                  description: 'Bank transaction'
+                },
+                {
+                  entry_id: newEntry.id,
+                  line_number: 2,
+                  account_id: offsetAccountId, // Offset account (expense, income, liability, etc.)
+                  debit: offsetDebit,
+                  credit: offsetCredit,
+                  description: offsetAccountName
+                }
+              ];
+
+              // Validate that the journal entry will be balanced
+              const totalDebits = bankDebit + offsetDebit;
+              const totalCredits = bankCredit + offsetCredit;
+
+              console.log('Journal Entry Validation:');
+              console.log('Bank - Debit:', bankDebit, 'Credit:', bankCredit);
+              console.log('Offset - Debit:', offsetDebit, 'Credit:', offsetCredit);
+              console.log('Total Debits:', totalDebits, 'Total Credits:', totalCredits);
+              console.log('Balanced?', Math.abs(totalDebits - totalCredits) < 0.01);
+
+              if (Math.abs(totalDebits - totalCredits) > 0.01) {
+                console.error('❌ Journal entry is NOT balanced!');
+                alert(`⚠️ Journal entry calculation error. Total debits ($${totalDebits.toFixed(2)}) do not equal total credits ($${totalCredits.toFixed(2)}).\n\nThis is a system error. Please contact support.`);
+                // Delete the journal entry since we can't post it
+                await supabase.from('journal_entries').delete().eq('id', newEntry.id);
+                return;
+              }
+
+              const { error: linesError } = await supabase
+                .from('journal_entry_lines')
+                .insert(lines);
+
+              if (linesError) {
+                console.error('Failed to create journal entry lines:', linesError);
+                alert(`⚠️ Journal entry created but lines failed: ${linesError.message}`);
+                return;
+              }
+
+              // Post the journal entry - try the RPC, but if it fails, just mark it as posted manually
+              console.log('Attempting to post journal entry with RPC...');
+              const { error: postError } = await supabase
+                .rpc('post_journal_entry', {
+                  p_entry_id: newEntry.id,
+                  p_user_id: user.id
+                });
+
+              if (postError) {
+                console.error('RPC post_journal_entry failed:', postError);
+                console.log('Attempting manual post by updating entry status...');
+                
+                // If RPC fails, try updating the entry directly with posted status
+                const { error: updateError } = await supabase
+                  .from('journal_entries')
+                  .update({ 
+                    is_posted: true,
+                    posted_date: new Date().toISOString()
+                  })
+                  .eq('id', newEntry.id);
+                
+                if (updateError) {
+                  console.error('Failed to manually post entry:', updateError);
+                  alert(`⚠️ Journal entry created but posting failed: ${postError.message || updateError.message}`);
+                  return;
+                }
+              }
+              
+              console.log('✅ Journal entry created and posted for transaction:', transaction.id);
+              console.log('Transaction', transaction.amount > 0 ? 'deposit' : 'withdrawal', 'recorded to both Bank Account and Chart of Accounts');
+            }
+          }
+        } catch (err) {
+          console.error('Error creating journal entry:', err);
+          alert(`⚠️ Failed to create journal entry: ${err.message}\n\nMake sure you have both Expense and Income accounts in your Chart of Accounts.`);
+        }
+      }
+
+      // IMPORTANT: After ANY change to cleared status, recalculate the bank account balance 
+      // by QUERYING THE DATABASE for all cleared transactions fresh (not from in-memory state)
+      // This ensures the balance is always accurate after clearing/unclearing/deleting journal entries
+      try {
+        // Fetch fresh list of all cleared transactions from the database
+        const { data: clearedTransactions, error: clearedError } = await supabase
+          .from('bank_transactions')
+          .select('amount')
+          .eq('bank_account_id', accountId)
+          .eq('is_cleared', true);
+
+        if (clearedError) {
+          console.error('Error fetching cleared transactions for balance recalc:', clearedError);
+        } else {
+          // Calculate fresh cleared balance from database
+          const freshClearedSum = (clearedTransactions || []).reduce((sum, t) => sum + t.amount, 0);
+          const freshClearedBalance = (bankAccount?.opening_balance || 0) + freshClearedSum;
+          
+          console.log('📊 Recalculated bank balance from database:');
+          console.log('Opening balance:', bankAccount?.opening_balance);
+          console.log('Sum of cleared transactions:', freshClearedSum);
+          console.log('New cleared balance:', freshClearedBalance);
+          
+          // Update bank account in state AND database with the fresh calculation
+          setBankAccount(prev => prev ? {...prev, current_balance: freshClearedBalance} : prev);
+          
+          // Sync to database
+          const { error: syncError } = await supabase
+            .from('bank_accounts')
+            .update({ current_balance: freshClearedBalance })
+            .eq('id', accountId);
+          
+          if (syncError) {
+            console.error('Failed to sync balance to database:', syncError);
+          } else {
+            console.log('✅ Balance synced to database:', freshClearedBalance);
+          }
+        }
+      } catch (err) {
+        console.error('Error recalculating bank balance:', err);
+      }
+
+      // CRITICAL: Always reload from database after ANY change to is_cleared
+      // This ensures local state stays in sync and prevents transactions from disappearing
+      console.log('✅ Reloading all transactions from database to ensure sync...');
+      await loadData();
+    } catch (err) {
+      console.error('Error toggling cleared status:', err);
+      alert(`Failed to update: ${err.message}`);
+      // Reload if there's an error so state stays in sync
+      await loadData();
+    }
+  }
+
+  async function handleDelete(transaction) {
+    if (!confirm(`Delete transaction "${transaction.description}"?`)) {
+      return;
+    }
+
+    try {
+      // First delete any journal entry associated with this transaction
+      await deleteJournalEntryForTransaction(transaction.id);
+
+      const { error } = await supabase
+        .from('bank_transactions')
+        .delete()
+        .eq('id', transaction.id);
+
+      if (error) throw error;
+      alert('Transaction deleted successfully!');
+      loadData();
+    } catch (err) {
+      console.error('Error deleting transaction:', err);
+      alert(`Failed to delete: ${err.message}`);
+    }
+  }
+
+  async function handleImportTransactions(transactions) {
+    try {
+      // Add bank_account_id and created_by to each transaction
+      const transactionsToInsert = transactions.map(t => ({
+        ...t,
+        bank_account_id: accountId,
+        created_by: user.id,
+        imported_date: new Date().toISOString(),
+      }));
+
+      const { error } = await supabase
+        .from('bank_transactions')
+        .insert(transactionsToInsert);
+
+      if (error) throw error;
+
+      alert(`Successfully imported ${transactions.length} transactions!`);
+      setShowUploadModal(false);
+      loadData();
+    } catch (err) {
+      console.error('Error importing transactions:', err);
+      alert(`Failed to import transactions: ${err.message}`);
+    }
+  }
+
+  function calculateRunningBalance(transactions) {
+    // Sort by date ascending for running balance calculation
+    const sorted = [...transactions].sort((a, b) => {
+      const dateCompare = new Date(a.transaction_date) - new Date(b.transaction_date);
+      if (dateCompare !== 0) return dateCompare;
+      return new Date(a.created_at) - new Date(b.created_at);
+    });
+
+    let runningBalance = bankAccount?.opening_balance || 0;
+    const balances = {};
+
+    sorted.forEach(t => {
+      if (t.is_cleared) {
+        runningBalance += t.amount;
+      }
+      balances[t.id] = runningBalance;
+    });
+
+    return balances;
+  }
+
+  async function handleClearSelected() {
+    if (selectedTransactions.size === 0) return;
+
+    setIsClearing(true);
+    const transactionIds = Array.from(selectedTransactions);
+    let successCount = 0;
+    let errorCount = 0;
+
+    try {
+      for (const transId of transactionIds) {
+        const transaction = transactions.find(t => t.id === transId);
+        if (transaction) {
+          try {
+            await handleToggleCleared(transaction);
+            successCount++;
+          } catch (err) {
+            console.error(`Error clearing transaction ${transId}:`, err);
+            errorCount++;
+          }
+        }
+      }
+
+      setSelectedTransactions(new Set());
+      if (successCount > 0) {
+        loadData();
+      }
+    } catch (err) {
+      console.error('Error clearing selected transactions:', err);
+    } finally {
+      setIsClearing(false);
+    }
+  }
+
+  async function handleUnclearSelected() {
+    if (selectedClearedTransactions.size === 0) return;
+
+    setIsUnclearing(true);
+    const transactionIds = Array.from(selectedClearedTransactions);
+    let successCount = 0;
+
+    try {
+      for (const transId of transactionIds) {
+        const transaction = transactions.find(t => t.id === transId);
+        if (transaction) {
+          try {
+            await handleToggleCleared(transaction);
+            successCount++;
+          } catch (err) {
+            console.error(`Error unclearing transaction ${transId}:`, err);
+          }
+        }
+      }
+
+      setSelectedClearedTransactions(new Set());
+      if (successCount > 0) {
+        loadData();
+      }
+    } catch (err) {
+      console.error('Error unclearing selected transactions:', err);
+    } finally {
+      setIsUnclearing(false);
+    }
+  }
+
+  const formatCurrency = (amount) => {
+    if (!amount && amount !== 0) return '$0.00';
+    const value = Number(amount);
+    const abs = Math.abs(value);
+    const formatted = `$${abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return value < 0 ? `-${formatted}` : formatted;
+  };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  const getTransactionIcon = (type) => {
+    const icons = {
+      'deposit': '💰',
+      'withdrawal': '💸',
+      'transfer': '🔄',
+      'fee': '💳',
+      'interest': '📈'
+    };
+    return icons[type] || '📝';
+  };
+
+  if (loading) {
+    return (
+      <div style={styles.container}>
+        <div style={styles.loading}>Loading transactions...</div>
+      </div>
+    );
+  }
+
+  if (!bankAccount) {
+    return (
+      <div style={styles.container}>
+        <div style={styles.error}>Bank account not found</div>
+      </div>
+    );
+  }
+
+  const runningBalances = calculateRunningBalance(filteredTransactions);
+  const totalDeposits = transactions.filter(t => t.amount > 0).reduce((sum, t) => sum + t.amount, 0);
+  const totalWithdrawals = Math.abs(transactions.filter(t => t.amount < 0).reduce((sum, t) => sum + t.amount, 0));
+  const clearedBalance = bankAccount.current_balance || 0;
+  const unclearedAmount = transactions.filter(t => !t.is_cleared).reduce((sum, t) => sum + t.amount, 0);
+
+  return (
+    <div style={styles.container}>
+      <div style={styles.header}>
+        <div>
+          <button onClick={() => navigate('/accounting/bank-accounts')} style={styles.backButton}>
+            ← Back to Bank Accounts
+          </button>
+          <h1 style={styles.title}>
+            {getTransactionIcon(bankAccount.account_type)} {bankAccount.account_name}
+          </h1>
+          <p style={styles.subtitle}>{bankAccount.bank_name || 'Bank Transactions'}</p>
+        </div>
+        <div style={styles.headerButtons}>
+          <button 
+            onClick={async () => {
+              console.log('Refreshing account balances...');
+              await loadExpensesAndInvoices();
+              alert('✅ Account balances refreshed!');
+            }} 
+            style={{...styles.newButton, backgroundColor: '#8b5cf6'}}
+          >
+            🔄 Refresh Balances
+          </button>
+          <button onClick={() => setShowUploadModal(true)} style={styles.uploadButton}>
+            📤 Upload CSV
+          </button>
+          <button onClick={openAddModal} style={styles.newButton}>
+            + Add Transaction
+          </button>
+        </div>
+      </div>
+
+      {/* Summary Cards */}
+      <div style={styles.summaryGrid}>
+        <div style={styles.summaryCard}>
+          <div style={styles.summaryLabel}>Cleared Balance</div>
+          <div style={styles.summaryValue}>{formatCurrency(clearedBalance)}</div>
+        </div>
+        <div style={styles.summaryCard}>
+          <div style={styles.summaryLabel}>Uncleared Amount</div>
+          <div style={{...styles.summaryValue, color: unclearedAmount >= 0 ? '#10b981' : '#ef4444'}}>
+            {formatCurrency(unclearedAmount)}
+          </div>
+        </div>
+        <div style={styles.summaryCard}>
+          <div style={styles.summaryLabel}>Total Deposits</div>
+          <div style={{...styles.summaryValue, color: '#10b981'}}>
+            {formatCurrency(totalDeposits)}
+          </div>
+        </div>
+        <div style={styles.summaryCard}>
+          <div style={styles.summaryLabel}>Total Withdrawals</div>
+          <div style={{...styles.summaryValue, color: '#ef4444'}}>
+            {formatCurrency(totalWithdrawals)}
+          </div>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div style={styles.filtersSection}>
+        <div style={styles.searchBox}>
+          <span style={styles.searchIcon}>🔍</span>
+          <input
+            type="text"
+            placeholder="Search transactions..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            style={styles.searchInput}
+          />
+        </div>
+        <select
+          value={filterType}
+          onChange={(e) => setFilterType(e.target.value)}
+          style={styles.filterSelect}
+        >
+          <option value="all">All Types</option>
+          <option value="deposit">Deposits</option>
+          <option value="withdrawal">Withdrawals</option>
+          <option value="transfer">Transfers</option>
+          <option value="fee">Fees</option>
+          <option value="interest">Interest</option>
+        </select>
+        <select
+          value={filterCleared}
+          onChange={(e) => setFilterCleared(e.target.value)}
+          style={styles.filterSelect}
+        >
+          <option value="all">All Status</option>
+          <option value="cleared">Cleared</option>
+          <option value="uncleared">Uncleared</option>
+        </select>
+        {selectedTransactions.size > 0 && (
+          <button
+            onClick={handleClearSelected}
+            disabled={isClearing}
+            style={{...styles.filterSelect, ...styles.bulkClearButton}}
+          >
+            {isClearing ? '⏳ Clearing...' : `✅ Clear Selected (${selectedTransactions.size})`}
+          </button>
+        )}
+        {selectedClearedTransactions.size > 0 && (
+          <button
+            onClick={handleUnclearSelected}
+            disabled={isUnclearing}
+            style={{...styles.filterSelect, ...styles.bulkUnclearButton}}
+          >
+            {isUnclearing ? '⏳ Unclearing...' : `🔓 Unclear Selected (${selectedClearedTransactions.size})`}
+          </button>
+        )}
+      </div>
+
+      {/* Transactions Table */}
+      {filteredTransactions.length === 0 ? (
+        <div style={styles.empty}>
+          <p style={styles.emptyText}>
+            {searchTerm || filterType !== 'all' || filterCleared !== 'all' 
+              ? 'No transactions match your filters'
+              : 'No transactions yet. Click "Add Transaction" to get started!'}
+          </p>
+        </div>
+      ) : (
+        <div style={styles.tableContainer}>
+          <table style={styles.table}>
+            <thead>
+              <tr style={styles.tableHeader}>
+                <th style={styles.th}>✓</th>
+                <th style={styles.th}>Date</th>
+                <th style={styles.th}>Description</th>
+                <th style={styles.th}>Payee</th>
+                <th style={styles.th}>Reference</th>
+                <th style={styles.th}>Category</th>
+                <th style={styles.th}>Project</th>
+                <th style={{...styles.th, textAlign: 'center'}} title="Matches">🔗</th>
+                <th style={{...styles.th, textAlign: 'right'}}>Amount</th>
+                <th style={{...styles.th, textAlign: 'right'}}>Balance</th>
+                <th style={styles.th}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredTransactions.map(transaction => (
+              <tr 
+                key={transaction.id} 
+                style={{
+                  ...styles.tableRow,
+                  backgroundColor: transaction.is_cleared ? '#fff' : '#fef3c7',
+                }}
+              >
+                <td style={styles.td}>
+                  <input
+                    type="checkbox"
+                    checked={transaction.is_cleared ? selectedClearedTransactions.has(transaction.id) : selectedTransactions.has(transaction.id)}
+                    onChange={(e) => {
+                      if (transaction.is_cleared) {
+                        // For cleared transactions, use selectedClearedTransactions
+                        const newSelected = new Set(selectedClearedTransactions);
+                        if (e.target.checked) {
+                          newSelected.add(transaction.id);
+                        } else {
+                          newSelected.delete(transaction.id);
+                        }
+                        setSelectedClearedTransactions(newSelected);
+                      } else {
+                        // For uncleared transactions, use selectedTransactions
+                        const newSelected = new Set(selectedTransactions);
+                        if (e.target.checked) {
+                          newSelected.add(transaction.id);
+                        } else {
+                          newSelected.delete(transaction.id);
+                        }
+                        setSelectedTransactions(newSelected);
+                      }
+                    }}
+                    style={{cursor: 'pointer', width: 18, height: 18}}
+                  />
+                </td>
+                  <td style={styles.td}>{formatDate(transaction.transaction_date)}</td>
+                  <td style={styles.td}>{transaction.description}</td>
+                  <td style={styles.td}>
+                    <input
+                      type="text"
+                      defaultValue={transaction.payee || ''}
+                      onBlur={async (e) => {
+                        const newPayee = e.target.value;
+                        if (newPayee === (transaction.payee || '')) return; // No change
+                        try {
+                          const { error } = await supabase
+                            .from('bank_transactions')
+                            .update({ payee: newPayee || null })
+                            .eq('id', transaction.id);
+                          if (error) throw error;
+                          
+                          // Update local state silently without reload
+                          setTransactions(prev => prev.map(t => 
+                            t.id === transaction.id ? {...t, payee: newPayee || null} : t
+                          ));
+                        } catch (err) {
+                          console.error('Error updating payee:', err);
+                          alert('Failed to update payee');
+                        }
+                      }}
+                      list="vendors-datalist-inline"
+                      style={styles.inlineInput}
+                      placeholder="-"
+                    />
+                  </td>
+                  <datalist id="vendors-datalist-inline">
+                    {vendors.map((vendor, index) => (
+                      <option key={index} value={vendor.vendor_name} />
+                    ))}
+                  </datalist>
+                  <td style={styles.td}>{transaction.reference_number || '-'}</td>
+                  <td style={styles.td}>
+                    <select
+                      value={transaction.category || ''}
+                      onChange={async (e) => {
+                        const newCategory = e.target.value || null;
+                        try {
+                          const { error } = await supabase
+                            .from('bank_transactions')
+                            .update({ category: newCategory })
+                            .eq('id', transaction.id);
+                          if (error) throw error;
+                          
+                          // Update local state silently without reload
+                          setTransactions(prev => prev.map(t => 
+                            t.id === transaction.id ? {...t, category: newCategory} : t
+                          ));
+                        } catch (err) {
+                          console.error('Error updating category:', err);
+                          alert('Failed to update category');
+                        }
+                      }}
+                      style={styles.categorySelect}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <option value="">-- Select Account --</option>
+                      {accounts.map(account => (
+                        <option key={account.id} value={account.id}>
+                          {account.account_number} - {account.account_name}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td style={styles.td}>
+                    <select
+                      value={transaction.project_id || ''}
+                      onChange={async (e) => {
+                        const newProjectId = e.target.value || null;
+                        try {
+                          const { error } = await supabase
+                            .from('bank_transactions')
+                            .update({ project_id: newProjectId })
+                            .eq('id', transaction.id);
+                          if (error) throw error;
+                          
+                          // Update local state silently without reload
+                          setTransactions(prev => prev.map(t => 
+                            t.id === transaction.id ? {...t, project_id: newProjectId} : t
+                          ));
+                        } catch (err) {
+                          console.error('Error updating project:', err);
+                          alert('Failed to update project');
+                        }
+                      }}
+                      style={styles.categorySelect}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <option value="">-- Select Project --</option>
+                      {projects.map(project => (
+                        <option key={project.id} value={project.id}>
+                          {project.project_name}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+
+                  {/* Matches Column */}
+                  <td style={{...styles.td, textAlign: 'center'}}>
+                    <button
+                      onClick={() => openMatchesModal(transaction)}
+                      style={styles.matchIconButton}
+                      title={
+                        transaction.linked_expense_id || transaction.linked_invoice_id 
+                          ? 'Linked to expense/invoice - Click to view' 
+                          : getMatchCount(transaction) > 0 
+                            ? `${getMatchCount(transaction)} potential match${getMatchCount(transaction) > 1 ? 'es' : ''} found`
+                            : 'No matches found'
+                      }
+                    >
+                      {transaction.linked_expense_id || transaction.linked_invoice_id ? '🔗' : getMatchCount(transaction) > 0 ? '✅' : '❌'}
+                    </button>
+                  </td>
+
+                  <td style={{
+                    ...styles.td, 
+                    textAlign: 'right',
+                    fontWeight: '600',
+                    color: transaction.amount < 0 ? '#ef4444' : '#10b981'
+                  }}>
+                    {formatCurrency(transaction.amount)}
+                  </td>
+                  <td style={{...styles.td, fontWeight: 'bold'}}>
+                    {transaction.is_cleared ? formatCurrency(runningBalances[transaction.id]) : '-'}
+                  </td>
+                  <td style={styles.td}>
+                    <div style={styles.actionButtons}>
+                      <button
+                        onClick={() => openEditModal(transaction)}
+                        style={styles.actionBtn}
+                        title="Edit"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        onClick={() => handleDelete(transaction)}
+                        style={{...styles.actionBtn, ...styles.deleteBtn}}
+                        title="Delete"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Matches Modal */}
+      {showMatchesModal && selectedTransaction && (
+        <div style={styles.modalOverlay} onClick={() => setShowMatchesModal(false)}>
+          <div style={styles.matchesModalContent} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>Link Transaction</h2>
+              <button onClick={() => setShowMatchesModal(false)} style={styles.closeButton}>
+                ×
+              </button>
+            </div>
+
+            <div style={styles.modalBody}>
+              {/* Transaction Details */}
+              <div style={styles.transactionDetailsCard}>
+                <h3 style={styles.sectionTitle}>Transaction Details</h3>
+                <div style={styles.detailsGrid}>
+                  <div style={styles.detailItem}>
+                    <span style={styles.detailLabel}>Date:</span>
+                    <span style={styles.detailValue}>{formatDate(selectedTransaction.transaction_date)}</span>
+                  </div>
+                  <div style={styles.detailItem}>
+                    <span style={styles.detailLabel}>Amount:</span>
+                    <span style={{...styles.detailValue, fontWeight: 'bold', color: selectedTransaction.amount >= 0 ? '#10b981' : '#ef4444'}}>
+                      {formatCurrency(selectedTransaction.amount)}
+                    </span>
+                  </div>
+                  <div style={styles.detailItem}>
+                    <span style={styles.detailLabel}>Description:</span>
+                    <span style={styles.detailValue}>{selectedTransaction.description}</span>
+                  </div>
+                  <div style={styles.detailItem}>
+                    <span style={styles.detailLabel}>Payee:</span>
+                    <span style={styles.detailValue}>{selectedTransaction.payee || 'N/A'}</span>
+                  </div>
+                  <div style={styles.detailItem}>
+                    <span style={styles.detailLabel}>Reference:</span>
+                    <span style={styles.detailValue}>{selectedTransaction.reference_number || 'N/A'}</span>
+                  </div>
+                  <div style={styles.detailItem}>
+                    <span style={styles.detailLabel}>Type:</span>
+                    <span style={styles.detailValue}>
+                      {getTransactionIcon(selectedTransaction.transaction_type)} {selectedTransaction.transaction_type}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Currently Linked */}
+              {(selectedTransaction.linked_expense_id || selectedTransaction.linked_invoice_id) && (
+                <div style={{...styles.linkedSection, backgroundColor: '#dcfce7', borderColor: '#10b981'}}>
+                  <h3 style={{...styles.sectionTitle, color: '#059669'}}>✓ Currently Linked</h3>
+                  {selectedTransaction.linked_expense_id && (
+                    <div style={styles.linkedItem}>
+                      <div>
+                        <strong>Expense:</strong> {expenses.find(e => e.id === selectedTransaction.linked_expense_id)?.vendor || 'Unknown'}
+                        <br />
+                        <span style={{fontSize: 13, color: '#666'}}>
+                        {formatDate(expenses.find(e => e.id === selectedTransaction.linked_expense_id)?.expense_date)} - 
+                          {formatCurrency(expenses.find(e => e.id === selectedTransaction.linked_expense_id)?.amount)}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => handleLinkExpense(selectedTransaction.id, null)}
+                        style={styles.unlinkButton}
+                      >
+                        🔗 Unlink
+                      </button>
+                    </div>
+                  )}
+                  {selectedTransaction.linked_invoice_id && (
+                    <div style={styles.linkedItem}>
+                      <div>
+                        <strong>Invoice:</strong> #{invoices.find(i => i.id === selectedTransaction.linked_invoice_id)?.invoice_number || 'Unknown'}
+                        <br />
+                        <span style={{fontSize: 13, color: '#666'}}>
+                          {formatDate(invoices.find(i => i.id === selectedTransaction.linked_invoice_id)?.invoice_date)} - 
+                          {formatCurrency(invoices.find(i => i.id === selectedTransaction.linked_invoice_id)?.total_amount)}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => handleLinkInvoice(selectedTransaction.id, null)}
+                        style={styles.unlinkButton}
+                      >
+                        🔗 Unlink
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Matching Expenses */}
+              {getMatchingExpenses(selectedTransaction).length > 0 && (
+                <div style={styles.matchesSection}>
+                  <h3 style={styles.sectionTitle}>
+                    💸 Matching Expenses ({getMatchingExpenses(selectedTransaction).length})
+                  </h3>
+                  <div style={styles.matchesList}>
+                    {getMatchingExpenses(selectedTransaction).map(expense => (
+                      <div 
+                        key={expense.id} 
+                        style={{
+                          ...styles.matchCard,
+                          backgroundColor: selectedTransaction.linked_expense_id === expense.id ? '#dcfce7' : '#fff'
+                        }}
+                      >
+                        <div style={styles.matchCardContent}>
+                          <div style={styles.matchCardHeader}>
+                            <div>
+                              <strong style={{fontSize: 16, display: 'block', marginBottom: 4}}>{expense.vendor || 'Unknown Vendor'}</strong>
+                              {expense.category && <div style={{fontSize: 16, color: '#059669', fontWeight: '700'}}>📁 Category: {expense.category}</div>}
+                            </div>
+                            <span style={{fontSize: 18, fontWeight: 'bold', color: '#ef4444'}}>
+                              {formatCurrency(expense.amount)}
+                            </span>
+                          </div>
+                          <div style={styles.matchCardDetails}>
+                            <div>🏢 Vendor: {expense.vendor || 'Unknown Vendor'}</div>
+                            {expense.project_id ? (
+                              <div>🏗️ Project: {projects.find(p => p.id === expense.project_id)?.project_name || 'Unknown Project'}</div>
+                            ) : (
+                              <div style={{color: '#999'}}>🏗️ Project: None</div>
+                            )}
+                            <div>📅 Date: {formatDate(expense.expense_date)}</div>
+                            {expense.description && <div>📝 Notes: {expense.description}</div>}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleLinkExpense(selectedTransaction.id, expense.id)}
+                          style={{
+                            ...styles.linkButton,
+                            backgroundColor: selectedTransaction.linked_expense_id === expense.id ? '#9ca3af' : '#fc6b04'
+                          }}
+                          disabled={selectedTransaction.linked_expense_id === expense.id}
+                        >
+                          {selectedTransaction.linked_expense_id === expense.id ? '✓ Linked' : '🔗 Link'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Matching Invoices */}
+              {getMatchingInvoices(selectedTransaction).length > 0 && (
+                <div style={styles.matchesSection}>
+                  <h3 style={styles.sectionTitle}>
+                    💰 Matching Invoices ({getMatchingInvoices(selectedTransaction).length})
+                  </h3>
+                  <div style={styles.matchesList}>
+                    {getMatchingInvoices(selectedTransaction).map(invoice => (
+                      <div 
+                        key={invoice.id} 
+                        style={{
+                          ...styles.matchCard,
+                          backgroundColor: selectedTransaction.linked_invoice_id === invoice.id ? '#dcfce7' : '#fff'
+                        }}
+                      >
+                        <div style={styles.matchCardContent}>
+                          <div style={styles.matchCardHeader}>
+                            <strong style={{fontSize: 16}}>Invoice #{invoice.invoice_number}</strong>
+                            <span style={{fontSize: 18, fontWeight: 'bold', color: '#10b981'}}>
+                              {formatCurrency(invoice.total_amount)}
+                            </span>
+                          </div>
+                          <div style={styles.matchCardDetails}>
+                            <div>📅 {formatDate(invoice.invoice_date)}</div>
+                            {invoice.customer_id && <div>👤 Customer: {invoice.customer_id}</div>}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleLinkInvoice(selectedTransaction.id, invoice.id)}
+                          style={{
+                            ...styles.linkButton,
+                            backgroundColor: selectedTransaction.linked_invoice_id === invoice.id ? '#9ca3af' : '#10b981'
+                          }}
+                          disabled={selectedTransaction.linked_invoice_id === invoice.id}
+                        >
+                          {selectedTransaction.linked_invoice_id === invoice.id ? '✓ Linked' : '🔗 Link'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* No Matches */}
+              {getMatchCount(selectedTransaction) === 0 && !selectedTransaction.linked_expense_id && !selectedTransaction.linked_invoice_id && (
+                <div style={styles.noMatches}>
+                  <div style={{fontSize: 48, marginBottom: 12}}>🔍</div>
+                  <p style={{fontSize: 16, color: '#666', margin: 0}}>
+                    No matching expenses or invoices found for this transaction amount.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CSV Upload Modal */}
+      {showUploadModal && (
+        <div style={styles.modalOverlay} onClick={() => setShowUploadModal(false)}>
+          <div style={styles.uploadModalContent} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>Import Bank Statement</h2>
+              <button onClick={() => setShowUploadModal(false)} style={styles.closeButton}>
+                ×
+              </button>
+            </div>
+            <BankStatementUpload
+              bankAccountId={accountId}
+              onImportComplete={handleImportTransactions}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Transaction Modal */}
+      {showModal && (
+        <div style={styles.modalOverlay} onClick={() => setShowModal(false)}>
+          <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>
+                {editingTransaction ? 'Edit Transaction' : 'Add New Transaction'}
+              </h2>
+              <button onClick={() => setShowModal(false)} style={styles.closeButton}>
+                ×
+              </button>
+            </div>
+
+            <div style={styles.modalBody}>
+              <div style={styles.formRow}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Date *</label>
+                  <input
+                    type="date"
+                    value={transactionForm.transaction_date}
+                    onChange={(e) => setTransactionForm({...transactionForm, transaction_date: e.target.value})}
+                    style={styles.input}
+                  />
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Transaction Type *</label>
+                  <select
+                    value={transactionForm.transaction_type}
+                    onChange={(e) => setTransactionForm({...transactionForm, transaction_type: e.target.value})}
+                    style={styles.input}
+                  >
+                    <option value="deposit">Deposit</option>
+                    <option value="withdrawal">Withdrawal</option>
+                    <option value="transfer">Transfer</option>
+                    <option value="fee">Fee</option>
+                    <option value="interest">Interest</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Description *</label>
+                <input
+                  type="text"
+                  value={transactionForm.description}
+                  onChange={(e) => setTransactionForm({...transactionForm, description: e.target.value})}
+                  style={styles.input}
+                  placeholder="e.g., Payment from customer, Office supplies"
+                />
+              </div>
+
+              <div style={styles.formRow}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Amount *</label>
+                  <input
+                    type="number"
+                    value={transactionForm.amount}
+                    onChange={(e) => setTransactionForm({...transactionForm, amount: e.target.value})}
+                    style={styles.input}
+                    step="0.01"
+                    min="0"
+                    placeholder="0.00"
+                  />
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Reference Number</label>
+                  <input
+                    type="text"
+                    value={transactionForm.reference_number}
+                    onChange={(e) => setTransactionForm({...transactionForm, reference_number: e.target.value})}
+                    style={styles.input}
+                    placeholder="Check #, Transaction ID, etc."
+                  />
+                </div>
+              </div>
+
+              <div style={styles.formRow}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Payee</label>
+                  <input
+                    type="text"
+                    value={transactionForm.payee}
+                    onChange={(e) => setTransactionForm({...transactionForm, payee: e.target.value})}
+                    style={styles.input}
+                    placeholder="Person or company"
+                    list="vendors-datalist"
+                  />
+                  <datalist id="vendors-datalist">
+                    {vendors.map((vendor, index) => (
+                      <option key={index} value={vendor.vendor_name} />
+                    ))}
+                  </datalist>
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Category</label>
+                  <select
+                    value={transactionForm.category}
+                    onChange={(e) => setTransactionForm({...transactionForm, category: e.target.value})}
+                    style={styles.input}
+                  >
+                    <option value="">-- Select Account --</option>
+                    {accounts.map(account => (
+                      <option key={account.id} value={account.id}>
+                        {account.account_number} - {account.account_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Project</label>
+                <select
+                  value={transactionForm.project_id}
+                  onChange={(e) => setTransactionForm({...transactionForm, project_id: e.target.value})}
+                  style={styles.input}
+                >
+                  <option value="">-- Select Project --</option>
+                  {projects.map(project => (
+                    <option key={project.id} value={project.id}>
+                      {project.project_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Notes</label>
+                <textarea
+                  value={transactionForm.notes}
+                  onChange={(e) => setTransactionForm({...transactionForm, notes: e.target.value})}
+                  style={{...styles.input, minHeight: 80, resize: 'vertical'}}
+                  placeholder="Optional notes..."
+                />
+              </div>
+            </div>
+
+            <div style={styles.modalFooter}>
+              <button onClick={() => setShowModal(false)} style={styles.cancelButton}>
+                Cancel
+              </button>
+              <button onClick={handleSave} style={styles.saveButton}>
+                {editingTransaction ? '💾 Update Transaction' : '➕ Add Transaction'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const styles = {
+  container: {
+    width: "75vw",
+    margin: "0",
+    padding: "40px 5px",
+    backgroundColor: "#0b3ea8",
+    minHeight: "100vh",
+    boxSizing: "border-box",
+  },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 30,
+  },
+  backButton: {
+    padding: "8px 16px",
+    backgroundColor: "#fff",
+    border: "2px solid #e5e7eb",
+    borderRadius: 6,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#666",
+    cursor: "pointer",
+    marginBottom: 12,
+  },
+  title: {
+    fontSize: 32,
+    fontWeight: "bold",
+    color: "#fff",
+    margin: 0,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: "#fff",
+    marginTop: 8,
+  },
+  headerButtons: {
+    display: "flex",
+    gap: 12,
+  },
+  uploadButton: {
+    padding: "12px 24px",
+    backgroundColor: "#10b981",
+    color: "#fff",
+    border: "none",
+    borderRadius: 8,
+    fontSize: 16,
+    fontWeight: "600",
+    cursor: "pointer",
+    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+  },
+  newButton: {
+    padding: "12px 24px",
+    backgroundColor: "#fc6b04",
+    color: "#fff",
+    border: "none",
+    borderRadius: 8,
+    fontSize: 16,
+    fontWeight: "600",
+    cursor: "pointer",
+    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+  },
+  loading: {
+    textAlign: "center",
+    padding: 60,
+    fontSize: 18,
+    color: "#fff",
+  },
+  error: {
+    textAlign: "center",
+    padding: 60,
+    fontSize: 18,
+    color: "#ef4444",
+  },
+  summaryGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
+    gap: 20,
+    marginBottom: 30,
+  },
+  summaryCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 24,
+    boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+  },
+  summaryLabel: {
+    fontSize: 14,
+    color: "#666",
+    marginBottom: 8,
+    fontWeight: "600",
+  },
+  summaryValue: {
+    fontSize: 28,
+    fontWeight: "bold",
+    color: "#111",
+  },
+  filtersSection: {
+    display: "flex",
+    gap: 12,
+    marginBottom: 24,
+    flexWrap: "wrap",
+  },
+  searchBox: {
+    flex: 1,
+    minWidth: 300,
+    position: "relative",
+    display: "flex",
+    alignItems: "center",
+  },
+  searchIcon: {
+    position: "absolute",
+    left: 12,
+    fontSize: 18,
+  },
+  searchInput: {
+    width: "100%",
+    padding: "12px 12px 12px 40px",
+    fontSize: 15,
+    border: "2px solid #e5e7eb",
+    borderRadius: 8,
+    outline: "none",
+    backgroundColor: "#fff",
+  },
+  filterSelect: {
+    padding: "12px 16px",
+    fontSize: 15,
+    border: "2px solid #e5e7eb",
+    borderRadius: 8,
+    outline: "none",
+    backgroundColor: "#fff",
+    color: "#111",
+    cursor: "pointer",
+  },
+  empty: {
+    textAlign: "center",
+    padding: "80px 20px",
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+  },
+  emptyText: {
+    fontSize: 18,
+    color: "#666",
+  },
+  tableContainer: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+    overflow: "auto",
+    overflowX: "auto",
+    width: "100%",
+  },
+  table: {
+    width: "100%",
+    borderCollapse: "collapse",
+    fontSize: 14,
+  },
+  tableHeader: {
+    backgroundColor: "#f9fafb",
+    borderBottom: "2px solid #e5e7eb",
+  },
+  th: {
+    padding: "16px 12px",
+    textAlign: "left",
+    fontWeight: "700",
+    color: "#374151",
+    whiteSpace: "nowrap",
+  },
+  tableRow: {
+    borderBottom: "1px solid #e5e7eb",
+    transition: "background-color 0.15s",
+  },
+  td: {
+    padding: "6px 8px",
+    color: "#111",
+    fontSize: 13,
+  },
+  typeCell: {
+    textTransform: "capitalize",
+    fontSize: 13,
+  },
+  withdrawalCell: {
+    color: "#ef4444",
+    fontWeight: "600",
+    textAlign: "right",
+  },
+  depositCell: {
+    color: "#10b981",
+    fontWeight: "600",
+    textAlign: "right",
+  },
+  clearedButton: {
+    background: "none",
+    border: "none",
+    fontSize: 18,
+    cursor: "pointer",
+    padding: 4,
+  },
+  actionButtons: {
+    display: "flex",
+    gap: 8,
+  },
+  actionBtn: {
+    background: "none",
+    border: "1px solid #e5e7eb",
+    borderRadius: 4,
+    padding: "4px 8px",
+    fontSize: 14,
+    cursor: "pointer",
+  },
+  deleteBtn: {
+    borderColor: "#ef4444",
+  },
+  categorySelect: {
+    padding: "6px 8px",
+    fontSize: 13,
+    border: "1px solid #d1d5db",
+    borderRadius: 4,
+    outline: "none",
+    backgroundColor: "#fff",
+    color: "#111",
+    cursor: "pointer",
+    minWidth: 140,
+    maxWidth: 200,
+  },
+  inlineInput: {
+    padding: "4px 6px",
+    fontSize: 13,
+    border: "1px solid #d1d5db",
+    borderRadius: 4,
+    outline: "none",
+    backgroundColor: "#fff",
+    color: "#111",
+    width: '100%',
+    boxSizing: 'border-box',
+  },
+  matchButton: {
+    padding: "8px 12px",
+    border: "2px solid #e5e7eb",
+    borderRadius: 6,
+    fontSize: 13,
+    fontWeight: "600",
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+    transition: "all 0.2s",
+  },
+  matchIconButton: {
+    padding: "4px",
+    border: "none",
+    background: "none",
+    fontSize: 18,
+    cursor: "pointer",
+    transition: "transform 0.2s",
+  },
+  // Modal styles
+  modalOverlay: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 1000,
+  },
+  modalContent: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    maxWidth: 800,
+    width: "90%",
+    maxHeight: "90vh",
+    overflow: "auto",
+    boxShadow: "0 10px 40px rgba(0,0,0,0.2)",
+  },
+  uploadModalContent: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    maxWidth: 1200,
+    width: "95%",
+    maxHeight: "90vh",
+    overflow: "auto",
+    boxShadow: "0 10px 40px rgba(0,0,0,0.2)",
+  },
+  matchesModalContent: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    maxWidth: 900,
+    width: "90%",
+    maxHeight: "90vh",
+    overflow: "auto",
+    boxShadow: "0 10px 40px rgba(0,0,0,0.2)",
+  },
+  transactionDetailsCard: {
+    backgroundColor: "#f9fafb",
+    borderRadius: 8,
+    padding: 20,
+    marginBottom: 24,
+    border: "2px solid #e5e7eb",
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#111",
+    marginBottom: 16,
+    marginTop: 0,
+  },
+  detailsGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, 1fr)",
+    gap: 16,
+  },
+  detailItem: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+  },
+  detailLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#666",
+    textTransform: "uppercase",
+    letterSpacing: "0.5px",
+  },
+  detailValue: {
+    fontSize: 15,
+    color: "#111",
+  },
+  linkedSection: {
+    backgroundColor: "#f0f9ff",
+    border: "2px solid #0ea5e9",
+    borderRadius: 8,
+    padding: 20,
+    marginBottom: 24,
+  },
+  linkedItem: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 12,
+    backgroundColor: "#fff",
+    borderRadius: 6,
+    marginTop: 12,
+  },
+  unlinkButton: {
+    padding: "8px 16px",
+    backgroundColor: "#ef4444",
+    color: "#fff",
+    border: "none",
+    borderRadius: 6,
+    fontSize: 14,
+    fontWeight: "600",
+    cursor: "pointer",
+  },
+  matchesSection: {
+    marginBottom: 24,
+  },
+  matchesList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+  },
+  matchCard: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 16,
+    border: "2px solid #e5e7eb",
+    borderRadius: 8,
+    transition: "all 0.2s",
+  },
+  matchCardContent: {
+    flex: 1,
+  },
+  matchCardHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  matchCardDetails: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+    fontSize: 15,
+    color: "#333",
+    marginTop: 12,
+    paddingTop: 12,
+    borderTop: "1px solid #e5e7eb",
+    fontWeight: "500",
+  },
+  linkButton: {
+    padding: "10px 20px",
+    color: "#fff",
+    border: "none",
+    borderRadius: 6,
+    fontSize: 14,
+    fontWeight: "600",
+    cursor: "pointer",
+    marginLeft: 16,
+    whiteSpace: "nowrap",
+  },
+  noMatches: {
+    textAlign: "center",
+    padding: "60px 20px",
+    color: "#666",
+  },
+  modalHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "24px",
+    borderBottom: "2px solid #e5e7eb",
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#111",
+    margin: 0,
+  },
+  closeButton: {
+    fontSize: 32,
+    fontWeight: "bold",
+    color: "#666",
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    padding: 0,
+    width: 32,
+    height: 32,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalBody: {
+    padding: "24px",
+  },
+  formRow: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 16,
+  },
+  formGroup: {
+    marginBottom: 20,
+  },
+  label: {
+    display: "block",
+    marginBottom: 8,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#333",
+  },
+  input: {
+    width: "100%",
+    padding: "12px",
+    fontSize: 15,
+    border: "2px solid #e5e7eb",
+    borderRadius: 6,
+    outline: "none",
+    boxSizing: "border-box",
+  },
+  modalFooter: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: 12,
+    padding: "24px",
+    borderTop: "2px solid #e5e7eb",
+  },
+  cancelButton: {
+    padding: "12px 24px",
+    backgroundColor: "#fff",
+    color: "#666",
+    border: "2px solid #ddd",
+    borderRadius: 8,
+    fontSize: 16,
+    fontWeight: "600",
+    cursor: "pointer",
+  },
+  saveButton: {
+    padding: "12px 24px",
+    backgroundColor: "#fc6b04",
+    color: "#fff",
+    border: "none",
+    borderRadius: 8,
+    fontSize: 16,
+    fontWeight: "600",
+    cursor: "pointer",
+    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+  },
+  bulkClearButton: {
+    backgroundColor: "#10b981",
+    color: "#fff",
+    fontWeight: "600",
+    whiteSpace: "nowrap",
+  },
+  bulkUnclearButton: {
+    backgroundColor: "#f59e0b",
+    color: "#fff",
+    fontWeight: "600",
+    whiteSpace: "nowrap",
+  },
+};

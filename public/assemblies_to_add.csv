@@ -1,0 +1,78 @@
+id,name,category,description,unit,baseCost,laborHours
+asm_rec_std_15a,Standard 15A Receptacle Assembly,assemblies,Complete 15A duplex receptacle with box plate wire and install,ea,8.50,0.75
+asm_rec_std_20a,Standard 20A Receptacle Assembly,assemblies,Complete 20A duplex receptacle with box plate wire and install,ea,10.00,0.85
+asm_rec_gfci_15a,GFCI 15A Receptacle Assembly,assemblies,Complete 15A GFCI receptacle with box plate wire and install,ea,24.00,1.00
+asm_rec_gfci_20a,GFCI 20A Receptacle Assembly,assemblies,Complete 20A GFCI receptacle with box plate wire and install,ea,28.00,1.10
+asm_rec_afci_15a,AFCI 15A Receptacle Assembly,assemblies,Complete 15A AFCI receptacle with box plate wire and install,ea,42.00,1.20
+asm_rec_usb,USB Receptacle Assembly,assemblies,Complete USB duplex receptacle with box plate wire and install,ea,35.00,0.90
+asm_rec_weatherproof,Weatherproof GFCI Assembly,assemblies,Complete weatherproof GFCI outlet with box cover and install,ea,52.00,1.25
+asm_rec_floor,Floor Receptacle Assembly,assemblies,Complete floor receptacle with box assembly trim and install,ea,145.00,2.50
+asm_sw_single,Single Pole Switch Assembly,assemblies,Complete single pole switch with box plate wire and install,ea,7.50,0.65
+asm_sw_3way,3-Way Switch Assembly,assemblies,Complete 3-way switch with box plate wire and install,ea,12.00,0.80
+asm_sw_4way,4-Way Switch Assembly,assemblies,Complete 4-way switch with box plate wire and install,ea,18.00,1.00
+asm_sw_dimmer,Dimmer Switch Assembly,assemblies,Complete dimmer switch with box plate wire and install,ea,24.00,0.85
+asm_sw_motion,Motion Sensor Switch Assembly,assemblies,Complete motion sensor switch with box plate wire and install,ea,32.00,1.00
+asm_sw_timer,Timer Switch Assembly,assemblies,Complete timer switch with box plate wire and install,ea,28.00,0.90
+asm_sw_smart,Smart Switch Assembly,assemblies,Complete smart Wi-Fi switch with box plate wire and install,ea,58.00,1.25
+asm_light_recessed_4,4 Inch Recessed Light Assembly,assemblies,Complete 4 inch LED recessed light with box trim wire and install,ea,42.00,1.50
+asm_light_recessed_6,6 Inch Recessed Light Assembly,assemblies,Complete 6 inch LED recessed light with box trim wire and install,ea,48.00,1.60
+asm_light_flush,Flush Mount Ceiling Light Assembly,assemblies,Complete flush mount LED fixture with box wire and install,ea,65.00,1.80
+asm_light_pendant,Pendant Light Assembly,assemblies,Complete pendant light with box hardware wire and install,ea,75.00,1.60
+asm_light_vanity,Vanity Light 3-Light Assembly,assemblies,Complete 3-light vanity fixture with box wire and install,ea,95.00,2.00
+asm_light_chandelier,Chandelier Assembly,assemblies,Complete chandelier with box brace hardware wire and install,ea,245.00,3.00
+asm_ceiling_fan,Ceiling Fan with Light Assembly,assemblies,Complete ceiling fan with light kit box brace wire switch and install,ea,225.00,2.80
+asm_light_outdoor_wall,Outdoor Wall Light Assembly,assemblies,Complete outdoor wall light with box wire and install,ea,85.00,1.50
+asm_light_flood_30w,30W LED Flood Light Assembly,assemblies,Complete 30W LED flood light with box wire and install,ea,68.00,1.20
+asm_light_motion_flood,Motion Sensor Flood Light Assembly,assemblies,Complete motion sensor LED flood light with box wire and install,ea,95.00,1.50
+asm_smoke_detector,Hardwired Smoke Detector Assembly,assemblies,Complete hardwired smoke detector with box battery wire and install,ea,38.00,1.00
+asm_smoke_co_combo,Smoke CO Combo Detector Assembly,assemblies,Complete hardwired smoke/CO combo detector with box battery wire and install,ea,68.00,1.20
+asm_co_detector,CO Detector Assembly,assemblies,Complete hardwired CO detector with box battery wire and install,ea,52.00,0.90
+asm_doorbell,Doorbell System Assembly,assemblies,Complete doorbell system with chime button transformer wire and install,ea,58.00,1.80
+asm_thermostat_prog,Programmable Thermostat Assembly,assemblies,Complete programmable thermostat with wire connections and install,ea,85.00,1.50
+asm_thermostat_smart,Smart Wi-Fi Thermostat Assembly,assemblies,Complete smart Wi-Fi thermostat with wire connections and setup,ea,175.00,2.00
+asm_outlet_dryer,Dryer Outlet 4-Prong Assembly,assemblies,Complete 30A 4-wire dryer outlet with box plate wire and install,ea,45.00,1.50
+asm_outlet_range,Range Outlet 4-Prong Assembly,assemblies,Complete 50A 4-wire range outlet with box plate wire and install,ea,58.00,1.80
+asm_outlet_welder,Welder Outlet 50A Assembly,assemblies,Complete 50A welder outlet with box plate wire and install,ea,65.00,1.80
+asm_circuit_15a,15A Dedicated Circuit Assembly,assemblies,Complete 15A circuit with breaker wire receptacle and install,ea,95.00,2.50
+asm_circuit_20a,20A Dedicated Circuit Assembly,assemblies,Complete 20A circuit with breaker wire receptacle and install,ea,115.00,2.80
+asm_circuit_30a,30A Dedicated Circuit Assembly,assemblies,Complete 30A 240V circuit with breaker wire outlet and install,ea,185.00,3.50
+asm_circuit_40a,40A Dedicated Circuit Assembly,assemblies,Complete 40A 240V circuit with breaker wire outlet and install,ea,245.00,4.00
+asm_circuit_50a,50A Dedicated Circuit Assembly,assemblies,Complete 50A 240V circuit with breaker wire outlet and install,ea,295.00,4.50
+asm_circuit_gfci_20a,20A GFCI Protected Circuit Assembly,assemblies,Complete 20A GFCI circuit with GFCI breaker wire receptacle and install,ea,145.00,3.00
+asm_circuit_afci_15a,15A AFCI Protected Circuit Assembly,assemblies,Complete 15A AFCI circuit with AFCI breaker wire receptacle and install,ea,135.00,2.80
+asm_circuit_afci_20a,20A AFCI Protected Circuit Assembly,assemblies,Complete 20A AFCI circuit with AFCI breaker wire receptacle and install,ea,155.00,3.00
+asm_subpanel_100a,100A Sub Panel Assembly,assemblies,Complete 100A sub panel with disconnect wire breakers and install,ea,485.00,6.00
+asm_subpanel_200a,200A Sub Panel Assembly,assemblies,Complete 200A sub panel with disconnect wire breakers and install,ea,685.00,8.00
+asm_panel_upgrade_100a,100A Service Panel Upgrade,assemblies,Complete 100A service panel replacement with meter disconnect and install,ea,1250.00,12.00
+asm_panel_upgrade_200a,200A Service Panel Upgrade,assemblies,Complete 200A service panel replacement with meter disconnect and install,ea,1850.00,16.00
+asm_surge_protection,Whole House Surge Protector,assemblies,Complete whole house surge protector with install,ea,195.00,1.50
+asm_grd_rod,Ground Rod Assembly,assemblies,Complete ground rod with clamp wire and install,ea,32.00,1.20
+asm_bonding_jumper,Main Bonding Jumper Assembly,assemblies,Complete main bonding jumper with lugs and install,ea,45.00,0.80
+asm_exit_sign,LED Exit Sign Assembly,assemblies,Complete LED exit sign with box battery backup wire and install,ea,58.00,1.20
+asm_emergency_light,Emergency Light Assembly,assemblies,Complete twin head emergency light with box battery wire and install,ea,75.00,1.50
+asm_under_cabinet_light,Under Cabinet LED Light Assembly,assemblies,Complete under cabinet LED light with wire switch and install,ea,48.00,1.00
+asm_track_lighting_8ft,8ft Track Lighting System,assemblies,Complete 8ft track rail with 4 heads wire and install,ea,185.00,3.00
+asm_landscape_light_set,Landscape Light Set 6-Pack,assemblies,Complete landscape lighting system with 6 lights transformer wire and install,set,385.00,5.00
+asm_dusk_dawn_light,Dusk to Dawn Light Assembly,assemblies,Complete dusk to dawn outdoor light with photocell box wire and install,ea,95.00,1.60
+asm_exhaust_fan,Bathroom Exhaust Fan Assembly,assemblies,Complete bathroom exhaust fan with box duct wire switch and install,ea,145.00,2.50
+asm_fan_light_combo,Bath Fan Light Combo Assembly,assemblies,Complete bathroom fan/light combo with box duct wire switches and install,ea,185.00,3.00
+asm_heater_bath,Bathroom Heater Assembly,assemblies,Complete bathroom heater with box wire switch and install,ea,165.00,2.20
+asm_gfci_bath_circuit,Bathroom GFCI Circuit Package,assemblies,Complete bathroom GFCI circuit with 2 outlets fan light and install,ea,385.00,5.50
+asm_kitchen_outlet_circuit,Kitchen Counter Outlet Circuit,assemblies,Complete kitchen counter circuit with 2 GFCI outlets wire and install,ea,285.00,4.00
+asm_garage_circuit_20a,Garage 20A Circuit Package,assemblies,Complete garage circuit with 3 outlets lights switch and install,ea,425.00,6.00
+asm_outdoor_outlet,Outdoor GFCI Outlet Assembly,assemblies,Complete outdoor GFCI outlet with weatherproof box cover wire and install,ea,68.00,1.50
+asm_post_light,Outdoor Post Light Assembly,assemblies,Complete outdoor post light with post base wire and install,ea,245.00,3.50
+asm_security_light_motion,Motion Security Light 2-Head,assemblies,Complete 2-head motion security light with box wire and install,ea,95.00,1.80
+asm_hot_tub_circuit,Hot Tub 50A Circuit Assembly,assemblies,Complete 50A 240V hot tub circuit with GFCI breaker disconnect wire and install,ea,485.00,6.00
+asm_ev_charger_circuit,EV Charger 40A Circuit,assemblies,Complete 40A 240V EV charger circuit with breaker wire outlet and install,ea,385.00,5.00
+asm_workshop_circuit,Workshop 20A Circuit Package,assemblies,Complete workshop circuit with 4 outlets 2 lights switches and install,ea,485.00,7.00
+asm_data_outlet_cat6,Cat6 Data Outlet Assembly,assemblies,Complete Cat6 data outlet with box jack plate wire and install,ea,42.00,1.00
+asm_coax_outlet,Coax Cable Outlet Assembly,assemblies,Complete coax outlet with box jack plate wire and install,ea,35.00,0.80
+asm_combo_data_coax,Combo Data Coax Outlet Assembly,assemblies,Complete Cat6 and coax combo outlet with box jacks plate wire and install,ea,58.00,1.20
+asm_ac_disconnect,AC Disconnect 60A Assembly,assemblies,Complete 60A AC disconnect with box wire whip and install,ea,125.00,2.00
+asm_generator_inlet,Generator Inlet 30A Assembly,assemblies,Complete 30A generator inlet with box plug plate wire and install,ea,185.00,2.50
+asm_transfer_switch_manual,Manual Transfer Switch Assembly,assemblies,Complete manual transfer switch 8-circuit with box wire and install,ea,685.00,8.00
+asm_photocell_control,Photocell Lighting Control Assembly,assemblies,Complete photocell control for outdoor lighting with wire and install,ea,48.00,0.80
+asm_contactor_lighting_30a,30A Lighting Contactor Assembly,assemblies,Complete 30A lighting contactor with box wire controls and install,ea,95.00,1.50
+asm_timeclock_outdoor,Outdoor Timer Control Assembly,assemblies,Complete outdoor timer control with box wire and install,ea,125.00,1.80
+asm_occupancy_sensor,Commercial Occupancy Sensor,assemblies,Complete occupancy sensor with box wire and install,ea,85.00,1.20

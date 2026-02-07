@@ -1,0 +1,424 @@
+id,name,category,unit,baseCost,laborHours
+duplex_outlet_15a,DUPLEX Outlet 15a,Devices,ea,62,0.61
+duplex_outlet_20a,DUPLEX Outlet Type 20a,Devices,ea,64,0.62
+duplex_outlet_15a_tr,DUPLEX Outlet Type 15a TR,Devices,ea,66,0.63
+duplex_outlet_20a_tr,DUPLEX Outlet Type 20a TR,Devices,ea,68,0.64
+duplex_outlet_5,DUPLEX Outlet Type 5,Devices,ea,70,0.65
+duplex_outlet_6,DUPLEX Outlet Type 6,Devices,ea,72,0.66
+duplex_outlet_7,DUPLEX Outlet Type 7,Devices,ea,74,0.67
+duplex_outlet_8,DUPLEX Outlet Type 8,Devices,ea,76,0.68
+duplex_outlet_9,DUPLEX Outlet Type 9,Devices,ea,78,0.69
+duplex_outlet_10,DUPLEX Outlet Type 10,Devices,ea,80,0.7
+duplex_outlet_11,DUPLEX Outlet Type 11,Devices,ea,82,0.71
+duplex_outlet_12,DUPLEX Outlet Type 12,Devices,ea,84,0.72
+duplex_outlet_13,DUPLEX Outlet Type 13,Devices,ea,86,0.73
+duplex_outlet_14,DUPLEX Outlet Type 14,Devices,ea,88,0.74
+duplex_outlet_15,DUPLEX Outlet Type 15,Devices,ea,90,0.75
+duplex_outlet_16,DUPLEX Outlet Type 16,Devices,ea,92,0.76
+duplex_outlet_17,DUPLEX Outlet Type 17,Devices,ea,94,0.77
+duplex_outlet_18,DUPLEX Outlet Type 18,Devices,ea,96,0.78
+duplex_outlet_19,DUPLEX Outlet Type 19,Devices,ea,98,0.79
+duplex_outlet_20,DUPLEX Outlet Type 20,Devices,ea,100,0.8
+duplex_outlet_21,DUPLEX Outlet Type 21,Devices,ea,102,0.81
+duplex_outlet_22,DUPLEX Outlet Type 22,Devices,ea,104,0.82
+duplex_outlet_23,DUPLEX Outlet Type 23,Devices,ea,106,0.83
+duplex_outlet_24,DUPLEX Outlet Type 24,Devices,ea,108,0.84
+duplex_outlet_25,DUPLEX Outlet Type 25,Devices,ea,110,0.85
+duplex_outlet_26,DUPLEX Outlet Type 26,Devices,ea,112,0.86
+duplex_outlet_27,DUPLEX Outlet Type 27,Devices,ea,114,0.87
+duplex_outlet_28,DUPLEX Outlet Type 28,Devices,ea,116,0.88
+duplex_outlet_29,DUPLEX Outlet Type 29,Devices,ea,118,0.89
+duplex_outlet_30,DUPLEX Outlet Type 30,Devices,ea,120,0.9
+gfci_outlet_1,GFCI Outlet Type 1,Devices,ea,62,0.61
+gfci_outlet_2,GFCI Outlet Type 2,Devices,ea,64,0.62
+gfci_outlet_3,GFCI Outlet Type 3,Devices,ea,66,0.63
+gfci_outlet_4,GFCI Outlet Type 4,Devices,ea,68,0.64
+gfci_outlet_5,GFCI Outlet Type 5,Devices,ea,70,0.65
+gfci_outlet_6,GFCI Outlet Type 6,Devices,ea,72,0.66
+gfci_outlet_7,GFCI Outlet Type 7,Devices,ea,74,0.67
+gfci_outlet_8,GFCI Outlet Type 8,Devices,ea,76,0.68
+gfci_outlet_9,GFCI Outlet Type 9,Devices,ea,78,0.69
+gfci_outlet_10,GFCI Outlet Type 10,Devices,ea,80,0.7
+gfci_outlet_11,GFCI Outlet Type 11,Devices,ea,82,0.71
+gfci_outlet_12,GFCI Outlet Type 12,Devices,ea,84,0.72
+gfci_outlet_13,GFCI Outlet Type 13,Devices,ea,86,0.73
+gfci_outlet_14,GFCI Outlet Type 14,Devices,ea,88,0.74
+gfci_outlet_15,GFCI Outlet Type 15,Devices,ea,90,0.75
+gfci_outlet_16,GFCI Outlet Type 16,Devices,ea,92,0.76
+gfci_outlet_17,GFCI Outlet Type 17,Devices,ea,94,0.77
+gfci_outlet_18,GFCI Outlet Type 18,Devices,ea,96,0.78
+gfci_outlet_19,GFCI Outlet Type 19,Devices,ea,98,0.79
+gfci_outlet_20,GFCI Outlet Type 20,Devices,ea,100,0.8
+gfci_outlet_21,GFCI Outlet Type 21,Devices,ea,102,0.81
+gfci_outlet_22,GFCI Outlet Type 22,Devices,ea,104,0.82
+gfci_outlet_23,GFCI Outlet Type 23,Devices,ea,106,0.83
+gfci_outlet_24,GFCI Outlet Type 24,Devices,ea,108,0.84
+gfci_outlet_25,GFCI Outlet Type 25,Devices,ea,110,0.85
+gfci_outlet_26,GFCI Outlet Type 26,Devices,ea,112,0.86
+gfci_outlet_27,GFCI Outlet Type 27,Devices,ea,114,0.87
+gfci_outlet_28,GFCI Outlet Type 28,Devices,ea,116,0.88
+gfci_outlet_29,GFCI Outlet Type 29,Devices,ea,118,0.89
+gfci_outlet_30,GFCI Outlet Type 30,Devices,ea,120,0.9
+afci_outlet_1,AFCI Outlet Type 1,Devices,ea,62,0.61
+afci_outlet_2,AFCI Outlet Type 2,Devices,ea,64,0.62
+afci_outlet_3,AFCI Outlet Type 3,Devices,ea,66,0.63
+afci_outlet_4,AFCI Outlet Type 4,Devices,ea,68,0.64
+afci_outlet_5,AFCI Outlet Type 5,Devices,ea,70,0.65
+afci_outlet_6,AFCI Outlet Type 6,Devices,ea,72,0.66
+afci_outlet_7,AFCI Outlet Type 7,Devices,ea,74,0.67
+afci_outlet_8,AFCI Outlet Type 8,Devices,ea,76,0.68
+afci_outlet_9,AFCI Outlet Type 9,Devices,ea,78,0.69
+afci_outlet_10,AFCI Outlet Type 10,Devices,ea,80,0.7
+afci_outlet_11,AFCI Outlet Type 11,Devices,ea,82,0.71
+afci_outlet_12,AFCI Outlet Type 12,Devices,ea,84,0.72
+afci_outlet_13,AFCI Outlet Type 13,Devices,ea,86,0.73
+afci_outlet_14,AFCI Outlet Type 14,Devices,ea,88,0.74
+afci_outlet_15,AFCI Outlet Type 15,Devices,ea,90,0.75
+afci_outlet_16,AFCI Outlet Type 16,Devices,ea,92,0.76
+afci_outlet_17,AFCI Outlet Type 17,Devices,ea,94,0.77
+afci_outlet_18,AFCI Outlet Type 18,Devices,ea,96,0.78
+afci_outlet_19,AFCI Outlet Type 19,Devices,ea,98,0.79
+afci_outlet_20,AFCI Outlet Type 20,Devices,ea,100,0.8
+afci_outlet_21,AFCI Outlet Type 21,Devices,ea,102,0.81
+afci_outlet_22,AFCI Outlet Type 22,Devices,ea,104,0.82
+afci_outlet_23,AFCI Outlet Type 23,Devices,ea,106,0.83
+afci_outlet_24,AFCI Outlet Type 24,Devices,ea,108,0.84
+afci_outlet_25,AFCI Outlet Type 25,Devices,ea,110,0.85
+afci_outlet_26,AFCI Outlet Type 26,Devices,ea,112,0.86
+afci_outlet_27,AFCI Outlet Type 27,Devices,ea,114,0.87
+afci_outlet_28,AFCI Outlet Type 28,Devices,ea,116,0.88
+afci_outlet_29,AFCI Outlet Type 29,Devices,ea,118,0.89
+afci_outlet_30,AFCI Outlet Type 30,Devices,ea,120,0.9
+usb_outlet_1,USB Outlet Type 1,Devices,ea,62,0.61
+usb_outlet_2,USB Outlet Type 2,Devices,ea,64,0.62
+usb_outlet_3,USB Outlet Type 3,Devices,ea,66,0.63
+usb_outlet_4,USB Outlet Type 4,Devices,ea,68,0.64
+usb_outlet_5,USB Outlet Type 5,Devices,ea,70,0.65
+usb_outlet_6,USB Outlet Type 6,Devices,ea,72,0.66
+usb_outlet_7,USB Outlet Type 7,Devices,ea,74,0.67
+usb_outlet_8,USB Outlet Type 8,Devices,ea,76,0.68
+usb_outlet_9,USB Outlet Type 9,Devices,ea,78,0.69
+usb_outlet_10,USB Outlet Type 10,Devices,ea,80,0.7
+usb_outlet_11,USB Outlet Type 11,Devices,ea,82,0.71
+usb_outlet_12,USB Outlet Type 12,Devices,ea,84,0.72
+usb_outlet_13,USB Outlet Type 13,Devices,ea,86,0.73
+usb_outlet_14,USB Outlet Type 14,Devices,ea,88,0.74
+usb_outlet_15,USB Outlet Type 15,Devices,ea,90,0.75
+usb_outlet_16,USB Outlet Type 16,Devices,ea,92,0.76
+usb_outlet_17,USB Outlet Type 17,Devices,ea,94,0.77
+usb_outlet_18,USB Outlet Type 18,Devices,ea,96,0.78
+usb_outlet_19,USB Outlet Type 19,Devices,ea,98,0.79
+usb_outlet_20,USB Outlet Type 20,Devices,ea,100,0.8
+usb_outlet_21,USB Outlet Type 21,Devices,ea,102,0.81
+usb_outlet_22,USB Outlet Type 22,Devices,ea,104,0.82
+usb_outlet_23,USB Outlet Type 23,Devices,ea,106,0.83
+usb_outlet_24,USB Outlet Type 24,Devices,ea,108,0.84
+usb_outlet_25,USB Outlet Type 25,Devices,ea,110,0.85
+usb_outlet_26,USB Outlet Type 26,Devices,ea,112,0.86
+usb_outlet_27,USB Outlet Type 27,Devices,ea,114,0.87
+usb_outlet_28,USB Outlet Type 28,Devices,ea,116,0.88
+usb_outlet_29,USB Outlet Type 29,Devices,ea,118,0.89
+usb_outlet_30,USB Outlet Type 30,Devices,ea,120,0.9
+switch_1,Switch Type 1,Devices,ea,56.5,0.56
+switch_2,Switch Type 2,Devices,ea,58,0.57
+switch_3,Switch Type 3,Devices,ea,59.5,0.58
+switch_4,Switch Type 4,Devices,ea,61,0.59
+switch_5,Switch Type 5,Devices,ea,62.5,0.6
+switch_6,Switch Type 6,Devices,ea,64,0.61
+switch_7,Switch Type 7,Devices,ea,65.5,0.62
+switch_8,Switch Type 8,Devices,ea,67,0.63
+switch_9,Switch Type 9,Devices,ea,68.5,0.64
+switch_10,Switch Type 10,Devices,ea,70,0.65
+switch_11,Switch Type 11,Devices,ea,71.5,0.66
+switch_12,Switch Type 12,Devices,ea,73,0.67
+switch_13,Switch Type 13,Devices,ea,74.5,0.68
+switch_14,Switch Type 14,Devices,ea,76,0.69
+switch_15,Switch Type 15,Devices,ea,77.5,0.7
+switch_16,Switch Type 16,Devices,ea,79,0.71
+switch_17,Switch Type 17,Devices,ea,80.5,0.72
+switch_18,Switch Type 18,Devices,ea,82,0.73
+switch_19,Switch Type 19,Devices,ea,83.5,0.74
+switch_20,Switch Type 20,Devices,ea,85,0.75
+switch_21,Switch Type 21,Devices,ea,86.5,0.76
+switch_22,Switch Type 22,Devices,ea,88,0.77
+switch_23,Switch Type 23,Devices,ea,89.5,0.78
+switch_24,Switch Type 24,Devices,ea,91,0.79
+switch_25,Switch Type 25,Devices,ea,92.5,0.8
+switch_26,Switch Type 26,Devices,ea,94,0.81
+switch_27,Switch Type 27,Devices,ea,95.5,0.82
+switch_28,Switch Type 28,Devices,ea,97,0.83
+switch_29,Switch Type 29,Devices,ea,98.5,0.84
+switch_30,Switch Type 30,Devices,ea,100,0.85
+switch_31,Switch Type 31,Devices,ea,101.5,0.86
+switch_32,Switch Type 32,Devices,ea,103,0.87
+switch_33,Switch Type 33,Devices,ea,104.5,0.88
+switch_34,Switch Type 34,Devices,ea,106,0.89
+switch_35,Switch Type 35,Devices,ea,107.5,0.9
+switch_36,Switch Type 36,Devices,ea,109,0.91
+switch_37,Switch Type 37,Devices,ea,110.5,0.92
+switch_38,Switch Type 38,Devices,ea,112,0.93
+switch_39,Switch Type 39,Devices,ea,113.5,0.94
+switch_40,Switch Type 40,Devices,ea,115,0.95
+led_fixture_1,LED Fixture Model 1,Lighting,ea,125,1.02
+led_fixture_2,LED Fixture Model 2,Lighting,ea,130,1.04
+led_fixture_3,LED Fixture Model 3,Lighting,ea,135,1.06
+led_fixture_4,LED Fixture Model 4,Lighting,ea,140,1.08
+led_fixture_5,LED Fixture Model 5,Lighting,ea,145,1.1
+led_fixture_6,LED Fixture Model 6,Lighting,ea,150,1.12
+led_fixture_7,LED Fixture Model 7,Lighting,ea,155,1.14
+led_fixture_8,LED Fixture Model 8,Lighting,ea,160,1.16
+led_fixture_9,LED Fixture Model 9,Lighting,ea,165,1.18
+led_fixture_10,LED Fixture Model 10,Lighting,ea,170,1.2
+led_fixture_11,LED Fixture Model 11,Lighting,ea,175,1.22
+led_fixture_12,LED Fixture Model 12,Lighting,ea,180,1.24
+led_fixture_13,LED Fixture Model 13,Lighting,ea,185,1.26
+led_fixture_14,LED Fixture Model 14,Lighting,ea,190,1.28
+led_fixture_15,LED Fixture Model 15,Lighting,ea,195,1.3
+led_fixture_16,LED Fixture Model 16,Lighting,ea,200,1.32
+led_fixture_17,LED Fixture Model 17,Lighting,ea,205,1.34
+led_fixture_18,LED Fixture Model 18,Lighting,ea,210,1.36
+led_fixture_19,LED Fixture Model 19,Lighting,ea,215,1.38
+led_fixture_20,LED Fixture Model 20,Lighting,ea,220,1.4
+led_fixture_21,LED Fixture Model 21,Lighting,ea,225,1.42
+led_fixture_22,LED Fixture Model 22,Lighting,ea,230,1.44
+led_fixture_23,LED Fixture Model 23,Lighting,ea,235,1.46
+led_fixture_24,LED Fixture Model 24,Lighting,ea,240,1.48
+led_fixture_25,LED Fixture Model 25,Lighting,ea,245,1.5
+led_fixture_26,LED Fixture Model 26,Lighting,ea,250,1.52
+led_fixture_27,LED Fixture Model 27,Lighting,ea,255,1.54
+led_fixture_28,LED Fixture Model 28,Lighting,ea,260,1.56
+led_fixture_29,LED Fixture Model 29,Lighting,ea,265,1.58
+led_fixture_30,LED Fixture Model 30,Lighting,ea,270,1.6
+led_fixture_31,LED Fixture Model 31,Lighting,ea,275,1.62
+led_fixture_32,LED Fixture Model 32,Lighting,ea,280,1.64
+led_fixture_33,LED Fixture Model 33,Lighting,ea,285,1.66
+led_fixture_34,LED Fixture Model 34,Lighting,ea,290,1.68
+led_fixture_35,LED Fixture Model 35,Lighting,ea,295,1.7
+led_fixture_36,LED Fixture Model 36,Lighting,ea,300,1.72
+led_fixture_37,LED Fixture Model 37,Lighting,ea,305,1.74
+led_fixture_38,LED Fixture Model 38,Lighting,ea,310,1.76
+led_fixture_39,LED Fixture Model 39,Lighting,ea,315,1.78
+led_fixture_40,LED Fixture Model 40,Lighting,ea,320,1.8
+led_fixture_41,LED Fixture Model 41,Lighting,ea,325,1.82
+led_fixture_42,LED Fixture Model 42,Lighting,ea,330,1.84
+led_fixture_43,LED Fixture Model 43,Lighting,ea,335,1.86
+led_fixture_44,LED Fixture Model 44,Lighting,ea,340,1.88
+led_fixture_45,LED Fixture Model 45,Lighting,ea,345,1.9
+led_fixture_46,LED Fixture Model 46,Lighting,ea,350,1.92
+led_fixture_47,LED Fixture Model 47,Lighting,ea,355,1.94
+led_fixture_48,LED Fixture Model 48,Lighting,ea,360,1.96
+led_fixture_49,LED Fixture Model 49,Lighting,ea,365,1.98
+led_fixture_50,LED Fixture Model 50,Lighting,ea,370,2
+led_fixture_51,LED Fixture Model 51,Lighting,ea,375,2.02
+led_fixture_52,LED Fixture Model 52,Lighting,ea,380,2.04
+led_fixture_53,LED Fixture Model 53,Lighting,ea,385,2.06
+led_fixture_54,LED Fixture Model 54,Lighting,ea,390,2.08
+led_fixture_55,LED Fixture Model 55,Lighting,ea,395,2.1
+led_fixture_56,LED Fixture Model 56,Lighting,ea,400,2.12
+led_fixture_57,LED Fixture Model 57,Lighting,ea,405,2.14
+led_fixture_58,LED Fixture Model 58,Lighting,ea,410,2.16
+led_fixture_59,LED Fixture Model 59,Lighting,ea,415,2.18
+led_fixture_60,LED Fixture Model 60,Lighting,ea,420,2.2
+emt_half_1,EMT half Run Type 1,Conduit,ft,3.2,0.031
+emt_half_2,EMT half Run Type 2,Conduit,ft,3.4,0.032
+emt_half_3,EMT half Run Type 3,Conduit,ft,3.6,0.033
+emt_half_4,EMT half Run Type 4,Conduit,ft,3.8,0.034
+emt_half_5,EMT half Run Type 5,Conduit,ft,4,0.035
+emt_half_6,EMT half Run Type 6,Conduit,ft,4.2,0.036
+emt_half_7,EMT half Run Type 7,Conduit,ft,4.4,0.037
+emt_half_8,EMT half Run Type 8,Conduit,ft,4.6,0.038
+emt_half_9,EMT half Run Type 9,Conduit,ft,4.8,0.039
+emt_half_10,EMT half Run Type 10,Conduit,ft,5,0.04
+emt_half_11,EMT half Run Type 11,Conduit,ft,5.2,0.041
+emt_half_12,EMT half Run Type 12,Conduit,ft,5.4,0.042
+emt_half_13,EMT half Run Type 13,Conduit,ft,5.6,0.043
+emt_half_14,EMT half Run Type 14,Conduit,ft,5.8,0.044
+emt_half_15,EMT half Run Type 15,Conduit,ft,6,0.045
+emt_half_16,EMT half Run Type 16,Conduit,ft,6.2,0.046
+emt_half_17,EMT half Run Type 17,Conduit,ft,6.4,0.047
+emt_half_18,EMT half Run Type 18,Conduit,ft,6.6,0.048
+emt_half_19,EMT half Run Type 19,Conduit,ft,6.8,0.049
+emt_half_20,EMT half Run Type 20,Conduit,ft,7,0.05
+emt_half_21,EMT half Run Type 21,Conduit,ft,7.2,0.051
+emt_half_22,EMT half Run Type 22,Conduit,ft,7.4,0.052
+emt_half_23,EMT half Run Type 23,Conduit,ft,7.6,0.053
+emt_half_24,EMT half Run Type 24,Conduit,ft,7.8,0.054
+emt_half_25,EMT half Run Type 25,Conduit,ft,8,0.055
+emt_half_26,EMT half Run Type 26,Conduit,ft,8.2,0.056
+emt_half_27,EMT half Run Type 27,Conduit,ft,8.4,0.057
+emt_half_28,EMT half Run Type 28,Conduit,ft,8.6,0.058
+emt_half_29,EMT half Run Type 29,Conduit,ft,8.8,0.059
+emt_half_30,EMT half Run Type 30,Conduit,ft,9,0.06
+emt_half_31,EMT half Run Type 31,Conduit,ft,9.2,0.061
+emt_half_32,EMT half Run Type 32,Conduit,ft,9.4,0.062
+emt_half_33,EMT half Run Type 33,Conduit,ft,9.6,0.063
+emt_half_34,EMT half Run Type 34,Conduit,ft,9.8,0.064
+emt_half_35,EMT half Run Type 35,Conduit,ft,10,0.065
+emt_half_36,EMT half Run Type 36,Conduit,ft,10.2,0.066
+emt_half_37,EMT half Run Type 37,Conduit,ft,10.4,0.067
+emt_half_38,EMT half Run Type 38,Conduit,ft,10.6,0.068
+emt_half_39,EMT half Run Type 39,Conduit,ft,10.8,0.069
+emt_half_40,EMT half Run Type 40,Conduit,ft,11,0.07
+emt_three_quarter_1,EMT three quarter Run Type 1,Conduit,ft,3.2,0.031
+emt_three_quarter_2,EMT three quarter Run Type 2,Conduit,ft,3.4,0.032
+emt_three_quarter_3,EMT three quarter Run Type 3,Conduit,ft,3.6,0.033
+emt_three_quarter_4,EMT three quarter Run Type 4,Conduit,ft,3.8,0.034
+emt_three_quarter_5,EMT three quarter Run Type 5,Conduit,ft,4,0.035
+emt_three_quarter_6,EMT three quarter Run Type 6,Conduit,ft,4.2,0.036
+emt_three_quarter_7,EMT three quarter Run Type 7,Conduit,ft,4.4,0.037
+emt_three_quarter_8,EMT three quarter Run Type 8,Conduit,ft,4.6,0.038
+emt_three_quarter_9,EMT three quarter Run Type 9,Conduit,ft,4.8,0.039
+emt_three_quarter_10,EMT three quarter Run Type 10,Conduit,ft,5,0.04
+emt_three_quarter_11,EMT three quarter Run Type 11,Conduit,ft,5.2,0.041
+emt_three_quarter_12,EMT three quarter Run Type 12,Conduit,ft,5.4,0.042
+emt_three_quarter_13,EMT three quarter Run Type 13,Conduit,ft,5.6,0.043
+emt_three_quarter_14,EMT three quarter Run Type 14,Conduit,ft,5.8,0.044
+emt_three_quarter_15,EMT three quarter Run Type 15,Conduit,ft,6,0.045
+emt_three_quarter_16,EMT three quarter Run Type 16,Conduit,ft,6.2,0.046
+emt_three_quarter_17,EMT three quarter Run Type 17,Conduit,ft,6.4,0.047
+emt_three_quarter_18,EMT three quarter Run Type 18,Conduit,ft,6.6,0.048
+emt_three_quarter_19,EMT three quarter Run Type 19,Conduit,ft,6.8,0.049
+emt_three_quarter_20,EMT three quarter Run Type 20,Conduit,ft,7,0.05
+emt_three_quarter_21,EMT three quarter Run Type 21,Conduit,ft,7.2,0.051
+emt_three_quarter_22,EMT three quarter Run Type 22,Conduit,ft,7.4,0.052
+emt_three_quarter_23,EMT three quarter Run Type 23,Conduit,ft,7.6,0.053
+emt_three_quarter_24,EMT three quarter Run Type 24,Conduit,ft,7.8,0.054
+emt_three_quarter_25,EMT three quarter Run Type 25,Conduit,ft,8,0.055
+emt_three_quarter_26,EMT three quarter Run Type 26,Conduit,ft,8.2,0.056
+emt_three_quarter_27,EMT three quarter Run Type 27,Conduit,ft,8.4,0.057
+emt_three_quarter_28,EMT three quarter Run Type 28,Conduit,ft,8.6,0.058
+emt_three_quarter_29,EMT three quarter Run Type 29,Conduit,ft,8.8,0.059
+emt_three_quarter_30,EMT three quarter Run Type 30,Conduit,ft,9,0.06
+emt_three_quarter_31,EMT three quarter Run Type 31,Conduit,ft,9.2,0.061
+emt_three_quarter_32,EMT three quarter Run Type 32,Conduit,ft,9.4,0.062
+emt_three_quarter_33,EMT three quarter Run Type 33,Conduit,ft,9.6,0.063
+emt_three_quarter_34,EMT three quarter Run Type 34,Conduit,ft,9.8,0.064
+emt_three_quarter_35,EMT three quarter Run Type 35,Conduit,ft,10,0.065
+emt_three_quarter_36,EMT three quarter Run Type 36,Conduit,ft,10.2,0.066
+emt_three_quarter_37,EMT three quarter Run Type 37,Conduit,ft,10.4,0.067
+emt_three_quarter_38,EMT three quarter Run Type 38,Conduit,ft,10.6,0.068
+emt_three_quarter_39,EMT three quarter Run Type 39,Conduit,ft,10.8,0.069
+emt_three_quarter_40,EMT three quarter Run Type 40,Conduit,ft,11,0.07
+emt_one_1,EMT one Run Type 1,Conduit,ft,3.2,0.031
+emt_one_2,EMT one Run Type 2,Conduit,ft,3.4,0.032
+emt_one_3,EMT one Run Type 3,Conduit,ft,3.6,0.033
+emt_one_4,EMT one Run Type 4,Conduit,ft,3.8,0.034
+emt_one_5,EMT one Run Type 5,Conduit,ft,4,0.035
+emt_one_6,EMT one Run Type 6,Conduit,ft,4.2,0.036
+emt_one_7,EMT one Run Type 7,Conduit,ft,4.4,0.037
+emt_one_8,EMT one Run Type 8,Conduit,ft,4.6,0.038
+emt_one_9,EMT one Run Type 9,Conduit,ft,4.8,0.039
+emt_one_10,EMT one Run Type 10,Conduit,ft,5,0.04
+emt_one_11,EMT one Run Type 11,Conduit,ft,5.2,0.041
+emt_one_12,EMT one Run Type 12,Conduit,ft,5.4,0.042
+emt_one_13,EMT one Run Type 13,Conduit,ft,5.6,0.043
+emt_one_14,EMT one Run Type 14,Conduit,ft,5.8,0.044
+emt_one_15,EMT one Run Type 15,Conduit,ft,6,0.045
+emt_one_16,EMT one Run Type 16,Conduit,ft,6.2,0.046
+emt_one_17,EMT one Run Type 17,Conduit,ft,6.4,0.047
+emt_one_18,EMT one Run Type 18,Conduit,ft,6.6,0.048
+emt_one_19,EMT one Run Type 19,Conduit,ft,6.8,0.049
+emt_one_20,EMT one Run Type 20,Conduit,ft,7,0.05
+emt_one_21,EMT one Run Type 21,Conduit,ft,7.2,0.051
+emt_one_22,EMT one Run Type 22,Conduit,ft,7.4,0.052
+emt_one_23,EMT one Run Type 23,Conduit,ft,7.6,0.053
+emt_one_24,EMT one Run Type 24,Conduit,ft,7.8,0.054
+emt_one_25,EMT one Run Type 25,Conduit,ft,8,0.055
+emt_one_26,EMT one Run Type 26,Conduit,ft,8.2,0.056
+emt_one_27,EMT one Run Type 27,Conduit,ft,8.4,0.057
+emt_one_28,EMT one Run Type 28,Conduit,ft,8.6,0.058
+emt_one_29,EMT one Run Type 29,Conduit,ft,8.8,0.059
+emt_one_30,EMT one Run Type 30,Conduit,ft,9,0.06
+emt_one_31,EMT one Run Type 31,Conduit,ft,9.2,0.061
+emt_one_32,EMT one Run Type 32,Conduit,ft,9.4,0.062
+emt_one_33,EMT one Run Type 33,Conduit,ft,9.6,0.063
+emt_one_34,EMT one Run Type 34,Conduit,ft,9.8,0.064
+emt_one_35,EMT one Run Type 35,Conduit,ft,10,0.065
+emt_one_36,EMT one Run Type 36,Conduit,ft,10.2,0.066
+emt_one_37,EMT one Run Type 37,Conduit,ft,10.4,0.067
+emt_one_38,EMT one Run Type 38,Conduit,ft,10.6,0.068
+emt_one_39,EMT one Run Type 39,Conduit,ft,10.8,0.069
+emt_one_40,EMT one Run Type 40,Conduit,ft,11,0.07
+emt_one_quarter_1,EMT one quarter Run Type 1,Conduit,ft,3.2,0.031
+emt_one_quarter_2,EMT one quarter Run Type 2,Conduit,ft,3.4,0.032
+emt_one_quarter_3,EMT one quarter Run Type 3,Conduit,ft,3.6,0.033
+emt_one_quarter_4,EMT one quarter Run Type 4,Conduit,ft,3.8,0.034
+emt_one_quarter_5,EMT one quarter Run Type 5,Conduit,ft,4,0.035
+emt_one_quarter_6,EMT one quarter Run Type 6,Conduit,ft,4.2,0.036
+emt_one_quarter_7,EMT one quarter Run Type 7,Conduit,ft,4.4,0.037
+emt_one_quarter_8,EMT one quarter Run Type 8,Conduit,ft,4.6,0.038
+emt_one_quarter_9,EMT one quarter Run Type 9,Conduit,ft,4.8,0.039
+emt_one_quarter_10,EMT one quarter Run Type 10,Conduit,ft,5,0.04
+emt_one_quarter_11,EMT one quarter Run Type 11,Conduit,ft,5.2,0.041
+emt_one_quarter_12,EMT one quarter Run Type 12,Conduit,ft,5.4,0.042
+emt_one_quarter_13,EMT one quarter Run Type 13,Conduit,ft,5.6,0.043
+emt_one_quarter_14,EMT one quarter Run Type 14,Conduit,ft,5.8,0.044
+emt_one_quarter_15,EMT one quarter Run Type 15,Conduit,ft,6,0.045
+emt_one_quarter_16,EMT one quarter Run Type 16,Conduit,ft,6.2,0.046
+emt_one_quarter_17,EMT one quarter Run Type 17,Conduit,ft,6.4,0.047
+emt_one_quarter_18,EMT one quarter Run Type 18,Conduit,ft,6.6,0.048
+emt_one_quarter_19,EMT one quarter Run Type 19,Conduit,ft,6.8,0.049
+emt_one_quarter_20,EMT one quarter Run Type 20,Conduit,ft,7,0.05
+emt_one_quarter_21,EMT one quarter Run Type 21,Conduit,ft,7.2,0.051
+emt_one_quarter_22,EMT one quarter Run Type 22,Conduit,ft,7.4,0.052
+emt_one_quarter_23,EMT one quarter Run Type 23,Conduit,ft,7.6,0.053
+emt_one_quarter_24,EMT one quarter Run Type 24,Conduit,ft,7.8,0.054
+emt_one_quarter_25,EMT one quarter Run Type 25,Conduit,ft,8,0.055
+emt_one_quarter_26,EMT one quarter Run Type 26,Conduit,ft,8.2,0.056
+emt_one_quarter_27,EMT one quarter Run Type 27,Conduit,ft,8.4,0.057
+emt_one_quarter_28,EMT one quarter Run Type 28,Conduit,ft,8.6,0.058
+emt_one_quarter_29,EMT one quarter Run Type 29,Conduit,ft,8.8,0.059
+emt_one_quarter_30,EMT one quarter Run Type 30,Conduit,ft,9,0.06
+emt_one_quarter_31,EMT one quarter Run Type 31,Conduit,ft,9.2,0.061
+emt_one_quarter_32,EMT one quarter Run Type 32,Conduit,ft,9.4,0.062
+emt_one_quarter_33,EMT one quarter Run Type 33,Conduit,ft,9.6,0.063
+emt_one_quarter_34,EMT one quarter Run Type 34,Conduit,ft,9.8,0.064
+emt_one_quarter_35,EMT one quarter Run Type 35,Conduit,ft,10,0.065
+emt_one_quarter_36,EMT one quarter Run Type 36,Conduit,ft,10.2,0.066
+emt_one_quarter_37,EMT one quarter Run Type 37,Conduit,ft,10.4,0.067
+emt_one_quarter_38,EMT one quarter Run Type 38,Conduit,ft,10.6,0.068
+emt_one_quarter_39,EMT one quarter Run Type 39,Conduit,ft,10.8,0.069
+emt_one_quarter_40,EMT one quarter Run Type 40,Conduit,ft,11,0.07
+thhn_14_1,14 AWG THHN Variant 1,Wire,ft,0.45,0.009
+thhn_14_2,14 AWG THHN Variant 2,Wire,ft,0.5,0.01
+thhn_14_3,14 AWG THHN Variant 3,Wire,ft,0.55,0.011
+thhn_14_4,14 AWG THHN Variant 4,Wire,ft,0.6,0.012
+thhn_14_5,14 AWG THHN Variant 5,Wire,ft,0.65,0.013
+thhn_14_6,14 AWG THHN Variant 6,Wire,ft,0.7,0.014
+thhn_14_7,14 AWG THHN Variant 7,Wire,ft,0.75,0.015
+thhn_14_8,14 AWG THHN Variant 8,Wire,ft,0.8,0.016
+thhn_14_9,14 AWG THHN Variant 9,Wire,ft,0.85,0.017
+thhn_14_10,14 AWG THHN Variant 10,Wire,ft,0.9,0.018
+thhn_14_11,14 AWG THHN Variant 11,Wire,ft,0.95,0.019
+thhn_14_12,14 AWG THHN Variant 12,Wire,ft,1,0.02
+thhn_14_13,14 AWG THHN Variant 13,Wire,ft,1.05,0.021
+thhn_14_14,14 AWG THHN Variant 14,Wire,ft,1.1,0.022
+thhn_14_15,14 AWG THHN Variant 15,Wire,ft,1.15,0.023
+thhn_14_16,14 AWG THHN Variant 16,Wire,ft,1.2,0.024
+thhn_14_17,14 AWG THHN Variant 17,Wire,ft,1.25,0.025
+thhn_14_18,14 AWG THHN Variant 18,Wire,ft,1.3,0.026
+thhn_14_19,14 AWG THHN Variant 19,Wire,ft,1.35,0.027
+thhn_14_20,14 AWG THHN Variant 20,Wire,ft,1.4,0.028
+thhn_14_21,14 AWG THHN Variant 21,Wire,ft,1.45,0.029
+thhn_14_22,14 AWG THHN Variant 22,Wire,ft,1.5,0.03
+thhn_14_23,14 AWG THHN Variant 23,Wire,ft,1.55,0.031
+thhn_14_24,14 AWG THHN Variant 24,Wire,ft,1.6,0.032
+thhn_14_25,14 AWG THHN Variant 25,Wire,ft,1.65,0.033
+thhn_14_26,14 AWG THHN Variant 26,Wire,ft,1.7,0.034
+thhn_14_27,14 AWG THHN Variant 27,Wire,ft,1.75,0.035
+thhn_14_28,14 AWG THHN Variant 28,Wire,ft,1.8,0.036
+thhn_14_29,14 AWG THHN Variant 29,Wire,ft,1.85,0.037
+thhn_14_30,14 AWG THHN Variant 30,Wire,ft,1.9,0.038
+thhn_14_31,14 AWG THHN Variant 31,Wire,ft,1.95,0.039
+thhn_14_32,14 AWG THHN Variant 32,Wire,ft,2,0.04
+thhn_14_33,14 AWG THHN Variant 33,Wire,ft,2.05,0.041
+thhn_14_34,14 AWG THHN Variant 34,Wire,ft,2.1,0.042
+thhn_14_35,14 AWG THHN Variant 35,Wire,ft,2.15,0.043
+thhn_14_36,14 AWG THHN Variant 36,Wire,ft,2.2,0.044
+thhn_14_37,14 AWG THHN Variant 37,Wire,ft,2.25,0.045
+thhn_14_38,14 AWG THHN Variant 38,Wire,ft,2.3,0.046
+thhn_14_39,14 AWG THHN Variant 39,Wire,ft,2.35,0.047
+thhn_14_40,14 AWG THHN Variant 40,Wire,ft,2.4,0.048
+romex_staple,Staples,Fasteners,ea,0.24,0
+nmb_12/2,12/2 NM-B Romex,Wire,ft,0.65,0
+duplex_rec_plate,Recetacle Plate,Devices,ea,0.75,0

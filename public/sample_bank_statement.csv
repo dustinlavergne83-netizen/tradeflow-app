@@ -1,0 +1,11 @@
+Date,Description,Amount,Reference,Type
+01/15/2024,Customer Payment - Invoice #1001,1500.00,INV-1001,Deposit
+01/16/2024,Office Supplies - Staples,-125.50,CK-5001,Withdrawal
+01/17/2024,Electric Bill - January,-234.75,ACH-2001,Withdrawal
+01/18/2024,Customer Payment - Invoice #1002,2300.00,INV-1002,Deposit
+01/19/2024,Bank Service Fee,-15.00,FEE-2024-01,Fee
+01/20/2024,Interest Earned,12.50,INT-2024-01,Interest
+01/22/2024,Payroll - Employee Wages,-3500.00,ACH-2002,Withdrawal
+01/23/2024,Fuel Purchase - Gas Station,-85.25,CK-5002,Withdrawal
+01/24/2024,Customer Payment - Invoice #1003,1750.00,INV-1003,Deposit
+01/25/2024,Internet Service,-99.99,ACH-2003,Withdrawal

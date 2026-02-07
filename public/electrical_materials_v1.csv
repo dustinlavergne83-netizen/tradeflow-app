@@ -1,0 +1,99 @@
+id,name,category,description,unit,baseCost,laborHours
+rec_15a_wh,15A Duplex Receptacle White,Receptacles,Standard 15A tamper resistant duplex receptacle white,ea,2.50,0.35
+rec_15a_iv,15A Duplex Receptacle Ivory,Receptacles,Standard 15A tamper resistant duplex receptacle ivory,ea,2.50,0.35
+rec_15a_br,15A Duplex Receptacle Brown,Receptacles,Standard 15A tamper resistant duplex receptacle brown,ea,2.75,0.35
+rec_20a_wh,20A Duplex Receptacle White,Receptacles,Standard 20A tamper resistant duplex receptacle white,ea,3.50,0.40
+rec_20a_iv,20A Duplex Receptacle Ivory,Receptacles,Standard 20A tamper resistant duplex receptacle ivory,ea,3.50,0.40
+gfci_15a_wh,15A GFCI Receptacle White,Receptacles,15A ground fault circuit interrupter self-test white,ea,18.00,0.50
+gfci_15a_iv,15A GFCI Receptacle Ivory,Receptacles,15A ground fault circuit interrupter self-test ivory,ea,18.00,0.50
+gfci_20a_wh,20A GFCI Receptacle White,Receptacles,20A ground fault circuit interrupter self-test white,ea,22.00,0.50
+gfci_20a_iv,20A GFCI Receptacle Ivory,Receptacles,20A ground fault circuit interrupter self-test ivory,ea,22.00,0.50
+afci_15a,15A AFCI Receptacle,Receptacles,15A arc fault circuit interrupter outlet,ea,35.00,0.60
+afci_20a,20A AFCI Receptacle,Receptacles,20A arc fault circuit interrupter outlet,ea,38.00,0.60
+usb_rec_wh,USB Duplex Receptacle White,Receptacles,Duplex receptacle with USB-A charging ports white,ea,28.00,0.40
+usb_c_rec_wh,USB-C Duplex Receptacle White,Receptacles,Duplex receptacle with USB-C fast charging white,ea,35.00,0.40
+dryer_rec_3p,3-Prong Dryer Receptacle,Receptacles,30A 3-wire dryer receptacle NEMA 10-30R,ea,12.00,0.75
+dryer_rec_4p,4-Prong Dryer Receptacle,Receptacles,30A 4-wire dryer receptacle NEMA 14-30R,ea,14.00,0.75
+range_rec_3p,3-Prong Range Receptacle,Receptacles,50A 3-wire range receptacle NEMA 10-50R,ea,15.00,0.80
+range_rec_4p,4-Prong Range Receptacle,Receptacles,50A 4-wire range receptacle NEMA 14-50R,ea,18.00,0.80
+floor_rec,Floor Receptacle Brass,Receptacles,Floor mounted pop-up receptacle assembly brass,ea,85.00,1.50
+weatherproof_rec,Weatherproof Receptacle,Receptacles,15A weatherproof GFCI receptacle with cover,ea,32.00,0.60
+sw_single_wh,Single Pole Switch White,Switches,15A single pole toggle switch white,ea,1.75,0.30
+sw_single_iv,Single Pole Switch Ivory,Switches,15A single pole toggle switch ivory,ea,1.75,0.30
+sw_3way_wh,3-Way Switch White,Switches,15A 3-way toggle switch white,ea,3.50,0.35
+sw_3way_iv,3-Way Switch Ivory,Switches,15A 3-way toggle switch ivory,ea,3.50,0.35
+sw_4way_wh,4-Way Switch White,Switches,15A 4-way toggle switch white,ea,6.00,0.40
+dimmer_single,Single Pole Dimmer,Switches,600W incandescent/LED dimmer single pole,ea,18.00,0.40
+dimmer_3way,3-Way Dimmer,Switches,600W incandescent/LED dimmer 3-way,ea,28.00,0.45
+dimmer_smart,Smart Dimmer Wi-Fi,Switches,Smart dimmer switch with Wi-Fi app control,ea,45.00,0.50
+motion_sw,Motion Sensor Switch,Switches,Occupancy sensor switch automatic shutoff,ea,22.00,0.45
+timer_sw,Timer Switch,Switches,24-hour programmable timer switch,ea,20.00,0.40
+pilot_light_sw,Pilot Light Switch,Switches,Single pole switch with pilot light indicator,ea,8.50,0.35
+romex_14_2,14/2 NM-B Romex,Wire,14 AWG 2-conductor with ground NM-B cable,ft,0.55,0.01
+romex_14_3,14/3 NM-B Romex,Wire,14 AWG 3-conductor with ground NM-B cable,ft,0.75,0.01
+romex_12_2,12/2 NM-B Romex,Wire,12 AWG 2-conductor with ground NM-B cable,ft,0.75,0.01
+romex_12_3,12/3 NM-B Romex,Wire,12 AWG 3-conductor with ground NM-B cable,ft,1.10,0.01
+romex_10_2,10/2 NM-B Romex,Wire,10 AWG 2-conductor with ground NM-B cable,ft,1.40,0.012
+romex_10_3,10/3 NM-B Romex,Wire,10 AWG 3-conductor with ground NM-B cable,ft,1.95,0.012
+romex_8_3,8/3 NM-B Romex,Wire,8 AWG 3-conductor with ground NM-B cable,ft,3.50,0.015
+romex_6_3,6/3 NM-B Romex,Wire,6 AWG 3-conductor with ground NM-B cable,ft,5.25,0.018
+thhn_14_bk,14 AWG THHN Black,Wire,14 AWG THHN/THWN-2 stranded black,ft,0.28,0.008
+thhn_14_wh,14 AWG THHN White,Wire,14 AWG THHN/THWN-2 stranded white,ft,0.28,0.008
+thhn_14_rd,14 AWG THHN Red,Wire,14 AWG THHN/THWN-2 stranded red,ft,0.28,0.008
+thhn_14_gn,14 AWG THHN Green,Wire,14 AWG THHN/THWN-2 stranded green,ft,0.30,0.008
+thhn_12_bk,12 AWG THHN Black,Wire,12 AWG THHN/THWN-2 stranded black,ft,0.42,0.009
+thhn_12_wh,12 AWG THHN White,Wire,12 AWG THHN/THWN-2 stranded white,ft,0.42,0.009
+thhn_12_rd,12 AWG THHN Red,Wire,12 AWG THHN/THWN-2 stranded red,ft,0.42,0.009
+thhn_10_bk,10 AWG THHN Black,Wire,10 AWG THHN/THWN-2 stranded black,ft,0.68,0.010
+thhn_10_wh,10 AWG THHN White,Wire,10 AWG THHN/THWN-2 stranded white,ft,0.68,0.010
+thhn_8_bk,8 AWG THHN Black,Wire,8 AWG THHN/THWN-2 stranded black,ft,1.15,0.012
+thhn_6_bk,6 AWG THHN Black,Wire,6 AWG THHN/THWN-2 stranded black,ft,1.85,0.014
+emt_half,1/2 EMT Conduit,Conduit,1/2 inch electrical metallic tubing 10ft stick,ft,0.85,0.04
+emt_three_quarter,3/4 EMT Conduit,Conduit,3/4 inch electrical metallic tubing 10ft stick,ft,1.25,0.045
+emt_one,1 EMT Conduit,Conduit,1 inch electrical metallic tubing 10ft stick,ft,2.10,0.05
+emt_one_quarter,1-1/4 EMT Conduit,Conduit,1-1/4 inch electrical metallic tubing 10ft stick,ft,3.25,0.055
+emt_one_half,1-1/2 EMT Conduit,Conduit,1-1/2 inch electrical metallic tubing 10ft stick,ft,4.50,0.06
+emt_two,2 EMT Conduit,Conduit,2 inch electrical metallic tubing 10ft stick,ft,6.75,0.07
+pvc_half,1/2 PVC Conduit,Conduit,1/2 inch schedule 40 PVC conduit 10ft stick,ft,0.45,0.035
+pvc_three_quarter,3/4 PVC Conduit,Conduit,3/4 inch schedule 40 PVC conduit 10ft stick,ft,0.65,0.04
+pvc_one,1 PVC Conduit,Conduit,1 inch schedule 40 PVC conduit 10ft stick,ft,1.10,0.045
+pvc_one_quarter,1-1/4 PVC Conduit,Conduit,1-1/4 inch schedule 40 PVC conduit 10ft stick,ft,1.75,0.05
+pvc_one_half,1-1/2 PVC Conduit,Conduit,1-1/2 inch schedule 40 PVC conduit 10ft stick,ft,2.40,0.055
+pvc_two,2 PVC Conduit,Conduit,2 inch schedule 40 PVC conduit 10ft stick,ft,3.25,0.06
+flex_half,1/2 Flex Conduit,Conduit,1/2 inch flexible metal conduit 100ft coil,ft,0.95,0.025
+flex_three_quarter,3/4 Flex Conduit,Conduit,3/4 inch flexible metal conduit 100ft coil,ft,1.35,0.028
+liq_tight_half,1/2 Liquid Tight,Conduit,1/2 inch liquid tight flexible conduit,ft,1.45,0.03
+liq_tight_three_quarter,3/4 Liquid Tight,Conduit,3/4 inch liquid tight flexible conduit,ft,1.95,0.032
+box_1g_nw,1-Gang New Work Box,Boxes,Single gang new work nail-on box,ea,1.25,0.15
+box_2g_nw,2-Gang New Work Box,Boxes,2-gang new work nail-on box,ea,2.50,0.18
+box_1g_ow,1-Gang Old Work Box,Boxes,Single gang cut-in old work box,ea,1.75,0.25
+box_2g_ow,2-Gang Old Work Box,Boxes,2-gang cut-in old work box,ea,3.25,0.30
+box_ceil_fan,Ceiling Fan Box,Boxes,4 inch ceiling fan rated box with brace,ea,18.00,0.45
+box_ceil_std,4 Inch Round Ceiling Box,Boxes,4 inch round ceiling box with bracket,ea,2.50,0.20
+box_octagon,Octagon Box,Boxes,4 inch octagon metal box,ea,3.50,0.20
+box_4x4,4x4 Square Box,Boxes,4x4 inch square metal junction box,ea,4.25,0.20
+box_4x4_ext,4x4 Square Box Extension,Boxes,4x4 square box 1-1/2 inch extension ring,ea,2.75,0.10
+jbox_6x6,6x6 Junction Box,Boxes,6x6x4 inch PVC junction box with cover,ea,8.50,0.30
+jbox_8x8,8x8 Junction Box,Boxes,8x8x4 inch PVC junction box with cover,ea,12.00,0.35
+jbox_pvc_4,4 Inch PVC Junction Box,Boxes,4 inch round PVC junction box,ea,3.50,0.18
+weatherproof_box,Weatherproof Box 1-Gang,Boxes,Weatherproof outlet box with flip cover,ea,12.00,0.30
+breaker_15a_sp,15A Single Pole Breaker,Breakers,15 amp single pole circuit breaker,ea,6.50,0.20
+breaker_20a_sp,20A Single Pole Breaker,Breakers,20 amp single pole circuit breaker,ea,7.00,0.20
+breaker_30a_sp,30A Single Pole Breaker,Breakers,30 amp single pole circuit breaker,ea,12.00,0.22
+breaker_40a_sp,40A Single Pole Breaker,Breakers,40 amp single pole circuit breaker,ea,18.00,0.22
+breaker_50a_sp,50A Single Pole Breaker,Breakers,50 amp single pole circuit breaker,ea,22.00,0.25
+breaker_15a_dp,15A Double Pole Breaker,Breakers,15 amp 2-pole circuit breaker 240V,ea,14.00,0.25
+breaker_20a_dp,20A Double Pole Breaker,Breakers,20 amp 2-pole circuit breaker 240V,ea,15.00,0.25
+breaker_30a_dp,30A Double Pole Breaker,Breakers,30 amp 2-pole circuit breaker 240V,ea,22.00,0.28
+breaker_40a_dp,40A Double Pole Breaker,Breakers,40 amp 2-pole circuit breaker 240V,ea,28.00,0.28
+breaker_50a_dp,50A Double Pole Breaker,Breakers,50 amp 2-pole circuit breaker 240V,ea,35.00,0.30
+gfci_breaker_20a,20A GFCI Breaker,Breakers,20 amp single pole GFCI circuit breaker,ea,55.00,0.35
+afci_breaker_15a,15A AFCI Breaker,Breakers,15 amp single pole AFCI circuit breaker,ea,48.00,0.35
+afci_breaker_20a,20A AFCI Breaker,Breakers,20 amp single pole AFCI circuit breaker,ea,52.00,0.35
+combo_breaker_20a,20A AFCI/GFCI Breaker,Breakers,20 amp combination AFCI/GFCI breaker,ea,75.00,0.40
+plate_1g_wh,1-Gang Wall Plate White,Covers,Single gang decorator wall plate white,ea,0.45,0.05
+plate_1g_iv,1-Gang Wall Plate Ivory,Covers,Single gang decorator wall plate ivory,ea,0.45,0.05
+plate_2g_wh,2-Gang Wall Plate White,Covers,2-gang decorator wall plate white,ea,0.85,0.05
+plate_2g_iv,2-Gang Wall Plate Ivory,Covers,2-gang decorator wall plate ivory,ea,0.85,0.05
+plate_3g_wh,3-Gang Wall Plate White,Covers,3-gang decorator wall plate white,ea,1.50,0.05
+plate_4g_wh,4-Gang Wall Plate White,Covers,4-gang decorator wall plate white,ea,2.25,0.05

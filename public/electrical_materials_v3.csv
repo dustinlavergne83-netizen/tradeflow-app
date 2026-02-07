@@ -1,0 +1,94 @@
+id,name,category,description,unit,baseCost,laborHours
+mc_cable_12_2,12/2 MC Cable,Wire,12 AWG 2-conductor MC cable aluminum armor,ft,1.85,0.012
+mc_cable_12_3,12/3 MC Cable,Wire,12 AWG 3-conductor MC cable aluminum armor,ft,2.45,0.012
+mc_cable_10_2,10/2 MC Cable,Wire,10 AWG 2-conductor MC cable aluminum armor,ft,2.85,0.014
+mc_cable_10_3,10/3 MC Cable,Wire,10 AWG 3-conductor MC cable aluminum armor,ft,3.75,0.014
+mc_cable_8_3,8/3 MC Cable,Wire,8 AWG 3-conductor MC cable aluminum armor,ft,5.95,0.016
+thhn_4_bk,4 AWG THHN Black,Wire,4 AWG THHN/THWN-2 stranded black,ft,2.95,0.016
+thhn_2_bk,2 AWG THHN Black,Wire,2 AWG THHN/THWN-2 stranded black,ft,4.50,0.018
+thhn_1_bk,1 AWG THHN Black,Wire,1 AWG THHN/THWN-2 stranded black,ft,5.85,0.020
+thhn_1_0_bk,1/0 AWG THHN Black,Wire,1/0 AWG THHN/THWN-2 stranded black,ft,7.50,0.022
+thhn_2_0_bk,2/0 AWG THHN Black,Wire,2/0 AWG THHN/THWN-2 stranded black,ft,9.25,0.024
+bare_copper_6,6 AWG Bare Copper,Wire,6 AWG solid bare copper ground wire,ft,1.95,0.010
+bare_copper_4,4 AWG Bare Copper,Wire,4 AWG stranded bare copper ground wire,ft,3.25,0.012
+green_thhn_6,6 AWG Green THHN,Wire,6 AWG THHN/THWN-2 stranded green ground,ft,2.15,0.012
+cat5e_cable,Cat5e Cable Blue,Data,Cat5e ethernet cable 1000ft box,ft,0.15,0.008
+cat6_cable,Cat6 Cable Blue,Data,Cat6 ethernet cable 1000ft box,ft,0.22,0.008
+cat6_jack,Cat6 RJ45 Jack,Data,Cat6 keystone jack RJ45 white,ea,3.50,0.15
+cat6_plate,Cat6 Wall Plate 1-Port,Data,Single port Cat6 keystone wall plate,ea,2.25,0.05
+cat6_patch_3ft,Cat6 Patch Cable 3ft,Data,Cat6 ethernet patch cable 3 foot,ea,4.50,0
+cat6_patch_6ft,Cat6 Patch Cable 6ft,Data,Cat6 ethernet patch cable 6 foot,ea,5.50,0
+coax_rg6,RG6 Coax Cable,Data,RG6 coaxial cable 1000ft box,ft,0.25,0.008
+coax_connector,Coax F-Connector,Data,RG6 compression F-connector,ea,0.65,0.03
+coax_splitter,Coax 2-Way Splitter,Data,2-way coaxial cable splitter,ea,4.50,0.10
+phone_wire_4c,4-Conductor Phone Wire,Data,4-conductor telephone wire 1000ft,ft,0.12,0.006
+doorbell_wire,18/2 Doorbell Wire,Wire,18 AWG 2-conductor doorbell wire,ft,0.18,0.008
+speaker_wire_16,16/2 Speaker Wire,Wire,16 AWG 2-conductor speaker wire,ft,0.32,0.008
+low_volt_box,Low Voltage Box 1-Gang,Boxes,Single gang low voltage mounting bracket,ea,1.85,0.12
+data_box_2g,2-Gang Low Voltage Box,Boxes,2-gang low voltage mounting bracket,ea,2.95,0.15
+grd_rod_8ft,8ft Ground Rod,Grounding,5/8 inch x 8 foot copper ground rod,ea,18.00,0.80
+grd_rod_clamp,Ground Rod Clamp,Grounding,5/8 inch ground rod clamp,ea,2.85,0.10
+grd_bar_neutral,Neutral Ground Bar,Grounding,Panel neutral ground bar kit,ea,12.00,0.25
+grd_bushing_1,1 Inch Grounding Bushing,Grounding,1 inch insulated grounding bushing,ea,3.95,0.08
+grd_bushing_1_25,1-1/4 Inch Grounding Bushing,Grounding,1-1/4 inch insulated grounding bushing,ea,5.25,0.08
+bonding_jumper_4,#4 Bonding Jumper,Grounding,#4 AWG bonding jumper with lugs,ea,18.00,0.20
+lug_mech_2_0,2/0 Mechanical Lug,Connectors,2/0 AWG mechanical lug connector,ea,8.50,0.15
+lug_compress_1_0,1/0 Compression Lug,Connectors,1/0 AWG compression lug,ea,5.95,0.15
+split_bolt_2,#2 Split Bolt,Connectors,#2 AWG split bolt connector,ea,3.25,0.10
+burndy_2_0,2/0 Burndy Connector,Connectors,2/0 AWG crimp connector Burndy,ea,6.50,0.12
+wire_marker_book,Wire Marker Book,Accessories,Wire marker label book 0-15,ea,8.50,0
+phase_tape_set,Phase Tape Set,Accessories,Electrical phase tape color set,set,12.00,0
+cord_grip_half,1/2 Cord Grip,Fittings,1/2 inch cord grip strain relief,ea,2.85,0.05
+cord_grip_three_quarter,3/4 Cord Grip,Fittings,3/4 inch cord grip strain relief,ea,3.95,0.05
+bushing_plastic_half,1/2 Plastic Bushing,Fittings,1/2 inch plastic insulating bushing,ea,0.25,0.02
+bushing_plastic_three_quarter,3/4 Plastic Bushing,Fittings,3/4 inch plastic insulating bushing,ea,0.35,0.02
+reducer_three_quarter_half,3/4 to 1/2 Reducer,Fittings,3/4 inch to 1/2 inch reducing bushing,ea,0.85,0.03
+reducer_one_three_quarter,1 to 3/4 Reducer,Fittings,1 inch to 3/4 inch reducing bushing,ea,1.45,0.03
+knockout_seal_half,1/2 Knockout Seal,Fittings,1/2 inch knockout seal plug,ea,0.35,0.02
+knockout_seal_three_quarter,3/4 Knockout Seal,Fittings,3/4 inch knockout seal plug,ea,0.45,0.02
+rec_30a_twist,30A Twist Lock Receptacle,Receptacles,30A 125V twist lock receptacle L5-30R,ea,18.00,0.60
+rec_50a_twist,50A Twist Lock Receptacle,Receptacles,50A 125/250V twist lock receptacle L14-50R,ea,32.00,0.75
+rec_20a_hospital,20A Hospital Grade Receptacle,Receptacles,20A hospital grade receptacle green dot,ea,12.00,0.40
+rec_20a_isolated,20A Isolated Ground Receptacle,Receptacles,20A isolated ground receptacle orange,ea,15.00,0.45
+rec_welder,50A Welder Receptacle,Receptacles,50A welder receptacle NEMA 6-50R,ea,22.00,0.80
+plug_15a_3prong,15A 3-Prong Plug,Plugs,15A 125V 3-prong straight plug,ea,3.50,0.15
+plug_20a_3prong,20A 3-Prong Plug,Plugs,20A 125V 3-prong straight plug,ea,4.95,0.15
+plug_30a_dryer,30A Dryer Plug 4-Wire,Plugs,30A 4-wire dryer plug NEMA 14-30P,ea,12.00,0.25
+plug_50a_range,50A Range Plug 4-Wire,Plugs,50A 4-wire range plug NEMA 14-50P,ea,16.00,0.30
+cord_12_3_sjtw,12/3 SJTW Extension,Cord,12 AWG 3-conductor SJTW portable cord,ft,1.85,0
+cord_10_3_soow,10/3 SOOW Cord,Cord,10 AWG 3-conductor SOOW portable cord,ft,2.95,0
+timer_24hr_mech,24-Hour Mechanical Timer,Controls,24-hour mechanical plug-in timer,ea,12.00,0.10
+timer_7day_digital,7-Day Digital Timer,Controls,7-day programmable digital timer,ea,22.00,0.15
+photocell_120v,120V Photo Control,Controls,120V dusk to dawn photo control,ea,18.00,0.30
+photocell_208v,208-277V Photo Control,Controls,208-277V dusk to dawn photo control,ea,24.00,0.30
+contactor_30a,30A Lighting Contactor,Controls,30A 120V coil lighting contactor 2-pole,ea,48.00,0.60
+contactor_60a,60A Lighting Contactor,Controls,60A 120V coil lighting contactor 3-pole,ea,85.00,0.75
+relay_spdt,SPDT Control Relay,Controls,SPDT 120V coil control relay,ea,18.00,0.25
+transformer_75va,75VA Transformer,Transformers,75VA 120/24V control transformer,ea,45.00,0.50
+transformer_150va,150VA Transformer,Transformers,150VA 120/24V control transformer,ea,75.00,0.60
+transformer_300va,300VA Transformer,Transformers,300VA 120/24V control transformer,ea,125.00,0.75
+ballast_t8_2lamp,T8 2-Lamp Ballast,Ballasts,T8 electronic ballast 2-lamp 32W,ea,18.00,0.40
+ballast_t8_4lamp,T8 4-Lamp Ballast,Ballasts,T8 electronic ballast 4-lamp 32W,ea,28.00,0.45
+led_driver_60w,60W LED Driver,Drivers,60W constant voltage LED driver 12VDC,ea,32.00,0.30
+led_driver_100w,100W LED Driver,Drivers,100W constant voltage LED driver 24VDC,ea,48.00,0.35
+enclosure_4x4_nema1,4x4 NEMA 1 Enclosure,Enclosures,4x4x4 inch NEMA 1 steel enclosure,ea,22.00,0.40
+enclosure_6x6_nema1,6x6 NEMA 1 Enclosure,Enclosures,6x6x4 inch NEMA 1 steel enclosure,ea,32.00,0.45
+enclosure_8x8_nema1,8x8 NEMA 1 Enclosure,Enclosures,8x8x4 inch NEMA 1 steel enclosure,ea,48.00,0.50
+enclosure_12x12_nema3r,12x12 NEMA 3R Enclosure,Enclosures,12x12x6 inch NEMA 3R weatherproof box,ea,95.00,0.75
+handy_box,Handy Box 4x2,Boxes,4x2-1/8 inch handy utility box,ea,2.25,0.15
+handy_box_cover,Handy Box Cover,Covers,4x2-1/8 inch handy box blank cover,ea,0.95,0.03
+nail_plate,Steel Nail Plate,Accessories,Steel cable protection nail plate,ea,0.45,0.02
+bushing_insul_1,1 Inch Insulating Bushing,Fittings,1 inch threaded insulating bushing,ea,0.85,0.03
+locknut_steel_half,1/2 Steel Locknut,Fittings,1/2 inch steel locknut,ea,0.18,0.02
+locknut_steel_three_quarter,3/4 Steel Locknut,Fittings,3/4 inch steel locknut,ea,0.25,0.02
+locknut_steel_one,1 Inch Steel Locknut,Fittings,1 inch steel locknut,ea,0.45,0.02
+sealtite_conn_half,1/2 Sealtite Connector,Fittings,1/2 inch liquid tight sealtite connector,ea,2.45,0.05
+sealtite_conn_three_quarter,3/4 Sealtite Connector,Fittings,3/4 inch liquid tight sealtite connector,ea,3.25,0.05
+emt_offset_half,1/2 EMT Offset Nipple,Fittings,1/2 inch EMT offset nipple,ea,2.85,0.06
+emt_nipple_close_half,1/2 EMT Close Nipple,Fittings,1/2 inch EMT close nipple,ea,1.85,0.04
+pvc_bushing_half,1/2 PVC Bushing,Fittings,1/2 inch PVC terminal adapter bushing,ea,0.35,0.02
+pvc_cap_half,1/2 PVC End Cap,Fittings,1/2 inch PVC schedule 40 end cap,ea,0.45,0.02
+expansion_joint_half,1/2 Expansion Joint,Fittings,1/2 inch PVC expansion joint coupling,ea,4.50,0.06
+conduit_seal_half,1/2 Conduit Sealing Compound,Accessories,Conduit sealing compound 1 lb,lb,12.00,0
+silicone_clear,Clear Silicone Sealant,Accessories,Clear silicone sealant caulk tube,tube,5.50,0
+foam_sealant,Spray Foam Sealant,Accessories,Expanding spray foam insulation can,can,8.50,0

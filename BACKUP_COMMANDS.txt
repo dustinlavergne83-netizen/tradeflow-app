@@ -1,0 +1,128 @@
+========================================
+TRADEFLOW BACKUP COMMANDS - QUICK REFERENCE
+========================================
+
+==================
+QUICK BACKUPS (Copy & Paste These!)
+==================
+
+# Cloud Backup (Google Drive) - RECOMMENDED
+.\backup-to-google-drive.ps1 -Label "your description here"
+
+# Examples:
+.\backup-to-google-drive.ps1 -Label "Fixed export bug"
+.\backup-to-google-drive.ps1 -Label "Added new feature"
+.\backup-to-google-drive.ps1 -Label "Before production deploy"
+.\backup-to-google-drive.ps1 -Label "End of day"
+
+# Quick local backup (faster, but only on your computer)
+.\quick-backup.ps1 -Label "your description here"
+
+# Standard backup (no description needed)
+.\create-backup.ps1
+
+
+==================
+ONE-TIME SETUP (Run Once)
+==================
+
+# Enable automatic nightly cloud backups (2 AM)
+.\setup-auto-backup-cloud.ps1
+
+# Enable automatic nightly local backups (2 AM)
+.\setup-auto-backup.ps1
+
+
+==================
+MAINTENANCE
+==================
+
+# Clean up old local backups (run monthly)
+.\cleanup-old-backups.ps1
+
+
+==================
+VIEW/MANAGE AUTOMATIC BACKUPS
+==================
+
+# Open Task Scheduler to view automatic backup tasks
+taskschd.msc
+
+# Disable cloud backup temporarily
+Disable-ScheduledTask -TaskName "TradeFlow_Cloud_Backup"
+
+# Re-enable cloud backup
+Enable-ScheduledTask -TaskName "TradeFlow_Cloud_Backup"
+
+# Remove cloud backup task
+Unregister-ScheduledTask -TaskName "TradeFlow_Cloud_Backup"
+
+# Disable local backup temporarily
+Disable-ScheduledTask -TaskName "TradeFlow_Nightly_Backup"
+
+# Re-enable local backup
+Enable-ScheduledTask -TaskName "TradeFlow_Nightly_Backup"
+
+
+==================
+WHERE ARE BACKUPS SAVED?
+==================
+
+Cloud (Google Drive):
+  G:\My Drive\TradeFlow_Backups\
+
+Local (Your Computer):
+  C:\Users\dusti\TradeFlow_Backup_*\
+
+
+==================
+MOST COMMON USE CASES
+==================
+
+After fixing a bug:
+  .\backup-to-google-drive.ps1 -Label "Fixed takeoff bug"
+
+After adding a feature:
+  .\backup-to-google-drive.ps1 -Label "Added PDF export"
+
+Before deploying:
+  .\backup-to-google-drive.ps1 -Label "Before production deploy"
+
+End of day:
+  .\backup-to-google-drive.ps1 -Label "End of day checkpoint"
+
+Quick checkpoint:
+  .\backup-to-google-drive.ps1 -Label "checkpoint"
+
+
+==================
+TIPS
+==================
+
+1. Always use the Google Drive backup for important changes
+   (protects from computer failure)
+
+2. Description is optional but helpful for finding backups later
+
+3. Set up automatic backups once, then forget about it
+   (runs every night at 2 AM)
+
+4. Check Google Drive icon in taskbar to confirm sync status
+
+5. Keep local backups too for faster recovery if needed
+
+
+========================================
+NEED HELP?
+========================================
+
+To test if backup is working:
+  .\backup-to-google-drive.ps1 -Label "test"
+
+Then check:
+  G:\My Drive\TradeFlow_Backups\
+
+You should see: TradeFlow_YYYY-MM-DD_HHMM_test.zip
+
+
+========================================

@@ -1,0 +1,2 @@
+// Add this to your project: npm install papaparse
+// This file is required for CSV import in Customers.jsx

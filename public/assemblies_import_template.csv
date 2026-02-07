@@ -1,0 +1,13 @@
+assembly_name,assembly_category,assembly_description,component_material_id,component_quantity,component_quantity_type,component_description
+"3/4"" EMT LB Body Assembly",Fittings,"Complete LB body with connectors",emt_lb_3_4,1,fixed,"LB body"
+"3/4"" EMT LB Body Assembly",Fittings,"Complete LB body with connectors",emt_connector_3_4,2,fixed,"Set screw connectors"
+"3/4"" EMT 90° Elbow Assembly",Fittings,"Complete 90° elbow with coupling",emt_90_3_4,1,fixed,"90° elbow"
+"3/4"" EMT 90° Elbow Assembly",Fittings,"Complete 90° elbow with coupling",emt_coupling_3_4,1,fixed,"Set screw coupling"
+"1"" EMT LB Body Assembly",Fittings,"Complete LB body with connectors",emt_lb_1,1,fixed,"LB body"
+"1"" EMT LB Body Assembly",Fittings,"Complete LB body with connectors",emt_connector_1,2,fixed,"Set screw connectors"
+"1"" EMT 90° Elbow Assembly",Fittings,"Complete 90° elbow with coupling",emt_90_1,1,fixed,"90° elbow"
+"1"" EMT 90° Elbow Assembly",Fittings,"Complete 90° elbow with coupling",emt_coupling_1,1,fixed,"Set screw coupling"
+"2"" EMT LB Body Assembly",Fittings,"Complete LB body with connectors",emt_lb_2,1,fixed,"LB body"
+"2"" EMT LB Body Assembly",Fittings,"Complete LB body with connectors",emt_connector_2,2,fixed,"Set screw connectors"
+"2"" EMT 90° Elbow Assembly",Fittings,"Complete 90° elbow with coupling",emt_90_2,1,fixed,"90° elbow"
+"2"" EMT 90° Elbow Assembly",Fittings,"Complete 90° elbow with coupling",emt_coupling_2,1,fixed,"Set screw coupling"

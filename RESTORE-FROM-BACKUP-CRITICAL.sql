@@ -1,0 +1,22 @@
+-- CRITICAL: This file explains how to restore your database
+-- 
+-- The previous SQL deleted too many journal entries, affecting all account balances.
+-- 
+-- IMMEDIATE ACTION REQUIRED:
+-- 1. DO NOT RUN ANY MORE SQL
+-- 2. Go to Supabase Dashboard > Settings > Backups
+-- 3. Look for the most recent backup BEFORE I made the changes
+-- 4. Restore from that backup point
+--
+-- If you don't have backups enabled, you may need to manually restore account balances.
+-- 
+-- Contact Supabase support for database recovery assistance at this point.
+-- I sincerely apologize for this critical error.
+
+-- Only run this if you want to restore JUST the journal entries that were deleted
+-- This will restore the Lowes entries to a known working state
+
+-- Before running anything, backup your current state:
+-- SELECT * INTO accounts_backup FROM accounts;
+-- SELECT * INTO journal_entries_backup FROM journal_entries;
+-- SELECT * INTO journal_entry_lines_backup FROM journal_entry_lines;

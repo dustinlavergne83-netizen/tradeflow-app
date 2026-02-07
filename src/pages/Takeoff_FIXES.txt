@@ -1,0 +1,18 @@
+# FIXES FOR COUNT MODE
+
+## Issue 1: Right-click delete not working
+The handleRightClick function exists but needs to be verified and potentially simplified.
+
+## Issue 2: Spacebar pan not working  
+The spacebar detection exists but the pointer events logic may be preventing it from working.
+
+## Key Problems Identified:
+1. The canvas wrapper has complex pointer-events logic that might block events
+2. The right-click handler checks marker positions but might not be finding markers correctly
+3. The spacebar state might not be propagating correctly to disable canvas events
+
+## Solutions:
+1. Simplify the pointer-events logic in canvas wrapper
+2. Increase marker detection radius for right-click
+3. Ensure spacebar state properly disables canvas pointer events
+4. Add console logs to verify events are firing

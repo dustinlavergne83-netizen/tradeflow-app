@@ -1,0 +1,11 @@
+id,category,name,description,unit,basecost,laborhours
+WIRE_12_2,Wire,12/2 Romex,12 AWG 2-conductor w/ ground,ft,0.45,0.01
+WIRE_14_2,Wire,14/2 Romex,14 AWG 2-conductor w/ ground,ft,0.35,0.01
+WIRE_12_3,Wire,12/3 Romex,12 AWG 3-conductor w/ ground,ft,0.65,0.01
+CONDUIT_EMT_12,Conduit,1/2" EMT,1/2 inch EMT conduit,ft,0.85,0.02
+CONDUIT_EMT_34,Conduit,3/4" EMT,3/4 inch EMT conduit,ft,1.20,0.02
+CONDUIT_EMT_1,Conduit,1" EMT,1 inch EMT conduit,ft,1.75,0.03
+BOX_4X4,Boxes,4x4 Box,4"x4" metal box,ea,2.50,0.15
+BOX_SWITCH,Boxes,Switch Box,Single gang plastic box,ea,0.85,0.10
+DEVICE_RECPT_15A,Devices,15A Receptacle,Standard duplex receptacle,ea,1.25,0.20
+DEVICE_GFCI_20A,Devices,20A GFCI,GFCI duplex receptacle,ea,12.50,0.25

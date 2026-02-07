@@ -1,0 +1,22 @@
+{
+  "projectName": "Office Renovation",
+  "customerName": "Test Customer",
+  "projectType": "commercial",
+  "lineItems": [
+    {
+      "description": "LED Light Fixtures",
+      "quantity": 25,
+      "unit": "ea"
+    },
+    {
+      "description": "EMT Conduit 3/4\"",
+      "quantity": 150,
+      "unit": "ft"
+    },
+    {
+      "description": "Electrical Panel 200A",
+      "quantity": 1,
+      "unit": "ea"
+    }
+  ]
+}
