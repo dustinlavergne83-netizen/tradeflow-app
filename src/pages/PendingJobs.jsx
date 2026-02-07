@@ -47,7 +47,6 @@ export default function PendingJobs() {
     const { data, error } = await supabase
       .from("projects")
       .select("id, name, status")
-      .eq("status", "active")
       .order("name", { ascending: true });
 
     if (error) throw error;
