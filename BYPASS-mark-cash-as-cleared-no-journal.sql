@@ -17,7 +17,7 @@ WHERE amount = 165.92
   AND bank_account_id = (SELECT id FROM bank_accounts WHERE account_name = 'Main Checking');
 
 -- Step 2: Mark it as cleared (uncomment to run)
-/*
+
 UPDATE bank_transactions
 SET is_cleared = true
 WHERE amount = 165.92

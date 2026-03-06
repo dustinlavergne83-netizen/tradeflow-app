@@ -18,7 +18,7 @@ WHERE ba.chart_account_id IS NOT NULL
 ORDER BY ba.account_name;
 
 -- Step 2: Sync Chart of Accounts to match bank account balances (uncomment to run)
-/*
+
 UPDATE accounts a
 SET balance = ba.current_balance
 FROM bank_accounts ba
@@ -31,7 +31,7 @@ RETURNING
 */
 
 -- Step 3: Verify they match now
-/*
+
 SELECT 
     ba.account_name as bank_account_name,
     ba.current_balance as bank_balance,

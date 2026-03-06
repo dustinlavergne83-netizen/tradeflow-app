@@ -109,10 +109,10 @@ export default function AssemblyManager() {
 
   async function loadAssemblies() {
     try {
-      console.log("🔍 Loading assemblies...");
+      console.log("🔍 Loading assemblies with components...");
       const { data, error } = await supabase
         .from("assemblies")
-        .select("*")
+        .select("*, assembly_components(*)")
         .eq("is_active", true)
         .order("name");
 
@@ -123,8 +123,25 @@ export default function AssemblyManager() {
         throw error;
       }
       
-      console.log("✅ Setting assemblies:", data?.length || 0, "items");
-      setAssemblies(data || []);
+      // Calculate total cost and labor from components for each assembly
+      const assembliesWithTotals = (data || []).map(assembly => {
+        const comps = assembly.assembly_components || [];
+        const total_material_cost = comps.reduce((sum, c) => {
+          return sum + ((c.quantity || c.component_quantity || 0) * (c.material_unit_cost || 0));
+        }, 0);
+        const total_labor_hours = comps.reduce((sum, c) => {
+          return sum + ((c.quantity || c.component_quantity || 0) * (c.labor_hours || 0));
+        }, 0);
+        return {
+          ...assembly,
+          total_material_cost,
+          total_labor_hours,
+          component_count: comps.length
+        };
+      });
+      
+      console.log("✅ Setting assemblies:", assembliesWithTotals.length, "items with computed totals");
+      setAssemblies(assembliesWithTotals);
     } catch (err) {
       console.error("❌ Error loading assemblies:", err);
       alert("Failed to load assemblies: " + err.message);
@@ -181,22 +198,32 @@ export default function AssemblyManager() {
     }
   }
 
-  async function handleUpdateComponentQuantity(componentId, newQuantity) {
+  async function handleUpdateComponentField(componentId, field, value) {
     try {
+      const numValue = Number(value);
       const { error } = await supabase
         .from("assembly_components")
-        .update({ quantity: Number(newQuantity) })
+        .update({ [field]: numValue })
         .eq("id", componentId);
 
       if (error) throw error;
 
-      // Reload components and assemblies to get updated totals
-      await loadComponents(expandedAssembly);
+      // Update local state immediately for responsiveness
+      setComponents(prev => prev.map(c => 
+        c.id === componentId ? { ...c, [field]: numValue } : c
+      ));
+
+      // Reload assemblies to get updated totals in the main list
       await loadAssemblies();
     } catch (err) {
-      console.error("Error updating component:", err);
-      alert("Failed to update component");
+      console.error(`Error updating component ${field}:`, err);
+      alert(`Failed to update component ${field}`);
     }
+  }
+
+  // Convenience wrapper for backward compat
+  async function handleUpdateComponentQuantity(componentId, newQuantity) {
+    await handleUpdateComponentField(componentId, 'quantity', newQuantity);
   }
 
   async function handleDeleteComponent(componentId) {
@@ -720,8 +747,9 @@ export default function AssemblyManager() {
                                 <th style={{ padding: "8px", textAlign: "left", color: "#999", fontSize: 12 }}>Material</th>
                                 <th style={{ padding: "8px", textAlign: "right", color: "#999", fontSize: 12, width: 100 }}>Qty</th>
                                 <th style={{ padding: "8px", textAlign: "right", color: "#999", fontSize: 12, width: 100 }}>Unit Cost</th>
-                                <th style={{ padding: "8px", textAlign: "right", color: "#999", fontSize: 12, width: 100 }}>Labor Hrs</th>
-                                <th style={{ padding: "8px", textAlign: "right", color: "#999", fontSize: 12, width: 100 }}>Total</th>
+                                <th style={{ padding: "8px", textAlign: "right", color: "#999", fontSize: 12, width: 100 }}>Labor/Unit</th>
+                                <th style={{ padding: "8px", textAlign: "right", color: "#999", fontSize: 12, width: 110 }}>Line Cost</th>
+                                <th style={{ padding: "8px", textAlign: "right", color: "#999", fontSize: 12, width: 110 }}>Line Labor</th>
                                 {assembly.is_custom && (
                                   <th style={{ padding: "8px", textAlign: "center", color: "#999", fontSize: 12, width: 60 }}>Delete</th>
                                 )}
@@ -751,14 +779,49 @@ export default function AssemblyManager() {
                                       step="0.1"
                                     />
                                   </td>
-                                  <td style={{ padding: "8px", textAlign: "right", color: "#10b981", fontSize: 13 }}>
-                                    ${component.material_unit_cost.toFixed(2)}
+                                  <td style={{ padding: "8px", textAlign: "right" }}>
+                                    <input
+                                      type="number"
+                                      value={component.material_unit_cost || 0}
+                                      onChange={(e) => handleUpdateComponentField(component.id, 'material_unit_cost', e.target.value)}
+                                      style={{
+                                        width: 80,
+                                        padding: "4px 8px",
+                                        background: "#2a2a2a",
+                                        border: "1px solid #555",
+                                        borderRadius: 4,
+                                        color: "#10b981",
+                                        fontSize: 13,
+                                        textAlign: "right"
+                                      }}
+                                      step="0.01"
+                                      min="0"
+                                    />
                                   </td>
-                                  <td style={{ padding: "8px", textAlign: "right", color: "#8b5cf6", fontSize: 13 }}>
-                                    {component.labor_hours.toFixed(2)}h
+                                  <td style={{ padding: "8px", textAlign: "right" }}>
+                                    <input
+                                      type="number"
+                                      value={component.labor_hours || 0}
+                                      onChange={(e) => handleUpdateComponentField(component.id, 'labor_hours', e.target.value)}
+                                      style={{
+                                        width: 80,
+                                        padding: "4px 8px",
+                                        background: "#2a2a2a",
+                                        border: "1px solid #555",
+                                        borderRadius: 4,
+                                        color: "#8b5cf6",
+                                        fontSize: 13,
+                                        textAlign: "right"
+                                      }}
+                                      step="0.01"
+                                      min="0"
+                                    />
                                   </td>
-                                  <td style={{ padding: "8px", textAlign: "right", color: "#fff", fontSize: 13, fontWeight: "bold" }}>
-                                    ${(component.quantity * component.material_unit_cost).toFixed(2)}
+                                  <td style={{ padding: "8px", textAlign: "right", color: "#10b981", fontSize: 13, fontWeight: "bold" }}>
+                                    ${((component.quantity || 0) * (component.material_unit_cost || 0)).toFixed(2)}
+                                  </td>
+                                  <td style={{ padding: "8px", textAlign: "right", color: "#8b5cf6", fontSize: 13, fontWeight: "bold" }}>
+                                    {((component.quantity || 0) * (component.labor_hours || 0)).toFixed(2)}h
                                   </td>
                                   {assembly.is_custom && (
                                     <td style={{ padding: "8px", textAlign: "center" }}>
@@ -778,6 +841,19 @@ export default function AssemblyManager() {
                                   )}
                                 </tr>
                               ))}
+                              {/* TOTALS ROW */}
+                              <tr style={{ borderTop: "2px solid #f97316", background: "#222" }}>
+                                <td style={{ padding: "10px 8px", color: "#f97316", fontSize: 14, fontWeight: "bold" }} colSpan={4}>
+                                  Assembly Totals ({components.length} components)
+                                </td>
+                                <td style={{ padding: "10px 8px", textAlign: "right", color: "#10b981", fontSize: 14, fontWeight: "bold" }}>
+                                  ${components.reduce((sum, c) => sum + ((c.quantity || 0) * (c.material_unit_cost || 0)), 0).toFixed(2)}
+                                </td>
+                                <td style={{ padding: "10px 8px", textAlign: "right", color: "#8b5cf6", fontSize: 14, fontWeight: "bold" }}>
+                                  {components.reduce((sum, c) => sum + ((c.quantity || 0) * (c.labor_hours || 0)), 0).toFixed(2)}h
+                                </td>
+                                {assembly.is_custom && <td />}
+                              </tr>
                             </tbody>
                           </table>
                         )}
@@ -1248,15 +1324,77 @@ export default function AssemblyManager() {
                     <div key={idx} style={{ padding: '8px 12px', backgroundColor: '#333', borderRadius: 6, marginBottom: 6 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 14, fontWeight: '500', color: '#fff', marginBottom: 2 }}>{comp.material_name}</div>
-                          <div style={{ fontSize: 12, color: '#999' }}>
+                          <div style={{ fontSize: 14, fontWeight: '500', color: '#fff', marginBottom: 4 }}>{comp.material_name}</div>
+                          <div style={{ fontSize: 12, color: '#999', marginBottom: 6 }}>
                             {comp.quantity} {comp.unit} × {comp.quantity_type === 'fixed' ? 'Fixed' :
                              comp.quantity_type === 'per_foot' ? 'Per Foot' :
                              comp.quantity_type === 'per_10_feet' ? 'Per 10 Feet' :
                              comp.quantity_type === 'per_100_feet' ? 'Per 100 Feet' : comp.quantity_type}
                           </div>
+                          {/* Editable Cost, Labor, and Qty */}
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <span style={{ fontSize: 11, color: '#999' }}>Qty:</span>
+                              <input
+                                type="number"
+                                value={comp.quantity || 0}
+                                onChange={(e) => {
+                                  const updated = [...quickAssemblyComponents];
+                                  updated[idx] = { ...updated[idx], quantity: parseFloat(e.target.value) || 0 };
+                                  setQuickAssemblyComponents(updated);
+                                }}
+                                style={{
+                                  width: 60, padding: '3px 6px', background: '#2a2a2a', border: '1px solid #555',
+                                  borderRadius: 4, color: '#fff', fontSize: 12, textAlign: 'right'
+                                }}
+                                step="0.1"
+                              />
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <span style={{ fontSize: 11, color: '#10b981' }}>$</span>
+                              <input
+                                type="number"
+                                value={comp.material_unit_cost || 0}
+                                onChange={(e) => {
+                                  const updated = [...quickAssemblyComponents];
+                                  updated[idx] = { ...updated[idx], material_unit_cost: parseFloat(e.target.value) || 0 };
+                                  setQuickAssemblyComponents(updated);
+                                }}
+                                style={{
+                                  width: 70, padding: '3px 6px', background: '#2a2a2a', border: '1px solid #555',
+                                  borderRadius: 4, color: '#10b981', fontSize: 12, textAlign: 'right'
+                                }}
+                                step="0.01"
+                                min="0"
+                              />
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <span style={{ fontSize: 11, color: '#8b5cf6' }}>⏱</span>
+                              <input
+                                type="number"
+                                value={comp.labor_hours || 0}
+                                onChange={(e) => {
+                                  const updated = [...quickAssemblyComponents];
+                                  updated[idx] = { ...updated[idx], labor_hours: parseFloat(e.target.value) || 0 };
+                                  setQuickAssemblyComponents(updated);
+                                }}
+                                style={{
+                                  width: 60, padding: '3px 6px', background: '#2a2a2a', border: '1px solid #555',
+                                  borderRadius: 4, color: '#8b5cf6', fontSize: 12, textAlign: 'right'
+                                }}
+                                step="0.01"
+                                min="0"
+                              />
+                              <span style={{ fontSize: 11, color: '#8b5cf6' }}>h</span>
+                            </div>
+                            <div style={{ marginLeft: 'auto', fontSize: 12, color: '#999' }}>
+                              = <span style={{ color: '#10b981', fontWeight: 'bold' }}>${((comp.quantity || 0) * (comp.material_unit_cost || 0)).toFixed(2)}</span>
+                              {' / '}
+                              <span style={{ color: '#8b5cf6', fontWeight: 'bold' }}>{((comp.quantity || 0) * (comp.labor_hours || 0)).toFixed(2)}h</span>
+                            </div>
+                          </div>
                           {comp.description && (
-                            <div style={{ fontSize: 11, color: '#999', fontStyle: 'italic', marginTop: 2 }}>
+                            <div style={{ fontSize: 11, color: '#999', fontStyle: 'italic', marginTop: 4 }}>
                               💡 {comp.description}
                             </div>
                           )}
@@ -1270,6 +1408,29 @@ export default function AssemblyManager() {
                       </div>
                     </div>
                   ))}
+                  {/* Quick Assembly Totals */}
+                  <div style={{ 
+                    padding: '10px 12px', 
+                    backgroundColor: '#222', 
+                    borderRadius: 6, 
+                    borderTop: '2px solid #f97316',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginTop: 8
+                  }}>
+                    <span style={{ color: '#f97316', fontSize: 14, fontWeight: 'bold' }}>
+                      Assembly Totals ({quickAssemblyComponents.length} components)
+                    </span>
+                    <div style={{ display: 'flex', gap: 16 }}>
+                      <span style={{ color: '#10b981', fontSize: 14, fontWeight: 'bold' }}>
+                        💲{quickAssemblyComponents.reduce((sum, c) => sum + ((c.quantity || 0) * (c.material_unit_cost || 0)), 0).toFixed(2)}
+                      </span>
+                      <span style={{ color: '#8b5cf6', fontSize: 14, fontWeight: 'bold' }}>
+                        ⏱ {quickAssemblyComponents.reduce((sum, c) => sum + ((c.quantity || 0) * (c.labor_hours || 0)), 0).toFixed(2)}h
+                      </span>
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <div style={{ textAlign: 'center', padding: 16, color: '#999', fontSize: 13 }}>

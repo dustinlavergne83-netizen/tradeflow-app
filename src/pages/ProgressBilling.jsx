@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
+import { formatDate } from "../utils/dateUtils";
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -15,21 +16,29 @@ export default function ProgressBilling() {
   const [searchParams] = useSearchParams();
   const estimateId = searchParams.get("estimateId");
   const proposalId = searchParams.get("proposalId");
-  const coId = searchParams.get("coId"); // Change Order ID
+  const coId = searchParams.get("coId");
   const { user } = useAuth();
-  
+
   const [estimate, setEstimate] = useState(null);
   const [proposal, setProposal] = useState(null);
   const [changeOrder, setChangeOrder] = useState(null);
-  const [estimateItems, setEstimateItems] = useState([]);
-  const [selectedItems, setSelectedItems] = useState(new Set());
-  const [billingConfig, setBillingConfig] = useState({});
-  const [billingHistory, setBillingHistory] = useState({});
+  const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // Invoice details
   const [customerName, setCustomerName] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0]);
   const [paymentTerm, setPaymentTerm] = useState("upon_receipt");
-  const [project, setProject] = useState(null);
+  const [invoiceDescription, setInvoiceDescription] = useState("");
+
+  // Billing amounts
+  const [totalContractValue, setTotalContractValue] = useState(0);
+  const [previouslyBilled, setPreviouslyBilled] = useState(0);
+  const [billingMode, setBillingMode] = useState("dollar"); // "dollar" or "percentage"
+  const [billingAmount, setBillingAmount] = useState("");
+  const [billingPercentage, setBillingPercentage] = useState("");
+
+  // Deposits
   const [deposits, setDeposits] = useState([]);
   const [selectedDeposits, setSelectedDeposits] = useState(new Set());
 
@@ -45,67 +54,58 @@ export default function ProgressBilling() {
 
   async function loadChangeOrderData() {
     try {
-      // Load the change order
       const { data: coData, error: coError } = await supabase
         .from("change_orders")
         .select("*")
         .eq("id", coId)
         .single();
 
-      if (coError) {
-        console.error("Error loading change order:", coError);
-        throw new Error("Could not find change order.");
-      }
-      
+      if (coError) throw new Error("Could not find change order.");
       setChangeOrder(coData);
 
-      console.log("🔄 Change Order Data:", coData);
-
-      // Load the project to get the actual customer name
-      const { data: projectData, error: projectError } = await supabase
+      // Load project
+      const { data: projectData } = await supabase
         .from("projects")
-        .select("contractor, customer")
+        .select("*")
         .eq("name", coData.project_name)
         .single();
 
-      if (!projectError && projectData) {
-        // Use contractor for commercial projects, otherwise customer
+      if (projectData) {
+        setProject(projectData);
         setCustomerName(projectData.contractor || projectData.customer || coData.project_name);
+
+        // Load deposits
+        const { data: depositsData } = await supabase
+          .from("project_deposits")
+          .select("*")
+          .eq("project_id", projectData.id)
+          .eq("status", "received")
+          .order("deposit_date", { ascending: false });
+        setDeposits(depositsData || []);
       } else {
         setCustomerName(coData.project_name || "");
       }
 
-      // Set a mock estimate object for compatibility with existing code
       setEstimate({
         project_name: coData.project_name,
         estimate_number: coData.change_order_number,
         customer_name: coData.project_name
       });
 
-      // Create a single line item for the change order total
-      const coItems = [{
-        id: `co-${coId}`,
-        description: `${coData.change_order_number}: ${coData.title}`,
-        total: coData.total || 0,
-        isChangeOrderItem: true
-      }];
+      const contractValue = coData.total || 0;
+      setTotalContractValue(contractValue);
 
-      console.log("📦 CO Items:", coItems);
-      setEstimateItems(coItems);
-      
-      // Initialize billing config
-      const defaultConfig = {};
-      coItems.forEach(item => {
-        defaultConfig[item.id] = {
-          type: 'percentage',
-          value: 100
-        };
-      });
-      setBillingConfig(defaultConfig);
+      // Load previous progress billing invoices for this change order
+      const { data: prevInvoices } = await supabase
+        .from("invoices")
+        .select("total")
+        .eq("project_name", coData.project_name)
+        .like("notes", `%${coData.change_order_number}%`);
 
-      // No billing history for change orders (yet)
-      setBillingHistory({});
+      const prevBilled = (prevInvoices || []).reduce((sum, inv) => sum + (inv.total || 0), 0);
+      setPreviouslyBilled(prevBilled);
 
+      setInvoiceDescription(`Change Order ${coData.change_order_number} - ${coData.title}`);
     } catch (err) {
       console.error("Error loading change order:", err);
       alert("Failed to load change order data: " + err.message);
@@ -116,127 +116,66 @@ export default function ProgressBilling() {
 
   async function loadProposalData() {
     try {
-      // Load the proposal
       const { data: proposalData, error: proposalError } = await supabase
         .from("proposals")
         .select("*")
         .eq("id", proposalId)
         .single();
 
-      if (proposalError) {
-        console.error("Error loading proposal:", proposalError);
-        throw new Error("Could not find proposal. Please try again.");
-      }
-      
+      if (proposalError) throw new Error("Could not find proposal.");
       setProposal(proposalData);
       setCustomerName(proposalData.contractor_name || "");
 
-      console.log("📋 Proposal Data:", proposalData);
-
       // Load base estimate
-      const { data: baseEstimate, error: baseError } = await supabase
+      const { data: baseEstimate } = await supabase
         .from("estimates")
         .select("*")
         .eq("id", proposalData.base_estimate_id)
         .single();
 
-      if (baseError) throw baseError;
-      setEstimate(baseEstimate);
-      
-      console.log("📊 Base Estimate:", baseEstimate);
+      if (baseEstimate) setEstimate(baseEstimate);
 
-      // Load estimate items for the base estimate
-      const { data: baseEstimateItems, error: baseItemsError } = await supabase
-        .from("estimate_items")
+      // Load project
+      const { data: projectData } = await supabase
+        .from("projects")
         .select("*")
-        .eq("estimate_id", proposalData.base_estimate_id)
-        .order("sequence");
+        .eq("name", baseEstimate?.project_name || proposalData.project_name)
+        .single();
 
-      console.log("📦 Base Estimate Items:", baseEstimateItems);
-
-      // Build proposal line items: Base Estimate Items + Selected Alternates
-      const proposalItems = [];
-      
-      // Add individual line items from base estimate
-      if (baseEstimateItems && baseEstimateItems.length > 0) {
-        baseEstimateItems.forEach(item => {
-          proposalItems.push({
-            id: item.id,
-            description: item.description,
-            quantity: item.quantity,
-            unit_price: item.unit_price,
-            total: item.line_total || 0,
-            isProposalItem: false  // These are actual estimate items
-          });
-        });
-      } else {
-        // Fallback: if no items, show Base Bid as single line
-        proposalItems.push({
-          id: `base-${proposalData.base_estimate_id}`,
-          description: "Base Bid",
-          total: proposalData.base_bid_amount || 0,
-          isProposalItem: true
-        });
-      }
-
-      // Load selected alternates from proposal_alternates table
-      const { data: proposalAlternates } = await supabase
-        .from("proposal_alternates")
-        .select("*")
-        .eq("proposal_id", proposalId)
-        .order("alternate_number");
-
-      console.log("🎯 Proposal Alternates from DB:", proposalAlternates);
-
-      if (proposalAlternates && proposalAlternates.length > 0) {
-        proposalAlternates.forEach(alt => {
-          proposalItems.push({
-            id: `alt-${alt.alternate_estimate_id}`,
-            description: alt.alternate_title || `Alternate ${alt.alternate_number}`,
-            total: alt.amount || 0,
-            isProposalItem: true
-          });
-        });
-      }
-
-      console.log("📦 Proposal Items:", proposalItems);
-      setEstimateItems(proposalItems);
-      
-      if (proposalItems.length === 0) {
-        console.warn("No proposal items found");
-        setLoading(false);
-        return;
-      }
-
-      // Load billing history for proposal items
-      const itemIds = proposalItems.map(item => item.id);
-      const { data: historyData } = await supabase
-        .from("estimate_item_billing_history")
-        .select("estimate_item_id, billed_amount")
-        .in("estimate_item_id", itemIds);
-
-      const historyMap = {};
-      if (historyData) {
-        historyData.forEach(h => {
-          historyMap[h.estimate_item_id] = (historyMap[h.estimate_item_id] || 0) + h.billed_amount;
-        });
-      }
-      setBillingHistory(historyMap);
-
-      // Initialize billing config
-      const defaultConfig = {};
-      proposalItems.forEach(item => {
-        const previouslyBilled = historyMap[item.id] || 0;
-        const remaining = item.total - previouslyBilled;
-        if (remaining > 0) {
-          defaultConfig[item.id] = {
-            type: 'percentage',
-            value: 100
-          };
+      if (projectData) {
+        setProject(projectData);
+        if (!proposalData.contractor_name) {
+          setCustomerName(projectData.contractor || projectData.customer || "");
         }
-      });
-      setBillingConfig(defaultConfig);
 
+        // Load deposits
+        const { data: depositsData } = await supabase
+          .from("project_deposits")
+          .select("*")
+          .eq("project_id", projectData.id)
+          .eq("status", "received")
+          .order("deposit_date", { ascending: false });
+        setDeposits(depositsData || []);
+      }
+
+      // Total contract value is the proposal total
+      const contractValue = proposalData.total_amount || 0;
+      setTotalContractValue(contractValue);
+
+      // Load previous progress billing invoices for this project
+      const projectName = baseEstimate?.project_name || "";
+      if (projectName) {
+        const { data: prevInvoices } = await supabase
+          .from("invoices")
+          .select("total")
+          .eq("project_name", projectName)
+          .like("notes", "%Progress billing%");
+
+        const prevBilled = (prevInvoices || []).reduce((sum, inv) => sum + (inv.total || 0), 0);
+        setPreviouslyBilled(prevBilled);
+      }
+
+      setInvoiceDescription(`Base Bid - Estimate #${baseEstimate?.estimate_number || ''}`);
     } catch (err) {
       console.error("Error loading proposal:", err);
       alert("Failed to load proposal data: " + err.message);
@@ -247,95 +186,52 @@ export default function ProgressBilling() {
 
   async function loadEstimateData() {
     try {
-      // Load estimate
       const { data: estimateData, error: estimateError } = await supabase
         .from("estimates")
         .select("*")
         .eq("id", estimateId)
         .single();
 
-      if (estimateError) {
-        console.error("Error loading estimate:", estimateError);
-        throw new Error("Could not find estimate. Please try again.");
-      }
-      
+      if (estimateError) throw new Error("Could not find estimate.");
       setEstimate(estimateData);
       setCustomerName(estimateData.customer_name || "");
 
-      // Load project to get available deposits
-      const { data: projectData, error: projectError } = await supabase
+      // Load project
+      const { data: projectData } = await supabase
         .from("projects")
         .select("*")
         .eq("name", estimateData.project_name)
         .single();
 
-      if (!projectError && projectData) {
+      if (projectData) {
         setProject(projectData);
 
-        // Load available deposits for this project (status = 'received' only)
-        const { data: depositsData, error: depositsError } = await supabase
+        // Load deposits
+        const { data: depositsData } = await supabase
           .from("project_deposits")
           .select("*")
           .eq("project_id", projectData.id)
           .eq("status", "received")
           .order("deposit_date", { ascending: false });
-
-        if (!depositsError) {
-          setDeposits(depositsData || []);
-        }
+        setDeposits(depositsData || []);
       }
 
-      // Load estimate items
-      const { data: itemsData, error: itemsError } = await supabase
-        .from("estimate_items")
-        .select("*")
-        .eq("estimate_id", estimateId)
-        .order("created_at");
+      const contractValue = estimateData.total || 0;
+      setTotalContractValue(contractValue);
 
-      if (itemsError) {
-        console.error("Error loading estimate items:", itemsError);
-      }
-      
-      const items = itemsData || [];
-      setEstimateItems(items);
-      
-      // If no items, still continue (show message later)
-      if (items.length === 0) {
-        console.warn("No estimate items found for this estimate");
-        setLoading(false);
-        return;
+      // Load previous progress billing invoices
+      if (estimateData.project_name) {
+        const { data: prevInvoices } = await supabase
+          .from("invoices")
+          .select("total")
+          .eq("project_name", estimateData.project_name)
+          .like("notes", "%Progress billing%");
+
+        const prevBilled = (prevInvoices || []).reduce((sum, inv) => sum + (inv.total || 0), 0);
+        setPreviouslyBilled(prevBilled);
       }
 
-      // Load billing history for each item
-      const itemIds = itemsData.map(item => item.id);
-      const { data: historyData } = await supabase
-        .from("estimate_item_billing_history")
-        .select("estimate_item_id, billed_amount")
-        .in("estimate_item_id", itemIds);
-
-      // Sum up billing history per item
-      const historyMap = {};
-      if (historyData) {
-        historyData.forEach(h => {
-          historyMap[h.estimate_item_id] = (historyMap[h.estimate_item_id] || 0) + h.billed_amount;
-        });
-      }
-      setBillingHistory(historyMap);
-
-      // Initialize billing config with defaults (100% of remaining)
-      const defaultConfig = {};
-      itemsData.forEach(item => {
-        const previouslyBilled = historyMap[item.id] || 0;
-        const remaining = item.total - previouslyBilled;
-        if (remaining > 0) {
-          defaultConfig[item.id] = {
-            type: 'percentage',
-            value: 100
-          };
-        }
-      });
-      setBillingConfig(defaultConfig);
-
+      setInvoiceDescription(`Progress billing from estimate ${estimateData.estimate_number || ''}`);
     } catch (err) {
       console.error("Error loading estimate:", err);
       alert("Failed to load estimate data");
@@ -344,78 +240,63 @@ export default function ProgressBilling() {
     }
   }
 
-  function handleToggleItem(itemId) {
-    const newSelected = new Set(selectedItems);
-    if (newSelected.has(itemId)) {
-      newSelected.delete(itemId);
-    } else {
-      newSelected.add(itemId);
-    }
-    setSelectedItems(newSelected);
-  }
+  // Calculate derived values
+  const remainingToBill = totalContractValue - previouslyBilled;
+  const currentBillingAmount = billingMode === "dollar"
+    ? Math.min(parseFloat(billingAmount) || 0, remainingToBill)
+    : Math.min((remainingToBill * (parseFloat(billingPercentage) || 0)) / 100, remainingToBill);
 
-  function handleConfigChange(itemId, field, value) {
-    setBillingConfig({
-      ...billingConfig,
-      [itemId]: {
-        ...billingConfig[itemId],
-        [field]: value
-      }
-    });
-  }
+  const totalDepositsSelected = Array.from(selectedDeposits).reduce((sum, depId) => {
+    const dep = deposits.find(d => d.id === depId);
+    return sum + (dep?.deposit_amount || 0);
+  }, 0);
 
-  function calculateBillingAmount(item) {
-    const config = billingConfig[item.id];
-    if (!config) return 0;
-
-    const originalAmount = item.total || 0;
-    const previouslyBilled = billingHistory[item.id] || 0;
-    const remaining = originalAmount - previouslyBilled;
-
-    if (config.type === 'percentage') {
-      return (remaining * (config.value || 0)) / 100;
-    } else {
-      return Math.min(config.value || 0, remaining);
-    }
-  }
+  const balanceDue = Math.max(0, currentBillingAmount - totalDepositsSelected);
 
   function calculateDueDate(term) {
     const dateObj = new Date(invoiceDate);
     let daysToAdd = 0;
-
     switch(term) {
-      case 'upon_receipt':
-        return dateObj.toISOString().split('T')[0]; // Same day
-      case 'net_10':
-        daysToAdd = 10;
-        break;
-      case 'net_15':
-        daysToAdd = 15;
-        break;
-      case 'net_30':
-        daysToAdd = 30;
-        break;
-      case 'net_45':
-        daysToAdd = 45;
-        break;
-      case 'net_60':
-        daysToAdd = 60;
-        break;
-      case 'net_90':
-        daysToAdd = 90;
-        break;
-      default:
-        return dateObj.toISOString().split('T')[0];
+      case 'upon_receipt': return dateObj.toISOString().split('T')[0];
+      case 'net_10': daysToAdd = 10; break;
+      case 'net_15': daysToAdd = 15; break;
+      case 'net_30': daysToAdd = 30; break;
+      case 'net_45': daysToAdd = 45; break;
+      case 'net_60': daysToAdd = 60; break;
+      case 'net_90': daysToAdd = 90; break;
+      default: return dateObj.toISOString().split('T')[0];
     }
-
     const dueDate = new Date(dateObj);
     dueDate.setDate(dueDate.getDate() + daysToAdd);
     return dueDate.toISOString().split('T')[0];
   }
 
+  // Quick percentage buttons
+  function setQuickPercentage(pct) {
+    setBillingMode("percentage");
+    setBillingPercentage(pct.toString());
+    setBillingAmount(((remainingToBill * pct) / 100).toFixed(2));
+  }
+
+  // Update amount when percentage changes
+  function handlePercentageChange(val) {
+    setBillingPercentage(val);
+    const pct = parseFloat(val) || 0;
+    setBillingAmount(((remainingToBill * pct) / 100).toFixed(2));
+  }
+
+  // Update percentage when dollar changes
+  function handleDollarChange(val) {
+    setBillingAmount(val);
+    const amt = parseFloat(val) || 0;
+    if (remainingToBill > 0) {
+      setBillingPercentage(((amt / remainingToBill) * 100).toFixed(1));
+    }
+  }
+
   async function handleCreateInvoice() {
-    if (selectedItems.size === 0) {
-      alert("Please select at least one item to bill");
+    if (currentBillingAmount <= 0) {
+      alert("Please enter an amount to bill");
       return;
     }
 
@@ -425,116 +306,55 @@ export default function ProgressBilling() {
     }
 
     try {
-      // Check if this is a change order by looking at the estimate's change_order_number or notes
-      const isChangeOrder = estimate.estimate_number && estimate.estimate_number.startsWith('CO-');
-      let changeOrderNumber = null;
-      
-      if (isChangeOrder) {
-        // Extract CO number (e.g., "01" from "CO-01")
-        const match = estimate.estimate_number.match(/CO-(\d+)/);
-        changeOrderNumber = match ? match[1] : null;
-      }
-
-      // Get existing invoices for this project to determine suffix
+      // Generate invoice number
       const projectName = estimate.project_name;
       const { data: projectInvoices } = await supabase
         .from('invoices')
         .select('invoice_number')
         .eq('project_name', projectName)
-        .eq('created_by', user.id)
         .order('created_at', { ascending: true });
 
       let invoiceNumber;
-      
-      if (isChangeOrder && changeOrderNumber) {
-        // CHANGE ORDER PROGRESS BILLING: Format 1001-CO1-1, 1001-CO1-2
-        let baseNumber = 1001;
-        
-        if (projectInvoices && projectInvoices.length > 0) {
-          // Extract base number from first invoice
-          const firstInvoice = projectInvoices[0].invoice_number;
-          baseNumber = parseInt(firstInvoice.split('-')[0]) || 1001;
-        } else {
-          // No invoices yet - get next base number from all invoices
-          const { data: allInvoices } = await supabase
-            .from('invoices')
-            .select('invoice_number')
-            .eq('created_by', user.id)
-            .order('created_at', { ascending: false })
-            .limit(1);
-          
-          if (allInvoices && allInvoices.length > 0) {
-            const lastInvoiceNum = allInvoices[0].invoice_number;
-            const baseNum = parseInt(lastInvoiceNum.split('-')[0]) || 1000;
-            baseNumber = baseNum + 1;
-          }
-        }
-        
-        // Count existing CO progress invoices with this CO number
-        const coPattern = `${baseNumber}-CO${changeOrderNumber}-%`;
-        const { data: coProgressInvoices } = await supabase
+
+      if (projectInvoices && projectInvoices.length > 0) {
+        const firstInvoice = projectInvoices[0].invoice_number;
+        const baseNumber = firstInvoice.split('-')[0];
+        const suffix = projectInvoices.length + 1;
+        invoiceNumber = `${baseNumber}-${suffix}`;
+      } else {
+        const { data: allInvoices } = await supabase
           .from('invoices')
           .select('invoice_number')
-          .eq('project_name', projectName)
-          .like('invoice_number', coPattern);
-        
-        const nextSuffix = (coProgressInvoices?.length || 0) + 1;
-        invoiceNumber = `${baseNumber}-CO${changeOrderNumber}-${nextSuffix}`;
-        
-      } else {
-        // REGULAR PROGRESS BILLING: Format 1001-1, 1001-2
-        if (projectInvoices && projectInvoices.length > 0) {
-          // Extract base number from first invoice (e.g., "1001" from "1001-1")
-          const firstInvoice = projectInvoices[0].invoice_number;
-          const baseNumber = firstInvoice.split('-')[0];
-          
-          // Determine next suffix
-          const suffix = projectInvoices.length + 1;
-          invoiceNumber = `${baseNumber}-${suffix}`;
-        } else {
-          // First invoice for this project - get next base number
-          const { data: allInvoices } = await supabase
-            .from('invoices')
-            .select('invoice_number')
-            .eq('created_by', user.id)
-            .order('created_at', { ascending: false })
-            .limit(1);
-          
-          let nextBaseNumber = 1001;
-          if (allInvoices && allInvoices.length > 0) {
-            // Extract base number from last invoice (handles both "1001" and "1001-1" formats)
-            const lastInvoiceNum = allInvoices[0].invoice_number;
-            const baseNum = parseInt(lastInvoiceNum.split('-')[0]) || 1000;
-            nextBaseNumber = baseNum + 1;
-          }
-          
-          // First progress billing invoice gets suffix -1
-          invoiceNumber = `${nextBaseNumber}-1`;
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        let nextBaseNumber = 1001;
+        if (allInvoices && allInvoices.length > 0) {
+          const lastInvoiceNum = allInvoices[0].invoice_number;
+          const baseNum = parseInt(lastInvoiceNum.split('-')[0]) || 1000;
+          nextBaseNumber = baseNum + 1;
         }
+        invoiceNumber = `${nextBaseNumber}-1`;
       }
 
-      // Calculate total
-      let totalAmount = 0;
-      selectedItems.forEach(itemId => {
-        const item = estimateItems.find(i => i.id === itemId);
-        if (item) {
-          totalAmount += calculateBillingAmount(item);
-        }
-      });
+      const calculatedDueDate = calculateDueDate(paymentTerm);
+      const percentOfTotal = totalContractValue > 0 
+        ? ((currentBillingAmount / totalContractValue) * 100).toFixed(1) 
+        : 0;
 
-      // Calculate total deposits selected
-      let totalDepositsApplied = 0;
-      Array.from(selectedDeposits).forEach(depId => {
-        const deposit = deposits.find(d => d.id === depId);
-        if (deposit) {
-          totalDepositsApplied += deposit.deposit_amount;
-        }
-      });
+      // Build description for the invoice line item
+      const lineDescription = invoiceDescription.trim() || 
+        `Progress billing - ${percentOfTotal}% of contract value $${totalContractValue.toFixed(2)}`;
+
+      const notesText = `Progress billing from estimate ${estimate.estimate_number}` +
+        ` | This draw: $${currentBillingAmount.toFixed(2)} (${percentOfTotal}% of $${totalContractValue.toFixed(2)})` +
+        ` | Previously billed: $${previouslyBilled.toFixed(2)}` +
+        ` | Remaining after this: $${(remainingToBill - currentBillingAmount).toFixed(2)}` +
+        (totalDepositsSelected > 0 ? ` | Applied Deposits: $${totalDepositsSelected.toFixed(2)}` : '') +
+        ` | Payment Terms: ${paymentTerm.replace('_', ' ')}`;
 
       // Create invoice
-      const balanceDue = Math.max(0, totalAmount - totalDepositsApplied);
-      const calculatedDueDate = calculateDueDate(paymentTerm);
-      const { data: newInvoice, error: invoiceError} = await supabase
+      const { data: newInvoice, error: invoiceError } = await supabase
         .from('invoices')
         .insert([{
           invoice_number: invoiceNumber,
@@ -542,108 +362,77 @@ export default function ProgressBilling() {
           customer_name: customerName,
           invoice_date: invoiceDate,
           due_date: calculatedDueDate,
-          subtotal: totalAmount,
-          total: totalAmount,
+          subtotal: currentBillingAmount,
+          total: currentBillingAmount,
           balance_due: balanceDue,
-          deposit_received: totalDepositsApplied || 0,
-          deposit_date: invoiceDate || null,
+          deposit_received: totalDepositsSelected || 0,
           status: 'draft',
-          notes: `Progress billing from estimate ${estimate.estimate_number}${totalDepositsApplied > 0 ? ` | Applied Deposits: $${totalDepositsApplied.toFixed(2)}` : ''} | Payment Terms: ${paymentTerm.replace('_', ' ')}`,
+          notes: notesText,
           created_by: user.id
         }])
         .select()
         .single();
-      
+
       if (invoiceError) throw invoiceError;
 
-      // Link deposits to invoice and mark them as 'applied'
+      // Create single invoice line item
+      const { error: itemError } = await supabase
+        .from('invoice_items')
+        .insert([{
+          invoice_id: newInvoice.id,
+          description: lineDescription,
+          quantity: 1,
+          unit_price: currentBillingAmount,
+          total: currentBillingAmount
+        }]);
+
+      if (itemError) throw itemError;
+
+      // Apply selected deposits
       if (selectedDeposits.size > 0) {
         for (const depositId of selectedDeposits) {
-          // Update deposit status to 'applied'
-          const { error: depositUpdateError } = await supabase
+          await supabase
             .from('project_deposits')
-            .update({ 
+            .update({
               status: 'applied',
               invoice_id: newInvoice.id
             })
             .eq('id', depositId);
-          
-          if (depositUpdateError) {
-            console.error("Error updating deposit status:", depositUpdateError);
-            // Don't throw - continue processing
-          }
         }
       }
 
-      // Create invoice items and billing history
-      for (const itemId of selectedItems) {
-        const item = estimateItems.find(i => i.id === itemId);
-        if (!item) {
-          console.log("❌ Item not found for ID:", itemId);
-          continue;
+      // Update project's billed_amount and percent_complete
+      try {
+        const projectName = estimate.project_name;
+        const { data: projectData } = await supabase
+          .from("projects")
+          .select("id, billed_amount, active_worth")
+          .eq("name", projectName)
+          .single();
+
+        if (projectData) {
+          const newBilledAmount = (projectData.billed_amount || 0) + currentBillingAmount;
+          const activeWorth = projectData.active_worth || totalContractValue;
+          const newPercentComplete = activeWorth > 0 
+            ? Math.round((newBilledAmount / activeWorth) * 100) 
+            : 0;
+
+          await supabase
+            .from("projects")
+            .update({
+              billed_amount: newBilledAmount,
+              percent_complete: Math.min(newPercentComplete, 100),
+            })
+            .eq("id", projectData.id);
+
+          console.log(`✅ Updated project: billed=$${newBilledAmount.toFixed(2)}, complete=${newPercentComplete}%`);
         }
-
-        const billingAmount = calculateBillingAmount(item);
-        const config = billingConfig[itemId];
-
-        const originalAmount = item.total || 0;
-        const previouslyBilled = billingHistory[itemId] || 0;
-        const remaining = originalAmount - previouslyBilled - billingAmount;
-        const percentBilling = originalAmount > 0 ? (billingAmount / originalAmount * 100).toFixed(1) : 0;
-
-        // Enhanced description with billing details
-        const detailedDescription = `${item.description}\n` +
-          `Original: $${originalAmount.toFixed(2)} | ` +
-          `This Invoice: $${billingAmount.toFixed(2)} (${percentBilling}%) | ` +
-          `Previously Billed: $${previouslyBilled.toFixed(2)} | ` +
-          `Remaining: $${remaining.toFixed(2)}`;
-
-        const invoiceItemData = {
-          invoice_id: newInvoice.id,
-          description: detailedDescription,
-          quantity: 1,
-          unit_price: billingAmount,
-          total: billingAmount
-        };
-
-        console.log("📝 Creating invoice item:", invoiceItemData);
-
-        // Create invoice line item
-        const { error: itemError } = await supabase
-          .from('invoice_items')
-          .insert([invoiceItemData]);
-        
-        if (itemError) {
-          console.error("Error creating invoice item:", itemError);
-          throw itemError;
-        }
-
-        // Create billing history record (skip for proposal items)
-        // Proposal-level billing uses synthetic IDs (base-xxx, alt-xxx)
-        // Only create history for actual estimate items
-        if (!item.isProposalItem) {
-          const { error: historyError } = await supabase
-            .from('estimate_item_billing_history')
-            .insert([{
-              estimate_item_id: itemId,
-              invoice_id: newInvoice.id,
-              original_amount: item.total,
-              billed_amount: billingAmount,
-              billing_type: config.type,
-              billing_value: config.value,
-              notes: `${config.type === 'percentage' ? config.value + '%' : '$' + config.value} of item`
-            }]);
-          
-          if (historyError) {
-            console.error("Error creating billing history:", historyError);
-            // Don't throw - history is optional for proposal billing
-          }
-        }
+      } catch (projErr) {
+        console.warn("⚠️ Could not update project billing totals:", projErr);
       }
 
       alert(`Invoice #${invoiceNumber} created successfully!`);
       navigate(`/invoice?invoiceId=${newInvoice.id}`);
-
     } catch (err) {
       console.error("Error creating invoice:", err);
       alert("Failed to create invoice: " + err.message);
@@ -653,7 +442,7 @@ export default function ProgressBilling() {
   if (loading) {
     return (
       <div style={styles.container}>
-        <div style={styles.loading}>Loading estimate data...</div>
+        <div style={styles.loading}>Loading...</div>
       </div>
     );
   }
@@ -662,36 +451,180 @@ export default function ProgressBilling() {
     return (
       <div style={styles.container}>
         <div style={styles.error}>Estimate not found</div>
-        <button onClick={() => navigate(-1)} style={styles.button}>
-          Go Back
-        </button>
+        <button onClick={() => navigate(-1)} style={styles.button}>Go Back</button>
       </div>
     );
   }
 
-  // Calculate totals
-  const totalOriginal = estimateItems.reduce((sum, item) => sum + (item.total || 0), 0);
-  const totalBilled = Object.values(billingHistory).reduce((sum, amount) => sum + amount, 0);
-  const totalRemaining = totalOriginal - totalBilled;
-  const currentBillingTotal = Array.from(selectedItems).reduce((sum, itemId) => {
-    const item = estimateItems.find(i => i.id === itemId);
-    return sum + (item ? calculateBillingAmount(item) : 0);
-  }, 0);
+  const percentBilledSoFar = totalContractValue > 0 ? (previouslyBilled / totalContractValue) * 100 : 0;
+  const percentThisDraw = totalContractValue > 0 ? (currentBillingAmount / totalContractValue) * 100 : 0;
 
   return (
     <div style={styles.container}>
       <div style={styles.header}>
         <div>
-          <h1 style={styles.title}>Progress Billing</h1>
-          <p style={styles.subtitle}>Create invoice from estimate: {estimate.estimate_number}</p>
+          <h1 style={styles.title}>📊 Progress Invoice</h1>
+          <p style={styles.subtitle}>
+            {estimate.project_name} • {estimate.estimate_number}
+          </p>
         </div>
-        <button onClick={() => navigate(-1)} style={styles.backButton}>
-          ← Back
-        </button>
+        <button onClick={() => navigate(-1)} style={styles.backButton}>← Back</button>
       </div>
 
       <div style={styles.content}>
-        {/* Customer Name Input */}
+        {/* Contract Summary */}
+        <div style={styles.card}>
+          <h2 style={styles.cardTitle}>Contract Summary</h2>
+
+          <div style={styles.summaryGrid}>
+            <div style={styles.summaryBox}>
+              <div style={styles.summaryBoxLabel}>Total Contract Value</div>
+              <div style={styles.summaryBoxValue}>${totalContractValue.toFixed(2)}</div>
+            </div>
+            <div style={styles.summaryBox}>
+              <div style={styles.summaryBoxLabel}>Previously Billed</div>
+              <div style={{...styles.summaryBoxValue, color: '#666'}}>
+                ${previouslyBilled.toFixed(2)}
+                {percentBilledSoFar > 0 && (
+                  <span style={{fontSize: 14, color: '#999', marginLeft: 8}}>
+                    ({percentBilledSoFar.toFixed(1)}%)
+                  </span>
+                )}
+              </div>
+            </div>
+            <div style={{...styles.summaryBox, borderColor: '#10b981'}}>
+              <div style={styles.summaryBoxLabel}>Remaining to Bill</div>
+              <div style={{...styles.summaryBoxValue, color: '#10b981'}}>${remainingToBill.toFixed(2)}</div>
+            </div>
+          </div>
+
+          {/* Progress bar */}
+          <div style={{marginTop: 20}}>
+            <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: 6}}>
+              <span style={{fontSize: 13, color: '#666'}}>Billing Progress</span>
+              <span style={{fontSize: 13, color: '#666'}}>
+                {percentBilledSoFar.toFixed(1)}% billed
+                {currentBillingAmount > 0 && ` → ${(percentBilledSoFar + percentThisDraw).toFixed(1)}%`}
+              </span>
+            </div>
+            <div style={styles.progressBar}>
+              <div style={{
+                ...styles.progressFill,
+                width: `${Math.min(percentBilledSoFar, 100)}%`,
+                backgroundColor: '#94a3b8',
+              }} />
+              <div style={{
+                ...styles.progressFill,
+                width: `${Math.min(percentThisDraw, 100 - percentBilledSoFar)}%`,
+                backgroundColor: BRAND.accent,
+                marginLeft: 0,
+              }} />
+            </div>
+            <div style={{display: 'flex', gap: 16, marginTop: 8}}>
+              <div style={{display: 'flex', alignItems: 'center', gap: 6}}>
+                <div style={{width: 12, height: 12, backgroundColor: '#94a3b8', borderRadius: 2}} />
+                <span style={{fontSize: 12, color: '#666'}}>Previously Billed</span>
+              </div>
+              <div style={{display: 'flex', alignItems: 'center', gap: 6}}>
+                <div style={{width: 12, height: 12, backgroundColor: BRAND.accent, borderRadius: 2}} />
+                <span style={{fontSize: 12, color: '#666'}}>This Invoice</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Billing Amount */}
+        <div style={styles.card}>
+          <h2 style={styles.cardTitle}>How Much to Invoice?</h2>
+          <p style={{fontSize: 14, color: '#666', marginBottom: 20}}>
+            Enter the amount you want to bill on this progress invoice.
+          </p>
+
+          {/* Quick percentage buttons */}
+          <div style={{marginBottom: 20}}>
+            <div style={{fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 10}}>Quick Select:</div>
+            <div style={{display: 'flex', gap: 10, flexWrap: 'wrap'}}>
+              {[10, 25, 33, 50, 75, 100].map(pct => {
+                const amt = (remainingToBill * pct) / 100;
+                return (
+                  <button
+                    key={pct}
+                    onClick={() => setQuickPercentage(pct)}
+                    style={{
+                      padding: '10px 16px',
+                      border: billingPercentage === pct.toString() ? '2px solid ' + BRAND.accent : '2px solid #d1d5db',
+                      borderRadius: 8,
+                      backgroundColor: billingPercentage === pct.toString() ? '#fff7ed' : '#fff',
+                      cursor: 'pointer',
+                      fontSize: 14,
+                      fontWeight: '600',
+                      color: billingPercentage === pct.toString() ? BRAND.accent : '#374151',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    {pct}%
+                    <div style={{fontSize: 11, fontWeight: 'normal', color: '#999', marginTop: 2}}>
+                      ${amt.toFixed(2)}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Custom amount input */}
+          <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20}}>
+            <div>
+              <label style={styles.label}>Dollar Amount</label>
+              <div style={{position: 'relative'}}>
+                <span style={{position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 18, color: '#666', fontWeight: 'bold'}}>$</span>
+                <input
+                  type="number"
+                  value={billingAmount}
+                  onChange={(e) => {
+                    setBillingMode("dollar");
+                    handleDollarChange(e.target.value);
+                  }}
+                  onFocus={() => setBillingMode("dollar")}
+                  style={{...styles.input, paddingLeft: 32, fontSize: 20, fontWeight: 'bold', textAlign: 'right'}}
+                  placeholder="0.00"
+                  min="0"
+                  max={remainingToBill}
+                  step="0.01"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label style={styles.label}>Percentage of Remaining</label>
+              <div style={{position: 'relative'}}>
+                <input
+                  type="number"
+                  value={billingPercentage}
+                  onChange={(e) => {
+                    setBillingMode("percentage");
+                    handlePercentageChange(e.target.value);
+                  }}
+                  onFocus={() => setBillingMode("percentage")}
+                  style={{...styles.input, paddingRight: 36, fontSize: 20, fontWeight: 'bold', textAlign: 'right'}}
+                  placeholder="0"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                />
+                <span style={{position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 18, color: '#666', fontWeight: 'bold'}}>%</span>
+              </div>
+            </div>
+          </div>
+
+          {currentBillingAmount > remainingToBill && (
+            <div style={{marginTop: 12, padding: 10, backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, color: '#dc2626', fontSize: 13}}>
+              ⚠️ Amount exceeds remaining balance. It will be capped at ${remainingToBill.toFixed(2)}.
+            </div>
+          )}
+        </div>
+
+        {/* Invoice Details */}
         <div style={styles.card}>
           <h2 style={styles.cardTitle}>Invoice Details</h2>
           <div style={styles.grid2}>
@@ -731,24 +664,43 @@ export default function ProgressBilling() {
               </select>
             </div>
           </div>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Invoice Line Description</label>
+            <input
+              type="text"
+              value={invoiceDescription}
+              onChange={(e) => setInvoiceDescription(e.target.value)}
+              style={styles.input}
+              placeholder="e.g., Progress billing - rough-in phase complete"
+            />
+          </div>
         </div>
 
-        {/* Deposits Available */}
+        {/* Deposits */}
         {deposits.length > 0 && (
           <div style={styles.card}>
-            <h2 style={styles.cardTitle}>💰 Available Deposits</h2>
-            <p style={styles.hint}>Select which deposits to apply to this invoice.</p>
-            
-            <div style={{display: 'flex', flexDirection: 'column', gap: 12}}>
+            <h2 style={styles.cardTitle}>💰 Apply Deposits</h2>
+            <p style={{fontSize: 14, color: '#666', marginBottom: 16}}>
+              Select deposits to apply to this invoice.
+            </p>
+
+            <div style={{display: 'flex', flexDirection: 'column', gap: 10}}>
               {deposits.map((deposit) => {
                 const isSelected = selectedDeposits.has(deposit.id);
                 return (
-                  <div 
-                    key={deposit.id} 
+                  <label
+                    key={deposit.id}
                     style={{
-                      ...styles.depositRow,
-                      backgroundColor: isSelected ? '#f0f9ff' : '#fff',
-                      borderColor: isSelected ? '#3b82f6' : '#e5e7eb'
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: 14,
+                      border: isSelected ? '2px solid #3b82f6' : '2px solid #e5e7eb',
+                      borderRadius: 8,
+                      backgroundColor: isSelected ? '#eff6ff' : '#fff',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
                     }}
                   >
                     <input
@@ -765,197 +717,71 @@ export default function ProgressBilling() {
                       }}
                       style={{width: 20, height: 20, cursor: 'pointer'}}
                     />
-                    
                     <div style={{flex: 1}}>
-                      <div style={{fontSize: 14, fontWeight: '600', color: '#111'}}>
-                        Deposit of ${deposit.deposit_amount.toFixed(2)}
+                      <div style={{fontSize: 15, fontWeight: '600', color: '#111'}}>
+                        ${deposit.deposit_amount.toFixed(2)}
                       </div>
-                      <div style={{fontSize: 12, color: '#666', marginTop: 4}}>
-                        Received: {new Date(deposit.deposit_date).toLocaleDateString()} 
+                      <div style={{fontSize: 12, color: '#666', marginTop: 2}}>
+                        {formatDate(deposit.deposit_date)}
                         {deposit.reference_notes && ` • ${deposit.reference_notes}`}
                       </div>
                     </div>
-                    
-                    <div style={{fontSize: 16, fontWeight: '600', color: BRAND.accent}}>
-                      ${deposit.deposit_amount.toFixed(2)}
-                    </div>
-                  </div>
+                  </label>
                 );
               })}
-              
-              {selectedDeposits.size > 0 && (
-                <div style={{marginTop: 12, padding: 12, backgroundColor: '#f0f9ff', borderRadius: 8, border: '2px solid #3b82f6'}}>
-                  <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                    <span style={{fontSize: 14, fontWeight: '600', color: '#666'}}>Total Deposits Selected:</span>
-                    <span style={{fontSize: 16, fontWeight: 'bold', color: BRAND.accent}}>
-                      ${Array.from(selectedDeposits).reduce((sum, depId) => {
-                        const dep = deposits.find(d => d.id === depId);
-                        return sum + (dep?.deposit_amount || 0);
-                      }, 0).toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         )}
 
-        {/* Summary Card */}
-        <div style={styles.summaryCard}>
+        {/* Final Summary & Create Button */}
+        <div style={{...styles.card, border: '3px solid ' + BRAND.accent}}>
+          <h2 style={{...styles.cardTitle, color: BRAND.accent}}>Invoice Summary</h2>
+
           <div style={styles.summaryRow}>
-            <span style={styles.summaryLabel}>Total Contract Value:</span>
-            <span style={styles.summaryValue}>${totalOriginal.toFixed(2)}</span>
-          </div>
-          <div style={styles.summaryRow}>
-            <span style={styles.summaryLabel}>Previously Billed:</span>
-            <span style={{...styles.summaryValue, color: '#666'}}>${totalBilled.toFixed(2)}</span>
-          </div>
-          <div style={styles.summaryRow}>
-            <span style={styles.summaryLabel}>Remaining to Bill:</span>
-            <span style={{...styles.summaryValue, color: '#10b981'}}>${totalRemaining.toFixed(2)}</span>
-          </div>
-          <div style={{...styles.summaryRow, borderTop: '2px solid #e5e7eb', paddingTop: 12, marginTop: 12}}>
-            <span style={{...styles.summaryLabel, fontSize: 18, fontWeight: 'bold'}}>Subtotal (Current Billing):</span>
-            <span style={{...styles.summaryValue, fontSize: 18, fontWeight: 'bold', color: BRAND.accent}}>
-              ${currentBillingTotal.toFixed(2)}
+            <span style={styles.summaryLabel}>This Draw Amount:</span>
+            <span style={{...styles.summaryValue, fontSize: 22, color: BRAND.accent}}>
+              ${currentBillingAmount.toFixed(2)}
             </span>
           </div>
-          {Array.from(selectedDeposits).reduce((sum, depId) => {
-            const dep = deposits.find(d => d.id === depId);
-            return sum + (dep?.deposit_amount || 0);
-          }, 0) > 0 && (
+
+          {totalDepositsSelected > 0 && (
             <div style={styles.summaryRow}>
-              <span style={styles.summaryLabel}>
-                Deposits Applied:
-              </span>
-              <span style={{...styles.summaryValue, color: '#10b981', fontWeight: 'bold'}}>
-                -${Array.from(selectedDeposits).reduce((sum, depId) => {
-                  const dep = deposits.find(d => d.id === depId);
-                  return sum + (dep?.deposit_amount || 0);
-                }, 0).toFixed(2)}
+              <span style={styles.summaryLabel}>Deposits Applied:</span>
+              <span style={{...styles.summaryValue, color: '#10b981'}}>
+                -${totalDepositsSelected.toFixed(2)}
               </span>
             </div>
           )}
-          <div style={{...styles.summaryRow, borderTop: '2px solid #e5e7eb', paddingTop: 12, marginTop: 12}}>
-            <span style={{...styles.summaryLabel, fontSize: 16, fontWeight: 'bold'}}>Balance Due:</span>
-            <span style={{...styles.summaryValue, fontSize: 20, fontWeight: 'bold', color: currentBillingTotal - Array.from(selectedDeposits).reduce((sum, depId) => {
-              const dep = deposits.find(d => d.id === depId);
-              return sum + (dep?.deposit_amount || 0);
-            }, 0) > 0 ? '#ef4444' : '#10b981'}}>
-              ${Math.max(0, currentBillingTotal - Array.from(selectedDeposits).reduce((sum, depId) => {
-                const dep = deposits.find(d => d.id === depId);
-                return sum + (dep?.deposit_amount || 0);
-              }, 0)).toFixed(2)}
+
+          <div style={{...styles.summaryRow, borderTop: '2px solid #e5e7eb', paddingTop: 16, marginTop: 8}}>
+            <span style={{...styles.summaryLabel, fontSize: 18, fontWeight: 'bold'}}>Balance Due:</span>
+            <span style={{
+              ...styles.summaryValue,
+              fontSize: 24,
+              fontWeight: 'bold',
+              color: balanceDue > 0 ? '#ef4444' : '#10b981'
+            }}>
+              ${balanceDue.toFixed(2)}
             </span>
           </div>
-        </div>
 
-        {/* Line Items */}
-        <div style={styles.card}>
-          <h2 style={styles.cardTitle}>Select Items to Bill</h2>
-          <p style={styles.hint}>Check items to include in this invoice. Specify billing amount as percentage or fixed value.</p>
-          
-          {estimateItems.length === 0 ? (
-            <div style={{padding: 40, textAlign: 'center', color: '#999'}}>
-              <p style={{fontSize: 18, marginBottom: 12}}>No line items found</p>
-              <p style={{fontSize: 14}}>
-                This estimate doesn't have any line items yet. Please go back and add items to the estimate first.
-              </p>
-              <button onClick={() => navigate(-1)} style={{...styles.button, marginTop: 20}}>
-                Go Back
-              </button>
-            </div>
-          ) : (
-            <div style={styles.itemsList}>
-              {estimateItems.map((item) => {
-              const previouslyBilled = billingHistory[item.id] || 0;
-              const itemTotal = item.total || 0;
-              const remaining = itemTotal - previouslyBilled;
-              const percentBilled = itemTotal > 0 ? (previouslyBilled / itemTotal) * 100 : 0;
-              const isFullyBilled = remaining <= 0.01;
-              const isSelected = selectedItems.has(item.id);
-              const config = billingConfig[item.id] || { type: 'percentage', value: 100 };
-              const billingAmount = calculateBillingAmount(item);
+          <div style={{marginTop: 8, fontSize: 13, color: '#666'}}>
+            After this invoice: ${(remainingToBill - currentBillingAmount).toFixed(2)} remaining of ${totalContractValue.toFixed(2)} contract
+          </div>
 
-              return (
-                <div
-                  key={item.id}
-                  style={{
-                    ...styles.itemRow,
-                    backgroundColor: isFullyBilled ? '#f3f4f6' : isSelected ? '#eff6ff' : '#fff',
-                    opacity: isFullyBilled ? 0.6 : 1
-                  }}
-                >
-                  <div style={styles.itemCheckbox}>
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => handleToggleItem(item.id)}
-                      disabled={isFullyBilled}
-                      style={{width: 20, height: 20, cursor: isFullyBilled ? 'not-allowed' : 'pointer'}}
-                    />
-                  </div>
-
-                  <div style={styles.itemInfo}>
-                    <div style={styles.itemDescription}>
-                      {item.description}
-                      {isFullyBilled && <span style={styles.fullTagged}> ✅ Fully Billed</span>}
-                    </div>
-                    <div style={styles.itemMeta}>
-                      Original: ${itemTotal.toFixed(2)} • 
-                      Billed: ${previouslyBilled.toFixed(2)} • 
-                      Remaining: ${remaining.toFixed(2)}
-                    </div>
-                    {percentBilled > 0 && (
-                      <div style={styles.progressBar}>
-                        <div style={{...styles.progressFill, width: `${Math.min(percentBilled, 100)}%`}} />
-                      </div>
-                    )}
-                  </div>
-
-                  {!isFullyBilled && isSelected && (
-                    <div style={styles.itemBillingConfig}>
-                      <select
-                        value={config.type}
-                        onChange={(e) => handleConfigChange(item.id, 'type', e.target.value)}
-                        style={styles.configSelect}
-                      >
-                        <option value="percentage">%</option>
-                        <option value="fixed">$</option>
-                      </select>
-                      <input
-                        type="number"
-                        min="0"
-                        max={config.type === 'percentage' ? 100 : remaining}
-                        step={config.type === 'percentage' ? 1 : 0.01}
-                        value={config.value}
-                        onChange={(e) => handleConfigChange(item.id, 'value', parseFloat(e.target.value) || 0)}
-                        style={styles.configInput}
-                      />
-                      <span style={styles.configResult}>= ${billingAmount.toFixed(2)}</span>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-            </div>
-          )}
-
-          {estimateItems.length > 0 && (
-            <div style={styles.actions}>
-              <button
-                onClick={handleCreateInvoice}
-                disabled={selectedItems.size === 0}
-                style={{
-                  ...styles.createButton,
-                  opacity: selectedItems.size === 0 ? 0.5 : 1,
-                  cursor: selectedItems.size === 0 ? 'not-allowed' : 'pointer'
-                }}
-              >
-                Create Invoice (${currentBillingTotal.toFixed(2)})
-              </button>
-            </div>
-          )}
+          <button
+            onClick={handleCreateInvoice}
+            disabled={currentBillingAmount <= 0}
+            style={{
+              ...styles.createButton,
+              marginTop: 24,
+              width: '100%',
+              opacity: currentBillingAmount <= 0 ? 0.5 : 1,
+              cursor: currentBillingAmount <= 0 ? 'not-allowed' : 'pointer',
+            }}
+          >
+            ✅ Create Progress Invoice — ${currentBillingAmount.toFixed(2)}
+          </button>
         </div>
       </div>
     </div>
@@ -965,7 +791,7 @@ export default function ProgressBilling() {
 const styles = {
   container: {
     padding: "40px 24px",
-    maxWidth: 1200,
+    maxWidth: 900,
     margin: "0 auto",
     minHeight: "100vh",
     backgroundColor: BRAND.bg,
@@ -1003,18 +829,50 @@ const styles = {
   card: {
     backgroundColor: "#fff",
     borderRadius: 12,
-    padding: 32,
+    padding: 28,
   },
   cardTitle: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: "bold",
     color: "#111",
-    marginBottom: 8,
+    marginBottom: 16,
   },
-  hint: {
-    fontSize: 14,
+  summaryGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, 1fr)",
+    gap: 16,
+  },
+  summaryBox: {
+    padding: 16,
+    backgroundColor: "#f9fafb",
+    borderRadius: 10,
+    border: "2px solid #e5e7eb",
+    textAlign: "center",
+  },
+  summaryBoxLabel: {
+    fontSize: 13,
+    fontWeight: "600",
     color: "#666",
-    marginBottom: 24,
+    marginBottom: 8,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  summaryBoxValue: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: "#111",
+  },
+  progressBar: {
+    width: "100%",
+    height: 16,
+    backgroundColor: "#e5e7eb",
+    borderRadius: 8,
+    overflow: "hidden",
+    display: "flex",
+  },
+  progressFill: {
+    height: "100%",
+    transition: "width 0.3s ease",
   },
   grid2: {
     display: "grid",
@@ -1022,7 +880,7 @@ const styles = {
     gap: 20,
   },
   field: {
-    marginBottom: 20,
+    marginBottom: 16,
   },
   label: {
     fontSize: 14,
@@ -1039,11 +897,7 @@ const styles = {
     borderRadius: 8,
     backgroundColor: "#fff",
     color: "#111",
-  },
-  summaryCard: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 32,
+    boxSizing: "border-box",
   },
   summaryRow: {
     display: "flex",
@@ -1060,95 +914,14 @@ const styles = {
     fontWeight: "600",
     color: "#111",
   },
-  itemsList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 12,
-  },
-  itemRow: {
-    display: "flex",
-    gap: 16,
-    padding: 16,
-    border: "2px solid #e5e7eb",
-    borderRadius: 8,
-    alignItems: "flex-start",
-  },
-  itemCheckbox: {
-    paddingTop: 4,
-  },
-  itemInfo: {
-    flex: 1,
-  },
-  itemDescription: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#111",
-    marginBottom: 4,
-  },
-  itemMeta: {
-    fontSize: 13,
-    color: "#666",
-    marginBottom: 8,
-  },
-  fullBilled: {
-    fontSize: 12,
-    color: "#10b981",
-    fontWeight: "bold",
-  },
-  progressBar: {
-    width: "100%",
-    height: 6,
-    backgroundColor: "#e5e7eb",
-    borderRadius: 3,
-    overflow: "hidden",
-    marginTop: 8,
-  },
-  progressFill: {
-    height: "100%",
-    backgroundColor: "#10b981",
-    transition: "width 0.3s ease",
-  },
-  itemBillingConfig: {
-    display: "flex",
-    gap: 8,
-    alignItems: "center",
-  },
-  configSelect: {
-    padding: "8px 12px",
-    fontSize: 14,
-    border: "2px solid #d1d5db",
-    borderRadius: 6,
-    backgroundColor: "#fff",
-    color: "#111",
-    cursor: "pointer",
-  },
-  configInput: {
-    width: 80,
-    padding: "8px 12px",
-    fontSize: 14,
-    border: "2px solid #d1d5db",
-    borderRadius: 6,
-    backgroundColor: "#fff",
-    color: "#111",
-  },
-  configResult: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: BRAND.accent,
-  },
-  actions: {
-    marginTop: 24,
-    display: "flex",
-    justifyContent: "flex-end",
-  },
   createButton: {
-    padding: "14px 32px",
+    padding: "16px 32px",
     backgroundColor: BRAND.accent,
     border: "none",
     color: "#fff",
     borderRadius: 10,
     cursor: "pointer",
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: "bold",
   },
   loading: {

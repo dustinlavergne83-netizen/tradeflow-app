@@ -6,6 +6,8 @@ import * as XLSX from 'xlsx';
 import html2pdf from 'html2pdf.js';
 import logo from '../../assets/LOGOD.jpg';
 
+import { formatDate } from "../../utils/dateUtils";
+
 const BRAND = {
   bg: "#0b3ea8",
   primary: "#fc6b04ff",
@@ -626,7 +628,7 @@ export default function WeeklyTimesheet() {
                     Timesheet Approved
                   </h3>
                   <p style={{ margin: "4px 0 0 0", fontSize: 14, color: "#047857" }}>
-                    Approved on {new Date(approvalStatus.approved_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                    Approved on {formatDate(approvalStatus.approved_at, { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
                   </p>
                 </div>
               </div>

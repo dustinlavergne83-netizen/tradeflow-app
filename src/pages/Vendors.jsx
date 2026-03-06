@@ -3,6 +3,8 @@ import Papa from "papaparse";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 
+import { formatDate } from "../utils/dateUtils";
+
 export default function Vendors() {
   const { user } = useAuth();
   const [vendors, setVendors] = useState([]);
@@ -353,7 +355,7 @@ export default function Vendors() {
                   {recentExpenses.map((expense, idx) => (
                     <div key={idx} style={{ marginBottom: 8, paddingBottom: 8, borderBottom: '1px solid #444' }}>
                       <p style={{ color: '#fff', margin: '3px 0', fontSize: 12 }}>
-                        <strong>${expense.amount}</strong> - {new Date(expense.expense_date).toLocaleDateString()}
+                        <strong>${expense.amount}</strong> - {formatDate(expense.expense_date)}
                       </p>
                       <p style={{ color: '#999', margin: '3px 0', fontSize: 11 }}>
                         {expense.category}

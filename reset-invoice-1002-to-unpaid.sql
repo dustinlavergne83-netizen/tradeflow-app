@@ -15,7 +15,7 @@ FROM invoices
 WHERE invoice_number = '1002';
 
 -- Step 2: Reset invoice #1002 - Clear payment, restore full balance (uncomment to run)
-/*
+
 UPDATE invoices
 SET 
     amount_paid = 0,

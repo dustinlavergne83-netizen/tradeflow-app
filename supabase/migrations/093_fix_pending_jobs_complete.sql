@@ -4,6 +4,18 @@
 -- Migration 090 overwrote migration 089 and broke the pending_jobs view
 -- by removing the notes (project name) grouping. This migration fixes everything.
 
+-- First, add updated_at column to time_entries if it doesn't exist
+-- (needed because a trigger references it during UPDATE)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'time_entries' AND column_name = 'updated_at'
+  ) THEN
+    ALTER TABLE time_entries ADD COLUMN updated_at TIMESTAMPTZ DEFAULT NOW();
+  END IF;
+END $$;
+
 -- Drop the broken view
 DROP VIEW IF EXISTS pending_jobs CASCADE;
 

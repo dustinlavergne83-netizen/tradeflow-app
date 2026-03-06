@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 
+import { formatDate } from "../utils/dateUtils";
+
 const BRAND = {
   bg: "#0b3ea8",
   primary: "#fc6b04ff",
@@ -509,17 +511,17 @@ export default function CheckStubs() {
                     </h4>
                     <div style={styles.stubDetails}>
                       <span style={styles.stubDetail}>
-                        📅 Pay Period: {new Date(stub.pay_period_start).toLocaleDateString()} -{" "}
-                        {new Date(stub.pay_period_end).toLocaleDateString()}
+                        📅 Pay Period: {formatDate(stub.pay_period_start)} -{" "}
+                        {formatDate(stub.pay_period_end)}
                       </span>
                       <span style={styles.stubDetail}>
-                        💰 Pay Date: {new Date(stub.pay_date).toLocaleDateString()}
+                        💰 Pay Date: {formatDate(stub.pay_date)}
                       </span>
                       <span style={styles.stubDetail}>
                         📎 {stub.file_name}
                       </span>
                       <span style={styles.stubDetail}>
-                        ⬆️ Uploaded: {new Date(stub.uploaded_at).toLocaleDateString()}
+                        ⬆️ Uploaded: {formatDate(stub.uploaded_at)}
                       </span>
                     </div>
                   </div>

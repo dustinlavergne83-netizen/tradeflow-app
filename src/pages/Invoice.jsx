@@ -3,11 +3,14 @@
 
 
 
-import { useState, useEffect } from "react";
+
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { createInvoiceJournalEntry } from "../utils/accountingJournals";
+
+import { formatDate } from "../utils/dateUtils";
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -19,6 +22,9 @@ export default function Invoice() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const invoiceId = searchParams.get("invoiceId");
+  const projectId = searchParams.get("projectId");
+  const invoiceType = searchParams.get("type"); // "tm" for Time & Materials
+  const depositAppliedParam = parseFloat(searchParams.get("depositApplied")) || 0;
   const coId = searchParams.get("coId"); // Change Order ID parameter
   const { user } = useAuth();
   
@@ -42,10 +48,6 @@ export default function Invoice() {
   // Markup state
   const [itemMarkups, setItemMarkups] = useState({});
   
-  // Daily breakdown state - format: {itemId: {date: {hours, notes}}}
-  const [dailyBreakdowns, setDailyBreakdowns] = useState({});
-  const [expandedItems, setExpandedItems] = useState(new Set());
-  
   // Progress billing state
   const [selectedItems, setSelectedItems] = useState(new Set());
   const [itemBillingAmounts, setItemBillingAmounts] = useState({});
@@ -62,16 +64,301 @@ export default function Invoice() {
   
   // Detail view state
   const [showDetailedBreakdown, setShowDetailedBreakdown] = useState(false);
+  
+  // Guard against React StrictMode double-mount creating duplicate invoices
+  const creatingRef = useRef(false);
 
   useEffect(() => {
     if (invoiceId) {
       console.log("🔵 Loading invoice:", invoiceId);
       loadInvoice();
+    } else if (projectId && !creatingRef.current) {
+      // Auto-create a new draft invoice for this project
+      creatingRef.current = true;
+      createInvoiceForProject();
+    } else {
+      // No invoiceId and no projectId - nothing to load
+      setLoading(false);
     }
     if (coId) {
       loadChangeOrder();
     }
-  }, [invoiceId, coId]);
+  }, [invoiceId, coId, projectId]);
+
+  async function createInvoiceForProject() {
+    try {
+      // Load project data
+      const { data: proj, error: projErr } = await supabase
+        .from("projects")
+        .select("*")
+        .eq("id", projectId)
+        .single();
+
+      if (projErr || !proj) {
+        alert("Project not found");
+        setLoading(false);
+        return;
+      }
+
+      // Get next invoice number
+      const { data: lastInv } = await supabase
+        .from("invoices")
+        .select("invoice_number")
+        .order("invoice_number", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      let nextNum = 1001;
+      if (lastInv?.invoice_number) {
+        const parsed = parseInt(lastInv.invoice_number);
+        if (!isNaN(parsed)) nextNum = parsed + 1;
+      }
+
+      const today = new Date().toISOString().split("T")[0];
+
+      // Create the invoice with minimal columns
+      let newInvoice = null;
+      let createErr = null;
+
+      // Look up customer email
+      let custEmail = "";
+      const customerName = proj.contractor || proj.customer || "";
+      if (customerName) {
+        const { data: custData } = await supabase
+          .from("customers")
+          .select("email")
+          .eq("customer", customerName)
+          .maybeSingle();
+        if (custData?.email) custEmail = custData.email;
+      }
+
+      const isTM = invoiceType === "tm";
+
+      // Create the invoice
+      const result = await supabase
+        .from("invoices")
+        .insert([{
+          invoice_number: String(nextNum),
+          customer_name: customerName,
+          customer_email: custEmail,
+          invoice_date: today,
+          status: "draft",
+          project_name: proj.name,
+          notes: isTM ? "Time & Materials Invoice" : "",
+          subtotal: 0,
+          total: 0,
+          amount_paid: 0,
+          balance_due: 0,
+          created_by: user.id,
+        }])
+        .select()
+        .single();
+      
+      newInvoice = result.data;
+      createErr = result.error;
+
+      if (createErr) {
+        console.error("Error creating invoice:", createErr);
+        alert("Failed to create invoice: " + createErr.message);
+        setLoading(false);
+        return;
+      }
+
+      // If T&M invoice, load unbilled labor and materials and create invoice items
+      if (isTM && newInvoice) {
+        console.log("⏱️ Creating T&M invoice - loading unbilled items...");
+        
+        // Load unbilled time entries (shift_segments for this project)
+        // Query by BOTH project_id AND project_task name to catch all entries
+        const { data: timeByIdData } = await supabase
+          .from("shift_segments")
+          .select("id, user_id, start_at, end_at, project_task")
+          .eq("project_id", projectId)
+          .not("end_at", "is", null)
+          .order("start_at", { ascending: true });
+
+        const { data: timeByNameData } = await supabase
+          .from("shift_segments")
+          .select("id, user_id, start_at, end_at, project_task")
+          .ilike("project_task", `%${proj.name}%`)
+          .not("end_at", "is", null)
+          .order("start_at", { ascending: true });
+
+        // Merge and deduplicate
+        const seenIds = new Set();
+        const timeData = [];
+        [...(timeByIdData || []), ...(timeByNameData || [])].forEach(seg => {
+          if (!seenIds.has(seg.id)) {
+            seenIds.add(seg.id);
+            timeData.push(seg);
+          }
+        });
+        console.log(`⏱️ Found ${timeData.length} time entries (${(timeByIdData||[]).length} by ID, ${(timeByNameData||[]).length} by name)`);
+
+        // Load unbilled expenses
+        const { data: expenseData1 } = await supabase
+          .from("project_expenses")
+          .select("*")
+          .eq("project_id", projectId)
+          .order("expense_date");
+
+        const { data: expenseData2 } = await supabase
+          .from("expenses")
+          .select("*")
+          .eq("project_id", projectId)
+          .order("expense_date");
+
+        const allExpenses = [...(expenseData1 || []), ...(expenseData2 || [])];
+
+        const invoiceItemsToCreate = [];
+        const laborRate = proj.labor_rate || 50;
+
+        // Fetch employee names for time entries
+        const uniqueUserIds = [...new Set((timeData || []).map(e => e.user_id).filter(Boolean))];
+        let employeeMap = {};
+        if (uniqueUserIds.length > 0) {
+          const { data: empData } = await supabase
+            .from("employees")
+            .select("user_id, first_name, last_name")
+            .in("user_id", uniqueUserIds);
+          if (empData) {
+            empData.forEach(emp => { employeeMap[emp.user_id] = emp; });
+          }
+        }
+
+        // Calculate TOTAL labor hours and build detail breakdown
+        let totalLaborHours = 0;
+        const laborDetails = [];
+        const employeeHours = {};
+        (timeData || []).forEach(seg => {
+          const emp = employeeMap[seg.user_id];
+          const empName = emp ? `${emp.first_name} ${emp.last_name}` : "Unknown";
+          if (!employeeHours[empName]) employeeHours[empName] = { hours: 0, entries: [] };
+          const start = new Date(seg.start_at);
+          const end = new Date(seg.end_at);
+          const hours = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+          employeeHours[empName].hours += hours;
+          employeeHours[empName].entries.push({
+            date: start.toISOString().split('T')[0],
+            hours: parseFloat(hours.toFixed(2)),
+            clockIn: start.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}),
+            clockOut: end.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}),
+          });
+          totalLaborHours += hours;
+        });
+
+        // Build labor detail JSON for attachment page
+        for (const [empName, data] of Object.entries(employeeHours)) {
+          laborDetails.push({
+            employee: empName,
+            totalHours: parseFloat(data.hours.toFixed(2)),
+            rate: laborRate,
+            total: parseFloat((data.hours * laborRate).toFixed(2)),
+            entries: data.entries,
+          });
+        }
+
+        const totalLaborCost = parseFloat((totalLaborHours * laborRate).toFixed(2));
+
+        // Calculate TOTAL materials cost and build detail breakdown
+        const totalMaterialsCost = allExpenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
+        const materialDetails = allExpenses.map(exp => ({
+          description: exp.description || "Expense",
+          vendor: exp.vendor || "No vendor",
+          date: exp.expense_date,
+          amount: exp.amount || 0,
+        }));
+
+        // Create just 2 summary line items: Labor & Materials
+        if (totalLaborCost > 0) {
+          invoiceItemsToCreate.push({
+            invoice_id: newInvoice.id,
+            description: "Labor",
+            quantity: parseFloat(totalLaborHours.toFixed(2)),
+            unit_price: laborRate,
+            total: totalLaborCost,
+            daily_breakdown: JSON.stringify({ laborDetails }),
+          });
+        }
+
+        if (totalMaterialsCost > 0) {
+          invoiceItemsToCreate.push({
+            invoice_id: newInvoice.id,
+            description: "Materials & Expenses",
+            quantity: 1,
+            unit_price: totalMaterialsCost,
+            total: totalMaterialsCost,
+            daily_breakdown: JSON.stringify({ materialDetails }),
+          });
+        }
+
+        // Insert all invoice items
+        if (invoiceItemsToCreate.length > 0) {
+          let { error: itemsErr } = await supabase
+            .from("invoice_items")
+            .insert(invoiceItemsToCreate);
+
+          // If insert fails (likely missing daily_breakdown column), retry without it
+          if (itemsErr) {
+            console.warn("⚠️ First insert failed, retrying without daily_breakdown:", itemsErr.message);
+            const itemsWithoutBreakdown = invoiceItemsToCreate.map(({ daily_breakdown, ...rest }) => rest);
+            const retryResult = await supabase
+              .from("invoice_items")
+              .insert(itemsWithoutBreakdown);
+            itemsErr = retryResult.error;
+            if (itemsErr) {
+              console.error("❌ Retry also failed:", itemsErr);
+            }
+          }
+
+          if (!itemsErr) {
+            // Update invoice totals
+            const totalAmount = invoiceItemsToCreate.reduce((sum, i) => sum + i.total, 0);
+            await supabase
+              .from("invoices")
+              .update({ subtotal: totalAmount, total: totalAmount, balance_due: totalAmount })
+              .eq("id", newInvoice.id);
+            console.log(`✅ Created ${invoiceItemsToCreate.length} T&M invoice items, total: $${totalAmount.toFixed(2)}`);
+          }
+        }
+      }
+
+      // If deposits were applied from ProjectDetail, link them to this invoice
+      if (depositAppliedParam > 0 && newInvoice) {
+        console.log("💰 Linking deposits from ProjectDetail, amount:", depositAppliedParam);
+        
+        // Update invoice with deposit amount
+        await supabase
+          .from("invoices")
+          .update({ deposit_received: depositAppliedParam })
+          .eq("id", newInvoice.id);
+        
+        // Find deposits that were marked as applied with null invoice_id (from ProjectDetail)
+        const { data: appliedDeposits } = await supabase
+          .from("project_deposits")
+          .select("id")
+          .eq("project_id", projectId)
+          .eq("status", "applied")
+          .is("invoice_id", null);
+        
+        if (appliedDeposits && appliedDeposits.length > 0) {
+          const depositIds = appliedDeposits.map(d => d.id);
+          await supabase
+            .from("project_deposits")
+            .update({ invoice_id: newInvoice.id, status: "applied", applied_date: new Date().toISOString() })
+            .in("id", depositIds);
+          console.log(`✅ Linked ${depositIds.length} deposits to invoice ${newInvoice.id}`);
+        }
+      }
+
+      // Redirect to the newly created invoice
+      navigate(`/invoice?invoiceId=${newInvoice.id}`, { replace: true });
+    } catch (err) {
+      console.error("Error creating invoice for project:", err);
+      alert("Failed to create invoice");
+      setLoading(false);
+    }
+  }
   
   async function loadDeposits(projectName) {
     if (!projectName) return;
@@ -199,6 +486,19 @@ export default function Invoice() {
       setAmountPaid(invoiceData.amount_paid || 0);
       setDepositReceived(invoiceData.deposit_received || 0);
       setDepositDate(invoiceData.deposit_date || "");
+
+      // Auto-correct status if payment covers the balance
+      const loadedTotal = invoiceData.total || invoiceData.subtotal || 0;
+      const loadedPaid = (invoiceData.amount_paid || 0) + (invoiceData.deposit_received || 0);
+      if (loadedPaid > 0 && loadedTotal > 0 && (loadedTotal - loadedPaid) <= 0.01 && invoiceData.status !== 'paid') {
+        setStatus('paid');
+        // Also update DB silently
+        supabase.from("invoices").update({ status: 'paid' }).eq("id", invoiceId).then(() => {
+          console.log("✅ Auto-corrected invoice status to paid");
+        });
+      } else if (loadedPaid > 0 && loadedTotal > 0 && (loadedTotal - loadedPaid) > 0.01 && invoiceData.status === 'sent') {
+        setStatus('partial');
+      }
 
       // Load invoice items
       const { data: itemsData, error: itemsError } = await supabase
@@ -433,10 +733,36 @@ export default function Invoice() {
     }
   }
 
-  async function handleSave() {
+  async function handleSave(options = {}) {
+    const { silent = false } = options;
     try {
       const subtotal = invoiceItems.reduce((sum, item) => sum + (item.total || 0), 0);
-      const balanceDue = subtotal - amountPaid;
+      
+      // Calculate total markup
+      const totalMarkup = Object.keys(itemMarkups).reduce((sum, itemId) => {
+        const item = invoiceItems.find(i => i.id === itemId);
+        if (!item) return sum;
+        const baseTotal = item.total || 0;
+        const markupPercent = itemMarkups[itemId] || 0;
+        return sum + (baseTotal * (markupPercent / 100));
+      }, 0);
+      
+      // Total includes markup
+      const totalWithMarkup = subtotal + totalMarkup;
+      
+      // Balance due accounts for markup, deposits, AND amount paid
+      const totalDeductions = depositReceived + amountPaid;
+      const balanceDue = totalWithMarkup - totalDeductions;
+
+      // Auto-update status based on payment
+      let saveStatus = status;
+      if (amountPaid > 0 && balanceDue <= 0.01 && status !== 'paid') {
+        saveStatus = 'paid';
+        setStatus('paid');
+      } else if (amountPaid > 0 && balanceDue > 0.01 && (status === 'sent' || status === 'draft')) {
+        saveStatus = 'partial';
+        setStatus('partial');
+      }
 
       // Extract percentage and original amount from progress billing items (if any)
       let progressPercentage = 0;
@@ -458,6 +784,14 @@ export default function Invoice() {
         }
       }
 
+      // Delete any existing journal entries for this invoice BEFORE saving
+      // This prevents the DB trigger from failing on duplicate journal entry keys
+      try {
+        await deleteExistingInvoiceJournalEntries();
+      } catch (delErr) {
+        console.warn("⚠️ Could not clean up journal entries before save:", delErr);
+      }
+
       const { error } = await supabase
         .from("invoices")
         .update({
@@ -466,16 +800,24 @@ export default function Invoice() {
           customer_email: customerEmail,
           invoice_date: invoiceDate,
           due_date: dueDate || null,
-          status: status,
+          status: saveStatus,
           notes: notes,
           subtotal: subtotal,
-          total: subtotal,
+          total: totalWithMarkup,
           amount_paid: amountPaid,
+          deposit_received: depositReceived,
           balance_due: balanceDue,
         })
         .eq("id", invoiceId);
 
-      if (error) throw error;
+      if (error) {
+        // If the error is from a DB trigger (journal entry duplicate), the invoice was still saved
+        if (error.message && error.message.includes('journal_entries')) {
+          console.warn("⚠️ Invoice saved but journal entry trigger had a conflict:", error.message);
+        } else {
+          throw error;
+        }
+      }
       
       // Save markup percentages for each item
       console.log("Saving markups:", itemMarkups);
@@ -507,43 +849,6 @@ export default function Invoice() {
         console.log("✅ All markups saved successfully");
       }
       
-      // Save daily breakdowns for labor items
-      console.log("Saving daily breakdowns:", dailyBreakdowns);
-      const dailySavePromises = Object.entries(dailyBreakdowns).map(([itemId, breakdown]) => {
-        if (Object.keys(breakdown).length === 0) {
-          // If no daily entries, set to null
-          return supabase
-            .from("invoice_items")
-            .update({ daily_breakdown: null })
-            .eq("id", itemId);
-        }
-        console.log(`🔄 Attempting to save daily breakdown for item ${itemId}`);
-        return supabase
-          .from("invoice_items")
-          .update({ daily_breakdown: JSON.stringify(breakdown) })
-          .eq("id", itemId);
-      });
-      
-      const dailyResults = await Promise.all(dailySavePromises);
-      let dailyErrors = [];
-      
-      dailyResults.forEach((result, index) => {
-        const [itemId] = Object.entries(dailyBreakdowns)[index];
-        if (result.error) {
-          console.error(`❌ Error saving daily breakdown for item ${itemId}:`, result.error);
-          dailyErrors.push(`Item ${itemId}: ${result.error.message}`);
-        } else {
-          console.log(`✅ Saved daily breakdown for item ${itemId}`);
-        }
-      });
-      
-      if (dailyErrors.length > 0) {
-        console.error("Daily breakdown save errors:", dailyErrors);
-        alert(`⚠️ Invoice saved but some daily breakdowns failed:\n${dailyErrors.join('\n')}\n\nMake sure the invoice_items table has a daily_breakdown column.`);
-      } else if (Object.keys(dailyBreakdowns).length > 0) {
-        console.log("✅ All daily breakdowns saved successfully");
-      }
-
       // Update project's percent_complete and active_worth if this is a progress billing invoice
       if (progressPercentage > 0 && invoice?.project_name) {
         try {
@@ -574,11 +879,17 @@ export default function Invoice() {
       
       // NOTE: Journal entry is NOT created on save - it will be created ONLY when the invoice is SENT
       // This prevents duplicate journal entries
-      alert("Invoice saved successfully!");
-      loadInvoice();
+      if (!silent) {
+        alert("Invoice saved successfully!");
+      }
+      if (!silent) {
+        loadInvoice();
+      }
     } catch (err) {
       console.error("Error saving invoice:", err);
-      alert("Failed to save invoice");
+      if (!silent) {
+        alert("Failed to save invoice: " + (err.message || JSON.stringify(err)));
+      }
     }
   }
 
@@ -645,11 +956,45 @@ export default function Invoice() {
 
     setSending(true);
     try {
-      // First, save the invoice
-      await handleSave();
+      // First, save the invoice (silent to avoid loadInvoice race condition)
+      await handleSave({ silent: true });
 
       const subtotal = invoiceItems.reduce((sum, item) => sum + (item.total || 0), 0);
-      const balanceDue = subtotal - amountPaid;
+      
+      // Calculate markup for email
+      const totalMarkupForEmail = Object.keys(itemMarkups).reduce((sum, itemId) => {
+        const item = invoiceItems.find(i => i.id === itemId);
+        if (!item) return sum;
+        return sum + ((item.total || 0) * ((itemMarkups[itemId] || 0) / 100));
+      }, 0);
+      const totalWithMarkupForEmail = subtotal + totalMarkupForEmail;
+      const totalDeductionsForEmail = depositReceived + amountPaid;
+      const balanceDueForEmail = totalWithMarkupForEmail - totalDeductionsForEmail;
+
+      // Build markup details for each item
+      const markupDetails = invoiceItems.map(item => ({
+        description: item.description,
+        baseTotal: item.total || 0,
+        markupPercent: itemMarkups[item.id] || 0,
+        markupAmount: (item.total || 0) * ((itemMarkups[item.id] || 0) / 100),
+      })).filter(m => m.markupPercent > 0);
+
+      // Parse daily breakdowns for detailed email
+      const detailedItems = invoiceItems.map(item => {
+        let laborDetails = [];
+        let materialDetails = [];
+        try {
+          const parsed = item.daily_breakdown ? JSON.parse(item.daily_breakdown) : null;
+          if (parsed?.laborDetails) laborDetails = parsed.laborDetails;
+          if (parsed?.materialDetails) materialDetails = parsed.materialDetails;
+        } catch(e) {}
+        return {
+          ...item,
+          laborDetails,
+          materialDetails,
+          markupPercent: itemMarkups[item.id] || 0,
+        };
+      });
 
       // Call the Edge Function
       const { data, error } = await supabase.functions.invoke('send-invoice', {
@@ -661,10 +1006,14 @@ export default function Invoice() {
           invoiceNumber: invoiceNumber,
           invoiceDate: invoiceDate,
           dueDate: dueDate,
-          lineItems: invoiceItems,
+          lineItems: detailedItems,
           subtotal: subtotal,
+          totalMarkup: totalMarkupForEmail,
+          totalWithMarkup: totalWithMarkupForEmail,
+          depositReceived: depositReceived,
           amountPaid: amountPaid,
-          balanceDue: balanceDue,
+          balanceDue: balanceDueForEmail,
+          markupDetails: markupDetails,
           notes: notes
         }
       });
@@ -681,34 +1030,51 @@ export default function Invoice() {
         throw new Error(data.error || "Unknown error from Edge Function");
       }
 
+      // Email sent successfully! Now handle status update and journal entry separately
+      let emailSent = true;
+
       // Update invoice status to 'sent'
-      const { data: updatedInvoice, error: updateError } = await supabase
-        .from("invoices")
-        .update({ status: 'sent' })
-        .eq("id", invoiceId)
-        .select()
-        .single();
-
-      if (updateError) throw updateError;
-
-      // Delete any existing journal entries for this invoice BEFORE creating new ones
-      // This prevents duplicate entries if the invoice is edited and sent again
-      await deleteExistingInvoiceJournalEntries();
-
-      // Create journal entry: Debit A/R, Credit Revenue
-      const journalResult = await createInvoiceJournalEntry(
-        updatedInvoice,
-        user.id,
-        user.id
-      );
-
-      if (!journalResult.success) {
-        console.error("Journal entry creation failed:", journalResult.error);
-        alert(`⚠️ Invoice sent but journal entry failed: ${journalResult.error}\nPlease create the entry manually.`);
+      try {
+        await supabase
+          .from("invoices")
+          .update({ status: 'sent' })
+          .eq("id", invoiceId);
+        setStatus('sent');
+      } catch (statusErr) {
+        console.error("Error updating status:", statusErr);
       }
 
-      setStatus('sent');
-      alert(`✅ Invoice sent successfully to ${customerEmail}!`);
+      // Try to create journal entry (don't let failures affect the success message)
+      try {
+        await deleteExistingInvoiceJournalEntries();
+
+        const { data: updatedInvoice } = await supabase
+          .from("invoices")
+          .select("*")
+          .eq("id", invoiceId)
+          .single();
+
+        if (updatedInvoice) {
+          const journalResult = await createInvoiceJournalEntry(
+            updatedInvoice,
+            user.id,
+            user.id
+          );
+
+          if (!journalResult.success) {
+            console.warn("⚠️ Journal entry creation failed:", journalResult.error);
+          } else {
+            console.log("✅ Journal entry created successfully");
+          }
+        }
+      } catch (journalErr) {
+        console.warn("⚠️ Journal entry error (invoice still sent):", journalErr.message);
+      }
+
+      alert(`✅ Invoice #${invoiceNumber} sent successfully to ${customerEmail}!`);
+      
+      // Reload invoice to reflect the updated status
+      loadInvoice();
     } catch (err) {
       console.error("Error sending invoice:", err);
       alert(`Failed to send invoice: ${err.message || 'Unknown error'}`);
@@ -819,13 +1185,19 @@ export default function Invoice() {
         <h1 style={styles.title}>Invoice #{invoiceNumber}</h1>
         <div style={{display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'flex-end'}}>
           <button 
-            onClick={() => window.open(`/invoice/view?invoiceId=${invoiceId}`, '_blank')}
+            onClick={async () => {
+              await handleSave({ silent: true });
+              window.open(`/invoice/view?invoiceId=${invoiceId}`, '_blank');
+            }}
             style={{...styles.button, background: '#10b981'}}
           >
-            👁️ Preview/Print
+            👁️ Preview/Print (with Details)
           </button>
           <button 
-            onClick={() => navigate(`/invoice/detailed-report?invoiceId=${invoiceId}`)}
+            onClick={async () => {
+              await handleSave({ silent: true });
+              navigate(`/invoice/detailed-report?invoiceId=${invoiceId}`);
+            }}
             style={{...styles.button, background: '#8b5cf6'}}
           >
             📊 Detailed Report
@@ -978,7 +1350,7 @@ export default function Invoice() {
                     />
                     <div style={{flex: 1}}>
                       <div style={{fontSize: 16, fontWeight: '600', color: '#111', marginBottom: 4}}>
-                        Deposit - {new Date(deposit.deposit_date).toLocaleDateString()}
+                        Deposit - {formatDate(deposit.deposit_date)}
                       </div>
                       {deposit.reference_notes && (
                         <div style={{fontSize: 13, color: '#666'}}>
@@ -1143,12 +1515,11 @@ export default function Invoice() {
             <div style={styles.table}>
               <div style={styles.tableHeader}>
                 <div style={{...styles.th, flex: 3}}>Description</div>
-                <div style={{...styles.th, flex: 0.8}}>Quantity</div>
-                <div style={{...styles.th, flex: 0.8}}>Unit Price</div>
-                <div style={{...styles.th, flex: 0.8}}>Total</div>
+                <div style={{...styles.th, flex: 0.8}}>Qty</div>
+                <div style={{...styles.th, flex: 0.8}}>Cost</div>
                 <div style={{...styles.th, flex: 0.7}}>Markup %</div>
-                <div style={{...styles.th, flex: 0.8}}>W/ Markup</div>
-                <div style={{...styles.th, width: 60}}>Actions</div>
+                <div style={{...styles.th, flex: 1}}>Total Cost</div>
+                <div style={{...styles.th, width: 60}}></div>
               </div>
 
               {invoiceItems.map((item) => {
@@ -1191,9 +1562,6 @@ export default function Invoice() {
                         style={styles.cellInput}
                       />
                     </div>
-                    <div style={{flex: 0.8, padding: '8px', fontWeight: '600', textAlign: 'right'}}>
-                      ${baseTotal.toFixed(2)}
-                    </div>
                     <div style={{flex: 0.7}}>
                       <input
                         type="number"
@@ -1208,17 +1576,8 @@ export default function Invoice() {
                         min="0"
                       />
                     </div>
-                    <div style={{flex: 0.8, padding: '8px', fontWeight: '600', color: BRAND.accent, textAlign: 'right'}}>
-                      {markupPercent > 0 ? (
-                        <>
-                          <div style={{fontSize: 12, color: '#666', marginBottom: 4}}>
-                            @ ${markedUpUnitPrice.toFixed(2)}
-                          </div>
-                          <div>${totalWithMarkup.toFixed(2)}</div>
-                        </>
-                      ) : (
-                        `$${baseTotal.toFixed(2)}`
-                      )}
+                    <div style={{flex: 1, padding: '8px', fontWeight: '600', color: markupPercent > 0 ? BRAND.accent : '#111', textAlign: 'right'}}>
+                      ${(markupPercent > 0 ? totalWithMarkup : baseTotal).toFixed(2)}
                     </div>
                     <div style={{width: 60}}>
                       <button
@@ -1228,131 +1587,6 @@ export default function Invoice() {
                         🗑️
                       </button>
                     </div>
-                    
-                    {/* Daily Breakdown Section - Only for labor items */}
-                    {item.description?.toLowerCase().includes("labor") && (
-                      <div style={{gridColumn: '1 / -1', marginTop: 16, paddingTop: 16, borderTop: '2px solid #e5e7eb'}}>
-                        <button
-                          onClick={() => {
-                            const newExpanded = new Set(expandedItems);
-                            if (newExpanded.has(item.id)) {
-                              newExpanded.delete(item.id);
-                            } else {
-                              newExpanded.add(item.id);
-                            }
-                            setExpandedItems(newExpanded);
-                          }}
-                          style={{
-                            ...styles.expandButton,
-                            backgroundColor: expandedItems.has(item.id) ? '#3b82f6' : '#e5e7eb',
-                            color: expandedItems.has(item.id) ? '#fff' : '#111'
-                          }}
-                        >
-                          {expandedItems.has(item.id) ? '▼' : '▶'} Daily Breakdown ({Object.keys(dailyBreakdowns[item.id] || {}).length} days)
-                        </button>
-                        
-                        {/* Daily Breakdown Editor */}
-                        {expandedItems.has(item.id) && (
-                          <div style={{marginTop: 16, padding: 16, backgroundColor: '#f0f7ff', borderRadius: 8, border: '2px solid #3b82f6'}}>
-                            {/* Existing daily entries - More compact layout */}
-                            {dailyBreakdowns[item.id] && Object.entries(dailyBreakdowns[item.id]).map(([date, data]) => (
-                              <div key={date} style={{marginBottom: 12, padding: 12, backgroundColor: '#fff', borderRadius: 6, border: '1px solid #d1d5db', display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 0.6fr', gap: 12, alignItems: 'center'}}>
-                                <div style={{gridColumn: '1 / -1', marginBottom: 8}}>
-                                  <div style={{display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 0.6fr', gap: 12, alignItems: 'flex-end'}}>
-                                    <div>
-                                      <label style={{fontSize: 12, fontWeight: '600', color: '#666', display: 'block', marginBottom: 4}}>Date</label>
-                                      <input
-                                        type="date"
-                                        value={date}
-                                        onChange={(e) => {
-                                          const newBreakdown = {...(dailyBreakdowns[item.id] || {})};
-                                          const oldData = newBreakdown[date];
-                                          delete newBreakdown[date];
-                                          newBreakdown[e.target.value] = oldData;
-                                          setDailyBreakdowns({...dailyBreakdowns, [item.id]: newBreakdown});
-                                        }}
-                                        style={{...styles.cellInput, width: '100%'}}
-                                      />
-                                    </div>
-                                    <div>
-                                      <label style={{fontSize: 12, fontWeight: '600', color: '#666', display: 'block', marginBottom: 4}}>Hours</label>
-                                      <input
-                                        type="number"
-                                        step="0.5"
-                                        value={data.hours || 0}
-                                        onChange={(e) => {
-                                          const newBreakdown = {...(dailyBreakdowns[item.id] || {})};
-                                          newBreakdown[date].hours = parseFloat(e.target.value) || 0;
-                                          setDailyBreakdowns({...dailyBreakdowns, [item.id]: newBreakdown});
-                                        }}
-                                        style={{...styles.cellInput, width: '100%'}}
-                                      />
-                                    </div>
-                                    <div style={{textAlign: 'center', fontSize: 12, color: '#666', fontWeight: '600'}}>
-                                      ${((data.hours || 0) * (item.unit_price || 0)).toFixed(2)}
-                                    </div>
-                                    <button
-                                      onClick={() => {
-                                        const newBreakdown = {...(dailyBreakdowns[item.id] || {})};
-                                        delete newBreakdown[date];
-                                        setDailyBreakdowns({...dailyBreakdowns, [item.id]: newBreakdown});
-                                      }}
-                                      style={{...styles.deleteButton, width: '100%', padding: '6px'}}
-                                    >
-                                      🗑️
-                                    </button>
-                                  </div>
-                                </div>
-                                {data.notes && (
-                                  <div style={{gridColumn: '1 / -1', fontSize: 12, color: '#666', fontStyle: 'italic', padding: 8, backgroundColor: '#fffbeb', borderRadius: 4, borderLeft: '3px solid #f59e0b'}}>
-                                    💬 {data.notes}
-                                  </div>
-                                )}
-                                <textarea
-                                  value={data.notes || ''}
-                                  onChange={(e) => {
-                                    const newBreakdown = {...(dailyBreakdowns[item.id] || {})};
-                                    newBreakdown[date].notes = e.target.value;
-                                    setDailyBreakdowns({...dailyBreakdowns, [item.id]: newBreakdown});
-                                  }}
-                                  style={{
-                                    ...styles.cellInput,
-                                    gridColumn: '1 / -1',
-                                    width: '100%',
-                                    minHeight: 40,
-                                    resize: 'vertical'
-                                  }}
-                                  placeholder="Notes (optional)..."
-                                />
-                              </div>
-                            ))}
-                            
-                            {/* Add new daily entry button */}
-                            <button
-                              onClick={() => {
-                                const newDate = new Date().toISOString().split('T')[0];
-                                const newBreakdown = dailyBreakdowns[item.id] || {};
-                                newBreakdown[newDate] = { hours: 0, notes: '' };
-                                setDailyBreakdowns({...dailyBreakdowns, [item.id]: newBreakdown});
-                              }}
-                              style={{
-                                width: '100%',
-                                padding: '10px',
-                                backgroundColor: '#3b82f6',
-                                border: 'none',
-                                color: '#fff',
-                                borderRadius: 6,
-                                cursor: 'pointer',
-                                fontSize: 13,
-                                fontWeight: '600'
-                              }}
-                            >
-                              + Add Daily Entry
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
                   </div>
                 );
               })}
@@ -1360,7 +1594,18 @@ export default function Invoice() {
           )}
 
           {/* Billing Summary Table - Only for progress billing invoices */}
-          {notes && notes.includes('Progress billing') && (
+          {notes && notes.includes('Progress billing') && (() => {
+            const drawMatch = notes.match(/This draw: \$([0-9,.]+)/);
+            const pctOfMatch = notes.match(/\(([0-9.]+)% of \$([0-9,.]+)\)/);
+            const prevNoteMatch = notes.match(/Previously billed: \$([0-9,.]+)/);
+            const remainNoteMatch = notes.match(/Remaining after this: \$([0-9,.]+)/);
+            const contractTotal = pctOfMatch ? parseFloat(pctOfMatch[2].replace(/,/g, '')) : 0;
+            const drawPercent = pctOfMatch ? parseFloat(pctOfMatch[1]) : 0;
+            const prevBilled = prevNoteMatch ? parseFloat(prevNoteMatch[1].replace(/,/g, '')) : 0;
+            const remainAfter = remainNoteMatch ? parseFloat(remainNoteMatch[1].replace(/,/g, '')) : 0;
+            const hasOldFormat = invoiceItems.some(it => (it.description || "").includes('\n') && (it.description || "").includes('Original:'));
+
+            return (
             <div style={{marginTop: 32, marginBottom: 24}}>
               <h3 style={{fontSize: 18, fontWeight: 'bold', marginBottom: 16, color: '#111'}}>
                 Progress Billing Summary
@@ -1369,47 +1614,52 @@ export default function Invoice() {
                 <table style={styles.summaryTable}>
                   <thead>
                     <tr style={styles.summaryHeaderRow}>
-                      <th style={{...styles.summaryTh, textAlign: 'left'}}>Item Description</th>
-                      <th style={styles.summaryTh}>Original Amount</th>
-                      <th style={styles.summaryTh}>This Invoice</th>
-                      <th style={styles.summaryTh}>% Billed</th>
+                      <th style={{...styles.summaryTh, textAlign: 'left'}}>Description</th>
+                      <th style={styles.summaryTh}>{hasOldFormat ? 'Original Amount' : 'Contract Value'}</th>
+                      <th style={styles.summaryTh}>{hasOldFormat ? 'This Invoice' : 'This Draw'}</th>
+                      <th style={styles.summaryTh}>% of Contract</th>
                       <th style={styles.summaryTh}>Previously Billed</th>
                       <th style={styles.summaryTh}>Remaining</th>
                     </tr>
                   </thead>
                   <tbody>
                     {invoiceItems.map((item) => {
-                      // Parse the detailed description to extract values
                       const desc = item.description || "";
                       const lines = desc.split('\n');
                       const itemName = lines[0];
-                      
-                      // Extract values from description
-                      let original = 0, thisInvoice = 0, percent = 0, previouslyBilled = 0, remaining = 0;
-                      
-                      if (lines.length > 1) {
+
+                      if (hasOldFormat && lines.length > 1) {
                         const detailLine = lines[1];
-                        const originalMatch = detailLine.match(/Original: \$([0-9,.]+)/);
-                        const thisMatch = detailLine.match(/This Invoice: \$([0-9,.]+)/);
-                        const percentMatch = detailLine.match(/\(([0-9.]+)%\)/);
-                        const prevMatch = detailLine.match(/Previously Billed: \$([0-9,.]+)/);
-                        const remainMatch = detailLine.match(/Remaining: \$([0-9,.]+)/);
-                        
-                        if (originalMatch) original = parseFloat(originalMatch[1].replace(/,/g, ''));
-                        if (thisMatch) thisInvoice = parseFloat(thisMatch[1].replace(/,/g, ''));
-                        if (percentMatch) percent = parseFloat(percentMatch[1]);
-                        if (prevMatch) previouslyBilled = parseFloat(prevMatch[1].replace(/,/g, ''));
-                        if (remainMatch) remaining = parseFloat(remainMatch[1].replace(/,/g, ''));
+                        let original = 0, thisInv = 0, pct = 0, prevB = 0, rem = 0;
+                        const oM = detailLine.match(/Original: \$([0-9,.]+)/);
+                        const tM = detailLine.match(/This Invoice: \$([0-9,.]+)/);
+                        const pM = detailLine.match(/\(([0-9.]+)%\)/);
+                        const pvM = detailLine.match(/Previously Billed: \$([0-9,.]+)/);
+                        const rM = detailLine.match(/Remaining: \$([0-9,.]+)/);
+                        if (oM) original = parseFloat(oM[1].replace(/,/g, ''));
+                        if (tM) thisInv = parseFloat(tM[1].replace(/,/g, ''));
+                        if (pM) pct = parseFloat(pM[1]);
+                        if (pvM) prevB = parseFloat(pvM[1].replace(/,/g, ''));
+                        if (rM) rem = parseFloat(rM[1].replace(/,/g, ''));
+                        return (
+                          <tr key={item.id} style={styles.summaryRow}>
+                            <td style={{...styles.summaryTd, textAlign: 'left', fontWeight: '600'}}>{itemName}</td>
+                            <td style={styles.summaryTd}>${original.toFixed(2)}</td>
+                            <td style={{...styles.summaryTd, color: BRAND.accent, fontWeight: '600'}}>${thisInv.toFixed(2)}</td>
+                            <td style={styles.summaryTd}>{pct.toFixed(1)}%</td>
+                            <td style={styles.summaryTd}>${prevB.toFixed(2)}</td>
+                            <td style={styles.summaryTd}>${rem.toFixed(2)}</td>
+                          </tr>
+                        );
                       }
-                      
                       return (
                         <tr key={item.id} style={styles.summaryRow}>
                           <td style={{...styles.summaryTd, textAlign: 'left', fontWeight: '600'}}>{itemName}</td>
-                          <td style={styles.summaryTd}>${original.toFixed(2)}</td>
-                          <td style={{...styles.summaryTd, color: BRAND.accent, fontWeight: '600'}}>${thisInvoice.toFixed(2)}</td>
-                          <td style={styles.summaryTd}>{percent.toFixed(1)}%</td>
-                          <td style={styles.summaryTd}>${previouslyBilled.toFixed(2)}</td>
-                          <td style={styles.summaryTd}>${remaining.toFixed(2)}</td>
+                          <td style={styles.summaryTd}>${contractTotal > 0 ? contractTotal.toFixed(2) : (item.total || 0).toFixed(2)}</td>
+                          <td style={{...styles.summaryTd, color: BRAND.accent, fontWeight: '600'}}>${(item.total || 0).toFixed(2)}</td>
+                          <td style={styles.summaryTd}>{drawPercent > 0 ? drawPercent.toFixed(1) : '0.0'}%</td>
+                          <td style={styles.summaryTd}>${prevBilled.toFixed(2)}</td>
+                          <td style={styles.summaryTd}>${remainAfter.toFixed(2)}</td>
                         </tr>
                       );
                     })}
@@ -1417,7 +1667,8 @@ export default function Invoice() {
                 </table>
               </div>
             </div>
-          )}
+            );
+          })()}
 
           {/* Totals */}
           <div style={styles.totals}>

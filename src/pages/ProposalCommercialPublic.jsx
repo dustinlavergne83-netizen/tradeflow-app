@@ -725,15 +725,17 @@ export default function ProposalCommercialPublic() {
           </div>
           <div style={styles.logoSection}>
             <img src={logoImage} alt="Company Logo" style={styles.logo} />
-            <p style={styles.contactInfo}>
-              Phone: (337)288-0395 | Email: info@dmlelectrical.com | License #: 63147
-            </p>
           </div>
           <div style={styles.estimateTitle}>
             <h2 style={styles.estimateNumber}>
               ESTIMATE #{baseEstimate.estimate_number?.replace('EST-', '')}
             </h2>
           </div>
+        </div>
+        <div style={{ textAlign: "center", marginTop: 2, marginBottom: 0 }}>
+          <p style={{ fontSize: 11, color: "#666", margin: 0 }}>
+            Phone: (337)288-0395 | Email: info@dmlelectrical.com | License #: 63147
+          </p>
         </div>
 
         <hr style={styles.divider} />
@@ -762,9 +764,9 @@ export default function ProposalCommercialPublic() {
           <table style={styles.table}>
             <thead>
               <tr style={styles.tableHeaderRow}>
-                <th style={{...styles.th, textAlign: "left", width: 150}}>ITEM</th>
+                <th style={{...styles.th, textAlign: "left", width: 100}}>ITEM</th>
                 <th style={{...styles.th, textAlign: "left"}}>DESCRIPTION</th>
-                <th style={{...styles.th, textAlign: "right", width: 150}}>AMOUNT</th>
+                <th style={{...styles.th, textAlign: "right", width: 120}}>AMOUNT</th>
               </tr>
             </thead>
             <tbody>
@@ -879,7 +881,7 @@ export default function ProposalCommercialPublic() {
           }
           
           @page {
-            margin: 0.4in 0.3in;
+            margin: 0.25in 0.25in;
             size: letter portrait;
           }
           
@@ -894,30 +896,74 @@ export default function ProposalCommercialPublic() {
             left: 0 !important;
             top: 0 !important;
             margin: 0 !important;
-            padding: 70px 60px !important;
+            padding: 40px 50px !important;
             max-width: 100% !important;
             width: 100% !important;
             box-shadow: none !important;
           }
           
           hr {
-            margin: 40px 0 50px 0 !important;
+            margin: 20px 0 20px 0 !important;
           }
           
           img {
-            max-width: 300px !important;
+            max-width: 220px !important;
           }
           
           h1 {
-            font-size: 28px !important;
+            font-size: 26px !important;
+            margin-bottom: 10px !important;
+          }
+          
+          h2 {
+            font-size: 20px !important;
           }
           
           table {
-            margin: 10px 0 !important;
+            margin: 6px 0 !important;
           }
           
           td, th {
-            padding: 10px 8px !important;
+            padding: 16px 12px !important;
+            font-size: 12px !important;
+          }
+          
+          .proposalTitle {
+            font-size: 52px !important;
+          }
+          
+          .proposalBigValue {
+            font-size: 20px !important;
+          }
+          
+          .tableTitle {
+            font-size: 16px !important;
+          }
+          
+          .scopeText, p {
+            font-size: 10px !important;
+            line-height: 1.6 !important;
+          }
+          
+          .badge {
+            font-size: 20px !important;
+            padding: 6px 16px !important;
+          }
+          
+          .dateText {
+            font-size: 20px !important;
+          }
+          
+          .estimateNumber {
+            font-size: 32px !important;
+          }
+          
+          .signatureLabel {
+            font-size: 16px !important;
+          }
+          
+          .proposal-container {
+            font-size: 2px !important;
           }
         }
       `}</style>
@@ -1171,11 +1217,10 @@ const styles = {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 10,
-    position: "relative",
+    marginBottom: 4,
   },
   dateSection: {
-    flex: "0 0 140px",
+    flex: "0 0 160px",
   },
   dateText: {
     fontSize: 13,
@@ -1195,13 +1240,11 @@ const styles = {
     color: "#111",
   },
   logoSection: {
-    position: "absolute",
-    left: "50%",
-    transform: "translateX(-50%)",
+    flex: 1,
     textAlign: "center",
   },
   logo: {
-    maxWidth: 300,
+    maxWidth: 240,
     height: "auto",
     marginBottom: 4,
   },
@@ -1212,18 +1255,20 @@ const styles = {
     whiteSpace: "nowrap",
   },
   estimateTitle: {
+    flex: "0 0 160px",
     textAlign: "right",
   },
   estimateNumber: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: "bold",
     color: "#111",
     margin: 0,
+    whiteSpace: "nowrap",
   },
   divider: {
     border: "none",
     borderTop: "3px solid " + BRAND.accent,
-    margin: "50px 0 50px 0",
+    margin: "30px 0 30px 0",
   },
   titleSection: {
     textAlign: "center",

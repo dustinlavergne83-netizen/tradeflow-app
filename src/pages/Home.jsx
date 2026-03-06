@@ -5,6 +5,8 @@ import { useAuth } from "../contexts/AuthContext";
 import { supabase } from "../lib/supabase";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
+import { formatDate } from "../utils/dateUtils";
+
 const BRAND = {
   bg: "#0b3ea8",
   primary: "#fc6b04ff",
@@ -504,7 +506,7 @@ export default function Home() {
       for (const day of weekDays) {
         const daySegments = segments.filter(seg => {
           const segDate = seg.start_at.split('T')[0];
-          return segDate === day && !seg.is_lunch; // Only work segments, not lunch
+          return segDate === day; // Include all segments (is_lunch just means they took a lunch break)
         });
 
         if (daySegments.length === 0) continue;
@@ -831,7 +833,7 @@ export default function Home() {
                             </div>
                           )}
                           <div style={{ fontSize: 13, color: '#666', marginTop: 2 }}>
-                            📅 {new Date(invoice.invoice_date || invoice.created_at).toLocaleDateString()} • {invoice.status}
+                            📅 {formatDate(invoice.invoice_date || invoice.created_at)} • {invoice.status}
                           </div>
                         </div>
                         <div style={{ fontWeight: 700, color: '#10b981' }}>

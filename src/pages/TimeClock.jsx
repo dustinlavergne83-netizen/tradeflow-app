@@ -5,6 +5,8 @@ import { supabase } from "../lib/supabase";
 import { useNavigate } from "react-router-dom";
 import DesktopHeader from "../Components/DesktopHeader";
 
+import { formatDate } from "../utils/dateUtils";
+
 const BRAND = {
   bg: "#0b3ea8",
   primary: "#fc6b04ff",
@@ -19,7 +21,22 @@ export default function TimeClock() {
   const [shiftDetails, setShiftDetails] = useState([]);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [uploadingPhotoFor, setUploadingPhotoFor] = useState(null);
+  const [showSectionModal, setShowSectionModal] = useState(null); // {employeeId, projectName, files}
   const nav = useNavigate();
+
+  // Job sections for photo organization (same as in Reports & Photos)
+  const JOB_SECTIONS = [
+    { id: 'rough-in', name: 'Rough-in', color: '#EF4444', icon: '🔌' },
+    { id: 'final', name: 'Final', color: '#10B981', icon: '✅' },
+    { id: 'panel', name: 'Panel Installation', color: '#3B82F6', icon: '⚡' },
+    { id: 'service', name: 'Service Installation', color: '#8B5CF6', icon: '🏠' },
+    { id: 'fixtures', name: 'Fixtures', color: '#F59E0B', icon: '💡' },
+    { id: 'troubleshooting', name: 'Troubleshooting', color: '#EF4444', icon: '🔧' },
+    { id: 'testing', name: 'Testing & Inspection', color: '#06B6D4', icon: '📋' },
+    { id: 'cleanup', name: 'Cleanup', color: '#6B7280', icon: '🧹' },
+    { id: 'other', name: 'Other', color: '#9CA3AF', icon: '📷' },
+  ];
 
   useEffect(() => {
     loadAllData();
@@ -79,7 +96,7 @@ export default function TimeClock() {
       for (const day of weekDays) {
         const daySegments = segments.filter(seg => {
           const segDate = seg.start_at.split('T')[0];
-          return segDate === day && !seg.is_lunch; // Only work segments, not lunch
+          return segDate === day; // Include all segments (is_lunch just means they took a lunch break)
         });
 
         if (daySegments.length === 0) continue;
@@ -452,6 +469,59 @@ export default function TimeClock() {
     window.open(url, '_blank');
   }
 
+  // Handle job photo upload for clocked-in employees
+  async function handleJobPhotoUpload(employeeId, projectName, e) {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    
+    if (!projectName || projectName === 'No Project') {
+      alert('Employee must be assigned to a project to upload photos');
+      return;
+    }
+
+    setUploadingPhotoFor(employeeId);
+    
+    try {
+      // First, find the project ID by name
+      const { data: projects, error: projectError } = await supabase
+        .from('projects')
+        .select('id')
+        .eq('name', projectName)
+        .limit(1);
+
+      if (projectError) throw projectError;
+
+      if (!projects || projects.length === 0) {
+        throw new Error('Project not found in database');
+      }
+
+      const projectId = projects[0].id;
+
+      // Upload each photo to project-photos storage
+      for (const file of files) {
+        const ext = file.name.split('.').pop();
+        const fileName = `timeclock_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${ext}`;
+        
+        const { error: uploadError } = await supabase.storage
+          .from('project-photos')
+          .upload(`${projectId}/${fileName}`, file, { 
+            contentType: file.type 
+          });
+
+        if (uploadError) throw uploadError;
+      }
+
+      alert(`✅ Successfully uploaded ${files.length} photo(s) to project: ${projectName}`);
+      
+    } catch (err) {
+      console.error('Error uploading job photos:', err);
+      alert('Failed to upload photos: ' + err.message + '\n\nNote: Make sure the "project-photos" storage bucket exists in Supabase.');
+    } finally {
+      setUploadingPhotoFor(null);
+      e.target.value = ''; // Reset file input
+    }
+  }
+
   const clockedInCount = employeeStatuses.filter(e => e.isClockedIn).length;
   const clockedOutCount = employeeStatuses.length - clockedInCount;
   
@@ -645,6 +715,16 @@ export default function TimeClock() {
                         }}>
                           GPS Location
                         </th>
+                        <th style={{
+                          padding: "12px 16px",
+                          textAlign: "center",
+                          borderBottom: "2px solid #e5e7eb",
+                          fontWeight: 700,
+                          fontSize: 14,
+                          color: "#111",
+                        }}>
+                          Job Photos
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -732,6 +812,77 @@ export default function TimeClock() {
                                 </div>
                               ) : (
                                 <span style={{ color: "#9ca3af", fontSize: 12 }}>No location data</span>
+                              )}
+                            </td>
+                            <td style={{
+                              padding: "16px",
+                              borderBottom: "1px solid #e5e7eb",
+                              textAlign: "center",
+                            }}>
+                              {emp.currentProject && emp.currentProject !== 'No Project' ? (
+                                <div>
+                                  <label style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 6,
+                                    padding: "8px 16px",
+                                    backgroundColor: uploadingPhotoFor === emp.employeeId ? "#f3f4f6" : "#10b981",
+                                    color: "#fff",
+                                    borderRadius: 8,
+                                    cursor: uploadingPhotoFor === emp.employeeId ? "not-allowed" : "pointer",
+                                    fontSize: 13,
+                                    fontWeight: 600,
+                                    opacity: uploadingPhotoFor === emp.employeeId ? 0.6 : 1,
+                                    transition: "all 0.2s",
+                                  }}>
+                                    {uploadingPhotoFor === emp.employeeId ? (
+                                      <>⏳ Uploading...</>
+                                    ) : (
+                                      <>📷 Upload Photos</>
+                                    )}
+                                    <input
+                                      type="file"
+                                      accept="image/*"
+                                      multiple
+                                      style={{ display: "none" }}
+                                      disabled={uploadingPhotoFor === emp.employeeId}
+                                      onChange={(e) => handleJobPhotoUpload(emp.employeeId, emp.currentProject, e)}
+                                    />
+                                  </label>
+                                  <div style={{ fontSize: 10, color: "#6b7280", marginTop: 4, textAlign: "center" }}>
+                                    for {emp.currentProject}
+                                  </div>
+                                  {emp.currentProject && (
+                                    <div 
+                                      onClick={() => {
+                                        // Find project ID and navigate to reports & photos
+                                        supabase
+                                          .from('projects')
+                                          .select('id')
+                                          .eq('name', emp.currentProject)
+                                          .limit(1)
+                                          .then(({ data }) => {
+                                            if (data && data.length > 0) {
+                                              nav(`/project/${data[0].id}/reports-photos`);
+                                            }
+                                          });
+                                      }}
+                                      style={{
+                                        fontSize: 11,
+                                        color: "#3b82f6",
+                                        textDecoration: "underline",
+                                        cursor: "pointer",
+                                        marginTop: 4,
+                                      }}
+                                    >
+                                      📸 View Project Photos
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div style={{ color: "#9ca3af", fontSize: 12, textAlign: "center" }}>
+                                  ⚠️ No project assigned
+                                </div>
                               )}
                             </td>
                           </tr>

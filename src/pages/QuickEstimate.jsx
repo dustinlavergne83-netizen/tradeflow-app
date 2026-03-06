@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
+import PriceAdjustment from "../Components/PriceAdjustment";
 
 export default function QuickEstimate() {
   const navigate = useNavigate();
@@ -24,6 +25,19 @@ export default function QuickEstimate() {
   const [estimateDate, setEstimateDate] = useState(new Date().toISOString().split('T')[0]);
 
   const [projectId, setProjectId] = useState(null);
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailTo, setEmailTo] = useState("");
+  const [emailMessage, setEmailMessage] = useState("");
+  const [sending, setSending] = useState(false);
+  
+  // Change Order specific state
+  const [isChangeOrder, setIsChangeOrder] = useState(false);
+  const [coId, setCoId] = useState(null);
+  
+  // Price adjustment state
+  const [showPriceAdjustment, setShowPriceAdjustment] = useState(false);
+  const [adjustedTotal, setAdjustedTotal] = useState(0);
+  const [hasAdjustment, setHasAdjustment] = useState(false);
 
   useEffect(() => {
     loadCustomers();
@@ -31,15 +45,32 @@ export default function QuickEstimate() {
     // Check if we're coming from a project
     const projectIdParam = searchParams.get('projectId');
     const projectNameParam = searchParams.get('projectName');
+    const customerParam = searchParams.get('customer');
+    
     if (projectIdParam) {
       setProjectId(projectIdParam);
     }
     if (projectNameParam) {
       setProjectName(decodeURIComponent(projectNameParam));
     }
+    if (customerParam) {
+      setCustomerName(decodeURIComponent(customerParam));
+    }
     
-    // If projectId provided, load project details to get customer
-    if (projectIdParam) {
+    // Check if this is a change order
+    const coIdParam = searchParams.get('coId');
+    const typeParam = searchParams.get('type');
+    
+    if (coIdParam === 'new' && typeParam === 'changeorder') {
+      setIsChangeOrder(true);
+    } else if (coIdParam && coIdParam !== 'new') {
+      setIsChangeOrder(true);
+      setCoId(coIdParam);
+      loadExistingChangeOrder(coIdParam);
+    }
+    
+    // If projectId provided, load project details to get customer (only if not already set)
+    if (projectIdParam && !customerParam) {
       loadProjectCustomer(projectIdParam);
     }
     
@@ -119,6 +150,54 @@ export default function QuickEstimate() {
     }
   }
 
+  async function loadExistingChangeOrder(id) {
+    setIsLoading(true);
+    try {
+      // Load change order
+      const { data: changeOrder, error: coError } = await supabase
+        .from("change_orders")
+        .select("*")
+        .eq("id", id)
+        .single();
+
+      if (coError) throw coError;
+
+      // Load change order items (stored in estimate_items with change_order_id)
+      const { data: items, error: itemsError } = await supabase
+        .from("estimate_items")
+        .select("*")
+        .eq("change_order_id", id)
+        .order("sequence");
+
+      if (itemsError) throw itemsError;
+
+      // Populate form
+      setProjectName(changeOrder.project_name || "");
+      setDescription(changeOrder.description || "");
+
+      // Get hourly rate from first item with labor
+      const firstItemWithLabor = items.find(item => item.labor_rate > 0);
+      setHourlyRate(firstItemWithLabor?.labor_rate || 0);
+
+      // Map items to line items
+      if (items && items.length > 0) {
+        const mappedItems = items.map((item, index) => ({
+          id: index + 1,
+          description: item.description || "",
+          quantity: item.quantity || 1,
+          material: item.material_unit_cost || 0,
+          lbrHrs: item.labor_hours || 0
+        }));
+        setLineItems(mappedItems);
+      }
+    } catch (err) {
+      console.error("Error loading change order:", err);
+      alert("Failed to load change order");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   async function loadCustomers() {
     if (!user) {
       console.log("No user yet, skipping customer load");
@@ -188,8 +267,23 @@ export default function QuickEstimate() {
     }, 0);
   };
 
+  const handlePriceAdjustment = (newTotal, adjustmentDetails) => {
+    setAdjustedTotal(newTotal);
+    setHasAdjustment(true);
+    console.log("Price adjustment applied:", adjustmentDetails);
+  };
+
+  const resetPriceAdjustment = () => {
+    setAdjustedTotal(0);
+    setHasAdjustment(false);
+  };
+
+  const getFinalTotal = () => {
+    return hasAdjustment ? adjustedTotal : calculateTotal();
+  };
+
   const handleSave = async () => {
-    if (!customerName.trim()) {
+    if (!isChangeOrder && !customerName.trim()) {
       alert("Please enter a customer name");
       return;
     }
@@ -203,156 +297,300 @@ export default function QuickEstimate() {
     try {
       const total = calculateTotal();
       
-      // Check if we're updating an existing estimate
-      if (estimateId) {
-        // UPDATE existing estimate
-        const estimateData = {
-          project_name: projectName || "Quick Estimate",
-          customer_name: customerName,
-          estimate_date: estimateDate,
-          subtotal: total,
-          total: total,
-          notes: description || null
-        };
+      if (isChangeOrder) {
+        // CHANGE ORDER LOGIC
+        if (coId) {
+          // UPDATE existing change order
+          const { error: updateError } = await supabase
+            .from("change_orders")
+            .update({
+              project_name: projectName || "Quick Change Order",
+              description: description || null,
+              total: total,
+              change_order_date: estimateDate
+            })
+            .eq("id", coId);
 
-        const { error: updateError } = await supabase
-          .from("estimates")
-          .update(estimateData)
-          .eq("id", estimateId);
+          if (updateError) throw updateError;
 
-        if (updateError) throw updateError;
+          // Delete existing items
+          const { error: deleteError } = await supabase
+            .from("estimate_items")
+            .delete()
+            .eq("change_order_id", coId);
 
-        // Delete existing items
-        const { error: deleteError } = await supabase
-          .from("estimate_items")
-          .delete()
-          .eq("estimate_id", estimateId);
+          if (deleteError) throw deleteError;
 
-        if (deleteError) throw deleteError;
+          // Create new change order items
+          const items = lineItems.map((item, index) => {
+            const extMat = Number(item.quantity) * Number(item.material);
+            const lbrExt = Number(item.quantity) * Number(item.lbrHrs);
+            const lbrCost = lbrExt * Number(hourlyRate);
+            return {
+              change_order_id: coId,
+              line_type: 'material',
+              description: item.description,
+              quantity: item.quantity,
+              unit: 'ea',
+              material_unit_cost: item.material,
+              material_total: extMat,
+              labor_hours: item.lbrHrs,
+              labor_rate: hourlyRate,
+              labor_total: lbrCost,
+              line_total: extMat + lbrCost,
+              sequence: index
+            };
+          });
 
-        // Create new estimate items
-        const items = lineItems.map((item, index) => {
-          const extMat = Number(item.quantity) * Number(item.material);
-          const lbrExt = Number(item.quantity) * Number(item.lbrHrs);
-          const lbrCost = lbrExt * Number(hourlyRate);
-          return {
-            estimate_id: estimateId,
-            line_type: 'material',
-            description: item.description,
-            quantity: item.quantity,
-            unit: 'ea',
-            material_unit_cost: item.material,
-            material_total: extMat,
-            labor_hours: item.lbrHrs,
-            labor_rate: hourlyRate,
-            labor_total: lbrCost,
-            line_total: extMat + lbrCost,
-            sequence: index
+          const { error: itemsError } = await supabase
+            .from("estimate_items")
+            .insert(items);
+
+          if (itemsError) throw itemsError;
+
+          alert(`Quick Change Order updated successfully!`);
+        } else {
+          // CREATE new change order
+          // Generate CO number with proper format using project's original estimate number
+          
+          // First, get the original estimate number for this project
+          let baseNumber = "1010"; // fallback
+          if (projectName) {
+            const { data: originalEstimate, error: estError } = await supabase
+              .from("estimates")
+              .select("estimate_number")
+              .eq("project_name", projectName)
+              .is("parent_estimate_id", null) // Only get base estimates, not alternates
+              .order("created_at", { ascending: true }) // Get the first/original estimate
+              .limit(1);
+
+            if (!estError && originalEstimate && originalEstimate.length > 0 && originalEstimate[0].estimate_number) {
+              // Extract the base number (e.g., "1010" from "1010" or "1010-ALT1")
+              const match = originalEstimate[0].estimate_number.match(/^(\d+)/);
+              if (match) {
+                baseNumber = match[1];
+              }
+            }
+          }
+
+          // Get existing change orders for this project to determine next CO number
+          const { data: existingCOs } = await supabase
+            .from("change_orders")
+            .select("change_order_number")
+            .eq("project_name", projectName)
+            .like("change_order_number", `${baseNumber}-CO%`);
+
+          // Find the highest CO number
+          let nextCONum = 1;
+          if (existingCOs && existingCOs.length > 0) {
+            const coNumbers = existingCOs
+              .map(co => {
+                const match = co.change_order_number.match(/-CO(\d+)$/);
+                return match ? parseInt(match[1]) : 0;
+              })
+              .filter(num => num > 0);
+            
+            if (coNumbers.length > 0) {
+              nextCONum = Math.max(...coNumbers) + 1;
+            }
+          }
+
+          const coNumber = `${baseNumber}-CO${nextCONum}`;
+          
+          // Create change order
+          const changeOrderData = {
+            project_name: projectName || "Quick Change Order",
+            change_order_number: coNumber,
+            title: `Quick Change Order ${nextCONum}`,
+            description: description || null,
+            change_order_date: estimateDate,
+            total: total,
+            status: 'draft',
+            created_by: user.id
           };
-        });
 
-        const { error: itemsError } = await supabase
-          .from("estimate_items")
-          .insert(items);
+          const { data: changeOrder, error: coError } = await supabase
+            .from("change_orders")
+            .insert([changeOrderData])
+            .select()
+            .single();
 
-        if (itemsError) throw itemsError;
+          if (coError) throw coError;
 
-        alert(`Quick Estimate updated successfully!`);
+          // Create change order items
+          const items = lineItems.map((item, index) => {
+            const extMat = Number(item.quantity) * Number(item.material);
+            const lbrExt = Number(item.quantity) * Number(item.lbrHrs);
+            const lbrCost = lbrExt * Number(hourlyRate);
+            return {
+              change_order_id: changeOrder.id,
+              line_type: 'material',
+              description: item.description,
+              quantity: item.quantity,
+              unit: 'ea',
+              material_unit_cost: item.material,
+              material_total: extMat,
+              labor_hours: item.lbrHrs,
+              labor_rate: hourlyRate,
+              labor_total: lbrCost,
+              line_total: extMat + lbrCost,
+              sequence: index
+            };
+          });
+
+          const { error: itemsError } = await supabase
+            .from("estimate_items")
+            .insert(items);
+
+          if (itemsError) throw itemsError;
+
+          alert(`Quick Change Order ${coNumber} saved successfully!`);
+        }
       } else {
-        // CREATE new estimate
-        // Get next estimate number - check both estimates and proposals
-        const { data: estimates } = await supabase
-          .from("estimates")
-          .select("estimate_number")
-          .eq("company_id", user.id)
-          .not("estimate_number", "is", null);
-        
-        const { data: proposals } = await supabase
-          .from("proposals")
-          .select("proposal_number")
-          .eq("company_id", user.id);
-        
-        // Extract all base numbers from both estimates and proposals
-        let maxBase = 1000;
-        
-        // Check estimates
-        if (estimates) {
-          estimates.forEach(est => {
-            if (est.estimate_number) {
-              const match = est.estimate_number.match(/^(\d+)/);
-              if (match) {
-                const num = parseInt(match[1]);
-                if (num > maxBase) maxBase = num;
-              }
-            }
-          });
-        }
-        
-        // Check proposals (format like "EST-1001-1" or just numbers)
-        if (proposals) {
-          proposals.forEach(prop => {
-            if (prop.proposal_number) {
-              // Extract number from formats like "EST-1001-1" or "1001"
-              const match = prop.proposal_number.match(/(\d+)/);
-              if (match) {
-                const num = parseInt(match[1]);
-                if (num > maxBase) maxBase = num;
-              }
-            }
-          });
-        }
-        
-        const estimateNumber = String(maxBase + 1);
-        
-        // Create the estimate
-        const estimateData = {
-          company_id: user.id,
-          estimate_number: estimateNumber,
-          project_name: projectName || "Quick Estimate",
-          customer_name: customerName,
-          estimate_date: estimateDate,
-          subtotal: total,
-          total: total,
-          status: 'draft',
-          notes: description || null
-        };
-
-        const { data: estimate, error: estimateError } = await supabase
-          .from("estimates")
-          .insert([estimateData])
-          .select()
-          .single();
-
-        if (estimateError) throw estimateError;
-
-        // Create estimate items
-        const items = lineItems.map((item, index) => {
-          const extMat = Number(item.quantity) * Number(item.material);
-          const lbrExt = Number(item.quantity) * Number(item.lbrHrs);
-          const lbrCost = lbrExt * Number(hourlyRate);
-          return {
-            estimate_id: estimate.id,
-            line_type: 'material',
-            description: item.description,
-            quantity: item.quantity,
-            unit: 'ea',
-            material_unit_cost: item.material,
-            material_total: extMat,
-            labor_hours: item.lbrHrs,
-            labor_rate: hourlyRate,
-            labor_total: lbrCost,
-            line_total: extMat + lbrCost,
-            sequence: index
+        // REGULAR ESTIMATE LOGIC
+        if (estimateId) {
+          // UPDATE existing estimate
+          const estimateData = {
+            project_name: projectName || "Quick Estimate",
+            customer_name: customerName,
+            estimate_date: estimateDate,
+            subtotal: total,
+            total: total,
+            notes: description || null
           };
-        });
 
-        const { error: itemsError } = await supabase
-          .from("estimate_items")
-          .insert(items);
+          const { error: updateError } = await supabase
+            .from("estimates")
+            .update(estimateData)
+            .eq("id", estimateId);
 
-        if (itemsError) throw itemsError;
+          if (updateError) throw updateError;
 
-        alert(`Quick Estimate saved successfully!`);
+          // Delete existing items
+          const { error: deleteError } = await supabase
+            .from("estimate_items")
+            .delete()
+            .eq("estimate_id", estimateId);
+
+          if (deleteError) throw deleteError;
+
+          // Create new estimate items
+          const items = lineItems.map((item, index) => {
+            const extMat = Number(item.quantity) * Number(item.material);
+            const lbrExt = Number(item.quantity) * Number(item.lbrHrs);
+            const lbrCost = lbrExt * Number(hourlyRate);
+            return {
+              estimate_id: estimateId,
+              line_type: 'material',
+              description: item.description,
+              quantity: item.quantity,
+              unit: 'ea',
+              material_unit_cost: item.material,
+              material_total: extMat,
+              labor_hours: item.lbrHrs,
+              labor_rate: hourlyRate,
+              labor_total: lbrCost,
+              line_total: extMat + lbrCost,
+              sequence: index
+            };
+          });
+
+          const { error: itemsError } = await supabase
+            .from("estimate_items")
+            .insert(items);
+
+          if (itemsError) throw itemsError;
+
+          alert(`Quick Estimate updated successfully!`);
+        } else {
+          // CREATE new estimate
+          const { data: estimates } = await supabase
+            .from("estimates")
+            .select("estimate_number")
+            .eq("company_id", user.id)
+            .not("estimate_number", "is", null);
+          
+          const { data: proposals } = await supabase
+            .from("proposals")
+            .select("proposal_number")
+            .eq("company_id", user.id);
+          
+          let maxBase = 1000;
+          
+          if (estimates) {
+            estimates.forEach(est => {
+              if (est.estimate_number) {
+                const match = est.estimate_number.match(/^(\d+)/);
+                if (match) {
+                  const num = parseInt(match[1]);
+                  if (num > maxBase) maxBase = num;
+                }
+              }
+            });
+          }
+          
+          if (proposals) {
+            proposals.forEach(prop => {
+              if (prop.proposal_number) {
+                const match = prop.proposal_number.match(/(\d+)/);
+                if (match) {
+                  const num = parseInt(match[1]);
+                  if (num > maxBase) maxBase = num;
+                }
+              }
+            });
+          }
+          
+          const estimateNumber = String(maxBase + 1);
+          
+          const estimateData = {
+            company_id: user.id,
+            estimate_number: estimateNumber,
+            project_name: projectName || "Quick Estimate",
+            customer_name: customerName,
+            estimate_date: estimateDate,
+            subtotal: total,
+            total: total,
+            status: 'draft',
+            notes: description || null
+          };
+
+          const { data: estimate, error: estimateError } = await supabase
+            .from("estimates")
+            .insert([estimateData])
+            .select()
+            .single();
+
+          if (estimateError) throw estimateError;
+
+          const items = lineItems.map((item, index) => {
+            const extMat = Number(item.quantity) * Number(item.material);
+            const lbrExt = Number(item.quantity) * Number(item.lbrHrs);
+            const lbrCost = lbrExt * Number(hourlyRate);
+            return {
+              estimate_id: estimate.id,
+              line_type: 'material',
+              description: item.description,
+              quantity: item.quantity,
+              unit: 'ea',
+              material_unit_cost: item.material,
+              material_total: extMat,
+              labor_hours: item.lbrHrs,
+              labor_rate: hourlyRate,
+              labor_total: lbrCost,
+              line_total: extMat + lbrCost,
+              sequence: index
+            };
+          });
+
+          const { error: itemsError } = await supabase
+            .from("estimate_items")
+            .insert(items);
+
+          if (itemsError) throw itemsError;
+
+          alert(`Quick Estimate saved successfully!`);
+        }
       }
       
       // Navigate back to project if we came from one, otherwise go to estimates
@@ -362,8 +600,8 @@ export default function QuickEstimate() {
         navigate("/estimates");
       }
     } catch (err) {
-      console.error("Error saving quick estimate:", err);
-      alert(`Failed to save estimate: ${err.message}`);
+      console.error("Error saving:", err);
+      alert(`Failed to save: ${err.message}`);
     } finally {
       setIsSaving(false);
     }
@@ -372,16 +610,160 @@ export default function QuickEstimate() {
   return (
     <div style={styles.container}>
       <div style={styles.header}>
-        <h1 style={styles.title}>Quick Estimate</h1>
+        <h1 style={styles.title}>{isChangeOrder ? "🔄 Quick Change Order" : "Quick Estimate"}</h1>
         <div style={styles.headerButtons}>
+          {estimateId && (
+            <>
+              <button
+                onClick={() => window.open(`/estimate/quick/view?estimateId=${estimateId}`, '_blank')}
+                style={styles.previewButton}
+                title="Preview estimate"
+              >
+                👁️ Preview
+              </button>
+              <button
+                onClick={() => window.open(`/estimate/quick/view?estimateId=${estimateId}&print=true`, '_blank')}
+                style={styles.printButton}
+                title="Print estimate"
+              >
+                🖨️ Print
+              </button>
+              <button
+                onClick={() => {
+                  // Look up customer email
+                  const cust = customers.find(c => c.customer === customerName);
+                  if (cust?.email) setEmailTo(cust.email);
+                  setShowEmailModal(true);
+                }}
+                style={styles.emailButton}
+                title="Email estimate"
+              >
+                📧 Email
+              </button>
+            </>
+          )}
           <button onClick={() => navigate("/estimates")} style={styles.cancelButton}>
             Cancel
           </button>
           <button onClick={handleSave} style={styles.saveButton} disabled={isSaving}>
-            {isSaving ? "Saving..." : "💾 Save Estimate"}
+            {isSaving ? "Saving..." : isChangeOrder ? "🔄 Save Change Order" : "💾 Save Estimate"}
           </button>
         </div>
       </div>
+
+      {/* Email Modal */}
+      {showEmailModal && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modal}>
+            <div style={styles.modalHeader}>
+              <h3 style={styles.modalTitle}>📧 Email Estimate</h3>
+              <button onClick={() => setShowEmailModal(false)} style={styles.modalClose}>×</button>
+            </div>
+            <div style={styles.modalBody}>
+              <div style={styles.modalField}>
+                <label style={styles.modalLabel}>To:</label>
+                <input
+                  type="email"
+                  value={emailTo}
+                  onChange={(e) => setEmailTo(e.target.value)}
+                  style={styles.modalInput}
+                  placeholder="customer@email.com"
+                  autoFocus
+                />
+              </div>
+              <div style={styles.modalField}>
+                <label style={styles.modalLabel}>Message (optional):</label>
+                <textarea
+                  value={emailMessage}
+                  onChange={(e) => setEmailMessage(e.target.value)}
+                  style={{...styles.modalInput, minHeight: 80, resize: "vertical"}}
+                  placeholder="Add a personal message..."
+                />
+              </div>
+              <div style={styles.modalPreview}>
+                <p style={{margin: 0, fontSize: 13, color: '#666'}}>
+                  <strong>Customer:</strong> {customerName}
+                </p>
+                <p style={{margin: '4px 0 0', fontSize: 13, color: '#666'}}>
+                  <strong>Project:</strong> {projectName || 'Quick Estimate'}
+                </p>
+                <p style={{margin: '4px 0 0', fontSize: 13, color: '#666'}}>
+                  <strong>Total:</strong> ${calculateTotal().toFixed(2)}
+                </p>
+              </div>
+            </div>
+            <div style={styles.modalFooter}>
+              <button onClick={() => setShowEmailModal(false)} style={styles.modalCancelBtn}>
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (!emailTo.trim()) {
+                    alert("Please enter an email address.");
+                    return;
+                  }
+                  setSending(true);
+                  try {
+                    // Load the saved estimate items from database
+                    const { data: savedItems, error: itemsError } = await supabase
+                      .from("estimate_items")
+                      .select("*")
+                      .eq("estimate_id", estimateId)
+                      .order("sequence");
+
+                    if (itemsError) throw itemsError;
+
+                    // Load the estimate record for estimate_number
+                    const { data: estRecord, error: estError } = await supabase
+                      .from("estimates")
+                      .select("estimate_number, estimate_date, notes")
+                      .eq("id", estimateId)
+                      .single();
+
+                    if (estError) throw estError;
+
+                    const { data, error } = await supabase.functions.invoke('send-estimate', {
+                      body: {
+                        estimateId,
+                        siteUrl: window.location.origin,
+                        to: emailTo,
+                        message: emailMessage,
+                        estimateNumber: estRecord.estimate_number,
+                        estimateDate: estRecord.estimate_date,
+                        customerName,
+                        projectName: projectName || 'Quick Estimate',
+                        total: calculateTotal(),
+                        notes: estRecord.notes,
+                        lineItems: (savedItems || []).map(item => ({
+                          description: item.description,
+                          quantity: item.quantity,
+                          material_total: item.material_total,
+                          labor_total: item.labor_total,
+                          line_total: item.line_total,
+                        })),
+                      }
+                    });
+                    if (error) throw error;
+                    alert("Estimate sent successfully!");
+                    setShowEmailModal(false);
+                    // Update status to sent
+                    await supabase.from("estimates").update({ status: "sent" }).eq("id", estimateId);
+                  } catch (err) {
+                    console.error("Error sending estimate:", err);
+                    alert(`Failed to send: ${err.message || 'Unknown error'}`);
+                  } finally {
+                    setSending(false);
+                  }
+                }}
+                disabled={sending}
+                style={{...styles.modalSendBtn, opacity: sending ? 0.6 : 1}}
+              >
+                {sending ? 'Sending...' : '📧 Send Estimate'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div style={styles.form}>
         {/* Basic Info */}
@@ -579,12 +961,26 @@ export default function QuickEstimate() {
                           />
                         </td>
                         <td style={styles.td}>
-                          <input
-                            type="text"
+                          <textarea
                             value={item.description}
-                            onChange={(e) => updateLineItem(item.id, "description", e.target.value)}
-                            style={styles.tableInput}
+                            onChange={(e) => {
+                              updateLineItem(item.id, "description", e.target.value);
+                              e.target.style.height = "auto";
+                              e.target.style.height = e.target.scrollHeight + "px";
+                            }}
+                            onInput={(e) => {
+                              e.target.style.height = "auto";
+                              e.target.style.height = e.target.scrollHeight + "px";
+                            }}
+                            ref={(el) => {
+                              if (el) {
+                                el.style.height = "auto";
+                                el.style.height = el.scrollHeight + "px";
+                              }
+                            }}
+                            style={{...styles.tableInput, resize: "none", overflow: "hidden", minHeight: 36, lineHeight: "1.4"}}
                             placeholder="Item description"
+                            rows={1}
                           />
                         </td>
                         <td style={styles.td}>
@@ -659,12 +1055,26 @@ export default function QuickEstimate() {
                     return (
                       <tr key={item.id} style={styles.tableRow}>
                         <td style={styles.td}>
-                          <input
-                            type="text"
+                          <textarea
                             value={item.description}
-                            onChange={(e) => updateLineItem(item.id, "description", e.target.value)}
-                            style={styles.tableInput}
+                            onChange={(e) => {
+                              updateLineItem(item.id, "description", e.target.value);
+                              e.target.style.height = "auto";
+                              e.target.style.height = e.target.scrollHeight + "px";
+                            }}
+                            onInput={(e) => {
+                              e.target.style.height = "auto";
+                              e.target.style.height = e.target.scrollHeight + "px";
+                            }}
+                            ref={(el) => {
+                              if (el) {
+                                el.style.height = "auto";
+                                el.style.height = el.scrollHeight + "px";
+                              }
+                            }}
+                            style={{...styles.tableInput, resize: "none", overflow: "hidden", minHeight: 36, lineHeight: "1.4"}}
                             placeholder="Item description"
+                            rows={1}
                           />
                         </td>
                         <td style={styles.td}>
@@ -705,10 +1115,81 @@ export default function QuickEstimate() {
         <div style={styles.totalSection}>
           <div style={styles.totalRow}>
             <span style={styles.totalLabel}>TOTAL:</span>
-            <span style={styles.totalAmount}>${calculateTotal().toFixed(2)}</span>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+              {hasAdjustment && (
+                <div style={{
+                  fontSize: 16,
+                  color: '#999',
+                  textDecoration: 'line-through',
+                  marginBottom: 4
+                }}>
+                  ${calculateTotal().toFixed(2)}
+                </div>
+              )}
+              <span style={styles.totalAmount}>${getFinalTotal().toFixed(2)}</span>
+              {hasAdjustment && (
+                <div style={{
+                  fontSize: 12,
+                  color: '#10b981',
+                  marginTop: 4
+                }}>
+                  Adjusted Total
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginLeft: 20 }}>
+              <button
+                onClick={() => setShowPriceAdjustment(true)}
+                style={{
+                  padding: "8px 16px",
+                  backgroundColor: "#f59e0b",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 6,
+                  fontSize: 14,
+                  fontWeight: "600",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6
+                }}
+                title="Adjust price with percentage or rounding"
+              >
+                💰 Adjust Price
+              </button>
+              {hasAdjustment && (
+                <button
+                  onClick={resetPriceAdjustment}
+                  style={{
+                    padding: "8px 16px",
+                    backgroundColor: "#ef4444",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 6,
+                    fontSize: 14,
+                    fontWeight: "600",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6
+                  }}
+                  title="Reset to original price"
+                >
+                  🔄 Reset
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Price Adjustment Modal */}
+      <PriceAdjustment
+        show={showPriceAdjustment}
+        originalTotal={calculateTotal()}
+        onAdjustmentApplied={handlePriceAdjustment}
+        onClose={() => setShowPriceAdjustment(false)}
+      />
     </div>
   );
 }
@@ -838,6 +1319,7 @@ const styles = {
   },
   td: {
     padding: "12px",
+    verticalAlign: "top",
   },
   tableInput: {
     width: "100%",
@@ -910,5 +1392,136 @@ const styles = {
     fontSize: 15,
     color: "#333",
     borderBottom: "1px solid #f3f4f6",
+  },
+  previewButton: {
+    padding: "12px 20px",
+    backgroundColor: "#6366f1",
+    color: "#fff",
+    border: "none",
+    borderRadius: 8,
+    fontSize: 16,
+    fontWeight: "600",
+    cursor: "pointer",
+  },
+  printButton: {
+    padding: "12px 20px",
+    backgroundColor: "#8b5cf6",
+    color: "#fff",
+    border: "none",
+    borderRadius: 8,
+    fontSize: 16,
+    fontWeight: "600",
+    cursor: "pointer",
+  },
+  emailButton: {
+    padding: "12px 20px",
+    backgroundColor: "#3b82f6",
+    color: "#fff",
+    border: "none",
+    borderRadius: 8,
+    fontSize: 16,
+    fontWeight: "600",
+    cursor: "pointer",
+  },
+  modalOverlay: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10000,
+  },
+  modal: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    width: "100%",
+    maxWidth: 500,
+    boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+    overflow: "hidden",
+  },
+  modalHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "20px 24px",
+    borderBottom: "1px solid #e5e7eb",
+    backgroundColor: "#f9fafb",
+  },
+  modalTitle: {
+    margin: 0,
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#111",
+  },
+  modalClose: {
+    background: "none",
+    border: "none",
+    fontSize: 24,
+    color: "#999",
+    cursor: "pointer",
+    padding: "0 4px",
+    lineHeight: 1,
+  },
+  modalBody: {
+    padding: "24px",
+  },
+  modalField: {
+    marginBottom: 16,
+  },
+  modalLabel: {
+    display: "block",
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 6,
+  },
+  modalInput: {
+    width: "100%",
+    padding: "10px 12px",
+    fontSize: 15,
+    border: "2px solid #e5e7eb",
+    borderRadius: 6,
+    outline: "none",
+    boxSizing: "border-box",
+    backgroundColor: "#fff",
+    color: "#333",
+  },
+  modalPreview: {
+    padding: 12,
+    backgroundColor: "#f3f4f6",
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  modalFooter: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: 12,
+    padding: "16px 24px",
+    borderTop: "1px solid #e5e7eb",
+    backgroundColor: "#f9fafb",
+  },
+  modalCancelBtn: {
+    padding: "10px 20px",
+    backgroundColor: "#fff",
+    color: "#666",
+    border: "2px solid #ddd",
+    borderRadius: 6,
+    fontSize: 15,
+    fontWeight: "600",
+    cursor: "pointer",
+  },
+  modalSendBtn: {
+    padding: "10px 24px",
+    backgroundColor: "#3b82f6",
+    color: "#fff",
+    border: "none",
+    borderRadius: 6,
+    fontSize: 15,
+    fontWeight: "600",
+    cursor: "pointer",
   },
 };

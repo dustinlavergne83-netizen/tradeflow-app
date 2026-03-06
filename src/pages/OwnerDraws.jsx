@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import { formatDate } from "../utils/dateUtils";
+
 import './OwnerDraws.css';
 
 export default function OwnerDraws() {
@@ -203,7 +205,7 @@ export default function OwnerDraws() {
             <tbody>
               {pendingDraws.map(draw => (
                 <tr key={draw.id}>
-                  <td>{new Date(draw.transaction_date).toLocaleDateString()}</td>
+                  <td>{formatDate(draw.transaction_date)}</td>
                   <td>{draw.description || 'Owner Draw'}</td>
                   <td>${Math.abs(draw.amount).toFixed(2)}</td>
                   <td>
@@ -247,7 +249,7 @@ export default function OwnerDraws() {
             <tbody>
               {summary.map((item, idx) => (
                 <tr key={idx}>
-                  <td>{new Date(item.month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</td>
+                  <td>{formatDate(item.month, { month: 'long', year: 'numeric' })}</td>
                   <td>{item.draw_count}</td>
                   <td>${item.total_draws.toFixed(2)}</td>
                   <td>
@@ -280,9 +282,9 @@ export default function OwnerDraws() {
             <tbody>
               {settlements.map(settlement => (
                 <tr key={settlement.id}>
-                  <td>{new Date(settlement.settlement_date).toLocaleDateString()}</td>
+                  <td>{formatDate(settlement.settlement_date)}</td>
                   <td>
-                    {new Date(settlement.period_start).toLocaleDateString()} - {new Date(settlement.period_end).toLocaleDateString()}
+                    {formatDate(settlement.period_start)} - {formatDate(settlement.period_end)}
                   </td>
                   <td className="amount">${settlement.total_draws.toFixed(2)}</td>
                   <td>{settlement.description}</td>

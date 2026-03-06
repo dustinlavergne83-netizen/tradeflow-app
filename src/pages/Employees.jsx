@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 
+import { formatDate } from "../utils/dateUtils";
+
 const BRAND = {
   bg: "#0b3ea8",
   primary: "#fc6b04ff",
@@ -22,6 +24,7 @@ export default function Employees() {
   const [editForm, setEditForm] = useState({});
   const [showRolePicker, setShowRolePicker] = useState(null); // employee id when picker is open
   const [selectedRole, setSelectedRole] = useState("employee");
+  const [resettingPassword, setResettingPassword] = useState(null); // employee id when resetting
 
   useEffect(() => {
     loadEmployees();
@@ -262,6 +265,45 @@ export default function Employees() {
     }
   }
 
+  async function handleResetPassword(employee) {
+    if (!confirm(`Reset password for ${employee.first_name} ${employee.last_name} (${employee.email})?\n\nThis will generate a new temporary password and email it to them.`)) {
+      return;
+    }
+
+    setResettingPassword(employee.id);
+    setMessage({ type: "", text: "" });
+
+    try {
+      const { data, error } = await supabase.functions.invoke('reset-password', {
+        body: { email: employee.email }
+      });
+
+      if (error) throw error;
+
+      if (data.error) {
+        setMessage({ type: "error", text: data.error });
+        return;
+      }
+
+      const emailStatus = data.emailSent 
+        ? "Email sent with new credentials!" 
+        : "⚠️ Email failed to send - share the password manually.";
+
+      setMessage({
+        type: "success",
+        text: `Password reset for ${employee.first_name} ${employee.last_name}!\n\nNew Temporary Password: ${data.tempPassword}\n\n${emailStatus}`,
+      });
+    } catch (err) {
+      console.error("Error resetting password:", err);
+      setMessage({
+        type: "error",
+        text: err.message || "Failed to reset password",
+      });
+    } finally {
+      setResettingPassword(null);
+    }
+  }
+
   function cancelEditing() {
     setIsEditing(false);
     setEditForm({});
@@ -339,7 +381,7 @@ export default function Employees() {
                   </h3>
                   <p style={styles.employeeDetail}>{emp.email}</p>
                   {emp.phone && <p style={styles.employeeDetail}>📱 {emp.phone}</p>}
-                  {emp.date_of_birth && <p style={styles.employeeDetail}>🎂 {new Date(emp.date_of_birth).toLocaleDateString()}</p>}
+                  {emp.date_of_birth && <p style={styles.employeeDetail}>🎂 {formatDate(emp.date_of_birth)}</p>}
                   <div style={styles.badges}>
                     <span 
                       style={{
@@ -385,6 +427,17 @@ export default function Employees() {
                   </button>
                   {!showArchived && (
                     <>
+                      <button
+                        onClick={() => handleResetPassword(emp)}
+                        disabled={resettingPassword === emp.id}
+                        style={{
+                          ...styles.actionButton,
+                          backgroundColor: "#f59e0b",
+                          opacity: resettingPassword === emp.id ? 0.6 : 1,
+                        }}
+                      >
+                        {resettingPassword === emp.id ? "Resetting..." : "🔑 Reset Password"}
+                      </button>
                       <button
                         onClick={() => toggleEmployeeStatus(emp)}
                         style={{
@@ -626,7 +679,7 @@ export default function Employees() {
                       <div style={styles.detailRow}>
                         <span style={styles.detailLabel}>Date of Birth:</span>
                         <span style={styles.detailValue}>
-                          {selectedEmployee.date_of_birth ? new Date(selectedEmployee.date_of_birth).toLocaleDateString() : '—'}
+                          {selectedEmployee.date_of_birth ? formatDate(selectedEmployee.date_of_birth) : '—'}
                         </span>
                       </div>
                     </div>
@@ -701,7 +754,7 @@ export default function Employees() {
                   <div style={styles.detailRow}>
                     <span style={styles.detailLabel}>Hire Date:</span>
                     <span style={styles.detailValue}>
-                      {selectedEmployee.hire_date ? new Date(selectedEmployee.hire_date).toLocaleDateString() : '—'}
+                      {selectedEmployee.hire_date ? formatDate(selectedEmployee.hire_date) : '—'}
                     </span>
                   </div>
                   <div style={styles.detailRow}>
@@ -713,14 +766,14 @@ export default function Employees() {
                   <div style={styles.detailRow}>
                     <span style={styles.detailLabel}>Created:</span>
                     <span style={styles.detailValue}>
-                      {selectedEmployee.created_at ? new Date(selectedEmployee.created_at).toLocaleDateString() : '—'}
+                      {selectedEmployee.created_at ? formatDate(selectedEmployee.created_at) : '—'}
                     </span>
                   </div>
                   {selectedEmployee.policy_acknowledged_at && (
                     <div style={styles.detailRow}>
                       <span style={styles.detailLabel}>Policy Acknowledged:</span>
                       <span style={styles.detailValue}>
-                        {new Date(selectedEmployee.policy_acknowledged_at).toLocaleDateString()}
+                        {formatDate(selectedEmployee.policy_acknowledged_at)}
                       </span>
                     </div>
                   )}

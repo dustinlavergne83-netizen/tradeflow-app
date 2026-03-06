@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { loadMaterials } from "../data/materials";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
+import PriceAdjustment from "../Components/PriceAdjustment";
 
 // ===== SUMMARY COMPONENT =====
 function EstimateSummary({ projectId, currentEstimateId, navigate, projectName, isChangeOrder, coNumber, coId }) {
@@ -21,6 +22,11 @@ function EstimateSummary({ projectId, currentEstimateId, navigate, projectName, 
   const [materialStorage, setMaterialStorage] = useState(0);
   const [miscExpenses, setMiscExpenses] = useState(0);
   const [permitFees, setPermitFees] = useState(0);
+  
+  // Price adjustment state
+  const [showPriceAdjustment, setShowPriceAdjustment] = useState(false);
+  const [adjustedTotal, setAdjustedTotal] = useState(0);
+  const [hasAdjustment, setHasAdjustment] = useState(false);
   
   // Markup settings
   const [hourlyRate, setHourlyRate] = useState(85);
@@ -49,11 +55,17 @@ function EstimateSummary({ projectId, currentEstimateId, navigate, projectName, 
 
   useEffect(() => {
     if (currentEstimateId || (isChangeOrder && coId)) {
-      loadAllSections();
-      loadProjectInfo(); // Load project info to get customer name
-      if (currentEstimateId) {
-        loadSummaryData(); // Only load summary data for regular estimates (not change orders)
-      }
+      // Small delay to ensure any concurrent save operations from the parent
+      // (autoSaveEstimate DELETE→INSERT) complete before we query all items.
+      // Without this, loadAllSections could read items mid-save (after DELETE but before INSERT).
+      const timer = setTimeout(() => {
+        loadAllSections();
+        loadProjectInfo(); // Load project info to get customer name
+        if (currentEstimateId) {
+          loadSummaryData(); // Only load summary data for regular estimates (not change orders)
+        }
+      }, 500);
+      return () => clearTimeout(timer);
     }
   }, [currentEstimateId, isChangeOrder, coId]);
 
@@ -192,6 +204,16 @@ function EstimateSummary({ projectId, currentEstimateId, navigate, projectName, 
         
         // Load description
         setDescription(data.description || "");
+        
+        // Load price adjustment data
+        if (data.price_adjustment_applied) {
+          setHasAdjustment(true);
+          setAdjustedTotal(data.total || 0);
+          console.log(`✅ Loaded price adjustment - Total: $${data.total}, Details:`, data.price_adjustment_details);
+        } else {
+          setHasAdjustment(false);
+          setAdjustedTotal(0);
+        }
       }
     } catch (err) {
       console.error("Error loading summary data:", err);
@@ -416,6 +438,13 @@ function EstimateSummary({ projectId, currentEstimateId, navigate, projectName, 
   useEffect(() => {
     if (loading || Object.keys(sections).length === 0) return;
     
+    // CRITICAL: Don't auto-update if there's a price adjustment applied
+    // This prevents overwriting manually adjusted totals
+    if (hasAdjustment) {
+      console.log(`⏸️ Auto-update skipped - price adjustment is active (adjusted total: $${adjustedTotal.toFixed(2)})`);
+      return;
+    }
+    
     // Calculate the FULL total that the orange box shows
     const calculatedTotal = grandTotals.materials + materialMarkupAmount + feesTotal + feesMarkupAmount + packagesTotal + packagesMarkupAmount + laborSellPrice;
     
@@ -428,7 +457,7 @@ function EstimateSummary({ projectId, currentEstimateId, navigate, projectName, 
       console.log(`🚀 Auto-updating Estimate total: $${calculatedTotal.toFixed(2)}`);
       updateEstimateTotal(calculatedTotal);
     }
-  }, [sections, grandTotals.materials, materialMarkupAmount, feesTotal, feesMarkupAmount, packagesTotal, packagesMarkupAmount, laborSellPrice, isChangeOrder, coId, currentEstimateId, loading]);
+  }, [sections, grandTotals.materials, materialMarkupAmount, feesTotal, feesMarkupAmount, packagesTotal, packagesMarkupAmount, laborSellPrice, isChangeOrder, coId, currentEstimateId, loading, hasAdjustment, adjustedTotal]);
   
   // Function to update regular estimate total
   async function updateEstimateTotal(calculatedTotal) {
@@ -447,6 +476,58 @@ function EstimateSummary({ projectId, currentEstimateId, navigate, projectName, 
       console.error("❌ Error updating estimate total:", err);
     }
   }
+
+  // Price adjustment functions
+  const handlePriceAdjustment = async (newTotal, adjustmentDetails) => {
+    setAdjustedTotal(newTotal);
+    setHasAdjustment(true);
+    console.log("Price adjustment applied:", adjustmentDetails);
+    
+    // Save the adjusted total to the database
+    if (currentEstimateId) {
+      try {
+        const { error } = await supabase
+          .from("estimates")
+          .update({ 
+            total: newTotal,
+            price_adjustment_applied: true,
+            price_adjustment_details: adjustmentDetails
+          })
+          .eq("id", currentEstimateId);
+        
+        if (error) throw error;
+        console.log(`✅ Saved adjusted total to database: $${newTotal.toFixed(2)}`);
+      } catch (err) {
+        console.error("❌ Error saving adjusted total:", err);
+      }
+    } else if (isChangeOrder && coId) {
+      try {
+        const { error } = await supabase
+          .from("change_orders")
+          .update({ 
+            total: newTotal,
+            price_adjustment_applied: true,
+            price_adjustment_details: adjustmentDetails
+          })
+          .eq("id", coId);
+        
+        if (error) throw error;
+        console.log(`✅ Saved adjusted CO total to database: $${newTotal.toFixed(2)}`);
+      } catch (err) {
+        console.error("❌ Error saving adjusted CO total:", err);
+      }
+    }
+  };
+
+  const resetPriceAdjustment = () => {
+    setAdjustedTotal(0);
+    setHasAdjustment(false);
+  };
+
+  const getFinalTotal = () => {
+    const baseTotal = grandTotals.materials + materialMarkupAmount + feesTotal + feesMarkupAmount + packagesTotal + packagesMarkupAmount + laborSellPrice;
+    return hasAdjustment ? adjustedTotal : baseTotal;
+  };
 
   return (
     <div style={{ padding: 24, maxWidth: 1400, margin: "0 auto" }}>
@@ -1284,6 +1365,74 @@ function EstimateSummary({ projectId, currentEstimateId, navigate, projectName, 
             </table>
           </div>
 
+          {/* PRICE ADJUSTMENT */}
+          <div style={{
+            background: "#2a2a2a",
+            border: "1px solid #444",
+            borderRadius: 8,
+            padding: 20,
+            marginBottom: 20
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <h3 style={{ margin: 0, color: "#f97316", fontSize: 16 }}>
+                Price Adjustment
+              </h3>
+              <button
+                onClick={() => {
+                  console.log("Adjust Price clicked, current state:", showPriceAdjustment);
+                  setShowPriceAdjustment(!showPriceAdjustment);
+                  console.log("Should show modal:", !showPriceAdjustment);
+                }}
+                style={{
+                  padding: "8px 16px",
+                  background: showPriceAdjustment ? "#ef4444" : "#10b981",
+                  border: "none",
+                  borderRadius: 6,
+                  color: "#fff",
+                  fontSize: 13,
+                  fontWeight: "bold",
+                  cursor: "pointer"
+                }}
+              >
+                {showPriceAdjustment ? "Cancel" : "Adjust Price"}
+              </button>
+            </div>
+
+
+            {hasAdjustment && (
+              <div style={{
+                background: "#1a1a1a",
+                border: "1px solid #555",
+                borderRadius: 6,
+                padding: 12,
+                marginTop: 12
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ color: "#f59e0b", fontSize: 14, fontWeight: "bold" }}>
+                    Price Adjustment Applied
+                  </span>
+                  <button
+                    onClick={resetPriceAdjustment}
+                    style={{
+                      padding: "4px 12px",
+                      background: "#ef4444",
+                      border: "none",
+                      borderRadius: 4,
+                      color: "#fff",
+                      fontSize: 12,
+                      cursor: "pointer"
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+                <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>
+                  Adjusted Total: ${adjustedTotal.toFixed(2)}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* DESCRIPTION/SCOPE OF WORK */}
           <div style={{
             background: "#2a2a2a",
@@ -1430,13 +1579,31 @@ function EstimateSummary({ projectId, currentEstimateId, navigate, projectName, 
           }}>
             <div style={{ fontSize: 18, color: "#fff", opacity: 0.95, marginBottom: 8, letterSpacing: 2, fontWeight: "600" }}>
               ESTIMATE TOTAL
+              {hasAdjustment && (
+                <span style={{ fontSize: 12, opacity: 0.8, marginLeft: 8 }}>
+                  (ADJUSTED)
+                </span>
+              )}
             </div>
             <div style={{ fontSize: 56, color: "#fff", fontWeight: "bold", letterSpacing: 1 }}>
-              ${(grandTotals.materials + materialMarkupAmount + feesTotal + feesMarkupAmount + packagesTotal + packagesMarkupAmount + laborSellPrice).toFixed(2)}
+              ${getFinalTotal().toFixed(2)}
             </div>
+            {hasAdjustment && (
+              <div style={{ fontSize: 14, color: "#fff", opacity: 0.7, marginTop: 8 }}>
+                Original: ${(grandTotals.materials + materialMarkupAmount + feesTotal + feesMarkupAmount + packagesTotal + packagesMarkupAmount + laborSellPrice).toFixed(2)}
+              </div>
+            )}
           </div>
         </>
       )}
+      
+      {/* PRICE ADJUSTMENT MODAL */}
+      <PriceAdjustment
+        originalTotal={grandTotals.materials + materialMarkupAmount + feesTotal + feesMarkupAmount + packagesTotal + packagesMarkupAmount + laborSellPrice}
+        onAdjustmentApplied={handlePriceAdjustment}
+        onClose={() => setShowPriceAdjustment(false)}
+        show={showPriceAdjustment}
+      />
     </div>
   );
 }
@@ -1483,6 +1650,15 @@ export default function Estimate({ mode = "full" }) {
   const [showAddComponentModal, setShowAddComponentModal] = useState(false);
   const [editingAssemblyIndex, setEditingAssemblyIndex] = useState(null);
   const [expandedAssemblyItems, setExpandedAssemblyItems] = useState(new Set());
+  
+  // Convert to Assembly modal state
+  const [showConvertToAssemblyModal, setShowConvertToAssemblyModal] = useState(false);
+  const [convertingRowIndex, setConvertingRowIndex] = useState(null);
+  const [assemblyBuildComponents, setAssemblyBuildComponents] = useState([]);
+  const [assemblyBuildSearch, setAssemblyBuildSearch] = useState("");
+  const [saveToAssemblyManager, setSaveToAssemblyManager] = useState(false);
+  const [existingAssemblyPick, setExistingAssemblyPick] = useState(null);
+  
   // Alternates state
   const [availableAlternates, setAvailableAlternates] = useState([]);
   const [currentAlternate, setCurrentAlternate] = useState(0); // 0 = Base Bid
@@ -1629,17 +1805,50 @@ export default function Estimate({ mode = "full" }) {
     }
   }, [projectId, user]);
 
-  // ===== SYNC rowsSection WITH currentSection =====
-  useEffect(() => {
-    setRowsSection(currentSection);
-  }, [currentSection]);
+  // ===== REMOVED: rowsSection sync effect =====
+  // rowsSection is now ONLY updated when actual row data is set (in loadSectionData and autoSaveEstimate)
+  // This prevents the race condition where rowsSection updates to the new section
+  // but rows still contains the old section's data.
 
   // ===== LOAD SECTION DATA WHEN SECTION CHANGES OR PAGE FIRST LOADS =====
   // Track if we've loaded initial data to prevent overwriting user's first item
   const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
+  // Track if we're in the middle of loading section data (prevents auto-save race condition)
+  const [isLoadingSection, setIsLoadingSection] = useState(false);
+  // Ref to track the previous section for saving before switch
+  const prevSectionRef = useRef(currentSection);
   
   useEffect(() => {
+    const prevSection = prevSectionRef.current;
+    prevSectionRef.current = currentSection;
+    
+    // When switching TO summary, we DON'T need to load section data or do immediate saves
+    // The EstimateSummary component handles its own data loading via loadAllSections()
+    // Previously, calling autoSaveEstimate here (DELETE then INSERT) caused a race condition
+    // where the Summary's loadAllSections() would query items while they were deleted.
+    if (currentSection === 'summary') {
+      // Just do a quick save of the previous section data if needed (no delete-reinsert)
+      if (prevSection !== currentSection && hasLoadedInitialData && (currentEstimateId || (isChangeOrder && coId))) {
+        const validRows = rows.filter(r => r.item.trim() !== "");
+        if (validRows.length > 0) {
+          console.log(`💾 IMMEDIATE SAVE: Saving "${prevSection}" before switching to Summary`);
+          autoSaveEstimate(prevSection); // Save old section data NOW
+        }
+      }
+      return; // Don't call loadSectionData for summary - EstimateSummary handles it
+    }
+    
     if (currentEstimateId || (isChangeOrder && coId)) {
+      // CRITICAL FIX: Save the PREVIOUS section's data immediately before loading new section
+      // This prevents data loss when switching sections within the 2-second auto-save window
+      if (prevSection !== currentSection && hasLoadedInitialData) {
+        const validRows = rows.filter(r => r.item.trim() !== "");
+        if (validRows.length > 0) {
+          console.log(`💾 IMMEDIATE SAVE: Saving "${prevSection}" before switching to "${currentSection}"`);
+          autoSaveEstimate(prevSection); // Save old section data NOW (not on a timer)
+        }
+      }
+      
       // Clear expansion state BEFORE loading data
       setExpandedAssemblyItems(new Set());
       console.log('🔄 Clearing expanded items state before load');
@@ -1877,10 +2086,20 @@ export default function Estimate({ mode = "full" }) {
       // Check if there's an estimateId in URL - if so, load it
       if (urlEstimateId) {
         await loadExistingEstimate(urlEstimateId);
+      } else if (isChangeOrder && coId) {
+        // Change orders use coId, mark as ready for auto-save
+        setHasLoadedInitialData(true);
+        setRowsSection(currentSection);
       } else {
-        // Always create fresh estimate (don't auto-load)
+        // FIX: For new estimates (no estimateId in URL), mark as ready immediately.
+        // Previously this was never set, creating a deadlock where:
+        // - auto-save required hasLoadedInitialData=true
+        // - hasLoadedInitialData required currentEstimateId
+        // - currentEstimateId required auto-save to create the estimate
         const newEstimateNumber = await generateEstimateNumber();
         setEstimateNumber(newEstimateNumber);
+        setHasLoadedInitialData(true); // No existing data to load, ready for auto-save
+        setRowsSection(currentSection);
       }
     } catch (err) {
       console.error("Error loading project:", err);
@@ -1994,8 +2213,16 @@ export default function Estimate({ mode = "full" }) {
     if (!projectId || !user) return;
     if (!hasLoadedInitialData) return; // Don't auto-save until initial data is loaded!
     
+    // CRITICAL: Don't auto-save if rowsSection doesn't match currentSection
+    // This prevents saving stale data from the old section to the new section
+    // during the brief window between section switch and data load completion
+    if (rowsSection !== currentSection) {
+      console.log(`⏸️ Auto-save skipped: rowsSection="${rowsSection}" !== currentSection="${currentSection}"`);
+      return;
+    }
+    
     // Use the tracked rowsSection, not currentSection
-    const sectionToSave = rowsSection; // Always use current section
+    const sectionToSave = rowsSection;
     
     const timeoutId = setTimeout(() => {
       autoSaveEstimate(sectionToSave);
@@ -2907,9 +3134,9 @@ for (const row of validRows) {
                 borderBottom: "1px solid #333",
                 background: i % 2 === 0 ? "#1a1a1a" : "transparent"
               }}>
-                {/* NEW: Expand/Collapse Column for child items */}
+                {/* Expand/Collapse OR Convert to Assembly button */}
                 <td style={{ width: 40, textAlign: 'center', padding: '8px 4px' }}>
-                  {r.children && r.children.length > 0 && (
+                  {r.children && r.children.length > 0 ? (
                     <button
                       onClick={() => {
                         const newExpanded = new Set(expandedAssemblyItems);
@@ -2931,7 +3158,30 @@ for (const row of validRows) {
                     >
                       {expandedAssemblyItems.has(i) ? '▼' : '▶'}
                     </button>
-                  )}
+                  ) : r.item && r.item.trim() !== "" && !r.isAssembly ? (
+                    <button
+                      onClick={() => {
+                        setConvertingRowIndex(i);
+                        setAssemblyBuildComponents([]);
+                        setAssemblyBuildSearch("");
+                        setExistingAssemblyPick(null);
+                        setSaveToAssemblyManager(false);
+                        setShowConvertToAssemblyModal(true);
+                      }}
+                      style={{
+                        background: 'none',
+                        border: '1px solid #555',
+                        cursor: 'pointer',
+                        fontSize: 13,
+                        color: '#f97316',
+                        padding: '2px 4px',
+                        borderRadius: 3
+                      }}
+                      title="Convert to Assembly - add component items"
+                    >
+                      🔧
+                    </button>
+                  ) : null}
                 </td>
                 
                 {/* EXISTING: Assembly components expand/collapse column */}
@@ -3411,6 +3661,13 @@ for (const row of validRows) {
                         onClick={async () => {
                           if (confirm("Do you want to save these changes to the Assembly Manager? This will update the assembly for all future uses.")) {
                             try {
+                              // Use children (always populated) as the source of truth
+                              const sourceComponents = r.children || r.components || [];
+                              if (sourceComponents.length === 0) {
+                                alert("No components to save!");
+                                return;
+                              }
+                              
                               const assembly = assembliesDB.find(asm => asm.name === r.item);
                               if (assembly && r.assemblyId) {
                                 // Delete existing components
@@ -3419,24 +3676,48 @@ for (const row of validRows) {
                                   .delete()
                                   .eq("assembly_id", r.assemblyId);
                                 
-                                // Insert updated components
-                                const componentsToInsert = r.components.map((comp, idx) => ({
-                                  assembly_id: r.assemblyId,
-                                  material_id: comp.material_id,
-                                  material_name: comp.material_name,
-                                  quantity: comp.quantity,
-                                  unit: comp.unit,
-                                  material_unit_cost: comp.material_unit_cost,
-                                  labor_hours: comp.labor_hours,
-                                  sequence: idx
-                                }));
+                                // Insert updated components - handle both children format and components format
+                                const componentsToInsert = sourceComponents.map((comp, idx) => {
+                                  const obj = {
+                                    assembly_id: r.assemblyId,
+                                    material_name: comp.material_name || comp.description || comp.name || 'Unknown',
+                                    quantity: Number(comp.quantity || 0),
+                                    unit: comp.unit || 'ea',
+                                    material_unit_cost: Number(comp.material_unit_cost || comp.price || 0),
+                                    labor_hours: Number(comp.labor_hours || comp.laborHours || 0),
+                                    sequence: idx
+                                  };
+                                  // Only include material_id if valid
+                                  const matId = comp.material_id || comp.component_material_id;
+                                  if (matId && matId !== 'undefined' && matId !== 'null') {
+                                    obj.material_id = String(matId);
+                                    obj.component_material_id = String(matId);
+                                  }
+                                  return obj;
+                                });
                                 
-                                await supabase
+                                console.log('📝 Saving assembly components:', componentsToInsert);
+                                const { error: compError } = await supabase
                                   .from("assembly_components")
                                   .insert(componentsToInsert);
                                 
-                                alert("Assembly saved successfully!");
-                                await loadAssemblies(); // Reload assemblies
+                                if (compError) {
+                                  console.error('❌ Component save error:', compError);
+                                  alert("Failed to save components: " + compError.message);
+                                } else {
+                                  // Also update assembly totals
+                                  const totalMat = componentsToInsert.reduce((s, c) => s + (c.quantity * c.material_unit_cost), 0);
+                                  const totalHrs = componentsToInsert.reduce((s, c) => s + (c.quantity * c.labor_hours), 0);
+                                  await supabase.from("assemblies").update({
+                                    total_material_cost: totalMat,
+                                    total_labor_hours: totalHrs
+                                  }).eq("id", r.assemblyId);
+                                  
+                                  alert(`Assembly saved successfully! (${componentsToInsert.length} components)`);
+                                  await loadAssemblies(); // Reload assemblies
+                                }
+                              } else {
+                                alert("No assembly ID found. Try saving via the Convert to Assembly modal with 'Save to Assembly Manager' checked.");
                               }
                             } catch (error) {
                               console.error("Error saving assembly:", error);
@@ -4173,6 +4454,416 @@ for (const row of validRows) {
         </div>
       </div>
     </div>
+
+    {/* ===== CONVERT TO ASSEMBLY MODAL ===== */}
+    {showConvertToAssemblyModal && convertingRowIndex !== null && rows[convertingRowIndex] && (
+      <div style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: "rgba(0,0,0,0.8)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1100
+      }}>
+        <div style={{
+          background: "#2a2a2a",
+          border: "2px solid #f97316",
+          borderRadius: 12,
+          padding: 24,
+          width: 750,
+          maxWidth: "95%",
+          maxHeight: "85vh",
+          overflowY: "auto"
+        }}>
+          {/* Header */}
+          <h3 style={{ margin: "0 0 4px 0", color: "#f97316", fontSize: 20 }}>
+            🔧 Convert to Assembly
+          </h3>
+          <div style={{ color: "#ccc", fontSize: 13, marginBottom: 16 }}>
+            Convert "<strong style={{ color: "#fff" }}>{rows[convertingRowIndex]?.item}</strong>" (Qty: {rows[convertingRowIndex]?.qty}) into an assembly with component items
+          </div>
+
+          {/* OPTION 1: Pick from Existing Assemblies */}
+          <div style={{ marginBottom: 16, padding: 12, background: "#1a1a1a", borderRadius: 8, border: "1px solid #444" }}>
+            <div style={{ color: "#8b5cf6", fontSize: 13, fontWeight: "bold", marginBottom: 8 }}>
+              📦 Quick: Use Existing Assembly
+            </div>
+            <select
+              value={existingAssemblyPick || ""}
+              onChange={async (e) => {
+                const asmId = e.target.value;
+                if (!asmId) { setAssemblyBuildComponents([]); setExistingAssemblyPick(null); return; }
+                setExistingAssemblyPick(asmId);
+                const { data: components } = await supabase
+                  .from("assembly_components")
+                  .select("*")
+                  .eq("assembly_id", asmId)
+                  .order("sequence");
+                const buildComps = (components || []).map(comp => ({
+                  material_id: comp.material_id || comp.component_material_id,
+                  name: comp.material_name || 'Unknown',
+                  quantity: Number(comp.quantity || 1),
+                  unit: comp.unit || 'ea',
+                  price: Number(comp.material_unit_cost || 0),
+                  laborHours: Number(comp.labor_hours || 0)
+                }));
+                setAssemblyBuildComponents(buildComps);
+              }}
+              style={{
+                width: "100%",
+                padding: "8px 12px",
+                background: "#2a2a2a",
+                border: "1px solid #555",
+                borderRadius: 6,
+                color: "#fff",
+                fontSize: 13
+              }}
+            >
+              <option value="">-- Select an existing assembly --</option>
+              {assembliesDB.map(asm => (
+                <option key={asm.id} value={asm.id}>{asm.name} {asm.total_material_cost ? `($${Number(asm.total_material_cost).toFixed(2)})` : ''}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Divider */}
+          <div style={{ textAlign: "center", color: "#555", marginBottom: 16, fontSize: 12, borderBottom: "1px solid #333", paddingBottom: 12 }}>
+            — OR search & add materials manually —
+          </div>
+
+          {/* OPTION 2: Search and Add Materials */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ color: "#10b981", fontSize: 13, fontWeight: "bold", marginBottom: 6 }}>
+              🔍 Search Materials to Add
+            </div>
+            <input
+              type="text"
+              value={assemblyBuildSearch}
+              onChange={(e) => setAssemblyBuildSearch(e.target.value)}
+              placeholder="Type to search materials (min 2 chars)..."
+              autoFocus
+              style={{
+                width: "100%",
+                padding: "8px 12px",
+                background: "#1a1a1a",
+                border: "1px solid #555",
+                borderRadius: 6,
+                color: "#fff",
+                fontSize: 13
+              }}
+            />
+            {/* Search Results */}
+            {assemblyBuildSearch.length >= 2 && (
+              <div style={{ maxHeight: 160, overflowY: "auto", border: "1px solid #444", borderRadius: 4, marginTop: 4, background: "#1a1a1a" }}>
+                {materialsDB
+                  .filter(m => m.name.toLowerCase().includes(assemblyBuildSearch.toLowerCase()))
+                  .slice(0, 25)
+                  .map(m => (
+                    <div
+                      key={m.id}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "6px 10px",
+                        borderBottom: "1px solid #333",
+                        cursor: "pointer"
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = "#333"}
+                      onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                    >
+                      <span style={{ color: "#fff", fontSize: 12, flex: 1 }}>{m.name}</span>
+                      <span style={{ color: "#10b981", fontSize: 11, marginRight: 10 }}>${Number(m.price || 0).toFixed(2)}</span>
+                      <span style={{ color: "#3b82f6", fontSize: 11, marginRight: 10 }}>{Number(m.laborHours || 0).toFixed(2)}h</span>
+                      <button
+                        onClick={() => {
+                          setAssemblyBuildComponents([...assemblyBuildComponents, {
+                            material_id: m.id,
+                            name: m.name,
+                            quantity: 1,
+                            unit: m.unit || 'ea',
+                            price: Number(m.price || 0),
+                            laborHours: Number(m.laborHours || 0)
+                          }]);
+                          setAssemblyBuildSearch("");
+                        }}
+                        style={{
+                          padding: "3px 10px",
+                          background: "#10b981",
+                          border: "none",
+                          borderRadius: 4,
+                          color: "#fff",
+                          fontSize: 11,
+                          fontWeight: "bold",
+                          cursor: "pointer"
+                        }}
+                      >
+                        + Add
+                      </button>
+                    </div>
+                  ))}
+                {materialsDB.filter(m => m.name.toLowerCase().includes(assemblyBuildSearch.toLowerCase())).length === 0 && (
+                  <div style={{ padding: 12, color: "#666", textAlign: "center", fontSize: 12 }}>No materials found</div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Components List */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ color: "#f97316", fontSize: 13, fontWeight: "bold", marginBottom: 6 }}>
+              📋 Assembly Components ({assemblyBuildComponents.length})
+            </div>
+            {assemblyBuildComponents.length === 0 ? (
+              <div style={{ color: "#555", padding: 20, textAlign: "center", fontSize: 13, background: "#1a1a1a", borderRadius: 8, border: "1px dashed #444" }}>
+                No components added yet. Search above or pick an existing assembly.
+              </div>
+            ) : (
+              <table style={{ width: "100%", borderCollapse: "collapse", background: "#1a1a1a", borderRadius: 8 }}>
+                <thead>
+                  <tr style={{ borderBottom: "1px solid #444" }}>
+                    <th style={{ padding: "6px 8px", textAlign: "left", color: "#f97316", fontSize: 11 }}>Item</th>
+                    <th style={{ padding: "6px 8px", textAlign: "center", color: "#f97316", fontSize: 11, width: 70 }}>Qty</th>
+                    <th style={{ padding: "6px 8px", textAlign: "right", color: "#f97316", fontSize: 11, width: 80 }}>Price</th>
+                    <th style={{ padding: "6px 8px", textAlign: "right", color: "#f97316", fontSize: 11, width: 70 }}>Hrs</th>
+                    <th style={{ padding: "6px 8px", textAlign: "right", color: "#f97316", fontSize: 11, width: 90 }}>Ext $</th>
+                    <th style={{ padding: "6px 8px", textAlign: "center", color: "#f97316", fontSize: 11, width: 40 }}>🗑️</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {assemblyBuildComponents.map((comp, idx) => (
+                    <tr key={idx} style={{ borderBottom: "1px solid #333" }}>
+                      <td style={{ padding: "6px 8px", color: "#fff", fontSize: 12 }}>{comp.name}</td>
+                      <td style={{ padding: "6px 8px", textAlign: "center" }}>
+                        <input
+                          type="number"
+                          value={comp.quantity}
+                          onChange={(e) => {
+                            const updated = [...assemblyBuildComponents];
+                            updated[idx].quantity = Number(e.target.value) || 0;
+                            setAssemblyBuildComponents(updated);
+                          }}
+                          style={{ width: 50, padding: "3px 4px", background: "#2a2a2a", border: "1px solid #555", borderRadius: 3, color: "#fff", fontSize: 11, textAlign: "center" }}
+                          step="0.01"
+                        />
+                      </td>
+                      <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                        <input
+                          type="number"
+                          value={comp.price}
+                          onChange={(e) => {
+                            const updated = [...assemblyBuildComponents];
+                            updated[idx].price = Number(e.target.value) || 0;
+                            setAssemblyBuildComponents(updated);
+                          }}
+                          style={{ width: 65, padding: "3px 4px", background: "#2a2a2a", border: "1px solid #555", borderRadius: 3, color: "#10b981", fontSize: 11, textAlign: "right" }}
+                          step="0.01"
+                        />
+                      </td>
+                      <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                        <input
+                          type="number"
+                          value={comp.laborHours}
+                          onChange={(e) => {
+                            const updated = [...assemblyBuildComponents];
+                            updated[idx].laborHours = Number(e.target.value) || 0;
+                            setAssemblyBuildComponents(updated);
+                          }}
+                          style={{ width: 55, padding: "3px 4px", background: "#2a2a2a", border: "1px solid #555", borderRadius: 3, color: "#3b82f6", fontSize: 11, textAlign: "right" }}
+                          step="0.01"
+                        />
+                      </td>
+                      <td style={{ padding: "6px 8px", textAlign: "right", color: "#10b981", fontSize: 12, fontWeight: "bold" }}>
+                        ${(comp.quantity * comp.price).toFixed(2)}
+                      </td>
+                      <td style={{ padding: "6px 8px", textAlign: "center" }}>
+                        <button
+                          onClick={() => {
+                            setAssemblyBuildComponents(assemblyBuildComponents.filter((_, i) => i !== idx));
+                          }}
+                          style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 14 }}
+                        >
+                          ✕
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {/* Totals Row */}
+                  <tr style={{ borderTop: "2px solid #444", background: "#2a2a2a" }}>
+                    <td style={{ padding: "8px", color: "#f97316", fontSize: 12, fontWeight: "bold" }}>TOTAL (per unit)</td>
+                    <td></td>
+                    <td style={{ padding: "8px", textAlign: "right", color: "#10b981", fontSize: 12, fontWeight: "bold" }}>
+                      ${assemblyBuildComponents.reduce((s, c) => s + c.quantity * c.price, 0).toFixed(2)}
+                    </td>
+                    <td style={{ padding: "8px", textAlign: "right", color: "#3b82f6", fontSize: 12, fontWeight: "bold" }}>
+                      {assemblyBuildComponents.reduce((s, c) => s + c.quantity * c.laborHours, 0).toFixed(2)}h
+                    </td>
+                    <td style={{ padding: "8px", textAlign: "right", color: "#fff", fontSize: 13, fontWeight: "bold" }}>
+                      ${assemblyBuildComponents.reduce((s, c) => s + c.quantity * c.price, 0).toFixed(2)}
+                    </td>
+                    <td></td>
+                  </tr>
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* Save to Assembly Manager checkbox */}
+          <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={saveToAssemblyManager}
+              onChange={(e) => setSaveToAssemblyManager(e.target.checked)}
+              style={{ width: 16, height: 16 }}
+            />
+            <span style={{ color: "#999", fontSize: 13 }}>Also save to Assembly Manager for future use</span>
+          </label>
+
+          {/* Action Buttons */}
+          <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+            <button
+              onClick={() => {
+                setShowConvertToAssemblyModal(false);
+                setConvertingRowIndex(null);
+              }}
+              style={{
+                padding: "10px 20px",
+                background: "transparent",
+                border: "1px solid #666",
+                borderRadius: 6,
+                color: "#999",
+                fontSize: 14,
+                cursor: "pointer"
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={async () => {
+                if (assemblyBuildComponents.length === 0) {
+                  alert("Please add at least one component to the assembly");
+                  return;
+                }
+
+                // Convert the row to an assembly with children
+                const updatedRows = [...rows];
+                const row = updatedRows[convertingRowIndex];
+                row.isAssembly = true;
+                row.children = assemblyBuildComponents.map(comp => ({
+                  description: comp.name,
+                  quantity: Number(comp.quantity),
+                  unit: comp.unit || 'ea',
+                  material_unit_cost: Number(comp.price),
+                  material_total: Number(comp.quantity) * Number(comp.price),
+                  labor_hours: Number(comp.laborHours),
+                  labor_multiplier: 1,
+                  labor_rate: LABOR_RATE,
+                  labor_total: Number(comp.quantity) * Number(comp.laborHours) * LABOR_RATE,
+                  line_total: (Number(comp.quantity) * Number(comp.price)) + (Number(comp.quantity) * Number(comp.laborHours) * LABOR_RATE)
+                }));
+                row.components = assemblyBuildComponents.map(comp => ({
+                  material_id: comp.material_id,
+                  material_name: comp.name,
+                  quantity: Number(comp.quantity),
+                  unit: comp.unit || 'ea',
+                  material_unit_cost: Number(comp.price),
+                  labor_hours: Number(comp.laborHours)
+                }));
+
+                setRows(updatedRows);
+
+                // Auto-expand to show the children
+                const newExpanded = new Set(expandedAssemblyItems);
+                newExpanded.add(convertingRowIndex);
+                setExpandedAssemblyItems(newExpanded);
+
+                // Optionally save to Assembly Manager
+                if (saveToAssemblyManager) {
+                  try {
+                    const { data: assemblyData, error: assemblyError } = await supabase
+                      .from('assemblies')
+                      .insert([{
+                        name: row.item,
+                        description: `Created from estimate on ${new Date().toLocaleDateString()}`,
+                        category: 'ASSEMBLIES',
+                        unit: 'ea',
+                        is_custom: true,
+                        is_active: true,
+                        company_id: user?.id,
+                        total_material_cost: assemblyBuildComponents.reduce((s, c) => s + c.quantity * c.price, 0),
+                        total_labor_hours: assemblyBuildComponents.reduce((s, c) => s + c.quantity * c.laborHours, 0)
+                      }])
+                      .select()
+                      .single();
+
+                    if (assemblyError) throw assemblyError;
+
+                    // Insert components
+                    const componentsToInsert = assemblyBuildComponents.map((comp, idx) => {
+                      const obj = {
+                        assembly_id: assemblyData.id,
+                        material_name: comp.name,
+                        quantity: comp.quantity,
+                        unit: comp.unit || 'ea',
+                        material_unit_cost: comp.price,
+                        labor_hours: comp.laborHours,
+                        sequence: idx
+                      };
+                      // Only include material_id fields if they exist and are valid
+                      if (comp.material_id && comp.material_id !== 'undefined') {
+                        obj.material_id = String(comp.material_id);
+                        obj.component_material_id = String(comp.material_id);
+                      }
+                      return obj;
+                    });
+
+                    console.log('📝 Inserting assembly components:', JSON.stringify(componentsToInsert, null, 2));
+                    const { error: compError } = await supabase.from('assembly_components').insert(componentsToInsert);
+                    if (compError) {
+                      console.error('❌ Component insert error:', compError);
+                      alert('Assembly created but components failed to save: ' + compError.message);
+                    } else {
+                      console.log(`✅ ${componentsToInsert.length} components saved`);
+                    }
+                    
+                    // Update row with assembly ID
+                    updatedRows[convertingRowIndex].assemblyId = assemblyData.id;
+                    setRows([...updatedRows]);
+                    
+                    await loadAssemblies();
+                    console.log(`✅ Assembly "${row.item}" saved to Assembly Manager`);
+                  } catch (err) {
+                    console.error("Error saving to Assembly Manager:", err);
+                    alert("Assembly applied to estimate but failed to save to Assembly Manager: " + err.message);
+                  }
+                }
+
+                setShowConvertToAssemblyModal(false);
+                setConvertingRowIndex(null);
+              }}
+              disabled={assemblyBuildComponents.length === 0}
+              style={{
+                padding: "10px 24px",
+                background: assemblyBuildComponents.length === 0 ? "#555" : "#f97316",
+                border: "none",
+                borderRadius: 6,
+                color: "#fff",
+                fontSize: 14,
+                fontWeight: "bold",
+                cursor: assemblyBuildComponents.length === 0 ? "not-allowed" : "pointer",
+                opacity: assemblyBuildComponents.length === 0 ? 0.5 : 1
+              }}
+            >
+              ✅ Apply Assembly ({assemblyBuildComponents.length} items)
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     </>
   );
 }

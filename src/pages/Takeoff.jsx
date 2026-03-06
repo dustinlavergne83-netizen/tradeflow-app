@@ -197,6 +197,11 @@ const [calibrationMethod, setCalibrationMethod] = useState('auto'); // 'auto' or
   const [parametricQuantities, setParametricQuantities] = useState({}); // {component_id: quantity}
   const [parametricAssemblyId, setParametricAssemblyId] = useState(null);
 
+  // Estimate selection modal (for choosing which estimate to export to)
+  const [showEstimateSelectionModal, setShowEstimateSelectionModal] = useState(false);
+  const [existingEstimates, setExistingEstimates] = useState([]);
+  const [pendingExportLayer, setPendingExportLayer] = useState(null);
+
   // Assembly preview/confirmation modal
   const [showAssemblyPreviewModal, setShowAssemblyPreviewModal] = useState(false);
   const [previewAssemblyData, setPreviewAssemblyData] = useState(null); // {name, components, finalComponents, savePermanently}
@@ -386,15 +391,18 @@ const [calibrationMethod, setCalibrationMethod] = useState('auto'); // 'auto' or
 
   // Load plan data (or initialize empty with predefined layers)
   useEffect(() => {
+    if (!user) {
+      console.log('⏳ Waiting for user auth before loading plan/layers...');
+      return;
+    }
     if (planId) {
       loadPlan();
     } else {
       // No plan - but still create predefined layers so user can work without a plan
       console.log('⚠️ No planId - initializing predefined layers for estimate-only mode');
-      createPredefinedLayers();
-      loadLayers();
+      createPredefinedLayers().then(() => loadLayers());
     }
-  }, [planId]);
+  }, [planId, user]);
 
   // Load materials
   useEffect(() => {
@@ -463,11 +471,29 @@ const [calibrationMethod, setCalibrationMethod] = useState('auto'); // 'auto' or
   // Spacebar pan mode - global keyboard listener
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Only activate spacebar pan when count tool is active
+      // CRITICAL: Don't intercept ANY keys when user is typing in an input/textarea/select
+      const activeEl = document.activeElement;
+      const tag = activeEl?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || activeEl?.isContentEditable) {
+        return; // Let the input handle the keypress normally
+      }
+      
+      // Spacebar pan mode - only when count tool is active
       if (e.code === 'Space' && activeToolRef.current === 'count' && !isSpacebarHeldRef.current) {
         e.preventDefault(); // Prevent page scroll
+        isSpacebarHeldRef.current = true;
         setIsSpacebarHeld(true);
-        console.log('🔑 Spacebar held - PAN MODE');
+        
+        // DIRECT DOM MANIPULATION for instant pan enable (like middle-click does)
+        const wrapperEl = canvasWrapperRef.current;
+        if (wrapperEl) {
+          wrapperEl.style.pointerEvents = 'none';
+          wrapperEl.style.cursor = 'grab';
+          // CRITICAL: Also disable Fabric's inner canvas elements which have their own pointerEvents
+          // Disable ALL child elements (Fabric creates multiple canvases with their own pointerEvents)
+          wrapperEl.querySelectorAll('*').forEach(el => { el.style.pointerEvents = 'none'; });
+          console.log('🔑 Spacebar held - PAN MODE (all elements disabled)');
+        }
       }
       
       // Enter key to finish polyline (length tool)
@@ -493,8 +519,18 @@ const [calibrationMethod, setCalibrationMethod] = useState('auto'); // 'auto' or
     const handleKeyUp = (e) => {
       if (e.code === 'Space' && isSpacebarHeldRef.current) {
         e.preventDefault();
+        isSpacebarHeldRef.current = false;
         setIsSpacebarHeld(false);
-        console.log('🔑 Spacebar released - COUNT MODE');
+        
+        // DIRECT DOM MANIPULATION to re-enable canvas (like middle-click release)
+        const wrapperEl = canvasWrapperRef.current;
+        if (wrapperEl) {
+          wrapperEl.style.pointerEvents = 'auto';
+          wrapperEl.style.cursor = 'pointer';
+          // Re-enable ALL child elements
+          wrapperEl.querySelectorAll('*').forEach(el => { el.style.pointerEvents = 'auto'; });
+          console.log('🔑 Spacebar released - COUNT MODE (all elements re-enabled)');
+        }
       }
     };
     
@@ -1269,15 +1305,17 @@ try {
 
       // Load measurements (don't throw error if table doesn't exist)
       loadMeasurements();
-      
-      // Auto-create predefined layers if they don't exist, THEN load layers
-      await createPredefinedLayers();
-      
-      // Load layers AFTER creation (don't throw error if table doesn't exist)
-      await loadLayers();
     } catch (err) {
       console.error('Error loading plan:', err);
       console.error('Failed to load plan:', err.message);
+    }
+    
+    // ALWAYS create and load layers, even if plan loading had errors above
+    try {
+      await createPredefinedLayers();
+      await loadLayers();
+    } catch (layerErr) {
+      console.error('Error loading layers:', layerErr);
     }
   }
 
@@ -1425,20 +1463,22 @@ try {
   }
 
   async function createPredefinedLayers() {
-    try {
-      const predefinedLayers = [
-        { name: 'Fixtures', section_name: 'Fixtures', color: '#EF4444', display_order: 1 },
-        { name: 'Power', section_name: 'Power', color: '#F59E0B', display_order: 2 },
-        { name: 'Branch', section_name: 'Branch', color: '#10B981', display_order: 3 },
-        { name: 'Feeders', section_name: 'Feeders', color: '#3B82F6', display_order: 4 },
-        { name: 'Switchgear', section_name: 'Switchgear', color: '#8B5CF6', display_order: 5 },
-        { name: 'Equipment', section_name: 'Equipment', color: '#EC4899', display_order: 6 },
-        { name: 'Special Systems', section_name: 'Special Systems', color: '#06B6D4', display_order: 7 },
-      ];
-      
-      for (const layer of predefinedLayers) {
+    const predefinedLayers = [
+      { name: 'Fixtures', section_name: 'Fixtures', color: '#EF4444', display_order: 1 },
+      { name: 'Power', section_name: 'Power', color: '#F59E0B', display_order: 2 },
+      { name: 'Branch', section_name: 'Branch', color: '#10B981', display_order: 3 },
+      { name: 'Feeders', section_name: 'Feeders', color: '#3B82F6', display_order: 4 },
+      { name: 'Switchgear', section_name: 'Switchgear', color: '#8B5CF6', display_order: 5 },
+      { name: 'Equipment', section_name: 'Equipment', color: '#EC4899', display_order: 6 },
+      { name: 'Special Systems', section_name: 'Special Systems', color: '#06B6D4', display_order: 7 },
+    ];
+    
+    console.log('🔧 Creating predefined layers for planId:', planId, 'user:', user?.id);
+    
+    for (const layer of predefinedLayers) {
+      try {
         // Check if layer already exists
-        const { data: existing } = await supabase
+        const { data: existing, error: checkError } = await supabase
           .from('measurement_layers')
           .select('id')
           .eq('plan_id', planId)
@@ -1446,9 +1486,13 @@ try {
           .eq('is_predefined', true)
           .maybeSingle();
         
+        if (checkError) {
+          console.error(`❌ Error checking layer ${layer.name}:`, checkError);
+          continue;
+        }
+        
         if (!existing) {
-          // Create the layer
-          await supabase
+          const { data: inserted, error: insertError } = await supabase
             .from('measurement_layers')
             .insert([{
               plan_id: planId,
@@ -1459,13 +1503,20 @@ try {
               is_predefined: true,
               display_order: layer.display_order,
               company_id: user.id,
-            }]);
+            }])
+            .select();
           
-          console.log(`✅ Created predefined layer: ${layer.name}`);
+          if (insertError) {
+            console.error(`❌ Error INSERTING layer ${layer.name}:`, insertError);
+          } else {
+            console.log(`✅ Created predefined layer: ${layer.name}`, inserted);
+          }
+        } else {
+          console.log(`⏭️ Layer ${layer.name} already exists (id: ${existing.id})`);
         }
+      } catch (err) {
+        console.error(`❌ Exception creating layer ${layer.name}:`, err);
       }
-    } catch (err) {
-      console.error('Error creating predefined layers:', err);
     }
   }
 
@@ -2847,7 +2898,8 @@ try {
     }
   }
 
-  async function saveCount() {
+  async function saveCount(materialIdOverride = null) {
+    const effectiveMaterialId = materialIdOverride || selectedMaterialId;
     const isEditing = editingMeasurementIdRef.current !== null;
     
     if (isEditing) {
@@ -2860,6 +2912,7 @@ try {
         console.log('=== UPDATING COUNT ===');
         console.log('Measurement ID:', editingMeasurementIdRef.current);
         console.log('Total markers to save:', allMarkersForMeasurement.length);
+        console.log('Effective material ID:', effectiveMaterialId);
         
         const pdfRelativeMarkers = allMarkersForMeasurement.map(m => ({
           x: m.baseX,
@@ -2872,7 +2925,7 @@ try {
             geometry: { markers: pdfRelativeMarkers },
             raw_value: pdfRelativeMarkers.length,
             calculated_value: pdfRelativeMarkers.length,
-            material_id: selectedMaterialId,
+            material_id: effectiveMaterialId,
           })
           .eq('id', editingMeasurementIdRef.current);
         
@@ -2951,7 +3004,7 @@ try {
             label: label || null,
             layer_id: activeLayerRef.current,
             color: markerColor,
-            material_id: selectedMaterialId,
+            material_id: effectiveMaterialId,
             company_id: user.id,
           }])
           .select()
@@ -3166,7 +3219,7 @@ const { data, error } = await supabase
     }
   }
 
-  async function exportLayerToEstimate(layer) {
+  async function exportLayerToEstimate(layer, selectedEstimateId = null) {
     try {
       console.log('Exporting layer to estimate:', layer);
       
@@ -3174,8 +3227,8 @@ const { data, error } = await supabase
       const layerMeasurements = measurements.filter(m => {
         if (m.layer_id !== layer.id) return false;
         
-        // Include count measurements with linked materials
-        if (m.measurement_type === 'count' && m.material_id) return true;
+        // Include count measurements with linked materials OR labels
+        if (m.measurement_type === 'count' && (m.material_id || m.label)) return true;
         
         // Include length measurements with materials array
         if (m.measurement_type === 'length' && m.materials && m.materials.length > 0) return true;
@@ -3206,22 +3259,20 @@ const { data, error } = await supabase
         throw new Error('Project not found');
       }
       
-      // Find the estimate for this project
+      // Find ALL estimates for this project
       let estimate;
-      const { data: existingEstimate, error: estimateError } = await supabase
+      const { data: allEstimates, error: estimateError } = await supabase
         .from('estimates')
-        .select('id')
+        .select('id, project_name, status, created_at')
         .eq('project_name', project.name)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .order('created_at', { ascending: false });
       
       if (estimateError) {
         console.error('Estimate error:', estimateError);
         throw new Error('Estimate error: ' + estimateError.message);
       }
       
-      if (!existingEstimate) {
+      if (!allEstimates || allEstimates.length === 0) {
         // Create a new estimate automatically
         console.log('No estimate found - creating one automatically');
         const { data: newEstimate, error: createError } = await supabase
@@ -3242,8 +3293,24 @@ const { data, error } = await supabase
         
         estimate = newEstimate;
         console.log('✅ Created new estimate:', estimate.id);
+      } else if (allEstimates.length === 1) {
+        // Only one estimate - use it directly
+        estimate = allEstimates[0];
+        console.log('✅ Found single estimate:', estimate.id);
+      } else if (selectedEstimateId) {
+        // User already chose an estimate from the selection modal
+        estimate = allEstimates.find(e => e.id === selectedEstimateId);
+        if (!estimate) {
+          throw new Error('Selected estimate not found');
+        }
+        console.log('✅ Using user-selected estimate:', estimate.id);
       } else {
-        estimate = existingEstimate;
+        // MULTIPLE estimates found - let user choose!
+        console.log(`📋 Found ${allEstimates.length} estimates for project "${project.name}" - showing selection modal`);
+        setExistingEstimates(allEstimates);
+        setPendingExportLayer(layer);
+        setShowEstimateSelectionModal(true);
+        return; // Stop here - user will select which estimate, then we'll be called again with selectedEstimateId
       }
       
       const estimateId = estimate.id;
@@ -3277,15 +3344,14 @@ const { data, error } = await supabase
       // Add items to the estimate
       let itemsAdded = 0;
       for (const measurement of layerMeasurements) {
-        // Handle COUNT measurements (single material OR assembly)
-        if (measurement.measurement_type === 'count' && measurement.material_id) {
-          const material = materials.find(m => m.id === measurement.material_id);
-          if (!material) continue;
+        // Handle COUNT measurements (single material, assembly, or label-only)
+        if (measurement.measurement_type === 'count' && (measurement.material_id || measurement.label)) {
+          const material = measurement.material_id ? materials.find(m => m.id === measurement.material_id) : null;
           
           const quantity = measurement.calculated_value; // Number of items counted
           
           // Check if this is an ASSEMBLY (expandable with components)
-          const isAssembly = material.unit === 'assembly';
+          const isAssembly = material && material.unit === 'assembly';
           
           if (isAssembly) {
             console.log(`📦 Exporting count assembly: ${material.name} with ${quantity} items`);
@@ -3345,11 +3411,12 @@ const { data, error } = await supabase
                 }
                 
                 const compMaterial = materials.find(m => m.id === comp.material_id);
-                const materialPrice = compMaterial?.price || 0;
-                const laborHours = compMaterial?.laborHours || 0;
+                // CRITICAL FIX: Use stored component costs as fallback when material not found in array
+                const materialPrice = compMaterial?.price || comp.material_unit_cost || 0;
+                const laborHours = compMaterial?.laborHours || comp.labor_hours || 0;
                 
-                // For count assemblies with fixed quantities: multiply component qty × count
-                const totalQty = comp.quantity * quantity;
+                // For count assemblies: store PER-UNIT quantities (Estimate page multiplies by parent qty)
+                const totalQty = comp.quantity;
                 const materialTotal = totalQty * materialPrice;
                 const laborHoursTotal = totalQty * laborHours;
                 const laborTotal = laborHoursTotal * 85;
@@ -3387,16 +3454,18 @@ const { data, error } = await supabase
               }
               
               // Update parent assembly with per-unit values AND totals
-              const materialCostPerUnit = assemblyMaterialTotal / quantity;
-              const laborHoursPerUnit = assemblyLaborHours / quantity;
-              const laborDollarTotal = assemblyLaborHours * 85;
-              const totalLineTotal = assemblyMaterialTotal + laborDollarTotal;
+              // Children store PER-UNIT quantities, so assemblyMaterialTotal/assemblyLaborHours are already per-unit
+              const materialCostPerUnit = assemblyMaterialTotal;
+              const laborHoursPerUnit = assemblyLaborHours;
+              const totalMaterialCost = assemblyMaterialTotal * quantity;
+              const laborDollarTotal = assemblyLaborHours * quantity * 85;
+              const totalLineTotal = totalMaterialCost + laborDollarTotal;
               
               const { error: updateError } = await supabase
                 .from('estimate_items')
                 .update({
                   material_unit_cost: materialCostPerUnit,
-                  material_total: assemblyMaterialTotal,
+                  material_total: totalMaterialCost,
                   labor_hours: laborHoursPerUnit,
                   labor_total: laborDollarTotal,
                   line_total: totalLineTotal,
@@ -3407,11 +3476,13 @@ const { data, error } = await supabase
                 console.error('❌ Error updating parent assembly:', updateError);
               } else {
                 console.log(`✅ Parent assembly updated with totals`);
+                console.log(`   Per-unit material: $${materialCostPerUnit.toFixed(2)}, Total material: $${totalMaterialCost.toFixed(2)}`);
+                console.log(`   Per-unit labor hrs: ${laborHoursPerUnit.toFixed(4)}, Total labor $: $${laborDollarTotal.toFixed(2)}`);
               }
             }
           } else {
-            // NOT an assembly - simple single-line item
-            const materialPrice = material.price || 0;
+            // NOT an assembly - simple single-line item (may have no material for label-only counts)
+            const materialPrice = material?.price || 0;
             const materialTotal = quantity * materialPrice;
             const laborTotal = 0;
             
@@ -3422,9 +3493,9 @@ const { data, error } = await supabase
                 section: sectionName,
                 sequence: nextSequence++,
                 line_type: 'material',
-                description: measurement.label || material.name,
+                description: measurement.label || (material ? material.name : 'Unnamed Item'),
                 quantity: quantity,
-                unit: material.unit || 'ea',
+                unit: material?.unit || 'ea',
                 material_unit_cost: materialPrice,
                 material_total: materialTotal,
                 labor_hours: 0,
@@ -3581,9 +3652,10 @@ const { data, error } = await supabase
               }
                 
                 // Get material price and labor hours
+                // CRITICAL FIX: Use stored component costs as fallback when material not found in array
                 const compMaterial = materials.find(m => m.id === comp.material_id);
-                const materialPrice = compMaterial?.price || 0;
-                const laborHours = compMaterial?.laborHours || 0;
+                const materialPrice = compMaterial?.price || comp.material_unit_cost || 0;
+                const laborHours = compMaterial?.laborHours || comp.labor_hours || 0;
                 const materialTotal = totalQty * materialPrice;
                 const laborHoursTotal = totalQty * laborHours;
                 const laborTotal = laborHoursTotal * 85; // Calculate labor $ (hours * rate)
@@ -4548,16 +4620,28 @@ const { data, error } = await supabase
                   </button>
                   {/* Edit Details button for count measurements only */}
                   {measurement.measurement_type === 'count' && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openEditDetailsModal(measurement.id);
-                      }}
-                      style={styles.editDetailsButton}
-                      title="Edit label and material"
-                    >
-                      ✏️
-                    </button>
+                    <>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEditDetailsModal(measurement.id);
+                        }}
+                        style={styles.editDetailsButton}
+                        title="Edit label and material"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          editCountMeasurement(measurement.id);
+                        }}
+                        style={styles.addMarkersButton}
+                        title="Add more markers to this count"
+                      >
+                        ➕
+                      </button>
+                    </>
                   )}
                   <div style={styles.measurementType}>
                     {measurement.measurement_type === 'length' ? '📏' : 
@@ -6835,7 +6919,9 @@ const { data, error } = await supabase
                         setShowAssemblySelectionModal(false);
                         setShowCountTypeModal(false);
                         setSelectedCountType(null);
-                        saveCount();
+                        // CRITICAL FIX: Pass assembly.id directly to saveCount()
+                        // because setSelectedMaterialId() is async and hasn't updated yet!
+                        saveCount(assembly.id);
                       }
                     }}
                     style={{
@@ -7274,7 +7360,7 @@ const { data, error } = await supabase
                 Cancel
               </button>
               <button 
-                onClick={saveCount} 
+                onClick={() => saveCount()}
                 style={styles.saveButton}
               >
                 Save
@@ -7592,6 +7678,25 @@ const styles = {
     ':hover': {
       backgroundColor: '#2563eb',
     },
+  },
+  addMarkersButton: {
+    position: 'absolute',
+    top: 3,
+    right: 45,
+    width: 18,
+    height: 18,
+    borderRadius: 3,
+    border: 'none',
+    backgroundColor: '#10b981',
+    color: '#fff',
+    fontSize: 10,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 0,
+    lineHeight: 1,
+    transition: 'background-color 0.2s',
   },
   measurementType: {
     fontSize: 10,

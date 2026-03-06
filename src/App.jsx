@@ -15,9 +15,13 @@ import EstimatesList from "./pages/EstimatesList";
 import InvoicesList from "./pages/InvoicesList";
 import QuickEstimate from "./pages/QuickEstimate";
 import QuickInvoice from "./pages/QuickInvoice";
+import QuickEstimateView from "./pages/QuickEstimateView";
 import ProjectSetup from "./pages/ProjectSetup";
 import ProjectsList from "./pages/ProjectsList";
 import ProjectDetail from "./pages/ProjectDetail";
+import ProjectReportsPhotos from "./pages/ProjectReportsPhotos";
+import ProjectMaterialList from "./pages/ProjectMaterialList";
+import ProjectInfoSheet from "./pages/ProjectInfoSheet";
 import Proposal from "./pages/Proposal";
 import Invoice from "./pages/Invoice";
 import ProgressInvoice from "./pages/ProgressInvoice";
@@ -64,7 +68,8 @@ function AppContent() {
   const isPublicPage = location.pathname === '/proposal/commercial-public' || 
                        location.pathname === '/invoice/commercial-public' ||
                        location.pathname === '/invoice/view' ||
-                       location.pathname === '/proposal/view';
+                       location.pathname === '/proposal/view' ||
+                       location.pathname === '/estimate/quick/view';
   
   return (
     <>
@@ -106,6 +111,30 @@ function AppContent() {
                   element={
                     <ProtectedRoute>
                       <ProjectDetail />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/project/:id/reports-photos"
+                  element={
+                    <ProtectedRoute>
+                      <ProjectReportsPhotos />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/project/:id/material-list"
+                  element={
+                    <ProtectedRoute>
+                      <ProjectMaterialList />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/project/:id/info-sheet"
+                  element={
+                    <ProtectedRoute>
+                      <ProjectInfoSheet />
                     </ProtectedRoute>
                   }
                 />
@@ -204,6 +233,10 @@ function AppContent() {
                       <QuickEstimate />
                     </ProtectedRoute>
                   }
+                />
+                <Route
+                  path="/estimate/quick/view"
+                  element={<QuickEstimateView />}
                 />
                 <Route
                   path="/project/:id/estimate"

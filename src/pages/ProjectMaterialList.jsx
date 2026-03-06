@@ -1,0 +1,1459 @@
+import { useState, useEffect } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { supabase } from "../lib/supabase";
+import { useAuth } from "../contexts/AuthContext";
+import { formatDate } from "../utils/dateUtils";
+
+const BRAND = {
+  bg: "#0b3ea8",
+  text: "#f97316", 
+  accent: "#fc6b04ff",
+  primary: "#2563eb",
+};
+
+const MATERIAL_CATEGORIES = [
+  'Wire & Cable',
+  'Conduit & Fittings', 
+  'Electrical Devices',
+  'Fixtures',
+  'Panels & Breakers',
+  'Hardware & Fasteners',
+  'Tools & Supplies',
+  'Other'
+];
+
+export default function ProjectMaterialList() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  
+  const [project, setProject] = useState(null);
+  const [materialLists, setMaterialLists] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAddListModal, setShowAddListModal] = useState(false);
+  const [showAddItemModal, setShowAddItemModal] = useState(false);
+  const [selectedList, setSelectedList] = useState(null);
+  const [expandedList, setExpandedList] = useState(null);
+  const [editingItems, setEditingItems] = useState([]);
+  const [savingItems, setSavingItems] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [attachments, setAttachments] = useState({});
+  
+  const [listForm, setListForm] = useState({
+    title: 'Material List',
+    description: '',
+    status: 'draft'
+  });
+  
+  const [itemForm, setItemForm] = useState({
+    description: '',
+    quantity: 1,
+    unit: 'ea',
+    unit_cost: 0,
+    vendor: '',
+    manufacturer: '',
+    part_number: '',
+    category: 'Wire & Cable',
+    notes: ''
+  });
+
+  useEffect(() => {
+    if (id) loadData();
+  }, [id]);
+
+  async function loadData() {
+    try {
+      // Load project
+      const { data: projectData, error: projectError } = await supabase
+        .from("projects")
+        .select("*")
+        .eq("id", id)
+        .single();
+
+      if (projectError) throw projectError;
+      setProject(projectData);
+
+      // Load material lists
+      const { data: listsData, error: listsError } = await supabase
+        .from("project_material_lists")
+        .select("*")
+        .eq("project_id", id)
+        .order("created_at", { ascending: false });
+
+      if (listsError) throw listsError;
+      setMaterialLists(listsData || []);
+
+    } catch (err) {
+      console.error("Error loading data:", err);
+      alert("Failed to load material lists: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCreateList() {
+    if (!listForm.title.trim()) {
+      alert('List title is required');
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from("project_material_lists")
+        .insert([{
+          project_id: id,
+          title: listForm.title.trim(),
+          description: listForm.description.trim() || null,
+          status: listForm.status,
+          created_by: user?.id
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setMaterialLists([data, ...materialLists]);
+      setShowAddListModal(false);
+      setListForm({ title: 'Material List', description: '', status: 'draft' });
+      alert('Material list created successfully!');
+
+    } catch (err) {
+      console.error("Error creating list:", err);
+      alert("Failed to create list: " + err.message);
+    }
+  }
+
+  if (loading) {
+    return <div style={styles.loading}>Loading...</div>;
+  }
+
+  async function exportMaterialListCSV(list) {
+    try {
+      // Load items for this list
+      const { data: items, error } = await supabase
+        .from("material_list_items")
+        .select("*")
+        .eq("material_list_id", list.id)
+        .order("sort_order", { ascending: true });
+
+      if (error) throw error;
+
+      if (!items || items.length === 0) {
+        alert("No items to export in this list");
+        return;
+      }
+
+      // Create CSV content with simplified columns
+      const headers = [
+        "Qty",
+        "Unit", 
+        "Description",
+        "Cost",
+        "Ext Cost"
+      ];
+
+      const csvRows = [
+        headers.join(","),
+        ...items.map(item => [
+          item.quantity || 0,
+          `"${item.unit || 'ea'}"`,
+          `"${(item.description || '').replace(/"/g, '""')}"`,
+          item.unit_cost || 0,
+          item.total_cost || 0
+        ].join(","))
+      ];
+
+      // Add project and list info at the top
+      const projectInfo = [
+        `"Project: ${project.name}"`,
+        `"Material List: ${list.title}"`,
+        `"Created: ${formatDate(list.created_at)}"`,
+        `"Total Items: ${items.length}"`,
+        `"Total Cost: $${items.reduce((sum, item) => sum + (item.total_cost || 0), 0).toFixed(2)}"`,
+        "",
+        ""
+      ];
+
+      const fullCSV = [...projectInfo, ...csvRows].join("\n");
+
+      // Download CSV
+      const blob = new Blob([fullCSV], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement("a");
+      const url = URL.createObjectURL(blob);
+      link.setAttribute("href", url);
+      link.setAttribute("download", `${project.name}_${list.title}_Materials.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+    } catch (err) {
+      console.error("Error exporting CSV:", err);
+      alert("Failed to export material list: " + err.message);
+    }
+  }
+
+  if (!project) {
+    return <div style={styles.error}>Project not found</div>;
+  }
+
+  return (
+    <div style={styles.container}>
+      <div style={styles.header}>
+        <div>
+          <h1 style={styles.title}>📋 Material Lists</h1>
+          <p style={styles.subtitle}>Project: {project.name}</p>
+        </div>
+        <div style={{display: 'flex', gap: 12}}>
+          <button 
+            onClick={() => setShowAddListModal(true)}
+            style={styles.addButton}
+          >
+            + New Material List
+          </button>
+          <button 
+            onClick={() => navigate(`/project/${id}`)} 
+            style={styles.backButton}
+          >
+            ← Back to Project
+          </button>
+        </div>
+      </div>
+
+      <div style={styles.content}>
+        <div style={styles.card}>
+          <h2 style={styles.cardTitle}>Material Lists ({materialLists.length})</h2>
+          
+          {materialLists.length === 0 ? (
+            <div style={styles.emptyState}>
+              <p>No material lists created yet.</p>
+              <button 
+                onClick={() => setShowAddListModal(true)}
+                style={styles.primaryButton}
+              >
+                Create Your First Material List
+              </button>
+            </div>
+          ) : (
+            <div style={styles.listContainer}>
+              {materialLists.map((list) => (
+                <div key={list.id} style={styles.listCard}>
+                  <div style={styles.listHeader}>
+                    <div style={styles.listInfo}>
+                      <h3 style={styles.listTitle}>{list.title}</h3>
+                      <div style={styles.listMeta}>
+                        <span style={{...styles.badge, backgroundColor: getBadgeColor(list.status)}}>
+                          {list.status}
+                        </span>
+                        <span style={styles.listDate}>
+                          Created {formatDate(list.created_at)}
+                        </span>
+                      </div>
+                      {list.description && (
+                        <p style={styles.listDescription}>{list.description}</p>
+                      )}
+                    </div>
+                    <div style={styles.listActions}>
+                      <button
+                        onClick={() => {
+                          setSelectedList(list);
+                          // Initialize with 5 empty rows for the spreadsheet
+                          setEditingItems([
+                            { description: '', quantity: 1, unit: 'ea', unit_cost: 0, vendor: '', category: 'Wire & Cable' },
+                            { description: '', quantity: 1, unit: 'ea', unit_cost: 0, vendor: '', category: 'Wire & Cable' },
+                            { description: '', quantity: 1, unit: 'ea', unit_cost: 0, vendor: '', category: 'Wire & Cable' },
+                            { description: '', quantity: 1, unit: 'ea', unit_cost: 0, vendor: '', category: 'Wire & Cable' },
+                            { description: '', quantity: 1, unit: 'ea', unit_cost: 0, vendor: '', category: 'Wire & Cable' }
+                          ]);
+                          setShowAddItemModal(true);
+                        }}
+                        style={styles.actionButton}
+                      >
+                        + Add Items
+                      </button>
+                      <button
+                        onClick={() => exportMaterialListCSV(list)}
+                        style={{...styles.actionButton, backgroundColor: '#059669'}}
+                      >
+                        📤 Export CSV
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSelectedList(list);
+                          setShowUploadModal(true);
+                        }}
+                        style={{...styles.actionButton, backgroundColor: '#10b981'}}
+                      >
+                        📎 Upload Files
+                      </button>
+                      <button
+                        onClick={() => setExpandedList(expandedList === list.id ? null : list.id)}
+                        style={styles.actionButton}
+                      >
+                        {expandedList === list.id ? 'Hide' : 'View'} Items
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {expandedList === list.id && (
+                    <MaterialListItems listId={list.id} />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Add List Modal */}
+      {showAddListModal && (
+        <div style={styles.modal}>
+          <div style={styles.modalContent}>
+            <h2 style={styles.modalTitle}>Create Material List</h2>
+            
+            <div style={styles.field}>
+              <label style={styles.label}>Title</label>
+              <input
+                type="text"
+                value={listForm.title}
+                onChange={(e) => setListForm({...listForm, title: e.target.value})}
+                style={styles.input}
+                placeholder="e.g., Rough-in Materials, Final Materials"
+              />
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.label}>Description</label>
+              <textarea
+                value={listForm.description}
+                onChange={(e) => setListForm({...listForm, description: e.target.value})}
+                style={styles.textarea}
+                placeholder="Optional description..."
+                rows={3}
+              />
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.label}>Status</label>
+              <select
+                value={listForm.status}
+                onChange={(e) => setListForm({...listForm, status: e.target.value})}
+                style={styles.select}
+              >
+                <option value="draft">Draft</option>
+                <option value="ordered">Ordered</option>
+                <option value="received">Received</option>
+                <option value="complete">Complete</option>
+              </select>
+            </div>
+
+            <div style={styles.modalActions}>
+              <button
+                onClick={() => setShowAddListModal(false)}
+                style={styles.cancelButton}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateList}
+                style={styles.primaryButton}
+              >
+                Create List
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Items Modal - Spreadsheet Style */}
+      {showAddItemModal && selectedList && (
+        <div style={styles.modal}>
+          <div style={{...styles.modalContent, maxWidth: 1200, maxHeight: '90vh', overflow: 'auto'}}>
+            <h2 style={styles.modalTitle}>Add Items to {selectedList.title}</h2>
+            <p style={{fontSize: 14, color: '#666', marginBottom: 20}}>
+              Enter items in the spreadsheet below. Leave description blank to skip a row.
+            </p>
+
+            {/* Spreadsheet Header */}
+            <div style={styles.spreadsheetContainer}>
+              <div style={styles.spreadsheetHeader}>
+                <div style={styles.spreadsheetCell}>Qty</div>
+                <div style={{...styles.spreadsheetCell, flex: 3}}>Item Description</div>
+                <div style={styles.spreadsheetCell}>Unit</div>
+                <div style={styles.spreadsheetCell}>Unit Cost</div>
+                <div style={{...styles.spreadsheetCell, flex: 2}}>Vendor</div>
+                <div style={{...styles.spreadsheetCell, flex: 2}}>Category</div>
+                <div style={styles.spreadsheetCell}>Total</div>
+              </div>
+
+              {/* Spreadsheet Rows */}
+              <div style={styles.spreadsheetBody}>
+                {editingItems.map((item, index) => (
+                  <div key={index} style={styles.spreadsheetRow}>
+                    <div style={styles.spreadsheetCell}>
+                      <input
+                        type="number"
+                        value={item.quantity}
+                        onChange={(e) => {
+                          const updated = [...editingItems];
+                          updated[index].quantity = parseFloat(e.target.value) || 0;
+                          setEditingItems(updated);
+                        }}
+                        style={styles.spreadsheetInput}
+                        min="0"
+                        step="0.01"
+                      />
+                    </div>
+                    <div style={{...styles.spreadsheetCell, flex: 3}}>
+                      <input
+                        type="text"
+                        value={item.description}
+                        onChange={(e) => {
+                          const updated = [...editingItems];
+                          updated[index].description = e.target.value;
+                          setEditingItems(updated);
+                        }}
+                        style={styles.spreadsheetInput}
+                        placeholder="e.g., 12 AWG THHN Wire"
+                      />
+                    </div>
+                    <div style={styles.spreadsheetCell}>
+                      <select
+                        value={item.unit}
+                        onChange={(e) => {
+                          const updated = [...editingItems];
+                          updated[index].unit = e.target.value;
+                          setEditingItems(updated);
+                        }}
+                        style={styles.spreadsheetSelect}
+                      >
+                        <option value="ea">ea</option>
+                        <option value="ft">ft</option>
+                        <option value="lf">lf</option>
+                        <option value="roll">roll</option>
+                        <option value="box">box</option>
+                        <option value="bag">bag</option>
+                        <option value="lb">lb</option>
+                        <option value="gal">gal</option>
+                        <option value="set">set</option>
+                      </select>
+                    </div>
+                    <div style={styles.spreadsheetCell}>
+                      <input
+                        type="number"
+                        value={item.unit_cost}
+                        onChange={(e) => {
+                          const updated = [...editingItems];
+                          updated[index].unit_cost = parseFloat(e.target.value) || 0;
+                          setEditingItems(updated);
+                        }}
+                        style={styles.spreadsheetInput}
+                        min="0"
+                        step="0.01"
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <div style={{...styles.spreadsheetCell, flex: 2}}>
+                      <input
+                        type="text"
+                        value={item.vendor}
+                        onChange={(e) => {
+                          const updated = [...editingItems];
+                          updated[index].vendor = e.target.value;
+                          setEditingItems(updated);
+                        }}
+                        style={styles.spreadsheetInput}
+                        placeholder="Home Depot, Lowes..."
+                      />
+                    </div>
+                    <div style={{...styles.spreadsheetCell, flex: 2}}>
+                      <select
+                        value={item.category}
+                        onChange={(e) => {
+                          const updated = [...editingItems];
+                          updated[index].category = e.target.value;
+                          setEditingItems(updated);
+                        }}
+                        style={styles.spreadsheetSelect}
+                      >
+                        {MATERIAL_CATEGORIES.map(cat => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={styles.spreadsheetCell}>
+                      <span style={styles.totalDisplay}>
+                        ${((item.quantity || 0) * (item.unit_cost || 0)).toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Add More Rows Button */}
+            <div style={{marginTop: 16, marginBottom: 24}}>
+              <button
+                onClick={() => {
+                  const newRows = Array(5).fill(null).map(() => ({
+                    description: '', quantity: 1, unit: 'ea', unit_cost: 0, vendor: '', category: 'Wire & Cable'
+                  }));
+                  setEditingItems([...editingItems, ...newRows]);
+                }}
+                style={styles.addRowsButton}
+              >
+                + Add 5 More Rows
+              </button>
+            </div>
+
+            {/* Total Summary */}
+            <div style={styles.totalSummary}>
+              <strong>
+                Total Items: {editingItems.filter(item => item.description.trim()).length} • 
+                Total Cost: ${editingItems.reduce((sum, item) => 
+                  sum + (item.description.trim() ? (item.quantity || 0) * (item.unit_cost || 0) : 0), 0
+                ).toFixed(2)}
+              </strong>
+            </div>
+
+            <div style={styles.modalActions}>
+              <button
+                onClick={() => {
+                  setShowAddItemModal(false);
+                  setEditingItems([]);
+                  setSelectedList(null);
+                }}
+                style={styles.cancelButton}
+                disabled={savingItems}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setSavingItems(true);
+                  try {
+                    // Filter out empty rows and prepare items for insert
+                    const itemsToSave = editingItems
+                      .filter(item => item.description.trim())
+                      .map((item, index) => ({
+                        material_list_id: selectedList.id,
+                        description: item.description.trim(),
+                        quantity: item.quantity || 1,
+                        unit: item.unit || 'ea',
+                        unit_cost: item.unit_cost || 0,
+                        vendor: item.vendor?.trim() || null,
+                        category: item.category || 'Wire & Cable',
+                        sort_order: index
+                      }));
+
+                    if (itemsToSave.length === 0) {
+                      alert('Please enter at least one item with a description');
+                      setSavingItems(false);
+                      return;
+                    }
+
+                    const { error } = await supabase
+                      .from("material_list_items")
+                      .insert(itemsToSave);
+
+                    if (error) throw error;
+
+                    alert(`Added ${itemsToSave.length} items to the list!`);
+                    setShowAddItemModal(false);
+                    setEditingItems([]);
+                    setSelectedList(null);
+                    loadData(); // Refresh the lists
+                  } catch (err) {
+                    console.error("Error saving items:", err);
+                    alert("Failed to save items: " + err.message);
+                  } finally {
+                    setSavingItems(false);
+                  }
+                }}
+                style={{...styles.primaryButton, opacity: savingItems ? 0.6 : 1}}
+                disabled={savingItems}
+              >
+                {savingItems ? '⏳ Saving...' : `💾 Save Items`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* File Upload Modal */}
+      {showUploadModal && selectedList && (
+        <FileUploadModal
+          isOpen={showUploadModal}
+          onClose={() => {
+            setShowUploadModal(false);
+            setSelectedList(null);
+          }}
+          projectId={id}
+          materialListId={selectedList.id}
+          listTitle={selectedList.title}
+          uploading={uploading}
+          setUploading={setUploading}
+        />
+      )}
+    </div>
+  );
+}
+
+function FileUploadModal({ isOpen, onClose, projectId, materialListId, listTitle, uploading, setUploading }) {
+  const { user } = useAuth();
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [fileDescriptions, setFileDescriptions] = useState({});
+  const [attachments, setAttachments] = useState([]);
+  const [loadingFiles, setLoadingFiles] = useState(true);
+
+  useEffect(() => {
+    if (isOpen && materialListId) {
+      loadAttachments();
+    }
+  }, [isOpen, materialListId]);
+
+  async function loadAttachments() {
+    try {
+      const { data, error } = await supabase
+        .from("project_file_attachments")
+        .select("*")
+        .eq("material_list_id", materialListId)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      setAttachments(data || []);
+    } catch (err) {
+      console.error("Error loading attachments:", err);
+    } finally {
+      setLoadingFiles(false);
+    }
+  }
+
+  function handleFileSelect(e) {
+    const files = Array.from(e.target.files);
+    setSelectedFiles(files);
+    
+    // Initialize descriptions for new files
+    const descriptions = {};
+    files.forEach((file, index) => {
+      descriptions[index] = '';
+    });
+    setFileDescriptions(descriptions);
+  }
+
+  async function handleUpload() {
+    if (selectedFiles.length === 0) {
+      alert('Please select files to upload');
+      return;
+    }
+
+    setUploading(true);
+    try {
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i];
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
+        const filePath = `projects/${projectId}/material-lists/${materialListId}/${fileName}`;
+
+        // Upload file to Supabase Storage
+        const { error: uploadError } = await supabase.storage
+          .from('project-files')
+          .upload(filePath, file);
+
+        if (uploadError) throw uploadError;
+
+        // Save file metadata to database
+        const { error: dbError } = await supabase
+          .from("project_file_attachments")
+          .insert({
+            project_id: projectId,
+            material_list_id: materialListId,
+            file_name: file.name,
+            file_size: file.size,
+            file_type: file.type,
+            file_path: filePath,
+            description: fileDescriptions[i]?.trim() || null,
+            uploaded_by: user?.id
+          });
+
+        if (dbError) throw dbError;
+      }
+
+      alert(`Successfully uploaded ${selectedFiles.length} file(s)!`);
+      setSelectedFiles([]);
+      setFileDescriptions({});
+      loadAttachments(); // Reload attachments
+
+    } catch (err) {
+      console.error("Error uploading files:", err);
+      alert("Failed to upload files: " + err.message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function downloadFile(attachment) {
+    try {
+      const { data, error } = await supabase.storage
+        .from('project-files')
+        .download(attachment.file_path);
+
+      if (error) throw error;
+
+      // Create download link
+      const url = URL.createObjectURL(data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = attachment.file_name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+    } catch (err) {
+      console.error("Error downloading file:", err);
+      alert("Failed to download file: " + err.message);
+    }
+  }
+
+  async function deleteFile(attachment) {
+    if (!confirm(`Delete "${attachment.file_name}"?`)) return;
+
+    try {
+      // Delete from storage
+      const { error: storageError } = await supabase.storage
+        .from('project-files')
+        .remove([attachment.file_path]);
+
+      if (storageError) throw storageError;
+
+      // Delete from database
+      const { error: dbError } = await supabase
+        .from("project_file_attachments")
+        .delete()
+        .eq("id", attachment.id);
+
+      if (dbError) throw dbError;
+
+      loadAttachments(); // Reload attachments
+
+    } catch (err) {
+      console.error("Error deleting file:", err);
+      alert("Failed to delete file: " + err.message);
+    }
+  }
+
+  if (!isOpen) return null;
+
+  return (
+    <div style={styles.modal}>
+      <div style={{...styles.modalContent, maxWidth: 700}}>
+        <h2 style={styles.modalTitle}>📎 Files for {listTitle}</h2>
+        
+        {/* Upload Section */}
+        <div style={styles.uploadSection}>
+          <h3 style={styles.sectionTitle}>Upload New Files</h3>
+          
+          <div style={styles.field}>
+            <label style={styles.label}>Select Files</label>
+            <input
+              type="file"
+              multiple
+              onChange={handleFileSelect}
+              style={styles.fileInput}
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.txt,.csv"
+            />
+            <p style={styles.fileHint}>
+              Supported formats: PDF, Word, Excel, Images, Text, CSV
+            </p>
+          </div>
+
+          {selectedFiles.length > 0 && (
+            <>
+              <h4 style={styles.fileListTitle}>Files to Upload:</h4>
+              {selectedFiles.map((file, index) => (
+                <div key={index} style={styles.fileItem}>
+                  <div style={styles.fileName}>
+                    📄 {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Optional description..."
+                    value={fileDescriptions[index] || ''}
+                    onChange={(e) => setFileDescriptions({
+                      ...fileDescriptions,
+                      [index]: e.target.value
+                    })}
+                    style={styles.descriptionInput}
+                  />
+                </div>
+              ))}
+              
+              <button
+                onClick={handleUpload}
+                disabled={uploading}
+                style={{...styles.uploadButton, opacity: uploading ? 0.6 : 1}}
+              >
+                {uploading ? '⏳ Uploading...' : '📤 Upload Files'}
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Existing Files Section */}
+        <div style={styles.filesSection}>
+          <h3 style={styles.sectionTitle}>Attached Files ({attachments.length})</h3>
+          
+          {loadingFiles ? (
+            <div style={styles.loadingFiles}>Loading files...</div>
+          ) : attachments.length === 0 ? (
+            <div style={styles.emptyFiles}>No files uploaded yet.</div>
+          ) : (
+            <div style={styles.filesList}>
+              {attachments.map((attachment) => (
+                <div key={attachment.id} style={styles.attachmentItem}>
+                  <div style={styles.attachmentInfo}>
+                    <div style={styles.attachmentName}>
+                      📄 {attachment.file_name}
+                    </div>
+                    <div style={styles.attachmentMeta}>
+                      {(attachment.file_size / 1024 / 1024).toFixed(2)} MB • 
+                      Uploaded {formatDate(attachment.created_at)}
+                    </div>
+                    {attachment.description && (
+                      <div style={styles.attachmentDescription}>
+                        {attachment.description}
+                      </div>
+                    )}
+                  </div>
+                  <div style={styles.attachmentActions}>
+                    <button
+                      onClick={() => downloadFile(attachment)}
+                      style={styles.downloadButton}
+                    >
+                      📥 Download
+                    </button>
+                    <button
+                      onClick={() => deleteFile(attachment)}
+                      style={styles.deleteFileButton}
+                    >
+                      🗑️ Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div style={styles.modalActions}>
+          <button onClick={onClose} style={styles.cancelButton}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MaterialListItems({ listId }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadItems();
+  }, [listId]);
+
+  async function loadItems() {
+    try {
+      const { data, error } = await supabase
+        .from("material_list_items")
+        .select("*")
+        .eq("material_list_id", listId)
+        .order("sort_order", { ascending: true });
+
+      if (error) throw error;
+      setItems(data || []);
+    } catch (err) {
+      console.error("Error loading items:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (loading) return <div style={styles.loadingItems}>Loading items...</div>;
+
+  if (items.length === 0) {
+    return (
+      <div style={styles.emptyItems}>
+        <p>No items in this list yet. Click "Add Items" to get started.</p>
+      </div>
+    );
+  }
+
+  const totalCost = items.reduce((sum, item) => sum + (item.total_cost || 0), 0);
+
+  return (
+    <div style={styles.itemsContainer}>
+      <div style={styles.itemsHeader}>
+        <span>Items ({items.length})</span>
+        <span style={styles.totalCost}>Total: ${totalCost.toFixed(2)}</span>
+      </div>
+      
+      <div style={styles.itemsList}>
+        {items.map((item) => (
+          <div key={item.id} style={styles.itemRow}>
+            <div style={styles.itemMain}>
+              <div style={styles.itemDescription}>{item.description}</div>
+              <div style={styles.itemDetails}>
+                {item.quantity} {item.unit} × ${item.unit_cost} = ${item.total_cost?.toFixed(2)}
+              </div>
+              {item.vendor && (
+                <div style={styles.itemVendor}>Vendor: {item.vendor}</div>
+              )}
+            </div>
+            <div style={styles.itemCategory}>
+              <span style={styles.categoryBadge}>{item.category}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function getBadgeColor(status) {
+  switch (status) {
+    case 'draft': return '#9ca3af';
+    case 'ordered': return '#f59e0b';
+    case 'received': return '#10b981';
+    case 'complete': return '#3b82f6';
+    default: return '#9ca3af';
+  }
+}
+
+const styles = {
+  container: {
+    padding: "40px 24px",
+    maxWidth: 1400,
+    margin: "0 auto",
+    minHeight: "100vh",
+    backgroundColor: BRAND.bg,
+  },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 32,
+  },
+  title: {
+    fontSize: 36,
+    color: BRAND.text,
+    margin: 0,
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: "#fff",
+    margin: "4px 0",
+  },
+  backButton: {
+    padding: "10px 20px",
+    backgroundColor: "transparent",
+    border: "2px solid #fff",
+    color: "#fff",
+    borderRadius: 8,
+    cursor: "pointer",
+    fontSize: 15,
+  },
+  addButton: {
+    padding: "10px 20px",
+    backgroundColor: BRAND.accent,
+    border: "none",
+    color: "#fff",
+    borderRadius: 8,
+    cursor: "pointer",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  content: {
+    color: "#fff",
+  },
+  card: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 24,
+  },
+  cardTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#111",
+    marginBottom: 20,
+  },
+  emptyState: {
+    textAlign: "center",
+    padding: 40,
+    color: "#666",
+  },
+  primaryButton: {
+    padding: "12px 24px",
+    backgroundColor: BRAND.accent,
+    border: "none",
+    color: "#fff",
+    borderRadius: 8,
+    cursor: "pointer",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  listContainer: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 16,
+  },
+  listCard: {
+    border: "1px solid #e5e7eb",
+    borderRadius: 8,
+    padding: 16,
+    backgroundColor: "#f9fafb",
+  },
+  listHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+  },
+  listInfo: {
+    flex: 1,
+  },
+  listTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#111",
+    margin: "0 0 8px 0",
+  },
+  listMeta: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 8,
+  },
+  badge: {
+    padding: "4px 8px",
+    borderRadius: 4,
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#fff",
+    textTransform: "uppercase",
+  },
+  listDate: {
+    fontSize: 14,
+    color: "#666",
+  },
+  listDescription: {
+    fontSize: 14,
+    color: "#444",
+    margin: 0,
+  },
+  listActions: {
+    display: "flex",
+    gap: 8,
+  },
+  actionButton: {
+    padding: "8px 16px",
+    backgroundColor: "#3b82f6",
+    border: "none",
+    color: "#fff",
+    borderRadius: 6,
+    cursor: "pointer",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  modal: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2000,
+  },
+  modalContent: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 32,
+    maxWidth: 500,
+    width: "90%",
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#111",
+    marginBottom: 24,
+  },
+  field: {
+    marginBottom: 20,
+  },
+  label: {
+    display: "block",
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#374151",
+    marginBottom: 6,
+  },
+  input: {
+    width: "100%",
+    padding: "12px",
+    fontSize: 15,
+    border: "2px solid #d1d5db",
+    borderRadius: 8,
+    outline: "none",
+    backgroundColor: "#fff",
+    color: "#111",
+  },
+  textarea: {
+    width: "100%",
+    padding: "12px",
+    fontSize: 15,
+    border: "2px solid #d1d5db",
+    borderRadius: 8,
+    outline: "none",
+    fontFamily: "inherit",
+    resize: "vertical",
+    backgroundColor: "#fff",
+    color: "#111",
+  },
+  select: {
+    width: "100%",
+    padding: "12px",
+    fontSize: 15,
+    border: "2px solid #d1d5db",
+    borderRadius: 8,
+    outline: "none",
+    backgroundColor: "#fff",
+    color: "#111",
+    cursor: "pointer",
+  },
+  modalActions: {
+    display: "flex",
+    gap: 16,
+    justifyContent: "flex-end",
+    marginTop: 24,
+  },
+  cancelButton: {
+    padding: "12px 24px",
+    backgroundColor: "transparent",
+    border: "2px solid #d1d5db",
+    color: "#374151",
+    borderRadius: 8,
+    cursor: "pointer",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  loadingItems: {
+    padding: 20,
+    textAlign: "center",
+    color: "#666",
+  },
+  emptyItems: {
+    padding: 20,
+    textAlign: "center",
+    color: "#666",
+    fontSize: 14,
+  },
+  itemsContainer: {
+    marginTop: 16,
+    border: "1px solid #e5e7eb",
+    borderRadius: 6,
+    backgroundColor: "#fff",
+  },
+  itemsHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "12px 16px",
+    backgroundColor: "#f3f4f6",
+    borderBottom: "1px solid #e5e7eb",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  totalCost: {
+    color: BRAND.accent,
+    fontWeight: "bold",
+  },
+  itemsList: {
+    padding: 16,
+  },
+  itemRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    padding: "12px 0",
+    borderBottom: "1px solid #f0f0f0",
+  },
+  itemMain: {
+    flex: 1,
+  },
+  itemDescription: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#111",
+    marginBottom: 4,
+  },
+  itemDetails: {
+    fontSize: 13,
+    color: "#666",
+    marginBottom: 2,
+  },
+  itemVendor: {
+    fontSize: 13,
+    color: "#666",
+  },
+  itemCategory: {
+    marginLeft: 16,
+  },
+  categoryBadge: {
+    padding: "4px 8px",
+    backgroundColor: "#e5e7eb",
+    color: "#374151",
+    borderRadius: 4,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  loading: {
+    textAlign: "center",
+    color: "#fff",
+    fontSize: 18,
+    padding: 40,
+  },
+  error: {
+    textAlign: "center",
+    color: "#ef4444",
+    fontSize: 18,
+    padding: 40,
+  },
+  
+  // Spreadsheet Styles
+  spreadsheetContainer: {
+    border: "2px solid #d1d5db",
+    borderRadius: 8,
+    overflow: "hidden",
+    backgroundColor: "#fff",
+  },
+  spreadsheetHeader: {
+    display: "flex",
+    backgroundColor: "#374151",
+    borderBottom: "2px solid #d1d5db",
+    fontWeight: "bold",
+    fontSize: 14,
+    color: "#fff",
+    padding: "12px 0",
+  },
+  spreadsheetBody: {
+    maxHeight: 400,
+    overflowY: "auto",
+  },
+  spreadsheetRow: {
+    display: "flex",
+    borderBottom: "1px solid #e5e7eb",
+    "&:hover": {
+      backgroundColor: "#f9fafb",
+    },
+  },
+  spreadsheetCell: {
+    flex: 1,
+    padding: "8px",
+    borderRight: "1px solid #e5e7eb",
+    display: "flex",
+    alignItems: "center",
+    minHeight: 40,
+  },
+  spreadsheetInput: {
+    width: "100%",
+    padding: "6px 8px",
+    fontSize: 14,
+    border: "1px solid transparent",
+    borderRadius: 4,
+    outline: "none",
+    backgroundColor: "transparent",
+    color: "#111",
+  },
+  spreadsheetSelect: {
+    width: "100%",
+    padding: "6px 8px",
+    fontSize: 14,
+    border: "1px solid transparent",
+    borderRadius: 4,
+    outline: "none",
+    backgroundColor: "transparent",
+    color: "#111",
+    cursor: "pointer",
+  },
+  totalDisplay: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#111",
+    textAlign: "right",
+    width: "100%",
+  },
+  addRowsButton: {
+    padding: "8px 16px",
+    backgroundColor: "#e5e7eb",
+    border: "1px solid #d1d5db",
+    color: "#374151",
+    borderRadius: 6,
+    cursor: "pointer",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  totalSummary: {
+    padding: "12px 16px",
+    backgroundColor: "#f0f9ff",
+    borderRadius: 6,
+    color: "#111",
+    fontSize: 16,
+    textAlign: "center",
+    border: "1px solid #bae6fd",
+  },
+
+  // File Upload Styles
+  uploadSection: {
+    marginBottom: 32,
+    padding: 20,
+    backgroundColor: "#f9fafb",
+    borderRadius: 8,
+    border: "1px solid #e5e7eb",
+  },
+  filesSection: {
+    marginBottom: 24,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#111",
+    marginBottom: 16,
+  },
+  fileInput: {
+    width: "100%",
+    padding: "12px",
+    fontSize: 14,
+    border: "2px solid #d1d5db",
+    borderRadius: 8,
+    backgroundColor: "#fff",
+    cursor: "pointer",
+  },
+  fileHint: {
+    fontSize: 12,
+    color: "#666",
+    margin: "8px 0 0 0",
+  },
+  fileListTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111",
+    margin: "16px 0 12px 0",
+  },
+  fileItem: {
+    padding: "12px",
+    backgroundColor: "#fff",
+    border: "1px solid #e5e7eb",
+    borderRadius: 6,
+    marginBottom: 8,
+  },
+  fileName: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#111",
+    marginBottom: 8,
+  },
+  descriptionInput: {
+    width: "100%",
+    padding: "8px 12px",
+    fontSize: 14,
+    border: "1px solid #d1d5db",
+    borderRadius: 4,
+    outline: "none",
+  },
+  uploadButton: {
+    padding: "12px 24px",
+    backgroundColor: "#10b981",
+    border: "none",
+    color: "#fff",
+    borderRadius: 8,
+    cursor: "pointer",
+    fontSize: 16,
+    fontWeight: "600",
+    marginTop: 16,
+  },
+  loadingFiles: {
+    padding: 20,
+    textAlign: "center",
+    color: "#666",
+  },
+  emptyFiles: {
+    padding: 20,
+    textAlign: "center",
+    color: "#666",
+    fontSize: 14,
+  },
+  filesList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+  },
+  attachmentItem: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    padding: 16,
+    backgroundColor: "#f9fafb",
+    border: "1px solid #e5e7eb",
+    borderRadius: 8,
+  },
+  attachmentInfo: {
+    flex: 1,
+  },
+  attachmentName: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#111",
+    marginBottom: 4,
+  },
+  attachmentMeta: {
+    fontSize: 13,
+    color: "#666",
+    marginBottom: 4,
+  },
+  attachmentDescription: {
+    fontSize: 14,
+    color: "#374151",
+    fontStyle: "italic",
+  },
+  attachmentActions: {
+    display: "flex",
+    gap: 8,
+  },
+  downloadButton: {
+    padding: "8px 12px",
+    backgroundColor: "#3b82f6",
+    border: "none",
+    color: "#fff",
+    borderRadius: 6,
+    cursor: "pointer",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  deleteFileButton: {
+    padding: "8px 12px",
+    backgroundColor: "#dc2626",
+    border: "none",
+    color: "#fff",
+    borderRadius: 6,
+    cursor: "pointer",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+};

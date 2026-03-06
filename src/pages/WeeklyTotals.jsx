@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useNavigate } from "react-router-dom";
 
+import { formatDate } from "../utils/dateUtils";
+
 const BRAND = {
   bg: "#0b3ea8",        // dark blue/black background
   text: "#f97316",      // light text

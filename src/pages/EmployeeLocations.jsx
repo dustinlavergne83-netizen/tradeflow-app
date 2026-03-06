@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import DesktopHeader from '../Components/DesktopHeader';
 
+import { formatDate } from "../utils/dateUtils";
+
 export default function EmployeeLocations() {
   const [loading, setLoading] = useState(true);
   const [employees, setEmployees] = useState([]);
@@ -148,7 +150,7 @@ export default function EmployeeLocations() {
               <option value="">-- Select Shift --</option>
               {shifts.map((shift) => (
                 <option key={shift.id} value={shift.id}>
-                  {new Date(shift.clock_in).toLocaleDateString()} -{' '}
+                  {formatDate(shift.clock_in)} -{' '}
                   {shift.clock_out
                     ? new Date(shift.clock_out).toLocaleTimeString()
                     : 'In Progress'}

@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 
+import { formatDate } from "../utils/dateUtils";
+
 const BRAND = {
   bg: "#0b3ea8",
   primary: "#fc6b04ff",
@@ -179,9 +181,9 @@ export default function TimeOffRequests() {
         
         <div style={styles.requestDetails}>
           <div style={styles.dateRange}>
-            <strong>{new Date(request.start_date).toLocaleDateString()}</strong>
+            <strong>{formatDate(request.start_date)}</strong>
             {" → "}
-            <strong>{new Date(request.end_date).toLocaleDateString()}</strong>
+            <strong>{formatDate(request.end_date)}</strong>
           </div>
           
           <div style={styles.hours}>

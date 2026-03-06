@@ -22,14 +22,3 @@ WHERE ABS(amount) = 11147.63;
 UPDATE bank_transactions
 SET is_reconciled = false
 WHERE ABS(amount) = 11147.63;
-
--- Step 3: Run this to verify it worked
-SELECT 
-  id,
-  transaction_date,
-  description,
-  amount,
-  is_cleared,
-  is_reconciled
-FROM bank_transactions
-WHERE ABS(amount) = 11147.63;

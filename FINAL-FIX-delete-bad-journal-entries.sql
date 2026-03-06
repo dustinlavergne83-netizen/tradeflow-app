@@ -19,7 +19,7 @@ WHERE bt.bank_account_id = (SELECT id FROM bank_accounts WHERE account_name = 'M
   AND bt.is_cleared = true;
 
 -- Step 2: Delete the malformed journal entries (uncomment to run)
-/*
+
 DELETE FROM journal_entries
 WHERE id IN (
     SELECT je.id
@@ -32,7 +32,7 @@ RETURNING entry_number, description;
 */
 
 -- Step 3: Verify journal entries are deleted
-/*
+
 SELECT COUNT(*) as remaining_entries
 FROM journal_entries je
 JOIN bank_transactions bt ON je.reference_id = bt.id AND je.reference_type = 'bank_transaction'

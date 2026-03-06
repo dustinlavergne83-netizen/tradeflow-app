@@ -6,6 +6,8 @@ import * as XLSX from 'xlsx';
 import html2pdf from 'html2pdf.js';
 import logo from '../../assets/LOGOD.jpg';
 
+import { formatDate } from "../../utils/dateUtils";
+
 const BRAND = {
   bg: "#0b3ea8",
   primary: "#fc6b04ff",

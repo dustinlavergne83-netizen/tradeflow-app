@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 
+import { formatDate } from "../utils/dateUtils";
+
 const BRAND = {
   bg: "#0b3ea8",
   text: "#f97316",
@@ -18,6 +20,8 @@ export default function InvoiceDetailedReport() {
   const [invoice, setInvoice] = useState(null);
   const [invoiceItems, setInvoiceItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [dailyNotes, setDailyNotes] = useState({}); // { itemIdx-date: "note text" }
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (invoiceId) loadReport();
@@ -64,11 +68,70 @@ export default function InvoiceDetailedReport() {
     }
   }
 
+  // Initialize daily notes from loaded breakdown data
   useEffect(() => {
-    console.log("InvoiceItems state updated:", invoiceItems);
-    console.log("InvoiceItems length:", invoiceItems?.length);
-    console.log("First item:", invoiceItems?.[0]);
+    if (!invoiceItems || invoiceItems.length === 0) return;
+    const notes = {};
+    invoiceItems.forEach((item, idx) => {
+      try {
+        const parsed = item?.daily_breakdown ? JSON.parse(item.daily_breakdown) : null;
+        if (!parsed) return;
+        // Check for dayNotes object in breakdown
+        const dayNotes = parsed.dayNotes || {};
+        Object.entries(dayNotes).forEach(([date, note]) => {
+          notes[`${idx}-${date}`] = note;
+        });
+      } catch(e) { /* ignore */ }
+    });
+    setDailyNotes(notes);
   }, [invoiceItems]);
+
+  async function handleSaveNotes() {
+    setSaving(true);
+    try {
+      // Group notes by item index
+      const notesByItem = {};
+      Object.entries(dailyNotes).forEach(([key, note]) => {
+        const [idxStr, ...dateParts] = key.split('-');
+        const idx = parseInt(idxStr);
+        const date = dateParts.join('-'); // rejoin date parts (YYYY-MM-DD)
+        if (!notesByItem[idx]) notesByItem[idx] = {};
+        notesByItem[idx][date] = note;
+      });
+
+      // For each labor item with notes, update the daily_breakdown JSON
+      const laborItems = invoiceItems.filter(item => item.description?.toLowerCase().includes("labor"));
+      
+      for (let idx = 0; idx < laborItems.length; idx++) {
+        const item = laborItems[idx];
+        if (!notesByItem[idx] && !item.daily_breakdown) continue;
+        
+        let parsed = {};
+        try {
+          parsed = item.daily_breakdown ? JSON.parse(item.daily_breakdown) : {};
+        } catch(e) { parsed = {}; }
+        
+        // Merge notes into the breakdown
+        parsed.dayNotes = notesByItem[idx] || {};
+        
+        const { error } = await supabase
+          .from("invoice_items")
+          .update({ daily_breakdown: JSON.stringify(parsed) })
+          .eq("id", item.id);
+        
+        if (error) {
+          console.error("Error saving notes for item:", item.id, error);
+        }
+      }
+      
+      alert("✅ Daily notes saved!");
+    } catch (err) {
+      console.error("Error saving daily notes:", err);
+      alert("Failed to save notes");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function handleExportPDF() {
     try {
@@ -238,6 +301,9 @@ export default function InvoiceDetailedReport() {
       <div style={styles.header}>
         <h1 style={styles.title}>Invoice Detailed Report</h1>
         <div style={{ display: "flex", gap: 12 }}>
+          <button onClick={handleSaveNotes} disabled={saving} style={{...styles.exportButton, background: '#3b82f6', opacity: saving ? 0.6 : 1}}>
+            {saving ? '💾 Saving...' : '💾 Save Notes'}
+          </button>
           <button onClick={handleExportPDF} style={styles.exportButton}>
             📄 Export to PDF
           </button>
@@ -276,30 +342,62 @@ export default function InvoiceDetailedReport() {
           <div style={styles.card}>
             <h2 style={styles.cardTitle}>💼 Labor Charges ({laborItems.length})</h2>
             {laborItems.map((item, idx) => {
-              console.log("Rendering labor item:", item, "Index:", idx);
               const baseTotal = item?.total || 0;
               const markupPercent = item?.markup_percentage || 0;
               const markupAmount = baseTotal * (markupPercent / 100);
               const totalWithMarkup = baseTotal + markupAmount;
-              const hourlyRate = item?.unit_price || 0;
+              const baseRate = item?.unit_price || 0;
+              const billedRate = baseRate * (1 + markupPercent / 100);
               const quantity = item?.quantity || 0;
-              const dailyBreakdown = item?.daily_breakdown ? JSON.parse(item.daily_breakdown) : {};
-              const hasDaily = Object.keys(dailyBreakdown).length > 0;
+              
+              // Parse daily_breakdown - could be {laborDetails: [...]} or {date: {hours, notes}}
+              let parsedBreakdown = null;
+              try {
+                parsedBreakdown = item?.daily_breakdown ? JSON.parse(item.daily_breakdown) : null;
+              } catch(e) { parsedBreakdown = null; }
+              
+              // Extract labor details (employee-level with daily entries)
+              const laborDetails = parsedBreakdown?.laborDetails || [];
+              
+              // Build a flat list of all daily entries sorted by date
+              const allDailyEntries = [];
+              laborDetails.forEach(emp => {
+                (emp.entries || []).forEach(entry => {
+                  allDailyEntries.push({
+                    date: entry.date,
+                    hours: entry.hours || 0,
+                    clockIn: entry.clockIn || '',
+                    clockOut: entry.clockOut || '',
+                    employee: emp.employee || 'Unknown',
+                  });
+                });
+              });
+              // Sort by date
+              allDailyEntries.sort((a, b) => a.date.localeCompare(b.date));
+              
+              // Group by date
+              const byDate = {};
+              allDailyEntries.forEach(e => {
+                if (!byDate[e.date]) byDate[e.date] = [];
+                byDate[e.date].push(e);
+              });
+              
+              const hasDaily = allDailyEntries.length > 0;
               
               return (
                 <div key={`labor-${idx}`} style={{ marginBottom: 24, paddingBottom: 24, borderBottom: "2px solid #e5e7eb" }}>
                   {/* Labor Item Summary */}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 16, marginBottom: hasDaily ? 20 : 0, alignItems: "center" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 16, marginBottom: 20, alignItems: "center" }}>
                     <div>
                       <div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Description</div>
                       <div style={{ fontSize: 15, fontWeight: "600", color: "#111" }}>{item?.description || "Labor"}</div>
                     </div>
                     <div>
-                      <div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Rate</div>
-                      <div style={{ fontSize: 15, fontWeight: "600", color: "#111" }}>${hourlyRate.toFixed(2)}/hr</div>
+                      <div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Rate {markupPercent > 0 ? `(incl. ${markupPercent}% markup)` : ''}</div>
+                      <div style={{ fontSize: 15, fontWeight: "600", color: "#111" }}>${billedRate.toFixed(2)}/hr</div>
                     </div>
                     <div>
-                      <div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Hours</div>
+                      <div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Total Hours</div>
                       <div style={{ fontSize: 15, fontWeight: "600", color: "#111" }}>{quantity.toFixed(2)}</div>
                     </div>
                     <div>
@@ -308,33 +406,61 @@ export default function InvoiceDetailedReport() {
                     </div>
                   </div>
                   
-                  {/* Daily Breakdown */}
+                  {/* Daily Breakdown from time clock data */}
                   {hasDaily && (
-                    <div style={{ marginTop: 16, padding: 16, backgroundColor: "#f0f7ff", borderRadius: 8, borderLeft: "4px solid #3b82f6" }}>
+                    <div style={{ padding: 16, backgroundColor: "#f0f7ff", borderRadius: 8, borderLeft: "4px solid #3b82f6" }}>
                       <div style={{ fontSize: 14, fontWeight: "bold", color: "#0369a1", marginBottom: 12 }}>📅 Daily Hours Breakdown</div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                        {Object.entries(dailyBreakdown).map(([date, data]) => (
-                          <div key={date} style={{ padding: 12, backgroundColor: "#fff", borderRadius: 6, border: "1px solid #d1d5db" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: data.notes ? 8 : 0 }}>
-                              <div style={{ fontWeight: "600", color: "#111" }}>
-                                📆 {new Date(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {Object.entries(byDate).map(([date, entries]) => {
+                          const dayTotal = entries.reduce((s, e) => s + e.hours, 0);
+                          return (
+                            <div key={date} style={{ padding: 12, backgroundColor: "#fff", borderRadius: 6, border: "1px solid #d1d5db" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: entries.length > 1 ? 8 : 0 }}>
+                                <div style={{ fontWeight: "600", color: "#111" }}>
+                                  📆 {new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                                </div>
+                                <div style={{ fontSize: 14, fontWeight: "600", color: "#0369a1" }}>
+                                  {dayTotal.toFixed(2)} hrs × ${billedRate.toFixed(2)}/hr = <span style={{ color: "#fc6b04", fontWeight: "bold" }}>${(dayTotal * billedRate).toFixed(2)}</span>
+                                </div>
                               </div>
-                              <div style={{ fontSize: 14, fontWeight: "600", color: "#0369a1" }}>
-                                {data.hours?.toFixed(2) || 0} hrs × ${hourlyRate.toFixed(2)}/hr = <span style={{ color: "#fc6b04" }}>${((data.hours || 0) * hourlyRate).toFixed(2)}</span>
+                              {entries.map((entry, i) => (
+                                <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 12px", backgroundColor: "#f9fafb", borderRadius: 4, marginTop: 4, fontSize: 13 }}>
+                                  <span style={{ color: "#374151" }}>👷 {entry.employee}</span>
+                                  <span style={{ color: "#6b7280" }}>
+                                    {entry.clockIn} → {entry.clockOut} ({entry.hours.toFixed(2)} hrs)
+                                  </span>
+                                </div>
+                              ))}
+                              {/* Work Description for this day */}
+                              <div style={{ marginTop: 8 }}>
+                                <div style={{ fontSize: 12, color: "#666", fontWeight: "600", marginBottom: 4 }}>📝 Work Performed:</div>
+                                <textarea
+                                  value={dailyNotes[`${idx}-${date}`] || ""}
+                                  onChange={(e) => setDailyNotes(prev => ({ ...prev, [`${idx}-${date}`]: e.target.value }))}
+                                  placeholder="Describe work performed this day..."
+                                  style={{
+                                    width: "100%",
+                                    minHeight: 50,
+                                    padding: "8px 12px",
+                                    fontSize: 13,
+                                    border: "1px solid #d1d5db",
+                                    borderRadius: 6,
+                                    backgroundColor: "#fff",
+                                    color: "#111",
+                                    resize: "vertical",
+                                    boxSizing: "border-box",
+                                    fontFamily: "inherit",
+                                  }}
+                                />
                               </div>
                             </div>
-                            {data.notes && (
-                              <div style={{ fontSize: 12, color: "#666", fontStyle: "italic", padding: 8, backgroundColor: "#fffbeb", borderRadius: 4, borderLeft: "3px solid #f59e0b" }}>
-                                💬 <strong>Notes:</strong> {data.notes}
-                              </div>
-                            )}
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                       <div style={{ marginTop: 12, paddingTop: 12, borderTop: "2px solid #d1d5db", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <div style={{ fontSize: 14, fontWeight: "bold", color: "#111" }}>Total Hours</div>
                         <div style={{ fontSize: 16, fontWeight: "bold", color: "#fc6b04" }}>
-                          {Object.values(dailyBreakdown).reduce((sum, d) => sum + (d.hours || 0), 0).toFixed(2)} hrs = ${Object.values(dailyBreakdown).reduce((sum, d) => sum + ((d.hours || 0) * hourlyRate), 0).toFixed(2)}
+                          {allDailyEntries.reduce((sum, e) => sum + e.hours, 0).toFixed(2)} hrs = ${(allDailyEntries.reduce((sum, e) => sum + e.hours, 0) * billedRate).toFixed(2)}
                         </div>
                       </div>
                     </div>
@@ -352,38 +478,65 @@ export default function InvoiceDetailedReport() {
         {/* Materials Section */}
         {materialItems.length > 0 && (
           <div style={styles.card}>
-            <h2 style={styles.cardTitle}>🛠️ Materials & Expenses ({materialItems.length})</h2>
-            <div style={styles.table}>
-              <div style={styles.tableHeader}>
-                <div style={{ flex: 4 }}>Description</div>
-                <div style={{ flex: 1, textAlign: "right" }}>Quantity</div>
-                <div style={{ flex: 1, textAlign: "right" }}>Total</div>
-              </div>
-              {Array.isArray(materialItems) && materialItems.length > 0 && materialItems.map((item, idx) => {
-                console.log("Rendering material item:", item, "Index:", idx);
-                const baseTotal = item?.total || 0;
-                const markupPercent = item?.markup_percentage || 0;
-                const markupAmount = baseTotal * (markupPercent / 100);
-                const totalWithMarkup = baseTotal + markupAmount;
-                
-                return (
-                  <div key={`material-${idx}`} style={styles.tableRow}>
-                    <div style={{ flex: 4, color: "#000" }}>{item?.description || "Material"}</div>
-                    <div style={{ flex: 1, textAlign: "right", color: "#000" }}>
-                      {(item?.quantity || 0).toFixed(2)}
+            <h2 style={styles.cardTitle}>🛠️ Materials & Expenses</h2>
+            {materialItems.map((item, idx) => {
+              const baseTotal = item?.total || 0;
+              const markupPercent = item?.markup_percentage || 0;
+              const markupAmount = baseTotal * (markupPercent / 100);
+              const totalWithMarkup = baseTotal + markupAmount;
+              
+              // Parse materialDetails from daily_breakdown
+              let parsedBreakdown = null;
+              try {
+                parsedBreakdown = item?.daily_breakdown ? JSON.parse(item.daily_breakdown) : null;
+              } catch(e) { parsedBreakdown = null; }
+              
+              const materialDetails = parsedBreakdown?.materialDetails || [];
+              const hasDetails = materialDetails.length > 0;
+              
+              return (
+                <div key={`material-${idx}`} style={{ marginBottom: 16 }}>
+                  {hasDetails ? (
+                    <div style={styles.table}>
+                      <div style={styles.tableHeader}>
+                        <div style={{ flex: 3 }}>Description</div>
+                        <div style={{ flex: 1.5 }}>Vendor</div>
+                        <div style={{ flex: 1, textAlign: "center" }}>Date</div>
+                        <div style={{ flex: 1, textAlign: "right" }}>Amount</div>
+                      </div>
+                      {materialDetails.map((mat, i) => (
+                        <div key={`mat-detail-${i}`} style={styles.tableRow}>
+                          <div style={{ flex: 3, color: "#000" }}>{mat.description || "Expense"}</div>
+                          <div style={{ flex: 1.5, color: "#666" }}>{mat.vendor || "—"}</div>
+                          <div style={{ flex: 1, textAlign: "center", color: "#666", fontSize: 13 }}>
+                            {mat.date ? new Date(mat.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
+                          </div>
+                          <div style={{ flex: 1, textAlign: "right", fontWeight: "600", color: "#000" }}>
+                            ${(mat.amount || 0).toFixed(2)}
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                    <div style={{ flex: 1, textAlign: "right", fontWeight: "bold", color: "#000" }}>
-                      ${totalWithMarkup.toFixed(2)}
+                  ) : (
+                    <div style={styles.table}>
+                      <div style={styles.tableHeader}>
+                        <div style={{ flex: 4 }}>Description</div>
+                        <div style={{ flex: 1, textAlign: "right" }}>Qty</div>
+                        <div style={{ flex: 1, textAlign: "right" }}>Total</div>
+                      </div>
+                      <div style={styles.tableRow}>
+                        <div style={{ flex: 4, color: "#000" }}>{item?.description || "Material"}</div>
+                        <div style={{ flex: 1, textAlign: "right", color: "#000" }}>{(item?.quantity || 0).toFixed(2)}</div>
+                        <div style={{ flex: 1, textAlign: "right", fontWeight: "bold", color: "#000" }}>${totalWithMarkup.toFixed(2)}</div>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-              <div style={{ ...styles.tableRow, borderTop: "2px solid #e5e7eb", fontWeight: "bold" }}>
-                <div style={{ flex: 5 }}>Materials Subtotal</div>
-                <div style={{ flex: 1, textAlign: "right" }}>
-                  ${materialsTotal.toFixed(2)}
+                  )}
                 </div>
-              </div>
+              );
+            })}
+            <div style={{ display: "grid", gridTemplateColumns: "3fr 1fr", gap: 16, padding: 16, backgroundColor: "#f3f4f6", borderRadius: 8, fontWeight: "bold", marginTop: 8 }}>
+              <div>Materials Subtotal</div>
+              <div style={{ textAlign: "right", fontSize: 16, color: "#fc6b04" }}>${materialsTotal.toFixed(2)}</div>
             </div>
           </div>
         )}

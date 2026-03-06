@@ -36,7 +36,7 @@ WHERE bt.amount = 165.92
 ORDER BY je.created_at DESC;
 
 -- Step 3: DELETE journal entries for this specific transaction (uncomment)
-/*
+
 DELETE FROM journal_entries
 WHERE reference_type = 'bank_transaction'
   AND reference_id IN (

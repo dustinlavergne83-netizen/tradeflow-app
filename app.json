@@ -5,17 +5,9 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "scheme": "tradeflow",
-    "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "plugins": [
-      [
-        "expo-router",
-        {
-          "origin": "tradeflow://"
-        }
-      ]
-    ],
+    "plugins": [],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.tradeflow.timeclock"

@@ -25,7 +25,7 @@ WHERE je.reference_type = 'bank_transaction'
 ORDER BY je.created_at DESC;
 
 -- Step 2: DELETE these journal entries (uncomment to run)
-/*
+
 DELETE FROM journal_entries
 WHERE reference_type = 'bank_transaction'
   AND reference_id IN (

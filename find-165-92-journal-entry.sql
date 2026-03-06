@@ -39,7 +39,7 @@ WHERE je.id IN (
 ORDER BY je.entry_number, jel.line_number;
 
 -- Step 3: DELETE ALL journal entries for $165.92 (uncomment to run)
-/*
+
 DELETE FROM journal_entries
 WHERE id IN (
     SELECT DISTINCT je.id

@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import DesktopHeader from "../Components/DesktopHeader";
 
+import { formatDate } from "../utils/dateUtils";
+
 const BRAND = {
   bg: "#0b3ea8",
   primary: "#fc6b04ff",
@@ -127,14 +129,6 @@ export default function PendingJobs() {
     }
   }
 
-  function formatDate(dateStr) {
-    if (!dateStr) return "—";
-    return new Date(dateStr).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  }
 
   return (
     <div style={{ minHeight: "100vh", backgroundColor: BRAND.bg }}>
@@ -458,10 +452,9 @@ export default function PendingJobs() {
                               </button>
                               <div style={{ position: "relative" }}>
                                 <select
-                                  value={selectedProjectId}
+                                  value=""
                                   onChange={(e) => {
                                     const projectId = e.target.value;
-                                    setSelectedProjectId(projectId);
                                     if (projectId) {
                                       handleLinkToProject(job.project_task, projectId);
                                     }

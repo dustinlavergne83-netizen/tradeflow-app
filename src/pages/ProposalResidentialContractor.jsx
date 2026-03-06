@@ -4,6 +4,8 @@ import { supabase } from "../lib/supabase";
 import logoImage from "../assets/LOGOD.jpg";
 import { useAuth } from "../contexts/AuthContext";
 
+import { formatDate } from "../utils/dateUtils";
+
 const BRAND = {
   bg: "#0b3ea8",
   text: "#f97316",
@@ -487,11 +489,11 @@ export default function ProposalResidentialContractor() {
             <div style={styles.topHeader}>
               <div style={styles.dateSection}>
                 <p style={styles.dateText}>
-                  Date: {new Date(proposalDate).toLocaleDateString()}
+                  Date: {formatDate(proposalDate)}
                 </p>
                 {proposal?.valid_until && (
                   <p style={styles.dateText}>
-                    Valid Until: {new Date(proposal.valid_until).toLocaleDateString()}
+                    Valid Until: {formatDate(proposal.valid_until)}
                   </p>
                 )}
               </div>

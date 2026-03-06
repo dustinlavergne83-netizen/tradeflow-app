@@ -9,6 +9,7 @@ export default function EstimatesList() {
   const [estimates, setEstimates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [filterType, setFilterType] = useState("all"); // "all", "estimates", "proposals"
 
   useEffect(() => {
     loadEstimates();
@@ -53,7 +54,7 @@ export default function EstimatesList() {
 
   async function loadEstimates() {
     try {
-      // Load all proposals (temporarily without user filter to debug)
+      // Load all proposals first
       const { data: proposalsData, error: proposalsError } = await supabase
         .from("proposals")
         .select("*")
@@ -67,21 +68,71 @@ export default function EstimatesList() {
       console.log("✅ Loaded proposals:", proposalsData?.length || 0, "proposals");
       console.log("📋 Proposal data:", proposalsData);
 
-      // Map proposals to display format
-      const mappedProposals = (proposalsData || []).map(prop => ({ 
-        ...prop, 
-        type: 'proposal',
-        estimate_number: prop.proposal_number,
-        description: prop.contractor_name ? `Proposal to ${prop.contractor_name}` : 'Proposal',
-        total: prop.total_amount
-      }));
+      // Get project names for proposals that have project_id
+      const mappedProposals = await Promise.all(
+        (proposalsData || []).map(async (prop) => {
+          let projectName = 'Project Name Not Set';
+          
+          if (prop.project_id) {
+            try {
+              const { data: projectData } = await supabase
+                .from('projects')
+                .select('name')
+                .eq('id', prop.project_id)
+                .single();
+                
+              if (projectData?.name) {
+                projectName = projectData.name;
+              }
+            } catch (err) {
+              console.log('Error fetching project name for proposal:', prop.id);
+            }
+          }
+          
+          return { 
+            ...prop, 
+            type: 'proposal',
+            estimate_number: prop.proposal_number,
+            description: prop.contractor_name ? `Proposal to ${prop.contractor_name}` : 'Proposal',
+            total: prop.total_amount,
+            project_name: projectName
+          };
+        })
+      );
+
+      // Load change orders
+      let mappedChangeOrders = [];
+      try {
+        const { data: changeOrdersData, error: changeOrdersError } = await supabase
+          .from("change_orders")
+          .select("*")
+          .eq("created_by", user.id)
+          .order("created_at", { ascending: false });
+
+        if (!changeOrdersError && changeOrdersData) {
+          // Map change orders to display format
+          mappedChangeOrders = changeOrdersData.map(co => ({
+            ...co,
+            type: 'change_order',
+            estimate_number: co.change_order_number,
+            customer_name: co.project_name, // Use project name as customer for display
+            project_name: co.project_name,
+            description: co.title || 'Change Order',
+            estimate_date: co.change_order_date,
+            total: co.total
+          }));
+          console.log("✅ Loaded change orders:", mappedChangeOrders.length, "change orders");
+        }
+      } catch (coErr) {
+        console.log("Error loading change orders:", coErr);
+      }
 
       // Try to load quick estimates (only those with estimate_number)
       try {
         const { data: estimatesData, error: estimatesError } = await supabase
           .from("estimates")
           .select("*")
-          .eq("created_by", user.id)
+          .eq("company_id", user.id)
           .not("estimate_number", "is", null)
           .order("created_at", { ascending: false });
 
@@ -99,7 +150,7 @@ export default function EstimatesList() {
           }));
 
           // Combine and sort by date
-          const combined = [...mappedEstimates, ...mappedProposals].sort((a, b) => {
+          const combined = [...mappedEstimates, ...mappedProposals, ...mappedChangeOrders].sort((a, b) => {
             const dateA = new Date(a.created_at);
             const dateB = new Date(b.created_at);
             return dateB - dateA;
@@ -107,12 +158,22 @@ export default function EstimatesList() {
           
           setEstimates(combined);
         } else {
-          // If error loading estimates, just show proposals
-          setEstimates(mappedProposals);
+          // If error loading estimates, show proposals and change orders
+          const combined = [...mappedProposals, ...mappedChangeOrders].sort((a, b) => {
+            const dateA = new Date(a.created_at);
+            const dateB = new Date(b.created_at);
+            return dateB - dateA;
+          });
+          setEstimates(combined);
         }
       } catch (estErr) {
-        console.log("Error loading quick estimates, showing proposals only:", estErr);
-        setEstimates(mappedProposals);
+        console.log("Error loading quick estimates, showing proposals and change orders:", estErr);
+        const combined = [...mappedProposals, ...mappedChangeOrders].sort((a, b) => {
+          const dateA = new Date(a.created_at);
+          const dateB = new Date(b.created_at);
+          return dateB - dateA;
+        });
+        setEstimates(combined);
       }
     } catch (err) {
       console.error("Error loading proposals:", err);
@@ -122,6 +183,11 @@ export default function EstimatesList() {
   }
 
   const filteredEstimates = estimates.filter(est => {
+    // Filter by type first
+    if (filterType === "estimates" && est.type === "proposal") return false;
+    if (filterType === "proposals" && est.type !== "proposal") return false;
+    
+    // Then filter by search term
     const searchLower = searchTerm.toLowerCase();
     return (
       est.estimate_number?.toLowerCase().includes(searchLower) ||
@@ -183,6 +249,39 @@ export default function EstimatesList() {
         />
       </div>
 
+      {/* Filter Buttons */}
+      <div style={styles.filterContainer}>
+        <div style={styles.filterButtons}>
+          <button
+            onClick={() => setFilterType("all")}
+            style={{
+              ...styles.filterButton,
+              ...(filterType === "all" ? styles.activeFilterButton : {})
+            }}
+          >
+            All ({estimates.length})
+          </button>
+          <button
+            onClick={() => setFilterType("estimates")}
+            style={{
+              ...styles.filterButton,
+              ...(filterType === "estimates" ? styles.activeFilterButton : {})
+            }}
+          >
+            📋 Estimates ({estimates.filter(e => e.type !== "proposal").length})
+          </button>
+          <button
+            onClick={() => setFilterType("proposals")}
+            style={{
+              ...styles.filterButton,
+              ...(filterType === "proposals" ? styles.activeFilterButton : {})
+            }}
+          >
+            📄 Proposals ({estimates.filter(e => e.type === "proposal").length})
+          </button>
+        </div>
+      </div>
+
       {filteredEstimates.length === 0 ? (
         <div style={styles.empty}>
           <p style={styles.emptyText}>
@@ -202,12 +301,12 @@ export default function EstimatesList() {
           <table style={styles.table}>
             <thead>
               <tr style={styles.tableHeaderRow}>
-                <th style={{...styles.th, textAlign: 'left', width: '18%'}}>Estimate #</th>
-                <th style={{...styles.th, textAlign: 'center', width: '12%'}}>Customer</th>
-                <th style={{...styles.th, textAlign: 'center', width: '22%'}}>Project</th>
-                <th style={{...styles.th, textAlign: 'right', width: '12%'}}>Total</th>
-                <th style={{...styles.th, textAlign: 'center', width: '12%'}}>Date</th>
-                <th style={{...styles.th, textAlign: 'center', width: '14%'}}>Actions</th>
+                <th style={{...styles.th, textAlign: 'left', width: '16%'}}>Estimate #</th>
+                <th style={{...styles.th, textAlign: 'center', width: '10%'}}>Customer</th>
+                <th style={{...styles.th, textAlign: 'center', width: '18%'}}>Project</th>
+                <th style={{...styles.th, textAlign: 'right', width: '10%'}}>Total</th>
+                <th style={{...styles.th, textAlign: 'center', width: '10%'}}>Date</th>
+                <th style={{...styles.th, textAlign: 'center', width: '20%'}}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -222,6 +321,8 @@ export default function EstimatesList() {
                     <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
                       {estimate.type === 'proposal' ? (
                         <span style={{...styles.badge, backgroundColor: '#10b981'}}>PROPOSAL</span>
+                      ) : estimate.type === 'change_order' ? (
+                        <span style={{...styles.badge, backgroundColor: '#f59e0b'}}>CHANGE ORDER</span>
                       ) : (
                         <span style={{...styles.badge, backgroundColor: '#fc6b04'}}>ESTIMATE</span>
                       )}
@@ -265,6 +366,46 @@ export default function EstimatesList() {
                             Delete
                           </button>
                         </>
+                      ) : estimate.type === 'change_order' ? (
+                        <>
+                          <button
+                            onClick={() => navigate(`/estimate/quick?coId=${estimate.id}&type=changeorder`)}
+                            style={{...styles.actionButton, ...styles.editButton}}
+                            title="Edit change order"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (confirm(`Delete change order ${estimate.estimate_number}? This cannot be undone.`)) {
+                                try {
+                                  // Delete change order items first
+                                  await supabase
+                                    .from("estimate_items")
+                                    .delete()
+                                    .eq("change_order_id", estimate.id);
+                                  
+                                  // Then delete the change order
+                                  const { error } = await supabase
+                                    .from("change_orders")
+                                    .delete()
+                                    .eq("id", estimate.id);
+                                  
+                                  if (error) throw error;
+                                  
+                                  alert('Change order deleted successfully!');
+                                  loadEstimates(); // Reload the list
+                                } catch (err) {
+                                  console.error("Error deleting change order:", err);
+                                  alert("Failed to delete change order: " + err.message);
+                                }
+                              }
+                            }}
+                            style={{...styles.actionButton, ...styles.deleteButton}}
+                          >
+                            🗑️
+                          </button>
+                        </>
                       ) : estimate.project_id ? (
                         <>
                           <button
@@ -284,15 +425,30 @@ export default function EstimatesList() {
                         <>
                           <button
                             onClick={() => navigate(`/estimate/quick?estimateId=${estimate.id}`)}
-                            style={{...styles.actionButton, ...styles.viewButton}}
+                            style={{...styles.actionButton, ...styles.editButton}}
+                            title="Edit estimate"
                           >
-                            View
+                            ✏️
+                          </button>
+                          <button
+                            onClick={() => window.open(`/estimate/quick/view?estimateId=${estimate.id}`, '_blank')}
+                            style={{...styles.actionButton, ...styles.viewButton}}
+                            title="Preview estimate"
+                          >
+                            👁️
+                          </button>
+                          <button
+                            onClick={() => window.open(`/estimate/quick/view?estimateId=${estimate.id}&print=true`, '_blank')}
+                            style={{...styles.actionButton, ...styles.printActionButton}}
+                            title="Print estimate"
+                          >
+                            🖨️
                           </button>
                           <button
                             onClick={() => handleDelete(estimate)}
                             style={{...styles.actionButton, ...styles.deleteButton}}
                           >
-                            Delete
+                            🗑️
                           </button>
                         </>
                       )}
@@ -434,19 +590,28 @@ const styles = {
   },
   actions: {
     display: "flex",
-    gap: 8,
+    gap: 4,
     justifyContent: "center",
+    flexWrap: "wrap",
   },
   actionButton: {
-    padding: "6px 12px",
+    padding: "4px 8px",
     border: "none",
-    borderRadius: 6,
-    fontSize: 13,
+    borderRadius: 4,
+    fontSize: 11,
     fontWeight: "600",
     cursor: "pointer",
   },
+  editButton: {
+    backgroundColor: "#6366f1",
+    color: "#fff",
+  },
   viewButton: {
     backgroundColor: "#3b82f6",
+    color: "#fff",
+  },
+  printActionButton: {
+    backgroundColor: "#8b5cf6",
     color: "#fff",
   },
   deleteButton: {
@@ -502,5 +667,34 @@ const styles = {
     padding: 60,
     fontSize: 18,
     color: "#666",
+  },
+  filterContainer: {
+    marginBottom: 20,
+    display: "flex",
+    justifyContent: "center",
+  },
+  filterButtons: {
+    display: "flex",
+    gap: 8,
+    backgroundColor: "#fff",
+    padding: "8px",
+    borderRadius: 12,
+    boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+  },
+  filterButton: {
+    padding: "10px 20px",
+    border: "none",
+    borderRadius: 8,
+    fontSize: 15,
+    fontWeight: "600",
+    cursor: "pointer",
+    transition: "all 0.2s",
+    backgroundColor: "#f9fafb",
+    color: "#666",
+  },
+  activeFilterButton: {
+    backgroundColor: "#0b3ea8",
+    color: "#fff",
+    boxShadow: "0 2px 4px rgba(11, 62, 168, 0.3)",
   },
 };

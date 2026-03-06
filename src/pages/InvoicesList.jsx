@@ -1022,6 +1022,15 @@ export default function InvoicesList() {
                         >
                           🔄 Reset
                         </button>
+                        )}
+                      {calculateTrueBalance(invoice) <= 0 && (
+                        <button
+                          onClick={() => navigate(`/invoice?invoiceId=${invoice.id}`)}
+                          style={{...styles.actionButton, backgroundColor: '#8b5cf6', color: '#fff'}}
+                          title="Send paid receipt"
+                        >
+                          📧 Receipt
+                        </button>
                       )}
                       <button
                         onClick={() => handleDelete(invoice)}
@@ -1439,10 +1448,10 @@ const styles = {
     justifyContent: "center",
   },
   actionButton: {
-    padding: "6px 12px",
+    padding: "4px 8px",
     border: "none",
-    borderRadius: 6,
-    fontSize: 13,
+    borderRadius: 4,
+    fontSize: 11,
     fontWeight: "600",
     cursor: "pointer",
     transition: "opacity 0.2s",
