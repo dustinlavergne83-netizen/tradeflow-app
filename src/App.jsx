@@ -26,6 +26,8 @@ import Proposal from "./pages/Proposal";
 import Invoice from "./pages/Invoice";
 import ProgressInvoice from "./pages/ProgressInvoice";
 import InvoiceView from "./pages/InvoiceView";
+import InvoiceReceipt from "./pages/InvoiceReceipt";
+import InvoicePaySuccess from "./pages/InvoicePaySuccess";
 import InvoiceDetailedReport from "./pages/InvoiceDetailedReport";
 import InvoiceCommercialPublic from "./pages/InvoiceCommercialPublic";
 import ProposalCommercialPublic from "./pages/ProposalCommercialPublic";
@@ -68,6 +70,8 @@ function AppContent() {
   const isPublicPage = location.pathname === '/proposal/commercial-public' || 
                        location.pathname === '/invoice/commercial-public' ||
                        location.pathname === '/invoice/view' ||
+                       location.pathname === '/invoice/receipt' ||
+                       location.pathname === '/invoice/pay-success' ||
                        location.pathname === '/proposal/view' ||
                        location.pathname === '/estimate/quick/view';
   
@@ -281,6 +285,14 @@ function AppContent() {
                 <Route
                   path="/invoice/view"
                   element={<InvoiceView />}
+                />
+                <Route
+                  path="/invoice/receipt"
+                  element={<InvoiceReceipt />}
+                />
+                <Route
+                  path="/invoice/pay-success"
+                  element={<InvoicePaySuccess />}
                 />
                 <Route
                   path="/invoice/detailed-report"

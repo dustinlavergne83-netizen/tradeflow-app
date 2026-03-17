@@ -30,7 +30,9 @@ Deno.serve(async (req) => {
       notes,
       invoiceId,
       siteUrl,
-      companyName = "DML Electrical Service, LLC"
+      companyName = "DML Electrical Service, LLC",
+      isReceipt = false,
+      receiptSummary = []
     } = await req.json()
 
     if (!to) {
@@ -68,12 +70,15 @@ Deno.serve(async (req) => {
       return (amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     };
 
-    const invoiceUrl = `${siteUrl}/invoice/view?invoiceId=${invoiceId}`;
+    const invoiceUrl = isReceipt 
+      ? `${siteUrl}/invoice/receipt?invoiceId=${invoiceId}`
+      : `${siteUrl}/invoice/view?invoiceId=${invoiceId}`;
     
     // Use totalWithMarkup if provided, otherwise fall back to subtotal
     const displayTotal = totalWithMarkup || subtotal || 0;
     const hasMarkup = totalMarkup > 0;
     const hasDeposit = depositReceived > 0;
+    const totalPayments = (depositReceived || 0) + (amountPaid || 0);
 
     // Build detailed line items HTML
     let lineItemsHtml = '';
@@ -183,7 +188,148 @@ Deno.serve(async (req) => {
 
     // No markup section in email - customer only sees final prices
 
-    const html = `
+    // ===== RECEIPT EMAIL TEMPLATE =====
+    let receiptSummaryHtml = '';
+    if (isReceipt && receiptSummary && receiptSummary.length > 0) {
+      receiptSummary.forEach((line: any) => {
+        receiptSummaryHtml += `
+          <tr>
+            <td style="padding: 14px 16px; border-bottom: 1px solid #e5e7eb; font-size: 16px; color: #111;">${line.label}</td>
+            <td style="padding: 14px 16px; border-bottom: 1px solid #e5e7eb; font-size: 16px; color: #111; text-align: right; font-weight: 600;">$${fmtMoney(line.amount)}</td>
+          </tr>`;
+      });
+    }
+
+    const receiptHtml = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Payment Receipt - Invoice #${invoiceNumber}</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f5f5f5;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 20px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+          
+          <!-- Header -->
+          <tr>
+            <td style="background-color: #0b3ea8; padding: 30px; text-align: center;">
+              <h1 style="color: #10b981; margin: 0 0 6px 0; font-size: 32px;">✅ PAYMENT RECEIPT</h1>
+              <p style="color: #ffffff; margin: 0; font-size: 16px;">${companyName}</p>
+            </td>
+          </tr>
+
+          <!-- Content -->
+          <tr>
+            <td style="padding: 30px;">
+              
+              <p style="text-align: center; font-size: 15px; color: #666; margin: 0 0 24px 0;">
+                Invoice #${invoiceNumber} &bull; ${formatDate(invoiceDate)}
+              </p>
+
+              <!-- Paid Confirmation -->
+              <div style="background-color: #ecfdf5; border: 2px solid #10b981; border-radius: 10px; padding: 20px; text-align: center; margin-bottom: 24px;">
+                <p style="margin: 0; font-size: 18px; color: #065f46; font-weight: bold;">
+                  Payment of $${fmtMoney(totalPayments)} received
+                </p>
+                <p style="margin: 8px 0 0 0; font-size: 14px; color: #065f46;">
+                  This invoice has been paid in full. Thank you!
+                </p>
+              </div>
+
+              <!-- Customer & Project -->
+              <table width="100%" style="margin-bottom: 24px;">
+                <tr>
+                  <td width="50%" style="padding: 8px 0; vertical-align: top;">
+                    <p style="margin: 0; font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 0.5px;">Received From:</p>
+                    <p style="margin: 4px 0 0 0; font-size: 17px; color: #111; font-weight: 600;">${customerName || 'Customer'}</p>
+                  </td>
+                  <td width="50%" style="padding: 8px 0; vertical-align: top; text-align: right;">
+                    <p style="margin: 0; font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 0.5px;">Date Paid:</p>
+                    <p style="margin: 4px 0 0 0; font-size: 17px; color: #111; font-weight: 600;">${formatDate(invoiceDate)}</p>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Summary Table -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; margin-bottom: 20px;">
+                <tr style="background-color: #f9fafb;">
+                  <td style="padding: 10px 16px; font-size: 12px; color: #666; font-weight: bold; text-transform: uppercase;">Description</td>
+                  <td style="padding: 10px 16px; font-size: 12px; color: #666; font-weight: bold; text-transform: uppercase; text-align: right;">Amount</td>
+                </tr>
+                ${receiptSummaryHtml}
+              </table>
+
+              <!-- Totals -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 24px;">
+                <tr>
+                  <td width="50%"></td>
+                  <td width="50%">
+                    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f9fafb; border-radius: 8px; padding: 12px;">
+                      <tr>
+                        <td style="padding: 6px 16px; font-size: 14px; color: #666;">Invoice Total:</td>
+                        <td style="padding: 6px 16px; font-size: 14px; color: #111; text-align: right; font-weight: 600;">$${fmtMoney(displayTotal)}</td>
+                      </tr>
+                      ${hasDeposit ? `
+                      <tr>
+                        <td style="padding: 6px 16px; font-size: 14px; color: #10b981;">Deposit Applied:</td>
+                        <td style="padding: 6px 16px; font-size: 14px; color: #10b981; text-align: right; font-weight: 600;">-$${fmtMoney(depositReceived)}</td>
+                      </tr>
+                      ` : ''}
+                      ${(amountPaid || 0) > 0 ? `
+                      <tr>
+                        <td style="padding: 6px 16px; font-size: 14px; color: #10b981;">Payment Received:</td>
+                        <td style="padding: 6px 16px; font-size: 14px; color: #10b981; text-align: right; font-weight: 600;">-$${fmtMoney(amountPaid)}</td>
+                      </tr>
+                      ` : ''}
+                      <tr>
+                        <td style="padding: 12px 16px; font-size: 18px; color: #111; font-weight: bold; border-top: 2px solid #e5e7eb;">Balance Due:</td>
+                        <td style="padding: 12px 16px; font-size: 22px; color: #10b981; text-align: right; font-weight: bold; border-top: 2px solid #e5e7eb;">$0.00</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- View Receipt Button -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin: 24px 0;">
+                <tr>
+                  <td align="center">
+                    <a href="${invoiceUrl}" style="display: inline-block; padding: 14px 36px; background-color: #10b981; color: #ffffff; text-decoration: none; border-radius: 8px; font-size: 16px; font-weight: bold;">
+                      🧾 View Receipt
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin: 20px 0 0 0; font-size: 14px; color: #333; text-align: center;">
+                Thank you for your business!<br>
+                <strong>${companyName}</strong>
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #f9fafb; padding: 16px 30px; text-align: center; border-top: 1px solid #e5e7eb;">
+              <p style="margin: 0; font-size: 12px; color: #666;">
+                ${companyName}<br>
+                Phone: (337) 660-4946 &bull; Email: dustin@dmlelectrical.com
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+    `;
+
+    const html = isReceipt ? receiptHtml : `
 <!DOCTYPE html>
 <html>
 <head>
@@ -287,7 +433,43 @@ Deno.serve(async (req) => {
               </div>
               ` : ''}
 
-              <!-- View & Print Button -->
+              <!-- Pay Now + View Buttons -->
+              ${(balanceDue || 0) > 0 ? `
+              <!-- PAY NOW - Primary CTA -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin: 24px 0 12px 0;">
+                <tr>
+                  <td align="center">
+                    <a href="${invoiceUrl}" style="display: inline-block; padding: 18px 48px; background-color: #16a34a; color: #ffffff; text-decoration: none; border-radius: 10px; font-size: 20px; font-weight: bold; box-shadow: 0 4px 12px rgba(22,163,74,0.35); letter-spacing: 0.3px;">
+                      💳 Pay Invoice Online
+                    </a>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="padding-top: 8px;">
+                    <p style="margin: 0; font-size: 12px; color: #6b7280;">🔒 Secure checkout &bull; Credit card or ACH bank transfer</p>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- View Invoice - Secondary CTA -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 24px 0;">
+                <tr>
+                  <td align="center">
+                    <a href="${invoiceUrl}" style="display: inline-block; padding: 12px 28px; background-color: transparent; color: #fc6b04; text-decoration: none; border-radius: 8px; font-size: 15px; font-weight: 600; border: 2px solid #fc6b04;">
+                      📄 View & Print Invoice
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <div style="margin: 0 0 20px 0; padding: 14px 16px; background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
+                <p style="margin: 0; color: #78350f; font-size: 14px; line-height: 1.6;">
+                  <strong>Payment Due${dueDate ? ` by ${formatDate(dueDate)}` : ''}.</strong>
+                  Pay online with a credit card or bank transfer, or make checks payable to ${companyName}.
+                </p>
+              </div>
+              ` : `
+              <!-- View Invoice -->
               <table width="100%" cellpadding="0" cellspacing="0" style="margin: 24px 0;">
                 <tr>
                   <td align="center">
@@ -298,13 +480,6 @@ Deno.serve(async (req) => {
                 </tr>
               </table>
 
-              ${(balanceDue || 0) > 0 ? `
-              <div style="margin: 20px 0; padding: 16px; background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
-                <p style="margin: 0; color: #78350f; font-size: 14px; line-height: 1.6;">
-                  <strong>Payment Due${dueDate ? ` by ${formatDate(dueDate)}` : ''}.</strong> Make checks payable to ${companyName}.
-                </p>
-              </div>
-              ` : `
               <div style="margin: 20px 0; padding: 16px; background-color: #d1fae5; border-left: 4px solid #10b981; border-radius: 4px;">
                 <p style="margin: 0; color: #065f46; font-size: 14px;">
                   <strong>✓ Paid in Full</strong> - Thank you for your prompt payment!
@@ -349,7 +524,9 @@ Deno.serve(async (req) => {
         from: 'invoices@dmlelectrical.com',
         to: emailAddresses,
         bcc: ['dustin@dmlelectrical.com'],
-        subject: `Invoice #${invoiceNumber} - $${fmtMoney(balanceDue)} Due${dueDate ? ` by ${formatDate(dueDate)}` : ''}`,
+        subject: isReceipt 
+          ? `Payment Receipt - Invoice #${invoiceNumber} - PAID $${fmtMoney(totalPayments)}`
+          : `Invoice #${invoiceNumber} - $${fmtMoney(balanceDue)} Due${dueDate ? ` by ${formatDate(dueDate)}` : ''}`,
         html: html,
       }),
     })
