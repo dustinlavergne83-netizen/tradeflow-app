@@ -128,22 +128,20 @@ export default function EstimatesList() {
       }
 
       // Try to load quick estimates (only those with estimate_number)
+      // NOTE: No explicit company_id filter here — RLS handles company scoping.
+      // This ensures estimates created from the mobile app (by admins or supervisors)
+      // also appear here, since they may be saved with created_by = admin UID.
       try {
         const { data: estimatesData, error: estimatesError } = await supabase
           .from("estimates")
           .select("*")
-          .eq("company_id", user.id)
           .not("estimate_number", "is", null)
+          .is("project_id", null)  // Only show quick estimates — project bids live inside the project
           .order("created_at", { ascending: false });
 
         if (!estimatesError && estimatesData) {
-          // Filter out project estimates (those with EST- prefix) - only keep Quick Estimates
-          const quickEstimates = estimatesData.filter(est => 
-            !est.estimate_number?.startsWith('EST-')
-          );
-          
-          // Map estimates to display format (only Quick Estimates with numbers)
-          const mappedEstimates = quickEstimates.map(est => ({
+          // Only quick estimates (no project_id) show here
+          const mappedEstimates = estimatesData.map(est => ({
             ...est,
             type: 'quick_estimate',
             description: est.project_name || est.notes || 'Quick Estimate'
@@ -323,6 +321,8 @@ export default function EstimatesList() {
                         <span style={{...styles.badge, backgroundColor: '#10b981'}}>PROPOSAL</span>
                       ) : estimate.type === 'change_order' ? (
                         <span style={{...styles.badge, backgroundColor: '#f59e0b'}}>CHANGE ORDER</span>
+                      ) : estimate.type === 'bid' ? (
+                        <span style={{...styles.badge, backgroundColor: '#6366f1'}}>BID</span>
                       ) : (
                         <span style={{...styles.badge, backgroundColor: '#fc6b04'}}>ESTIMATE</span>
                       )}

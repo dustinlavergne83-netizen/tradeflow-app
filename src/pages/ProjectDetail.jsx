@@ -466,12 +466,29 @@ async function handleAddContractor() {
       
       if (changeOrderId) {
         console.log("📋 Creating CHANGE ORDER invoice...");
-        // CHANGE ORDER INVOICE: Use format 1001-CO1, 1001-CO2
-        // Get project's base invoice number (first invoice for this project)
+        // CHANGE ORDER INVOICE: Use format 1007-CO1, 1007-CO2
+        // The CO suffix should match the actual change order number
+        
+        // Get the change order to find its CO number
+        const { data: coRecord, error: coRecordError } = await supabase
+          .from('change_orders')
+          .select('change_order_number')
+          .eq('id', changeOrderId)
+          .single();
+        
+        if (coRecordError) {
+          console.error("❌ Error fetching change order:", coRecordError);
+          throw coRecordError;
+        }
+        
+        // Extract CO suffix from change_order_number (e.g., "1010-CO1" → "CO1")
+        const coMatch = coRecord.change_order_number.match(/(CO\d+)$/);
+        const coSuffix = coMatch ? coMatch[1] : `CO1`;
+        
+        // Get project's base invoice number (from first invoice for this project)
         const { data: projectInvoices, error: piError } = await supabase
           .from('invoices')
           .select('invoice_number')
-  
           .eq('project_name', project.name)
           .order('created_at', { ascending: true });
         
@@ -482,30 +499,28 @@ async function handleAddContractor() {
         
         let baseNumber = 1001;
         if (projectInvoices && projectInvoices.length > 0) {
-          // Extract base number from first invoice (e.g., "1001" or "1001-1")
+          // Extract base number from first invoice (e.g., "1007" or "1007-1")
           const firstInvoiceNum = projectInvoices[0].invoice_number;
           const match = firstInvoiceNum.match(/^(\d+)/);
           if (match) {
             baseNumber = parseInt(match[1]);
           }
+        } else {
+          // No invoices yet - get next available number
+          const { data: allInvoices } = await supabase
+            .from('invoices')
+            .select('invoice_number')
+            .order('created_at', { ascending: false })
+            .limit(1);
+          
+          if (allInvoices && allInvoices.length > 0) {
+            const lastNum = parseInt(allInvoices[0].invoice_number) || 1000;
+            baseNumber = lastNum + 1;
+          }
         }
         
-        console.log("📊 Base number:", baseNumber);
-        
-        // Count existing change order invoices for this project
-        const { data: coInvoices, error: coError } = await supabase
-          .from('invoices')
-          .select('invoice_number')
-          .eq('project_name', project.name)
-          .like('invoice_number', `${baseNumber}-CO%`);
-        
-        if (coError) {
-          console.error("❌ Error fetching CO invoices:", coError);
-          throw coError;
-        }
-        
-        const nextCONum = (coInvoices?.length || 0) + 1;
-        invoiceNumber = `${baseNumber}-CO${nextCONum}`;
+        console.log("📊 Base number:", baseNumber, "CO suffix:", coSuffix);
+        invoiceNumber = `${baseNumber}-${coSuffix}`;
         console.log("✅ Generated CO invoice number:", invoiceNumber);
       } else {
         console.log("📋 Creating REGULAR invoice...");
@@ -815,7 +830,24 @@ async function handleAddContractor() {
         .eq("project_name", projectData.name)
         .order("created_at", { ascending: false });
 
-      if (!invoicesError) setInvoices(invoicesData || []);
+      if (!invoicesError) {
+        // Auto-fix invoice statuses: if fully paid but status isn't "paid", update it
+        const invoicesToFix = (invoicesData || []).filter(inv => {
+          const totalPaid = (inv.amount_paid || 0) + (inv.deposit_received || 0);
+          const total = inv.total || 0;
+          return total > 0 && totalPaid >= total - 0.01 && inv.status !== 'paid';
+        });
+        
+        if (invoicesToFix.length > 0) {
+          console.log(`🔧 Auto-fixing ${invoicesToFix.length} invoice(s) status to 'paid'`);
+          for (const inv of invoicesToFix) {
+            await supabase.from('invoices').update({ status: 'paid' }).eq('id', inv.id);
+            inv.status = 'paid';
+          }
+        }
+        
+        setInvoices(invoicesData || []);
+      }
 
       // Load change orders for this project
       const { data: changeOrdersData, error: changeOrdersError } = await supabase
@@ -932,6 +964,21 @@ async function handleAddContractor() {
         setProposals(groupedProposals);
       }
 
+      // Sync percent_complete to DB based on actual invoices
+      // This ensures the Dashboard shows the correct percentage
+      const aw = projectData.active_worth || 0;
+      const billed = (invoicesData || []).reduce((sum, inv) => sum + (inv.total || 0), 0);
+      const realPercent = aw > 0 ? Math.min(Math.round((billed / aw) * 100), 100) : (projectData.percent_complete || 0);
+      
+      if (realPercent !== (projectData.percent_complete || 0)) {
+        console.log(`🔧 Syncing percent_complete: ${projectData.percent_complete}% → ${realPercent}%`);
+        await supabase
+          .from("projects")
+          .update({ percent_complete: realPercent, billed_amount: billed })
+          .eq("id", id);
+        setProject(prev => ({ ...prev, percent_complete: realPercent, billed_amount: billed }));
+      }
+
     } catch (err) {
       console.error("Error loading project:", err);
       alert("Failed to load project data");
@@ -1033,7 +1080,7 @@ async function handleAddContractor() {
             📐 Plans & Takeoffs
           </button>
           <button onClick={() => navigate(`/project/${id}/estimate`)} style={{...styles.backButton, background: BRAND.accent, color: '#fff', border: 'none'}}>
-            Estimate Project
+            Bid Project
           </button>
           <button onClick={() => navigate(`/project/${id}/geofence`)} style={{...styles.backButton, background: '#10b981', color: '#fff', border: 'none'}}>
             📍 Geofence
@@ -1480,7 +1527,7 @@ async function handleAddContractor() {
         {/* Estimates Card */}
         <div style={{...styles.card, gridColumn: "1 / -1"}}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-            <h2 style={{ ...styles.cardTitle, marginBottom: 0 }}>Project Estimates</h2>
+            <h2 style={{ ...styles.cardTitle, marginBottom: 0 }}>Project Bids</h2>
             <div style={{ display: "flex", gap: 12 }}>
               <button 
                 onClick={() => navigate(`/estimate/quick?projectId=${id}&projectName=${encodeURIComponent(project.name)}&customer=${encodeURIComponent(project.contractor || project.customer || '')}`)} 
@@ -1492,13 +1539,13 @@ async function handleAddContractor() {
                 onClick={() => navigate(`/project/${id}/estimate`)} 
                 style={styles.addEstimateButton}
               >
-                + New Estimate
+                + New Bid
               </button>
             </div>
           </div>
           
           {estimates.length === 0 ? (
-            <p style={styles.emptyText}>No estimates created yet. Click "New Estimate" to get started!</p>
+            <p style={styles.emptyText}>No bids created yet. Click "New Bid" to get started!</p>
           ) : (
             <div style={styles.table}>
               <div style={styles.estimateHeader}>
@@ -1718,21 +1765,91 @@ async function handleAddContractor() {
                       {formatDate(changeOrder.change_order_date)}
                     </div>
                     <div style={styles.td}>
-                      <span
+                      <select
+                        value={changeOrder.status || "pending"}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={async (e) => {
+                          const newStatus = e.target.value;
+                          const oldStatus = changeOrder.status;
+                          
+                          try {
+                            // Update change order status
+                            const { error: coError } = await supabase
+                              .from("change_orders")
+                              .update({ status: newStatus })
+                              .eq("id", changeOrder.id);
+                            
+                            if (coError) throw coError;
+
+                            // If approving, add CO total to project's active_worth
+                            if (newStatus === "approved" && oldStatus !== "approved") {
+                              const coTotal = changeOrder.total || 0;
+                              const currentWorth = project.active_worth || 0;
+                              const newWorth = currentWorth + coTotal;
+                              
+                              const { error: projError } = await supabase
+                                .from("projects")
+                                .update({ active_worth: newWorth })
+                                .eq("id", id);
+                              
+                              if (projError) throw projError;
+                              
+                              setProject({ ...project, active_worth: newWorth });
+                              alert(`Change order approved! Contract value updated:\n$${currentWorth.toFixed(2)} + $${coTotal.toFixed(2)} = $${newWorth.toFixed(2)}`);
+                            }
+                            
+                            // If un-approving (changing from approved to something else), subtract CO total
+                            if (oldStatus === "approved" && newStatus !== "approved") {
+                              const coTotal = changeOrder.total || 0;
+                              const currentWorth = project.active_worth || 0;
+                              const newWorth = Math.max(0, currentWorth - coTotal);
+                              
+                              const { error: projError } = await supabase
+                                .from("projects")
+                                .update({ active_worth: newWorth })
+                                .eq("id", id);
+                              
+                              if (projError) throw projError;
+                              
+                              setProject({ ...project, active_worth: newWorth });
+                            }
+                            
+                            loadProjectData();
+                          } catch (err) {
+                            console.error("Error updating change order status:", err);
+                            alert("Failed to update status: " + err.message);
+                          }
+                        }}
                         style={{
-                          ...styles.badge,
+                          padding: "4px 8px",
+                          fontSize: 12,
+                          fontWeight: "bold",
+                          border: "2px solid #d1d5db",
+                          borderRadius: 6,
+                          cursor: "pointer",
                           backgroundColor:
                             changeOrder.status === "approved"
-                              ? "#10b981"
+                              ? "#d1fae5"
                               : changeOrder.status === "completed"
-                              ? "#3b82f6"
+                              ? "#dbeafe"
                               : changeOrder.status === "rejected"
-                              ? "#ef4444"
-                              : "#f59e0b",
+                              ? "#fee2e2"
+                              : "#fef3c7",
+                          color:
+                            changeOrder.status === "approved"
+                              ? "#065f46"
+                              : changeOrder.status === "completed"
+                              ? "#1e40af"
+                              : changeOrder.status === "rejected"
+                              ? "#991b1b"
+                              : "#92400e",
                         }}
                       >
-                        {changeOrder.status || "pending"}
-                      </span>
+                        <option value="pending">Pending</option>
+                        <option value="approved">Approved</option>
+                        <option value="rejected">Rejected</option>
+                        <option value="completed">Completed</option>
+                      </select>
                     </div>
                     <div style={styles.td}>
                       <strong>${(changeOrder.total || 0).toFixed(2)}</strong>
@@ -1743,17 +1860,33 @@ async function handleAddContractor() {
                   <div style={{padding: "12px 16px", display: "flex", gap: 8, flexWrap: "wrap", borderBottom: "1px solid #e5e7eb"}}>
                     <button
                       onClick={async () => {
-                        // Check if this is a simple change order (1-2 items) 
-                        const { data: items } = await supabase
-                          .from("estimate_items")
-                          .select("*")
+                        // Check BOTH tables for change order items
+                        // Full Estimate page saves to change_order_items table
+                        // Quick Estimate page saves to estimate_items table with change_order_id
+                        const { data: coTableItems } = await supabase
+                          .from("change_order_items")
+                          .select("id")
                           .eq("change_order_id", changeOrder.id);
                         
-                        // If it's a simple change order (1-2 items), use quick editor
-                        if (items && items.length <= 2) {
-                          navigate(`/estimate/quick?coId=${changeOrder.id}&type=changeorder`);
+                        const { data: estTableItems } = await supabase
+                          .from("estimate_items")
+                          .select("id")
+                          .eq("change_order_id", changeOrder.id);
+                        
+                        const totalCoTableItems = coTableItems?.length || 0;
+                        const totalEstTableItems = estTableItems?.length || 0;
+                        
+                        if (totalCoTableItems > 0) {
+                          // Items in change_order_items = created with full Estimate page
+                          navigate(`/project/${id}/estimate?type=changeorder&coId=${changeOrder.id}&coNumber=${changeOrder.change_order_number}`);
+                        } else if (totalEstTableItems > 0 && totalEstTableItems <= 2) {
+                          // Simple CO from QuickEstimate (1-2 items in estimate_items)
+                          navigate(`/estimate/quick?coId=${changeOrder.id}&type=changeorder&projectId=${id}`);
+                        } else if (totalEstTableItems > 2) {
+                          // Complex CO in estimate_items - use full editor
+                          navigate(`/project/${id}/estimate?type=changeorder&coId=${changeOrder.id}&coNumber=${changeOrder.change_order_number}`);
                         } else {
-                          // Use full editor for complex change orders
+                          // No items found in either table - use full editor (preserves CO context)
                           navigate(`/project/${id}/estimate?type=changeorder&coId=${changeOrder.id}&coNumber=${changeOrder.change_order_number}`);
                         }
                       }}
