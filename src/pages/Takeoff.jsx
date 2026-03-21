@@ -233,6 +233,7 @@ const [calibrationMethod, setCalibrationMethod] = useState('auto'); // 'auto' or
   const autoCountStartRef = useRef(null);
   const autoCountRectFabricRef = useRef(null);
   const autoCountMatchRectsRef = useRef([]);
+  const [autoCountDragRect, setAutoCountDragRect] = useState(null); // CSS-coordinate drag rect for visual feedback
 
   // Drag detection for count tool (to allow panning)
   const dragStartRef = useRef(null);
@@ -913,31 +914,18 @@ const [calibrationMethod, setCalibrationMethod] = useState('auto'); // 'auto' or
         return;
       }
 
-      // Handle auto-count template rectangle preview
+      // Handle auto-count template rectangle preview – use CSS div for perfect alignment
       if (activeToolRef.current === 'autocount' && autoCountStartRef.current) {
         const rect = wrapperEl.getBoundingClientRect();
         const currentX = e.clientX - rect.left;
         const currentY = e.clientY - rect.top;
         const start = autoCountStartRef.current;
-        if (autoCountRectFabricRef.current) {
-          fabricCanvas.remove(autoCountRectFabricRef.current);
-        }
-        const selRect = new fabric.Rect({
-          left: Math.min(start.x, currentX),
-          top: Math.min(start.y, currentY),
+        setAutoCountDragRect({
+          x: Math.min(start.x, currentX),
+          y: Math.min(start.y, currentY),
           width: Math.abs(currentX - start.x),
           height: Math.abs(currentY - start.y),
-          fill: 'rgba(16, 185, 129, 0.1)',
-          stroke: '#10b981',
-          strokeWidth: 2,
-          strokeDashArray: [5, 3],
-          selectable: false,
-          hasBorders: false,
-          hasControls: false,
         });
-        fabricCanvas.add(selRect);
-        autoCountRectFabricRef.current = selRect;
-        fabricCanvas.renderAll();
         return;
       }
 
@@ -1076,6 +1064,9 @@ const [calibrationMethod, setCalibrationMethod] = useState('auto'); // 'auto' or
           width: Math.abs(endX - start.x),
           height: Math.abs(endY - start.y),
         };
+
+        // Clear the CSS drag rect overlay
+        setAutoCountDragRect(null);
 
         if (captureRect.width < 10 || captureRect.height < 10) return; // too small
 
@@ -4216,15 +4207,28 @@ const { data, error } = await supabase
         } catch (e) { /* skip tainted canvases */ }
       }
 
+      // Adjust captureRect from canvasWrapper-relative coords to pdfWrapper-relative coords
+      // (they should be identical if the two elements share the same top-left, but fix any gap)
+      const cwRect = canvasWrapperRef.current ? canvasWrapperRef.current.getBoundingClientRect() : pdfWrapper.getBoundingClientRect();
+      const pwRect = pdfWrapper.getBoundingClientRect();
+      const adjX = cwRect.left - pwRect.left;
+      const adjY = cwRect.top - pwRect.top;
+      const adjustedCaptureRect = {
+        x: captureRect.x + adjX,
+        y: captureRect.y + adjY,
+        width: captureRect.width,
+        height: captureRect.height,
+      };
+
       // Crop template region
       const tmplCanvas = document.createElement('canvas');
-      tmplCanvas.width = Math.max(1, captureRect.width);
-      tmplCanvas.height = Math.max(1, captureRect.height);
+      tmplCanvas.width = Math.max(1, adjustedCaptureRect.width);
+      tmplCanvas.height = Math.max(1, adjustedCaptureRect.height);
       const tCtx = tmplCanvas.getContext('2d');
       tCtx.drawImage(
         compositeCanvas,
-        captureRect.x, captureRect.y, captureRect.width, captureRect.height,
-        0, 0, captureRect.width, captureRect.height
+        adjustedCaptureRect.x, adjustedCaptureRect.y, adjustedCaptureRect.width, adjustedCaptureRect.height,
+        0, 0, adjustedCaptureRect.width, adjustedCaptureRect.height
       );
 
       const templateDataUrl = tmplCanvas.toDataURL('image/png');
@@ -5067,6 +5071,24 @@ const { data, error } = await supabase
                       cursor: (activeTool === 'length' || calibrationMode) ? 'crosshair' : (activeTool === 'count' ? (isSpacebarHeld ? 'grab' : 'pointer') : 'default'),
                     }}
                   />
+                  {/* Auto-count drag rect overlay – drawn as CSS div so coordinates EXACTLY match mouse position */}
+                  {autoCountDragRect && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: autoCountDragRect.x,
+                        top: autoCountDragRect.y,
+                        width: autoCountDragRect.width,
+                        height: autoCountDragRect.height,
+                        border: '2px dashed #10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                        pointerEvents: 'none',
+                        zIndex: 10001,
+                        boxSizing: 'border-box',
+                        borderRadius: 2,
+                      }}
+                    />
+                  )}
                 </div>
                 {(activeTool === 'length' || activeTool === 'count' || activeTool === 'snapshot' || activeTool === 'autocount' || calibrationMode) && (
                   <div style={{ ...styles.toolHint, backgroundColor: activeTool === 'snapshot' ? 'rgba(59, 130, 246, 0.95)' : activeTool === 'autocount' ? 'rgba(16, 185, 129, 0.95)' : 'rgba(249, 115, 22, 0.95)' }}>
