@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import * as fabric from 'fabric';
@@ -213,6 +214,16 @@ const [calibrationMethod, setCalibrationMethod] = useState('auto'); // 'auto' or
   const [editingMeasurementId, setEditingMeasurementId] = useState(null); // Track which measurement is being edited
   const editingMeasurementIdRef = useRef(null);
   
+  // Snapshot tool state
+  const [snapshots, setSnapshots] = useState([]);
+  const [showSnapshotLabelModal, setShowSnapshotLabelModal] = useState(false);
+  const [snapshotLabel, setSnapshotLabel] = useState('');
+  const [pendingSnapshotImage, setPendingSnapshotImage] = useState(null);
+  const [isCapturingSnapshot, setIsCapturingSnapshot] = useState(false);
+  const [showSnapshotsList, setShowSnapshotsList] = useState(false);
+  const snapshotStartRef = useRef(null);
+  const snapshotRectFabricRef = useRef(null);
+
   // Drag detection for count tool (to allow panning)
   const dragStartRef = useRef(null);
   const isDraggingRef = useRef(false);
@@ -291,7 +302,7 @@ const [calibrationMethod, setCalibrationMethod] = useState('auto'); // 'auto' or
       const canvasParent = canvasEl.parentElement;
       const upperCanvas = canvasParent?.querySelector('.upper-canvas');
       
-      if (activeTool === 'length' || activeTool === 'count' || calibrationMode) {
+      if (activeTool === 'length' || activeTool === 'count' || activeTool === 'snapshot' || calibrationMode) {
         // Set Fabric.js cursors
         const cursor = activeTool === 'count' ? 'pointer' : 'crosshair';
         canvas.defaultCursor = cursor;
@@ -743,6 +754,22 @@ const [calibrationMethod, setCalibrationMethod] = useState('auto'); // 'auto' or
         }
       }
       
+      // Handle snapshot tool - start rectangle selection
+      if (activeToolRef.current === 'snapshot') {
+        const rect = wrapperEl.getBoundingClientRect();
+        snapshotStartRef.current = {
+          x: e.clientX - rect.left,
+          y: e.clientY - rect.top
+        };
+        // Remove any existing snapshot rect
+        if (snapshotRectFabricRef.current) {
+          fabricCanvas.remove(snapshotRectFabricRef.current);
+          snapshotRectFabricRef.current = null;
+          fabricCanvas.renderAll();
+        }
+        return;
+      }
+      
       // Use ref to get current value
       if (activeToolRef.current !== 'length') {
         console.log('Tool is not length, ignoring click');
@@ -833,6 +860,34 @@ const [calibrationMethod, setCalibrationMethod] = useState('auto'); // 'auto' or
         return;
       }
       
+      // Handle snapshot rectangle preview
+      if (activeToolRef.current === 'snapshot' && snapshotStartRef.current) {
+        const rect = wrapperEl.getBoundingClientRect();
+        const currentX = e.clientX - rect.left;
+        const currentY = e.clientY - rect.top;
+        const start = snapshotStartRef.current;
+        if (snapshotRectFabricRef.current) {
+          fabricCanvas.remove(snapshotRectFabricRef.current);
+        }
+        const selRect = new fabric.Rect({
+          left: Math.min(start.x, currentX),
+          top: Math.min(start.y, currentY),
+          width: Math.abs(currentX - start.x),
+          height: Math.abs(currentY - start.y),
+          fill: 'rgba(59, 130, 246, 0.1)',
+          stroke: '#3B82F6',
+          strokeWidth: 2,
+          strokeDashArray: [5, 3],
+          selectable: false,
+          hasBorders: false,
+          hasControls: false,
+        });
+        fabricCanvas.add(selRect);
+        snapshotRectFabricRef.current = selRect;
+        fabricCanvas.renderAll();
+        return;
+      }
+
       // For calibration mode, use old behavior
       if (calibrationModeRef.current && isDrawingRef.current && currentLineRef.current) {
         const rect = wrapperEl.getBoundingClientRect();
@@ -947,6 +1002,34 @@ const [calibrationMethod, setCalibrationMethod] = useState('auto'); // 'auto' or
         return;
       }
       
+      // Handle snapshot capture on mouseup
+      if (activeToolRef.current === 'snapshot' && snapshotStartRef.current) {
+        const wRect = wrapperEl.getBoundingClientRect();
+        const endX = e.clientX - wRect.left;
+        const endY = e.clientY - wRect.top;
+        const start = snapshotStartRef.current;
+        snapshotStartRef.current = null;
+
+        // Remove the selection rect
+        if (snapshotRectFabricRef.current) {
+          fabricCanvas.remove(snapshotRectFabricRef.current);
+          snapshotRectFabricRef.current = null;
+          fabricCanvas.renderAll();
+        }
+
+        const captureRect = {
+          x: Math.min(start.x, endX),
+          y: Math.min(start.y, endY),
+          width: Math.abs(endX - start.x),
+          height: Math.abs(endY - start.y),
+        };
+
+        if (captureRect.width < 20 || captureRect.height < 20) return; // too small
+
+        captureSnapshotFromCanvas(captureRect, fabricCanvas);
+        return;
+      }
+
       // Check if we're in calibration mode
       if (calibrationModeRef.current && isDrawingRef.current && currentLineRef.current) {
         const rect = wrapperEl.getBoundingClientRect();
@@ -1305,6 +1388,7 @@ try {
 
       // Load measurements (don't throw error if table doesn't exist)
       loadMeasurements();
+      loadSnapshots();
     } catch (err) {
       console.error('Error loading plan:', err);
       console.error('Failed to load plan:', err.message);
@@ -3932,6 +4016,102 @@ const { data, error } = await supabase
     console.log('🚫 Polyline cancelled');
   }
 
+  // ===== SNAPSHOT FUNCTIONS =====
+  async function captureSnapshotFromCanvas(captureRect, fabricCanvas) {
+    setIsCapturingSnapshot(true);
+    try {
+      const pdfWrapper = pdfWrapperRef.current;
+      if (!pdfWrapper) throw new Error('PDF wrapper not found');
+      const compositeCanvas = document.createElement('canvas');
+      compositeCanvas.width = pdfWrapper.offsetWidth;
+      compositeCanvas.height = pdfWrapper.offsetHeight;
+      const ctx = compositeCanvas.getContext('2d');
+      const fabricEl = fabricCanvas.getElement();
+      const pdfCanvases = pdfWrapper.querySelectorAll('canvas');
+      for (const c of pdfCanvases) {
+        if (c === fabricEl) continue;
+        const upperCanvas = fabricEl?.parentElement?.querySelector('.upper-canvas');
+        if (upperCanvas && c === upperCanvas) continue;
+        try {
+          const cRect = c.getBoundingClientRect();
+          const wRect = pdfWrapper.getBoundingClientRect();
+          ctx.drawImage(c, cRect.left - wRect.left, cRect.top - wRect.top, cRect.width, cRect.height);
+        } catch (e) { /* skip tainted canvases */ }
+      }
+      try { ctx.drawImage(fabricEl, 0, 0); } catch (e) { /* skip */ }
+      const croppedCanvas = document.createElement('canvas');
+      croppedCanvas.width = Math.max(1, captureRect.width);
+      croppedCanvas.height = Math.max(1, captureRect.height);
+      const croppedCtx = croppedCanvas.getContext('2d');
+      croppedCtx.drawImage(compositeCanvas, captureRect.x, captureRect.y, captureRect.width, captureRect.height, 0, 0, captureRect.width, captureRect.height);
+      croppedCanvas.toBlob((blob) => {
+        if (blob) {
+          setPendingSnapshotImage({ blob, imageUrl: URL.createObjectURL(blob) });
+          setSnapshotLabel('');
+          setShowSnapshotLabelModal(true);
+        }
+      }, 'image/png', 0.92);
+    } catch (err) {
+      alert('Failed to capture snapshot: ' + err.message);
+    } finally {
+      setIsCapturingSnapshot(false);
+    }
+  }
+
+  async function saveSnapshot() {
+    if (!pendingSnapshotImage) return;
+    const { blob } = pendingSnapshotImage;
+    const label = snapshotLabel.trim() || `Snapshot ${snapshots.length + 1}`;
+    try {
+      const fileName = `${projectId}/takeoff-snapshots/${planId}-${Date.now()}.png`;
+      let imageUrl = '';
+      const { error: uploadError } = await supabase.storage.from('project-photos').upload(fileName, blob, { contentType: 'image/png', upsert: false });
+      if (!uploadError) {
+        const { data: urlData } = supabase.storage.from('project-photos').getPublicUrl(fileName);
+        imageUrl = urlData.publicUrl;
+      } else {
+        // Fallback: store as base64
+        imageUrl = await new Promise((resolve) => { const r = new FileReader(); r.onloadend = () => resolve(r.result); r.readAsDataURL(blob); });
+      }
+      const { data, error } = await supabase.from('plan_snapshots').insert([{ project_id: projectId, plan_id: planId, page_number: currentPageRef.current, label, image_url: imageUrl, image_path: !uploadError ? fileName : null, company_id: user.id, sort_order: snapshots.length }]).select().single();
+      if (error) throw error;
+      setSnapshots([...snapshots, data]);
+      URL.revokeObjectURL(pendingSnapshotImage.imageUrl);
+      setPendingSnapshotImage(null);
+      setSnapshotLabel('');
+      setShowSnapshotLabelModal(false);
+      alert(`✅ Snapshot "${label}" saved to this project!`);
+    } catch (err) {
+      alert('Failed to save snapshot: ' + err.message);
+    }
+  }
+
+  async function deleteSnapshot(snapshotId) {
+    if (!confirm('Delete this snapshot?')) return;
+    try {
+      const snap = snapshots.find(s => s.id === snapshotId);
+      if (snap?.image_path) {
+        await supabase.storage.from('project-photos').remove([snap.image_path]);
+      }
+      await supabase.from('plan_snapshots').delete().eq('id', snapshotId);
+      setSnapshots(snapshots.filter(s => s.id !== snapshotId));
+    } catch (err) {
+      alert('Failed to delete snapshot: ' + err.message);
+    }
+  }
+
+  async function loadSnapshots() {
+    if (!planId) return;
+    try {
+      const { data, error } = await supabase.from('plan_snapshots').select('*').eq('plan_id', planId).order('created_at', { ascending: true });
+      if (error) throw error;
+      setSnapshots(data || []);
+    } catch (err) {
+      console.log('Snapshots table not available yet (run CREATE_PLAN_SNAPSHOTS.sql):', err.message);
+      setSnapshots([]);
+    }
+  }
+
   return (
     <div ref={containerRef} style={styles.container}>
       {/* Header - Hidden in fullscreen */}
@@ -4025,6 +4205,33 @@ const { data, error } = await supabase
             >
               🎯 Count
             </button>
+            <button
+              onClick={() => handleToolSelect('snapshot')}
+              style={{
+                ...styles.toolButton,
+                ...(activeTool === 'snapshot' ? styles.toolButtonActive : {}),
+                backgroundColor: activeTool === 'snapshot' ? '#e0f2fe' : '#1a237e',
+                color: activeTool === 'snapshot' ? '#1e40af' : '#90caf9',
+                border: activeTool === 'snapshot' ? '2px solid #3b82f6' : '2px solid #3949ab',
+              }}
+              disabled={!isCalibrated}
+              title="Drag a rectangle to capture a snapshot of the plan"
+            >
+              📸 Snapshot
+              {snapshots.length > 0 && (
+                <span style={{ marginLeft: 6, backgroundColor: '#f97316', color: '#fff', borderRadius: 10, padding: '1px 6px', fontSize: 11, fontWeight: 700 }}>
+                  {snapshots.length}
+                </span>
+              )}
+            </button>
+            {snapshots.length > 0 && (
+              <button
+                onClick={() => setShowSnapshotsList(!showSnapshotsList)}
+                style={{ ...styles.toolButton, backgroundColor: '#1a237e', color: '#90caf9', border: '2px solid #3949ab', fontSize: 12 }}
+              >
+                🗂 View Saved ({snapshots.length})
+              </button>
+            )}
             
             {/* Color Picker for Count and Length Tools */}
             {(activeTool === 'count' || activeTool === 'length') && (
@@ -4465,9 +4672,9 @@ const { data, error } = await supabase
                     right: 0,
                     bottom: 0,
                     // CRITICAL: When spacebar is held in count mode, disable pointer events to let PDF handle panning
-                    pointerEvents: (activeTool === 'length' || activeTool === 'count' || calibrationMode) && !(activeTool === 'count' && isSpacebarHeld) ? 'auto' : 'none',
-                    zIndex: (activeTool === 'length' || activeTool === 'count' || calibrationMode) ? 9999 : 5,
-                    cursor: (activeTool === 'length' || calibrationMode) ? 'crosshair' : (activeTool === 'count' ? (isSpacebarHeld ? 'grab' : 'pointer') : 'default'),
+                    pointerEvents: (activeTool === 'length' || activeTool === 'count' || activeTool === 'snapshot' || calibrationMode) && !(activeTool === 'count' && isSpacebarHeld) ? 'auto' : 'none',
+                    zIndex: (activeTool === 'length' || activeTool === 'count' || activeTool === 'snapshot' || calibrationMode) ? 9999 : 5,
+                    cursor: (activeTool === 'length' || activeTool === 'snapshot' || calibrationMode) ? 'crosshair' : (activeTool === 'count' ? (isSpacebarHeld ? 'grab' : 'pointer') : 'default'),
                   }}
                 >
                   <canvas
@@ -4485,10 +4692,12 @@ const { data, error } = await supabase
                     }}
                   />
                 </div>
-                {(activeTool === 'length' || activeTool === 'count' || calibrationMode) && (
-                  <div style={styles.toolHint}>
+                {(activeTool === 'length' || activeTool === 'count' || activeTool === 'snapshot' || calibrationMode) && (
+                  <div style={{ ...styles.toolHint, backgroundColor: activeTool === 'snapshot' ? 'rgba(59, 130, 246, 0.95)' : 'rgba(249, 115, 22, 0.95)' }}>
                     {calibrationMode 
                       ? 'Draw a line along a known dimension on the plan'
+                      : activeTool === 'snapshot'
+                      ? `📸 Drag to select an area to snapshot${isCapturingSnapshot ? ' (Capturing...)' : ''}`
                       : activeTool === 'count'
                       ? `Left-click: place marker | Use PDF toolbar to pan/zoom | Right-click: delete marker (${countMarkers.length} placed)`
                       : polylinePoints.length === 0
@@ -5683,10 +5892,25 @@ const { data, error } = await supabase
                           return true;
                         }
                         
-                        // For whole numbers, just ensure it's not part of a fraction
+                        // For whole numbers like "4", ensure it's not part of a fraction like "1-1/4"
                         const sizePattern = `${size}"`;
                         const sizePattern2 = `${size}″`;
-                        return m.name.includes(sizePattern) || m.name.includes(sizePattern2);
+                        
+                        const idx1 = m.name.indexOf(sizePattern);
+                        const idx2 = m.name.indexOf(sizePattern2);
+                        const foundAt = idx1 >= 0 ? idx1 : idx2;
+                        
+                        if (foundAt < 0) return false; // Size not found
+                        
+                        // Check what's BEFORE the size number
+                        if (foundAt > 0) {
+                          const charBefore = m.name[foundAt - 1];
+                          // If preceded by a slash, dash, or digit, it's part of a fraction (e.g., "1/4", "1-1/4")
+                          if (/[\d\/\-]/.test(charBefore)) {
+                            return false;
+                          }
+                        }
+                        return true;
                       });
                       setSelectedConduitId(conduitMaterial?.id || null);
                     }}
@@ -7271,6 +7495,74 @@ const { data, error } = await supabase
                 ✅ Confirm & Save
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Snapshot Label Modal */}
+      {showSnapshotLabelModal && pendingSnapshotImage && (
+        <div style={styles.modalOverlay} onClick={() => { URL.revokeObjectURL(pendingSnapshotImage.imageUrl); setPendingSnapshotImage(null); setShowSnapshotLabelModal(false); setSnapshotLabel(''); }}>
+          <div style={{ ...styles.modalContent, maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
+            <h2 style={styles.modalTitle}>📸 Save Snapshot</h2>
+            <p style={{ fontSize: 13, color: '#666', marginBottom: 12 }}>Preview of your snapshot:</p>
+            <img src={pendingSnapshotImage.imageUrl} alt="Snapshot Preview" style={{ width: '100%', maxHeight: 220, objectFit: 'contain', borderRadius: 8, marginBottom: 16, border: '2px solid #e5e7eb', backgroundColor: '#f9fafb' }} />
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Label for this snapshot:</label>
+              <input
+                type="text"
+                value={snapshotLabel}
+                onChange={(e) => setSnapshotLabel(e.target.value)}
+                placeholder={`Snapshot ${snapshots.length + 1}`}
+                style={styles.select}
+                autoFocus
+                onKeyPress={(e) => { if (e.key === 'Enter') saveSnapshot(); }}
+              />
+              <p style={{ fontSize: 12, color: '#999', marginTop: 6 }}>e.g. "Panel Room", "Fixtures - NW Corner", "Switchgear Schedule"</p>
+            </div>
+            <div style={styles.modalButtons}>
+              <button onClick={() => { URL.revokeObjectURL(pendingSnapshotImage.imageUrl); setPendingSnapshotImage(null); setShowSnapshotLabelModal(false); setSnapshotLabel(''); }} style={styles.cancelButton}>Cancel</button>
+              <button onClick={saveSnapshot} style={{ ...styles.saveButton, backgroundColor: '#3b82f6' }}>💾 Save to Project</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Snapshot List Side Panel */}
+      {showSnapshotsList && (
+        <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 360, backgroundColor: '#1a1a1a', borderLeft: '3px solid #3b82f6', zIndex: 9998, overflowY: 'auto', padding: 20, boxShadow: '-4px 0 20px rgba(0,0,0,0.5)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <h3 style={{ color: '#f97316', margin: 0, fontSize: 18 }}>📸 Saved Snapshots ({snapshots.length})</h3>
+            <button onClick={() => setShowSnapshotsList(false)} style={{ background: 'none', border: 'none', color: '#fff', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>✕</button>
+          </div>
+          <div style={{ fontSize: 12, color: '#aaa', marginBottom: 16, lineHeight: 1.5 }}>
+            These snapshots are saved to your project. Go to <strong style={{ color: '#f97316' }}>Reports & Photos</strong> to combine them into a takeoff report with fixture/switchgear counts.
+          </div>
+          {snapshots.length === 0 ? (
+            <p style={{ color: '#666', textAlign: 'center', padding: 30, fontSize: 13 }}>No snapshots yet.<br /><br />Select the 📸 Snapshot tool and drag to capture an area of the plan.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {snapshots.map((snap) => (
+                <div key={snap.id} style={{ backgroundColor: '#2a2a2a', borderRadius: 8, overflow: 'hidden', border: '1px solid #444' }}>
+                  <img src={snap.image_url} alt={snap.label} style={{ width: '100%', maxHeight: 160, objectFit: 'contain', backgroundColor: '#000', display: 'block' }} />
+                  <div style={{ padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>{snap.label}</div>
+                      <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>Page {snap.page_number} • {new Date(snap.created_at).toLocaleDateString()}</div>
+                    </div>
+                    <button onClick={() => deleteSnapshot(snap.id)} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 18, cursor: 'pointer', padding: 4 }} title="Delete snapshot">🗑</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ marginTop: 20 }}>
+            <button
+              onClick={() => navigate(`/project/${projectId}/reports`)}
+              style={{ width: '100%', padding: '14px', backgroundColor: '#3b82f6', border: 'none', borderRadius: 8, color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}
+            >
+              📋 Go to Reports & Photos →
+            </button>
+            <p style={{ fontSize: 11, color: '#666', textAlign: 'center', marginTop: 8 }}>Generate a combined takeoff report with counts</p>
           </div>
         </div>
       )}

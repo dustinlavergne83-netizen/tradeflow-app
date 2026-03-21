@@ -56,6 +56,12 @@ export default function ProjectReportsPhotos() {
   const [selectedSection, setSelectedSection] = useState(null);
   const [sectionPhotos, setSectionPhotos] = useState({});
 
+  // Takeoff snapshots state
+  const [takeoffSnapshots, setTakeoffSnapshots] = useState([]);
+  const [selectedSnapshots, setSelectedSnapshots] = useState([]);
+  const [generatingTakeoffReport, setGeneratingTakeoffReport] = useState(false);
+  const [takeoffMeasurements, setTakeoffMeasurements] = useState([]);
+
   useEffect(() => {
     if (id) loadProjectData();
   }, [id]);
@@ -95,6 +101,28 @@ export default function ProjectReportsPhotos() {
       } catch (reportErr) {
         console.log("Reports table not available yet:", reportErr);
         setProjectReports([]);
+      }
+
+      // Load takeoff snapshots for this project
+      try {
+        const { data: snapshotData } = await supabase.from('plan_snapshots').select('*').eq('project_id', id).order('created_at', { ascending: true });
+        setTakeoffSnapshots(snapshotData || []);
+      } catch (snapErr) {
+        console.log("plan_snapshots table not available yet (run CREATE_PLAN_SNAPSHOTS.sql):", snapErr);
+        setTakeoffSnapshots([]);
+      }
+
+      // Load all plan measurements for this project (for count summaries)
+      try {
+        const { data: plans } = await supabase.from('plans').select('id').eq('project_id', id);
+        if (plans && plans.length > 0) {
+          const planIds = plans.map(p => p.id);
+          const { data: measurements } = await supabase.from('plan_measurements').select('*').in('plan_id', planIds).eq('measurement_type', 'count');
+          setTakeoffMeasurements(measurements || []);
+        }
+      } catch (measErr) {
+        console.log("Could not load takeoff measurements:", measErr);
+        setTakeoffMeasurements([]);
       }
 
     } catch (err) {
@@ -424,6 +452,180 @@ export default function ProjectReportsPhotos() {
     }
   }
 
+  async function generateTakeoffReport() {
+    if (selectedSnapshots.length === 0 && takeoffSnapshots.length === 0) {
+      alert('No snapshots available. Go to the Takeoff page, select the 📸 Snapshot tool, and drag to capture areas of the plan.');
+      return;
+    }
+    const snapsToInclude = selectedSnapshots.length > 0 ? selectedSnapshots : takeoffSnapshots.map(s => s.id);
+    const snapshotData = takeoffSnapshots.filter(s => snapsToInclude.includes(s.id));
+    setGeneratingTakeoffReport(true);
+    try {
+      const doc = new jsPDF('p', 'mm', 'letter');
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 18;
+      const contentWidth = pageWidth - margin * 2;
+      let y = margin;
+      const checkPage = (needed) => { if (y + needed > pageHeight - margin) { doc.addPage(); y = margin; } };
+
+      // Header
+      doc.setFillColor(11, 62, 168);
+      doc.rect(0, 0, pageWidth, 28, 'F');
+      doc.setTextColor(249, 115, 22);
+      doc.setFontSize(18);
+      doc.setFont('helvetica', 'bold');
+      doc.text('DML ELECTRICAL SERVICE LLC', margin, 11);
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.text('DONE RIGHT. FIRST TIME. EVERY TIME.', margin, 19);
+
+      y = 36;
+      doc.setTextColor(11, 62, 168);
+      doc.setFontSize(20);
+      doc.setFont('helvetica', 'bold');
+      doc.text('TAKEOFF REPORT', margin, y); y += 9;
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(80, 80, 80);
+      doc.text(`Project: ${project?.name || ''}`, margin, y); y += 6;
+      if (project?.address) { doc.text(`Location: ${project.address}`, margin, y); y += 6; }
+      doc.text(`Generated: ${new Date().toLocaleDateString()}`, margin, y); y += 6;
+
+      // Divider
+      y += 2;
+      doc.setDrawColor(11, 62, 168);
+      doc.setLineWidth(0.8);
+      doc.line(margin, y, pageWidth - margin, y);
+      y += 8;
+
+      // Count Summary Section
+      if (takeoffMeasurements.length > 0) {
+        doc.setTextColor(11, 62, 168);
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text('FIXTURE & SWITCHGEAR COUNTS', margin, y); y += 8;
+
+        // Group by layer (section)
+        const byLabel = {};
+        takeoffMeasurements.forEach(m => {
+          const key = m.label || 'Unlabeled';
+          if (!byLabel[key]) byLabel[key] = { count: 0, color: m.color };
+          byLabel[key].count += m.calculated_value || 0;
+        });
+
+        // Table header
+        doc.setFillColor(11, 62, 168);
+        doc.rect(margin, y, contentWidth, 8, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Description', margin + 3, y + 5.5);
+        doc.text('Count', pageWidth - margin - 25, y + 5.5);
+        y += 8;
+
+        let rowIdx = 0;
+        Object.entries(byLabel).forEach(([label, info]) => {
+          checkPage(8);
+          if (rowIdx % 2 === 0) { doc.setFillColor(245, 247, 250); doc.rect(margin, y, contentWidth, 7.5, 'F'); }
+          doc.setTextColor(30, 30, 30);
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'normal');
+          doc.text(label, margin + 3, y + 5);
+          doc.text(String(Math.round(info.count)), pageWidth - margin - 22, y + 5);
+          y += 7.5;
+          rowIdx++;
+        });
+
+        // Total row
+        const total = takeoffMeasurements.reduce((sum, m) => sum + (m.calculated_value || 0), 0);
+        doc.setFillColor(252, 107, 4);
+        doc.rect(margin, y, contentWidth, 8, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFont('helvetica', 'bold');
+        doc.text('TOTAL', margin + 3, y + 5.5);
+        doc.text(String(Math.round(total)), pageWidth - margin - 22, y + 5.5);
+        y += 14;
+      }
+
+      // Snapshots Section
+      if (snapshotData.length > 0) {
+        checkPage(16);
+        doc.setDrawColor(11, 62, 168);
+        doc.setLineWidth(0.5);
+        doc.line(margin, y, pageWidth - margin, y); y += 8;
+        doc.setTextColor(11, 62, 168);
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`PLAN SNAPSHOTS (${snapshotData.length})`, margin, y); y += 10;
+
+        for (let i = 0; i < snapshotData.length; i++) {
+          const snap = snapshotData[i];
+          try {
+            const response = await fetch(snap.image_url);
+            const blob = await response.blob();
+            const base64 = await new Promise((resolve) => { const r = new FileReader(); r.onloadend = () => resolve(r.result); r.readAsDataURL(blob); });
+            const imgProps = doc.getImageProperties(base64);
+            const maxW = contentWidth;
+            const maxH = 130;
+            let imgW = maxW;
+            let imgH = (imgProps.height / imgProps.width) * imgW;
+            if (imgH > maxH) { imgH = maxH; imgW = (imgProps.width / imgProps.height) * imgH; }
+            const labelH = 7;
+            checkPage(imgH + labelH + 16);
+            // Snapshot label
+            doc.setFillColor(240, 245, 255);
+            doc.rect(margin, y, contentWidth, labelH, 'F');
+            doc.setTextColor(11, 62, 168);
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'bold');
+            doc.text(`${i + 1}. ${snap.label || `Snapshot ${i + 1}`}`, margin + 3, y + 5);
+            doc.setTextColor(120, 120, 120);
+            doc.setFontSize(8);
+            doc.setFont('helvetica', 'normal');
+            doc.text(`Page ${snap.page_number || 1}`, pageWidth - margin - 18, y + 5);
+            y += labelH + 2;
+            // Image with border
+            const imgX = margin + (contentWidth - imgW) / 2;
+            doc.setDrawColor(200, 210, 230);
+            doc.setLineWidth(0.3);
+            doc.rect(imgX - 1, y - 1, imgW + 2, imgH + 2);
+            doc.addImage(base64, 'PNG', imgX, y, imgW, imgH);
+            y += imgH + 10;
+          } catch (imgErr) {
+            console.warn('Could not load snapshot image:', imgErr);
+            checkPage(10);
+            doc.setTextColor(180, 0, 0);
+            doc.setFontSize(10);
+            doc.text(`[Snapshot ${i + 1}: ${snap.label || ''} - Image could not be loaded]`, margin, y);
+            y += 8;
+          }
+        }
+      }
+
+      // Footer on all pages
+      const totalPages = doc.getNumberOfPages();
+      for (let p = 1; p <= totalPages; p++) {
+        doc.setPage(p);
+        doc.setFontSize(8);
+        doc.setTextColor(150, 150, 150);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Page ${p} of ${totalPages}`, pageWidth / 2, pageHeight - 8, { align: 'center' });
+        doc.text(`DML Electrical Service LLC  •  Generated: ${new Date().toLocaleString()}`, margin, pageHeight - 8);
+      }
+
+      const safeName = (project?.name || 'Project').replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
+      doc.save(`Takeoff_Report_${safeName}_${new Date().toISOString().split('T')[0]}.pdf`);
+      alert(`✅ Takeoff report generated with ${snapshotData.length} snapshot${snapshotData.length !== 1 ? 's' : ''} and ${takeoffMeasurements.length} count measurement${takeoffMeasurements.length !== 1 ? 's' : ''}!`);
+    } catch (err) {
+      console.error('Error generating takeoff report PDF:', err);
+      alert('Failed to generate takeoff report: ' + err.message);
+    } finally {
+      setGeneratingTakeoffReport(false);
+    }
+  }
+
   if (loading) {
     return <div style={styles.loading}>Loading...</div>;
   }
@@ -652,6 +854,151 @@ export default function ProjectReportsPhotos() {
 
           {projectPhotos.length === 0 && projectReports.length === 0 && (
             <p style={styles.emptyText}>No photos or reports yet. Upload job site photos or create daily reports!</p>
+          )}
+        </div>
+
+        {/* 📐 Takeoff Snapshots & Report Card */}
+        <div style={{ ...styles.card, marginTop: 24, border: '2px solid #3b82f6' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <div>
+              <h2 style={{ ...styles.cardTitle, marginBottom: 4 }}>📐 Takeoff Snapshots & Report</h2>
+              <p style={{ fontSize: 13, color: '#666', margin: 0 }}>Plan snapshots captured in Takeoff, combined with fixture/switchgear counts into a printable PDF report.</p>
+            </div>
+            <button
+              onClick={generateTakeoffReport}
+              disabled={generatingTakeoffReport || (takeoffSnapshots.length === 0 && takeoffMeasurements.length === 0)}
+              style={{
+                padding: '12px 24px',
+                backgroundColor: generatingTakeoffReport ? '#9ca3af' : (takeoffSnapshots.length === 0 && takeoffMeasurements.length === 0) ? '#d1d5db' : '#3b82f6',
+                border: 'none',
+                color: '#fff',
+                borderRadius: 8,
+                cursor: (generatingTakeoffReport || (takeoffSnapshots.length === 0 && takeoffMeasurements.length === 0)) ? 'not-allowed' : 'pointer',
+                fontSize: 15,
+                fontWeight: 700,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {generatingTakeoffReport ? '⏳ Generating...' : '📋 Generate Takeoff Report'}
+            </button>
+          </div>
+
+          {/* Count Summary */}
+          {takeoffMeasurements.length > 0 && (
+            <div style={{ marginBottom: 20, padding: 16, backgroundColor: '#f0f9ff', borderRadius: 8, border: '1px solid #bfdbfe' }}>
+              <h3 style={{ fontSize: 15, fontWeight: 700, color: '#1e40af', marginBottom: 12 }}>🎯 Fixture & Switchgear Counts ({takeoffMeasurements.length} total)</h3>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {(() => {
+                  const byLabel = {};
+                  takeoffMeasurements.forEach(m => {
+                    const key = m.label || 'Unlabeled';
+                    if (!byLabel[key]) byLabel[key] = { count: 0, color: m.color };
+                    byLabel[key].count += m.calculated_value || 0;
+                  });
+                  return Object.entries(byLabel).map(([label, info]) => (
+                    <div key={label} style={{ padding: '6px 14px', backgroundColor: '#fff', border: `2px solid ${info.color || '#3b82f6'}`, borderRadius: 20, fontSize: 13, fontWeight: 600, color: '#111' }}>
+                      <span style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: info.color, display: 'inline-block', marginRight: 6, opacity: 0.7 }}></span>
+                      {label}: <strong>{Math.round(info.count)}</strong>
+                    </div>
+                  ));
+                })()}
+              </div>
+              <div style={{ marginTop: 10, fontSize: 13, color: '#1e40af', fontWeight: 600 }}>
+                Total: {Math.round(takeoffMeasurements.reduce((sum, m) => sum + (m.calculated_value || 0), 0))} items
+              </div>
+            </div>
+          )}
+
+          {/* Snapshots grid */}
+          {takeoffSnapshots.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 40, color: '#999', border: '2px dashed #e5e7eb', borderRadius: 8 }}>
+              <div style={{ fontSize: 48, marginBottom: 16 }}>📸</div>
+              <p style={{ fontSize: 16, fontWeight: 600, color: '#555', marginBottom: 8 }}>No takeoff snapshots yet</p>
+              <p style={{ fontSize: 14, color: '#999', marginBottom: 20, lineHeight: 1.6 }}>
+                Open a plan in the <strong>Takeoff</strong> page, select the <strong>📸 Snapshot</strong> tool,<br />
+                then drag to capture areas of the plan (fixtures, panels, schedules, etc.)
+              </p>
+              <button
+                onClick={() => navigate(`/project/${id}/plans`)}
+                style={{ padding: '12px 24px', backgroundColor: '#3b82f6', border: 'none', color: '#fff', borderRadius: 8, cursor: 'pointer', fontSize: 14, fontWeight: 600 }}
+              >
+                → Go to Plans & Takeoff
+              </button>
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#666' }}>
+                  {takeoffSnapshots.length} snapshot{takeoffSnapshots.length !== 1 ? 's' : ''}
+                  {selectedSnapshots.length > 0 && ` (${selectedSnapshots.length} selected for report)`}
+                </div>
+                {selectedSnapshots.length > 0 && (
+                  <button onClick={() => setSelectedSnapshots([])} style={{ fontSize: 12, color: '#3b82f6', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+                    Clear selection
+                  </button>
+                )}
+              </div>
+              <p style={{ fontSize: 12, color: '#999', marginBottom: 12 }}>Click snapshots to select which ones to include in the report. Leave all unselected to include all.</p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16, marginBottom: 16 }}>
+                {takeoffSnapshots.map(snap => {
+                  const isSelected = selectedSnapshots.includes(snap.id);
+                  return (
+                    <div
+                      key={snap.id}
+                      onClick={() => {
+                        if (isSelected) setSelectedSnapshots(selectedSnapshots.filter(id => id !== snap.id));
+                        else setSelectedSnapshots([...selectedSnapshots, snap.id]);
+                      }}
+                      style={{
+                        borderRadius: 10,
+                        overflow: 'hidden',
+                        border: isSelected ? '3px solid #3b82f6' : '2px solid #e5e7eb',
+                        cursor: 'pointer',
+                        backgroundColor: isSelected ? '#eff6ff' : '#fff',
+                        position: 'relative',
+                        transition: 'all 0.15s',
+                        boxShadow: isSelected ? '0 0 0 3px rgba(59,130,246,0.25)' : 'none',
+                      }}
+                    >
+                      {isSelected && (
+                        <div style={{ position: 'absolute', top: 6, right: 6, backgroundColor: '#3b82f6', color: '#fff', borderRadius: '50%', width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, zIndex: 2 }}>✓</div>
+                      )}
+                      <img src={snap.image_url} alt={snap.label} style={{ width: '100%', maxHeight: 160, objectFit: 'contain', backgroundColor: '#f9fafb', display: 'block' }} />
+                      <div style={{ padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: '#111' }}>{snap.label}</div>
+                          <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>Page {snap.page_number} • {new Date(snap.created_at).toLocaleDateString()}</div>
+                        </div>
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (confirm('Delete this snapshot?')) {
+                              try {
+                                if (snap.image_path) await supabase.storage.from('project-photos').remove([snap.image_path]);
+                                await supabase.from('plan_snapshots').delete().eq('id', snap.id);
+                                setTakeoffSnapshots(takeoffSnapshots.filter(s => s.id !== snap.id));
+                                setSelectedSnapshots(selectedSnapshots.filter(id => id !== snap.id));
+                              } catch (err) { alert('Failed to delete: ' + err.message); }
+                            }
+                          }}
+                          style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 16, cursor: 'pointer', padding: 4 }}
+                          title="Delete"
+                        >🗑</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <button
+                  onClick={generateTakeoffReport}
+                  disabled={generatingTakeoffReport}
+                  style={{ padding: '14px 32px', backgroundColor: generatingTakeoffReport ? '#9ca3af' : '#3b82f6', border: 'none', color: '#fff', borderRadius: 8, cursor: generatingTakeoffReport ? 'not-allowed' : 'pointer', fontSize: 15, fontWeight: 700 }}
+                >
+                  {generatingTakeoffReport ? '⏳ Generating PDF...' : `📋 Generate Takeoff Report${selectedSnapshots.length > 0 ? ` (${selectedSnapshots.length} selected)` : ` (all ${takeoffSnapshots.length})`}`}
+                </button>
+              </div>
+            </>
           )}
         </div>
 
