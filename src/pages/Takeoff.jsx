@@ -227,7 +227,7 @@ const [calibrationMethod, setCalibrationMethod] = useState('auto'); // 'auto' or
   // Auto-count tool state
   const [autoCountTemplate, setAutoCountTemplate] = useState(null); // { dataUrl, width, height, compositeCanvas, tmplCanvas }
   const [showAutoCountModal, setShowAutoCountModal] = useState(false);
-  const [autoCountThreshold, setAutoCountThreshold] = useState(0.75);
+  const [autoCountThreshold, setAutoCountThreshold] = useState(0.65);
   const [autoCountMatches, setAutoCountMatches] = useState([]);
   const [isRunningAutoCount, setIsRunningAutoCount] = useState(false);
   const autoCountStartRef = useRef(null);
@@ -4296,67 +4296,127 @@ const { data, error } = await supabase
   }
 
   function templateMatchGrayscale(imgData, tmplData, threshold) {
-    const imgW = imgData.width;
-    const imgH = imgData.height;
-    const tw = tmplData.width;
-    const th = tmplData.height;
+    const origW = imgData.width;
+    const origH = imgData.height;
+    const origTW = tmplData.width;
+    const origTH = tmplData.height;
 
-    if (tw < 4 || th < 4 || tw >= imgW || th >= imgH) return [];
+    if (origTW < 4 || origTH < 4 || origTW >= origW || origTH >= origH) return [];
 
-    // Convert to grayscale float arrays
-    const imgGray = new Float32Array(imgW * imgH);
-    const tmplGray = new Float32Array(tw * th);
-    for (let i = 0; i < imgData.data.length; i += 4) {
-      imgGray[i >> 2] = imgData.data[i] * 0.299 + imgData.data[i + 1] * 0.587 + imgData.data[i + 2] * 0.114;
-    }
-    for (let i = 0; i < tmplData.data.length; i += 4) {
-      tmplGray[i >> 2] = tmplData.data[i] * 0.299 + tmplData.data[i + 1] * 0.587 + tmplData.data[i + 2] * 0.114;
-    }
+    // ─── Downscale both image and template to 50% for speed ───────────────────
+    // Average-pool 2x2 → 1 pixel
+    const scale = 0.5;
+    const sW = Math.max(1, Math.floor(origW * scale));
+    const sH = Math.max(1, Math.floor(origH * scale));
+    const stw = Math.max(4, Math.round(origTW * scale));
+    const sth = Math.max(4, Math.round(origTH * scale));
+    const n = stw * sth;
 
-    // Template mean & std
-    let tmplSum = 0;
-    for (let i = 0; i < tmplGray.length; i++) tmplSum += tmplGray[i];
-    const tmplMean = tmplSum / tmplGray.length;
-    let tmplVar = 0;
-    for (let i = 0; i < tmplGray.length; i++) { const d = tmplGray[i] - tmplMean; tmplVar += d * d; }
-    const tmplStd = Math.sqrt(tmplVar);
-    if (tmplStd < 1) return []; // Uniform template – can't match
-
-    // Scan with step for performance
-    const step = Math.max(1, Math.floor(Math.min(tw, th) / 6));
-    const candidates = [];
-
-    for (let y = 0; y <= imgH - th; y += step) {
-      for (let x = 0; x <= imgW - tw; x += step) {
-        // Compute patch mean (sampled every 3px for speed)
-        let patchSum = 0, count = 0;
-        for (let ty = 0; ty < th; ty += 3) {
-          const row = (y + ty) * imgW;
-          for (let tx = 0; tx < tw; tx += 3) { patchSum += imgGray[row + x + tx]; count++; }
+    const imgGray = new Float32Array(sW * sH);
+    for (let sy = 0; sy < sH; sy++) {
+      const y0 = sy * 2;
+      for (let sx = 0; sx < sW; sx++) {
+        const x0 = sx * 2;
+        let sum = 0, cnt = 0;
+        for (let dy = 0; dy < 2; dy++) {
+          const ry = y0 + dy;
+          if (ry >= origH) continue;
+          for (let dx = 0; dx < 2; dx++) {
+            const rx = x0 + dx;
+            if (rx >= origW) continue;
+            const k = (ry * origW + rx) * 4;
+            sum += imgData.data[k] * 0.299 + imgData.data[k + 1] * 0.587 + imgData.data[k + 2] * 0.114;
+            cnt++;
+          }
         }
-        const patchMean = patchSum / count;
+        imgGray[sy * sW + sx] = cnt > 0 ? sum / cnt : 0;
+      }
+    }
 
-        // NCC
+    const tmplGray = new Float32Array(n);
+    for (let ty = 0; ty < sth; ty++) {
+      const y0 = ty * 2;
+      for (let tx = 0; tx < stw; tx++) {
+        const x0 = tx * 2;
+        let sum = 0, cnt = 0;
+        for (let dy = 0; dy < 2; dy++) {
+          const ry = y0 + dy;
+          if (ry >= origTH) continue;
+          for (let dx = 0; dx < 2; dx++) {
+            const rx = x0 + dx;
+            if (rx >= origTW) continue;
+            const k = (ry * origTW + rx) * 4;
+            sum += tmplData.data[k] * 0.299 + tmplData.data[k + 1] * 0.587 + tmplData.data[k + 2] * 0.114;
+            cnt++;
+          }
+        }
+        tmplGray[ty * stw + tx] = cnt > 0 ? sum / cnt : 0;
+      }
+    }
+
+    // Template mean & zero-mean copy
+    let tmplSum = 0;
+    for (let i = 0; i < n; i++) tmplSum += tmplGray[i];
+    const tmplMean = tmplSum / n;
+    const tmplZM = new Float32Array(n);
+    let tmplVar = 0;
+    for (let i = 0; i < n; i++) {
+      tmplZM[i] = tmplGray[i] - tmplMean;
+      tmplVar += tmplZM[i] * tmplZM[i];
+    }
+    const tmplStd = Math.sqrt(tmplVar);
+    if (tmplStd < 1) return []; // Uniform/blank template – can't match
+
+    // ─── Build integral image for O(1) patch mean ─────────────────────────────
+    const stride = sW + 1;
+    const intImg = new Float64Array((sW + 1) * (sH + 1));
+    for (let y = 0; y < sH; y++) {
+      for (let x = 0; x < sW; x++) {
+        intImg[(y + 1) * stride + (x + 1)] =
+          imgGray[y * sW + x]
+          + intImg[y * stride + (x + 1)]
+          + intImg[(y + 1) * stride + x]
+          - intImg[y * stride + x];
+      }
+    }
+    const patchSumFn = (x1, y1, x2, y2) =>
+      intImg[y2 * stride + x2]
+      - intImg[y1 * stride + x2]
+      - intImg[y2 * stride + x1]
+      + intImg[y1 * stride + x1];
+
+    // ─── Scan every pixel on the downscaled image (=every 2px on original) ────
+    const candidates = [];
+    const maxX = sW - stw;
+    const maxY = sH - sth;
+
+    for (let sy = 0; sy <= maxY; sy++) {
+      for (let sx = 0; sx <= maxX; sx++) {
+        const pMean = patchSumFn(sx, sy, sx + stw, sy + sth) / n;
+
         let numer = 0, denom1 = 0;
-        for (let ty = 0; ty < th; ty++) {
-          const row = (y + ty) * imgW;
-          for (let tx = 0; tx < tw; tx++) {
-            const iv = imgGray[row + x + tx] - patchMean;
-            const tv = tmplGray[ty * tw + tx] - tmplMean;
-            numer += iv * tv;
+        for (let ty = 0; ty < sth; ty++) {
+          const imgRow = (sy + ty) * sW + sx;
+          const tmplRow = ty * stw;
+          for (let tx = 0; tx < stw; tx++) {
+            const iv = imgGray[imgRow + tx] - pMean;
+            numer += iv * tmplZM[tmplRow + tx];
             denom1 += iv * iv;
           }
         }
         const denom = Math.sqrt(denom1) * tmplStd;
         const ncc = denom > 0 ? numer / denom : 0;
-        if (ncc >= threshold) candidates.push({ x, y, score: ncc });
+        if (ncc >= threshold) {
+          // Map back to original pixel coordinates
+          candidates.push({ x: sx / scale, y: sy / scale, score: ncc });
+        }
       }
     }
 
-    // Non-maximum suppression
+    // Non-maximum suppression – keep only the best match within minDist
     candidates.sort((a, b) => b.score - a.score);
     const final = [];
-    const minDist2 = Math.pow(Math.max(tw, th) * 0.6, 2);
+    const minDist2 = Math.pow(Math.max(origTW, origTH) * 0.5, 2);
     for (const c of candidates) {
       let tooClose = false;
       for (const f of final) {
