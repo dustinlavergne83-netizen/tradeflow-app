@@ -7557,7 +7557,7 @@ const { data, error } = await supabase
           )}
           <div style={{ marginTop: 20 }}>
             <button
-              onClick={() => navigate(`/project/${projectId}/reports`)}
+              onClick={() => navigate(`/project/${projectId}/reports-photos`)}
               style={{ width: '100%', padding: '14px', backgroundColor: '#3b82f6', border: 'none', borderRadius: 8, color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}
             >
               📋 Go to Reports & Photos →
