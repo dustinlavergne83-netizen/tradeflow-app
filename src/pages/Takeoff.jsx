@@ -1,4 +1,4 @@
-
+ 
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import * as fabric from 'fabric';
@@ -223,6 +223,16 @@ const [calibrationMethod, setCalibrationMethod] = useState('auto'); // 'auto' or
   const [showSnapshotsList, setShowSnapshotsList] = useState(false);
   const snapshotStartRef = useRef(null);
   const snapshotRectFabricRef = useRef(null);
+
+  // Auto-count tool state
+  const [autoCountTemplate, setAutoCountTemplate] = useState(null); // { dataUrl, width, height, compositeCanvas, tmplCanvas }
+  const [showAutoCountModal, setShowAutoCountModal] = useState(false);
+  const [autoCountThreshold, setAutoCountThreshold] = useState(0.75);
+  const [autoCountMatches, setAutoCountMatches] = useState([]);
+  const [isRunningAutoCount, setIsRunningAutoCount] = useState(false);
+  const autoCountStartRef = useRef(null);
+  const autoCountRectFabricRef = useRef(null);
+  const autoCountMatchRectsRef = useRef([]);
 
   // Drag detection for count tool (to allow panning)
   const dragStartRef = useRef(null);
@@ -769,6 +779,21 @@ const [calibrationMethod, setCalibrationMethod] = useState('auto'); // 'auto' or
         }
         return;
       }
+
+      // Handle auto-count template capture - start rectangle
+      if (activeToolRef.current === 'autocount') {
+        const rect = wrapperEl.getBoundingClientRect();
+        autoCountStartRef.current = {
+          x: e.clientX - rect.left,
+          y: e.clientY - rect.top
+        };
+        if (autoCountRectFabricRef.current) {
+          fabricCanvas.remove(autoCountRectFabricRef.current);
+          autoCountRectFabricRef.current = null;
+          fabricCanvas.renderAll();
+        }
+        return;
+      }
       
       // Use ref to get current value
       if (activeToolRef.current !== 'length') {
@@ -888,6 +913,34 @@ const [calibrationMethod, setCalibrationMethod] = useState('auto'); // 'auto' or
         return;
       }
 
+      // Handle auto-count template rectangle preview
+      if (activeToolRef.current === 'autocount' && autoCountStartRef.current) {
+        const rect = wrapperEl.getBoundingClientRect();
+        const currentX = e.clientX - rect.left;
+        const currentY = e.clientY - rect.top;
+        const start = autoCountStartRef.current;
+        if (autoCountRectFabricRef.current) {
+          fabricCanvas.remove(autoCountRectFabricRef.current);
+        }
+        const selRect = new fabric.Rect({
+          left: Math.min(start.x, currentX),
+          top: Math.min(start.y, currentY),
+          width: Math.abs(currentX - start.x),
+          height: Math.abs(currentY - start.y),
+          fill: 'rgba(16, 185, 129, 0.1)',
+          stroke: '#10b981',
+          strokeWidth: 2,
+          strokeDashArray: [5, 3],
+          selectable: false,
+          hasBorders: false,
+          hasControls: false,
+        });
+        fabricCanvas.add(selRect);
+        autoCountRectFabricRef.current = selRect;
+        fabricCanvas.renderAll();
+        return;
+      }
+
       // For calibration mode, use old behavior
       if (calibrationModeRef.current && isDrawingRef.current && currentLineRef.current) {
         const rect = wrapperEl.getBoundingClientRect();
@@ -1002,6 +1055,34 @@ const [calibrationMethod, setCalibrationMethod] = useState('auto'); // 'auto' or
         return;
       }
       
+      // Handle auto-count template capture on mouseup
+      if (activeToolRef.current === 'autocount' && autoCountStartRef.current) {
+        const wRect = wrapperEl.getBoundingClientRect();
+        const endX = e.clientX - wRect.left;
+        const endY = e.clientY - wRect.top;
+        const start = autoCountStartRef.current;
+        autoCountStartRef.current = null;
+
+        // Remove the selection rect
+        if (autoCountRectFabricRef.current) {
+          fabricCanvas.remove(autoCountRectFabricRef.current);
+          autoCountRectFabricRef.current = null;
+          fabricCanvas.renderAll();
+        }
+
+        const captureRect = {
+          x: Math.min(start.x, endX),
+          y: Math.min(start.y, endY),
+          width: Math.abs(endX - start.x),
+          height: Math.abs(endY - start.y),
+        };
+
+        if (captureRect.width < 10 || captureRect.height < 10) return; // too small
+
+        captureAutoCountTemplate(captureRect, fabricCanvas);
+        return;
+      }
+
       // Handle snapshot capture on mouseup
       if (activeToolRef.current === 'snapshot' && snapshotStartRef.current) {
         const wRect = wrapperEl.getBoundingClientRect();
@@ -4112,6 +4193,227 @@ const { data, error } = await supabase
     }
   }
 
+  // ===== AUTO COUNT FUNCTIONS =====
+  async function captureAutoCountTemplate(captureRect, fabricCanvas) {
+    setIsRunningAutoCount(true);
+    try {
+      const pdfWrapper = pdfWrapperRef.current;
+      if (!pdfWrapper) throw new Error('PDF wrapper not found');
+
+      // Build composite canvas of the PDF (same technique as snapshot)
+      const compositeCanvas = document.createElement('canvas');
+      compositeCanvas.width = pdfWrapper.offsetWidth;
+      compositeCanvas.height = pdfWrapper.offsetHeight;
+      const ctx = compositeCanvas.getContext('2d');
+      const fabricEl = fabricCanvas.getElement();
+      const pdfCanvases = pdfWrapper.querySelectorAll('canvas');
+      for (const c of pdfCanvases) {
+        if (c === fabricEl) continue;
+        try {
+          const cRect = c.getBoundingClientRect();
+          const wRect = pdfWrapper.getBoundingClientRect();
+          ctx.drawImage(c, cRect.left - wRect.left, cRect.top - wRect.top, cRect.width, cRect.height);
+        } catch (e) { /* skip tainted canvases */ }
+      }
+
+      // Crop template region
+      const tmplCanvas = document.createElement('canvas');
+      tmplCanvas.width = Math.max(1, captureRect.width);
+      tmplCanvas.height = Math.max(1, captureRect.height);
+      const tCtx = tmplCanvas.getContext('2d');
+      tCtx.drawImage(
+        compositeCanvas,
+        captureRect.x, captureRect.y, captureRect.width, captureRect.height,
+        0, 0, captureRect.width, captureRect.height
+      );
+
+      const templateDataUrl = tmplCanvas.toDataURL('image/png');
+
+      setAutoCountTemplate({ dataUrl: templateDataUrl, width: captureRect.width, height: captureRect.height, compositeCanvas, tmplCanvas });
+      setAutoCountMatches([]);
+      setShowAutoCountModal(true);
+
+      // Auto-run matching at default threshold
+      await runAutoCountMatching(compositeCanvas, tmplCanvas, autoCountThreshold, fabricCanvas);
+    } catch (err) {
+      alert('Failed to capture symbol: ' + err.message);
+    } finally {
+      setIsRunningAutoCount(false);
+    }
+  }
+
+  async function runAutoCountMatching(compositeCanvas, tmplCanvas, threshold, fabricCanvas) {
+    setIsRunningAutoCount(true);
+
+    // Clear previous match rects from canvas
+    const fc = fabricCanvas || fabricCanvasRef.current;
+    if (fc && autoCountMatchRectsRef.current.length > 0) {
+      autoCountMatchRectsRef.current.forEach(r => { try { fc.remove(r); } catch (e) {} });
+      autoCountMatchRectsRef.current = [];
+      fc.renderAll();
+    }
+
+    // Allow UI to update before heavy computation
+    await new Promise(resolve => setTimeout(resolve, 60));
+
+    try {
+      const imgCtx = compositeCanvas.getContext('2d');
+      const imgData = imgCtx.getImageData(0, 0, compositeCanvas.width, compositeCanvas.height);
+      const tCtx = tmplCanvas.getContext('2d');
+      const tmplData = tCtx.getImageData(0, 0, tmplCanvas.width, tmplCanvas.height);
+
+      const matches = templateMatchGrayscale(imgData, tmplData, threshold);
+      setAutoCountMatches(matches);
+
+      // Draw green highlight rectangles on canvas for each match
+      if (fc) {
+        const rects = matches.map(m => {
+          const rect = new fabric.Rect({
+            left: m.x,
+            top: m.y,
+            width: tmplCanvas.width,
+            height: tmplCanvas.height,
+            fill: 'rgba(16, 185, 129, 0.2)',
+            stroke: '#10b981',
+            strokeWidth: 2,
+            selectable: false,
+            hasBorders: false,
+            hasControls: false,
+            evented: false,
+            isAutoCountMatch: true,
+          });
+          fc.add(rect);
+          return rect;
+        });
+        autoCountMatchRectsRef.current = rects;
+        fc.renderAll();
+      }
+    } catch (err) {
+      console.error('Template matching failed:', err);
+    } finally {
+      setIsRunningAutoCount(false);
+    }
+  }
+
+  function templateMatchGrayscale(imgData, tmplData, threshold) {
+    const imgW = imgData.width;
+    const imgH = imgData.height;
+    const tw = tmplData.width;
+    const th = tmplData.height;
+
+    if (tw < 4 || th < 4 || tw >= imgW || th >= imgH) return [];
+
+    // Convert to grayscale float arrays
+    const imgGray = new Float32Array(imgW * imgH);
+    const tmplGray = new Float32Array(tw * th);
+    for (let i = 0; i < imgData.data.length; i += 4) {
+      imgGray[i >> 2] = imgData.data[i] * 0.299 + imgData.data[i + 1] * 0.587 + imgData.data[i + 2] * 0.114;
+    }
+    for (let i = 0; i < tmplData.data.length; i += 4) {
+      tmplGray[i >> 2] = tmplData.data[i] * 0.299 + tmplData.data[i + 1] * 0.587 + tmplData.data[i + 2] * 0.114;
+    }
+
+    // Template mean & std
+    let tmplSum = 0;
+    for (let i = 0; i < tmplGray.length; i++) tmplSum += tmplGray[i];
+    const tmplMean = tmplSum / tmplGray.length;
+    let tmplVar = 0;
+    for (let i = 0; i < tmplGray.length; i++) { const d = tmplGray[i] - tmplMean; tmplVar += d * d; }
+    const tmplStd = Math.sqrt(tmplVar);
+    if (tmplStd < 1) return []; // Uniform template – can't match
+
+    // Scan with step for performance
+    const step = Math.max(1, Math.floor(Math.min(tw, th) / 6));
+    const candidates = [];
+
+    for (let y = 0; y <= imgH - th; y += step) {
+      for (let x = 0; x <= imgW - tw; x += step) {
+        // Compute patch mean (sampled every 3px for speed)
+        let patchSum = 0, count = 0;
+        for (let ty = 0; ty < th; ty += 3) {
+          const row = (y + ty) * imgW;
+          for (let tx = 0; tx < tw; tx += 3) { patchSum += imgGray[row + x + tx]; count++; }
+        }
+        const patchMean = patchSum / count;
+
+        // NCC
+        let numer = 0, denom1 = 0;
+        for (let ty = 0; ty < th; ty++) {
+          const row = (y + ty) * imgW;
+          for (let tx = 0; tx < tw; tx++) {
+            const iv = imgGray[row + x + tx] - patchMean;
+            const tv = tmplGray[ty * tw + tx] - tmplMean;
+            numer += iv * tv;
+            denom1 += iv * iv;
+          }
+        }
+        const denom = Math.sqrt(denom1) * tmplStd;
+        const ncc = denom > 0 ? numer / denom : 0;
+        if (ncc >= threshold) candidates.push({ x, y, score: ncc });
+      }
+    }
+
+    // Non-maximum suppression
+    candidates.sort((a, b) => b.score - a.score);
+    const final = [];
+    const minDist2 = Math.pow(Math.max(tw, th) * 0.6, 2);
+    for (const c of candidates) {
+      let tooClose = false;
+      for (const f of final) {
+        if ((c.x - f.x) ** 2 + (c.y - f.y) ** 2 < minDist2) { tooClose = true; break; }
+      }
+      if (!tooClose) final.push(c);
+    }
+    return final;
+  }
+
+  function placeAutoCountMarkers() {
+    const fc = fabricCanvasRef.current;
+    if (!fc || autoCountMatches.length === 0 || !autoCountTemplate) return;
+
+    const tw = autoCountTemplate.width;
+    const th = autoCountTemplate.height;
+    const currentZoom = pdfZoomRef.current;
+    const currentOffset = pdfPanOffsetRef.current;
+
+    // Remove match highlight rectangles
+    autoCountMatchRectsRef.current.forEach(r => { try { fc.remove(r); } catch (e) {} });
+    autoCountMatchRectsRef.current = [];
+
+    // Place a count marker at the center of each match
+    autoCountMatches.forEach(m => {
+      const cx = m.x + tw / 2;
+      const cy = m.y + th / 2;
+      const baseX = (cx - currentOffset.x) / currentZoom;
+      const baseY = (cy - currentOffset.y) / currentZoom;
+
+      const marker = new fabric.Circle({
+        left: cx - 8,
+        top: cy - 8,
+        radius: 8,
+        fill: selectedColorRef.current,
+        opacity: 0.6,
+        stroke: '#fff',
+        strokeWidth: 2,
+        selectable: false,
+        hasBorders: false,
+        hasControls: false,
+      });
+
+      fc.add(marker);
+      countMarkersRef.current.push({ x: cx, y: cy, baseX, baseY, marker, measurementId: null });
+    });
+
+    setCountMarkers([...countMarkersRef.current]);
+    fc.renderAll();
+
+    // Close modal and switch to count tool so user can finish/save
+    setShowAutoCountModal(false);
+    setAutoCountTemplate(null);
+    setAutoCountMatches([]);
+    setActiveTool('count');
+  }
+
   return (
     <div ref={containerRef} style={styles.container}>
       {/* Header - Hidden in fullscreen */}
@@ -4223,6 +4525,20 @@ const { data, error } = await supabase
                   {snapshots.length}
                 </span>
               )}
+            </button>
+            <button
+              onClick={() => handleToolSelect('autocount')}
+              style={{
+                ...styles.toolButton,
+                ...(activeTool === 'autocount' ? styles.toolButtonActive : {}),
+                backgroundColor: activeTool === 'autocount' ? '#dcfce7' : '#1a237e',
+                color: activeTool === 'autocount' ? '#065f46' : '#90caf9',
+                border: activeTool === 'autocount' ? '2px solid #10b981' : '2px solid #3949ab',
+              }}
+              disabled={!isCalibrated}
+              title="Drag a rectangle around one symbol to auto-count all matching symbols"
+            >
+              🔍 Auto Count
             </button>
             {snapshots.length > 0 && (
               <button
@@ -4672,9 +4988,9 @@ const { data, error } = await supabase
                     right: 0,
                     bottom: 0,
                     // CRITICAL: When spacebar is held in count mode, disable pointer events to let PDF handle panning
-                    pointerEvents: (activeTool === 'length' || activeTool === 'count' || activeTool === 'snapshot' || calibrationMode) && !(activeTool === 'count' && isSpacebarHeld) ? 'auto' : 'none',
-                    zIndex: (activeTool === 'length' || activeTool === 'count' || activeTool === 'snapshot' || calibrationMode) ? 9999 : 5,
-                    cursor: (activeTool === 'length' || activeTool === 'snapshot' || calibrationMode) ? 'crosshair' : (activeTool === 'count' ? (isSpacebarHeld ? 'grab' : 'pointer') : 'default'),
+                    pointerEvents: (activeTool === 'length' || activeTool === 'count' || activeTool === 'snapshot' || activeTool === 'autocount' || calibrationMode) && !(activeTool === 'count' && isSpacebarHeld) ? 'auto' : 'none',
+                    zIndex: (activeTool === 'length' || activeTool === 'count' || activeTool === 'snapshot' || activeTool === 'autocount' || calibrationMode) ? 9999 : 5,
+                    cursor: (activeTool === 'length' || activeTool === 'snapshot' || activeTool === 'autocount' || calibrationMode) ? 'crosshair' : (activeTool === 'count' ? (isSpacebarHeld ? 'grab' : 'pointer') : 'default'),
                   }}
                 >
                   <canvas
@@ -4692,12 +5008,14 @@ const { data, error } = await supabase
                     }}
                   />
                 </div>
-                {(activeTool === 'length' || activeTool === 'count' || activeTool === 'snapshot' || calibrationMode) && (
-                  <div style={{ ...styles.toolHint, backgroundColor: activeTool === 'snapshot' ? 'rgba(59, 130, 246, 0.95)' : 'rgba(249, 115, 22, 0.95)' }}>
-                    {calibrationMode 
+                {(activeTool === 'length' || activeTool === 'count' || activeTool === 'snapshot' || activeTool === 'autocount' || calibrationMode) && (
+                  <div style={{ ...styles.toolHint, backgroundColor: activeTool === 'snapshot' ? 'rgba(59, 130, 246, 0.95)' : activeTool === 'autocount' ? 'rgba(16, 185, 129, 0.95)' : 'rgba(249, 115, 22, 0.95)' }}>
+                    {calibrationMode
                       ? 'Draw a line along a known dimension on the plan'
                       : activeTool === 'snapshot'
                       ? `📸 Drag to select an area to snapshot${isCapturingSnapshot ? ' (Capturing...)' : ''}`
+                      : activeTool === 'autocount'
+                      ? '🔍 Drag a rectangle around ONE symbol to auto-count all matching symbols on this page'
                       : activeTool === 'count'
                       ? `Left-click: place marker | Use PDF toolbar to pan/zoom | Right-click: delete marker (${countMarkers.length} placed)`
                       : polylinePoints.length === 0
@@ -7563,6 +7881,120 @@ const { data, error } = await supabase
               📋 Go to Reports & Photos →
             </button>
             <p style={{ fontSize: 11, color: '#666', textAlign: 'center', marginTop: 8 }}>Generate a combined takeoff report with counts</p>
+          </div>
+        </div>
+      )}
+
+      {/* Auto Count Modal */}
+      {showAutoCountModal && autoCountTemplate && (
+        <div style={styles.modalOverlay} onClick={() => {
+          // Clear match rects when closing
+          const fc = fabricCanvasRef.current;
+          if (fc) {
+            autoCountMatchRectsRef.current.forEach(r => { try { fc.remove(r); } catch (e) {} });
+            autoCountMatchRectsRef.current = [];
+            fc.renderAll();
+          }
+          setShowAutoCountModal(false);
+          setAutoCountTemplate(null);
+          setAutoCountMatches([]);
+        }}>
+          <div style={{ ...styles.modalContent, maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
+            <h2 style={styles.modalTitle}>🔍 Auto Count Results</h2>
+
+            {/* Template preview */}
+            <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', marginBottom: 20 }}>
+              <div>
+                <p style={{ fontSize: 12, color: '#666', margin: '0 0 6px' }}>Symbol template:</p>
+                <img
+                  src={autoCountTemplate.dataUrl}
+                  alt="Template"
+                  style={{ border: '2px solid #10b981', borderRadius: 6, maxWidth: 100, maxHeight: 100, objectFit: 'contain', backgroundColor: '#f9fafb', display: 'block' }}
+                />
+                <p style={{ fontSize: 11, color: '#999', margin: '4px 0 0', textAlign: 'center' }}>
+                  {autoCountTemplate.width}×{autoCountTemplate.height} px
+                </p>
+              </div>
+              <div style={{ flex: 1 }}>
+                {isRunningAutoCount ? (
+                  <div style={{ padding: 20, textAlign: 'center', color: '#666' }}>
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>⏳</div>
+                    <div style={{ fontSize: 14, fontWeight: '600' }}>Scanning for matches…</div>
+                    <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>Running template matching</div>
+                  </div>
+                ) : (
+                  <div style={{ padding: 16, backgroundColor: autoCountMatches.length > 0 ? '#f0fdf4' : '#fef2f2', borderRadius: 8, border: `2px solid ${autoCountMatches.length > 0 ? '#10b981' : '#ef4444'}` }}>
+                    <div style={{ fontSize: 32, fontWeight: '800', color: autoCountMatches.length > 0 ? '#059669' : '#dc2626', textAlign: 'center', marginBottom: 4 }}>
+                      {autoCountMatches.length}
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: '600', color: '#333', textAlign: 'center' }}>
+                      {autoCountMatches.length === 1 ? 'match found' : 'matches found'}
+                    </div>
+                    {autoCountMatches.length > 0 && (
+                      <div style={{ fontSize: 12, color: '#666', textAlign: 'center', marginTop: 6 }}>
+                        Green boxes shown on plan
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Threshold slider */}
+            <div style={{ marginBottom: 20, padding: 14, backgroundColor: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <label style={{ fontSize: 13, fontWeight: '600', color: '#333' }}>
+                  Match Sensitivity: {Math.round(autoCountThreshold * 100)}%
+                </label>
+                <span style={{ fontSize: 11, color: '#999' }}>
+                  {autoCountThreshold < 0.65 ? 'More matches (lower precision)' : autoCountThreshold > 0.85 ? 'Fewer matches (higher precision)' : 'Balanced'}
+                </span>
+              </div>
+              <input
+                type="range"
+                min="0.50"
+                max="0.95"
+                step="0.05"
+                value={autoCountThreshold}
+                onChange={(e) => setAutoCountThreshold(parseFloat(e.target.value))}
+                style={{ width: '100%', accentColor: '#10b981' }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#aaa', marginTop: 2 }}>
+                <span>50% (more)</span>
+                <span>95% (fewer)</span>
+              </div>
+            </div>
+
+            {autoCountMatches.length === 0 && !isRunningAutoCount && (
+              <div style={{ padding: 12, backgroundColor: '#fef3c7', borderRadius: 6, marginBottom: 16, fontSize: 13, color: '#92400e', border: '1px solid #fbbf24' }}>
+                💡 No matches found. Try lowering the sensitivity slider, or capture a larger/cleaner symbol template.
+              </div>
+            )}
+
+            <div style={styles.modalButtons}>
+              <button
+                onClick={() => {
+                  // Re-run with current threshold
+                  if (autoCountTemplate) {
+                    runAutoCountMatching(autoCountTemplate.compositeCanvas, autoCountTemplate.tmplCanvas, autoCountThreshold, fabricCanvasRef.current);
+                  }
+                }}
+                style={{ ...styles.cancelButton, backgroundColor: '#e0f2fe', color: '#1e40af' }}
+                disabled={isRunningAutoCount}
+              >
+                🔄 Re-scan
+              </button>
+              <button
+                onClick={placeAutoCountMarkers}
+                style={{ ...styles.saveButton, backgroundColor: autoCountMatches.length > 0 ? '#10b981' : '#9ca3af' }}
+                disabled={autoCountMatches.length === 0 || isRunningAutoCount}
+              >
+                ✅ Place {autoCountMatches.length} Marker{autoCountMatches.length !== 1 ? 's' : ''}
+              </button>
+            </div>
+            <p style={{ fontSize: 11, color: '#999', textAlign: 'center', marginTop: 10, marginBottom: 0 }}>
+              After placing markers you can add/remove them manually, then press "Finish Count" to save.
+            </p>
           </div>
         </div>
       )}
