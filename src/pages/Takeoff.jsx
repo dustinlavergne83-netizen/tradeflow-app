@@ -4299,6 +4299,25 @@ const { data, error } = await supabase
     }
   }
 
+  // ─── Helpers ────────────────────────────────────────────────────────────────
+  // Apply Sobel edge-magnitude to a grayscale Float32Array (in-place returns new array)
+  function sobelEdge(g, w, h) {
+    const out = new Float32Array(w * h);
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const gx =
+          -g[(y-1)*w+(x-1)] + g[(y-1)*w+(x+1)]
+          -2*g[y*w+(x-1)]   + 2*g[y*w+(x+1)]
+          -g[(y+1)*w+(x-1)] + g[(y+1)*w+(x+1)];
+        const gy =
+          -g[(y-1)*w+(x-1)] - 2*g[(y-1)*w+x] - g[(y-1)*w+(x+1)]
+          +g[(y+1)*w+(x-1)] + 2*g[(y+1)*w+x] + g[(y+1)*w+(x+1)];
+        out[y*w+x] = Math.sqrt(gx*gx + gy*gy);
+      }
+    }
+    return out;
+  }
+
   function templateMatchGrayscale(imgData, tmplData, threshold) {
     const origW = imgData.width;
     const origH = imgData.height;
@@ -4307,9 +4326,8 @@ const { data, error } = await supabase
 
     if (origTW < 4 || origTH < 4 || origTW >= origW || origTH >= origH) return [];
 
-    // ─── Downscale both image and template to 50% for speed ───────────────────
-    // Average-pool 2x2 → 1 pixel
-    const scale = 0.5;
+    // ─── Downscale to 75% for better discrimination (more pixels = better NCC) ─
+    const scale = 0.75;
     const sW = Math.max(1, Math.floor(origW * scale));
     const sH = Math.max(1, Math.floor(origH * scale));
     const stw = Math.max(4, Math.round(origTW * scale));
@@ -4358,26 +4376,45 @@ const { data, error } = await supabase
       }
     }
 
-    // Template mean & zero-mean copy
+    // ─── Apply Sobel edge detection – match on edge patterns, not pixel intensity ─
+    // This is the key fix: symbols have distinct edge shapes; labels/text elsewhere
+    // produce different edge patterns, so NCC on edges is far more discriminative.
+    const imgEdge = sobelEdge(imgGray, sW, sH);
+    const tmplEdge = sobelEdge(tmplGray, stw, sth);
+
+    // ─── Apply Gaussian center-weight to template edges ───────────────────────
+    // Weight center pixels more heavily so peripheral text/annotations
+    // contribute less to the correlation score.
+    const sigma2 = 2 * Math.pow(Math.min(stw, sth) * 0.45, 2);
+    for (let ty = 0; ty < sth; ty++) {
+      for (let tx = 0; tx < stw; tx++) {
+        const dy = ty - (sth - 1) / 2;
+        const dx = tx - (stw - 1) / 2;
+        const w = Math.exp(-(dx * dx + dy * dy) / sigma2);
+        tmplEdge[ty * stw + tx] *= w;
+      }
+    }
+
+    // Template mean & zero-mean copy (on edge-weighted data)
     let tmplSum = 0;
-    for (let i = 0; i < n; i++) tmplSum += tmplGray[i];
+    for (let i = 0; i < n; i++) tmplSum += tmplEdge[i];
     const tmplMean = tmplSum / n;
     const tmplZM = new Float32Array(n);
     let tmplVar = 0;
     for (let i = 0; i < n; i++) {
-      tmplZM[i] = tmplGray[i] - tmplMean;
+      tmplZM[i] = tmplEdge[i] - tmplMean;
       tmplVar += tmplZM[i] * tmplZM[i];
     }
     const tmplStd = Math.sqrt(tmplVar);
-    if (tmplStd < 1) return []; // Uniform/blank template – can't match
+    if (tmplStd < 0.5) return []; // Uniform/blank template – can't match
 
-    // ─── Build integral image for O(1) patch mean ─────────────────────────────
+    // ─── Build integral image over EDGE map for O(1) patch mean ───────────────
     const stride = sW + 1;
     const intImg = new Float64Array((sW + 1) * (sH + 1));
     for (let y = 0; y < sH; y++) {
       for (let x = 0; x < sW; x++) {
         intImg[(y + 1) * stride + (x + 1)] =
-          imgGray[y * sW + x]
+          imgEdge[y * sW + x]           // ← use edge map
           + intImg[y * stride + (x + 1)]
           + intImg[(y + 1) * stride + x]
           - intImg[y * stride + x];
@@ -4403,7 +4440,7 @@ const { data, error } = await supabase
           const imgRow = (sy + ty) * sW + sx;
           const tmplRow = ty * stw;
           for (let tx = 0; tx < stw; tx++) {
-            const iv = imgGray[imgRow + tx] - pMean;
+            const iv = imgEdge[imgRow + tx] - pMean;  // ← use edge map
             numer += iv * tmplZM[tmplRow + tx];
             denom1 += iv * iv;
           }
