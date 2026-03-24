@@ -48,6 +48,9 @@ export default function Invoice() {
   // Markup state
   const [itemMarkups, setItemMarkups] = useState({});
   
+  // Local editing state for line items (prevents DB call on every keystroke)
+  const [localItems, setLocalItems] = useState([]);
+  
   // Progress billing state
   const [selectedItems, setSelectedItems] = useState(new Set());
   const [itemBillingAmounts, setItemBillingAmounts] = useState({});
@@ -512,6 +515,7 @@ export default function Invoice() {
 
       if (itemsError) throw itemsError;
       setInvoiceItems(itemsData || []);
+      setLocalItems(itemsData || []);
       
       // Load markup percentages for all items
       if (itemsData && itemsData.length > 0) {
@@ -1083,16 +1087,43 @@ export default function Invoice() {
     }
   }
 
+  // Update local display state only (no DB call) — called on every keystroke
+  function handleLocalItemChange(itemId, field, value) {
+    setLocalItems(prev => prev.map(item => {
+      if (item.id !== itemId) return item;
+      const updated = { ...item, [field]: value };
+      // Recalculate total live as user types
+      if (field === "quantity" || field === "unit_price") {
+        const qty = field === "quantity" ? parseFloat(value) : parseFloat(item.quantity);
+        const price = field === "unit_price" ? parseFloat(value) : parseFloat(item.unit_price);
+        updated.total = (!isNaN(qty) && !isNaN(price)) ? qty * price : item.total;
+      }
+      return updated;
+    }));
+  }
+
+  // Save to DB only when the user leaves the field (onBlur)
   async function handleUpdateItem(itemId, field, value) {
     try {
+      // Ignore empty / incomplete values — don't save
+      if (value === "" || value === null || value === undefined) return;
+      
+      const numericFields = ["quantity", "unit_price"];
+      if (numericFields.includes(field)) {
+        const parsed = parseFloat(value);
+        if (isNaN(parsed)) return; // Don't save NaN
+      }
+
       const updates = { [field]: value };
       
       // If quantity or unit_price changed, recalculate total
-      const item = invoiceItems.find(i => i.id === itemId);
+      const item = localItems.find(i => i.id === itemId) || invoiceItems.find(i => i.id === itemId);
       if (field === "quantity" || field === "unit_price") {
-        const qty = field === "quantity" ? parseFloat(value) : item.quantity;
-        const price = field === "unit_price" ? parseFloat(value) : item.unit_price;
-        updates.total = qty * price;
+        const qty = field === "quantity" ? parseFloat(value) : parseFloat(item.quantity);
+        const price = field === "unit_price" ? parseFloat(value) : parseFloat(item.unit_price);
+        if (!isNaN(qty) && !isNaN(price)) {
+          updates.total = qty * price;
+        }
       }
 
       const { error } = await supabase
@@ -1105,7 +1136,7 @@ export default function Invoice() {
       loadInvoice();
     } catch (err) {
       console.error("Error updating item:", err);
-      alert("Failed to update item");
+      alert("Failed to update item: " + (err.message || err));
     }
   }
 
@@ -1184,6 +1215,17 @@ export default function Invoice() {
       <div style={styles.header}>
         <h1 style={styles.title}>Invoice #{invoiceNumber}</h1>
         <div style={{display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'flex-end'}}>
+          {(status === 'paid') && (
+            <button 
+              onClick={async () => {
+                await handleSave({ silent: true });
+                window.open(`/invoice/receipt?invoiceId=${invoiceId}`, '_blank');
+              }}
+              style={{...styles.button, background: '#10b981'}}
+            >
+              🧾 Send Receipt
+            </button>
+          )}
           <button 
             onClick={async () => {
               await handleSave({ silent: true });
@@ -1522,7 +1564,7 @@ export default function Invoice() {
                 <div style={{...styles.th, width: 60}}></div>
               </div>
 
-              {invoiceItems.map((item) => {
+              {(localItems.length > 0 ? localItems : invoiceItems).map((item) => {
                 const baseUnitPrice = item.unit_price || 0;
                 const quantity = item.quantity || 0;
                 const baseTotal = item.total || 0;
@@ -1540,7 +1582,8 @@ export default function Invoice() {
                       <input
                         type="text"
                         value={item.description || ""}
-                        onChange={(e) => handleUpdateItem(item.id, "description", e.target.value)}
+                        onChange={(e) => handleLocalItemChange(item.id, "description", e.target.value)}
+                        onBlur={(e) => handleUpdateItem(item.id, "description", e.target.value)}
                         style={styles.cellInput}
                       />
                     </div>
@@ -1548,8 +1591,9 @@ export default function Invoice() {
                       <input
                         type="number"
                         step="0.01"
-                        value={item.quantity || 0}
-                        onChange={(e) => handleUpdateItem(item.id, "quantity", e.target.value)}
+                        value={item.quantity ?? ""}
+                        onChange={(e) => handleLocalItemChange(item.id, "quantity", e.target.value)}
+                        onBlur={(e) => handleUpdateItem(item.id, "quantity", e.target.value)}
                         style={styles.cellInput}
                       />
                     </div>
@@ -1557,8 +1601,9 @@ export default function Invoice() {
                       <input
                         type="number"
                         step="0.01"
-                        value={item.unit_price || 0}
-                        onChange={(e) => handleUpdateItem(item.id, "unit_price", e.target.value)}
+                        value={item.unit_price ?? ""}
+                        onChange={(e) => handleLocalItemChange(item.id, "unit_price", e.target.value)}
+                        onBlur={(e) => handleUpdateItem(item.id, "unit_price", e.target.value)}
                         style={styles.cellInput}
                       />
                     </div>
