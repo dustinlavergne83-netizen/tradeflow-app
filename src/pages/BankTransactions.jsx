@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import BankStatementUpload from "../Components/BankStatementUpload";
-import { createBankTransactionJournalEntry } from "../utils/accountingJournals";
+import { createBankTransactionJournalEntry, getNextJournalEntryNumber } from "../utils/accountingJournals";
 
 export default function BankTransactions() {
   const navigate = useNavigate();
@@ -25,6 +25,7 @@ export default function BankTransactions() {
   const [filterCleared, setFilterCleared] = useState('all');
   const [expenses, setExpenses] = useState([]);
   const [invoices, setInvoices] = useState([]);
+  const [invoicePayments, setInvoicePayments] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [projects, setProjects] = useState([]);
@@ -159,6 +160,15 @@ export default function BankTransactions() {
         customer_id: inv.customer_name // Map for compatibility
       }));
       setInvoices(mappedInvoices);
+
+      // Load individual payment records so we can match on individual payment net amounts
+      // (e.g. a $1700 Venmo payment with $57.50 fee deposits as $1642.50 in the bank)
+      const { data: paymentsData } = await supabase
+        .from("invoice_payments")
+        .select("id, invoice_id, amount, net_amount, processing_fee, payment_date")
+        .order("payment_date", { ascending: false })
+        .limit(2000);
+      setInvoicePayments(paymentsData || []);
     } catch (err) {
       console.error("Error loading expenses/invoices:", err);
     }
@@ -413,19 +423,32 @@ export default function BankTransactions() {
   }
 
   function getMatchingInvoices(transaction) {
-    // Match invoices with same amount (allowing for small floating point differences)
+    const transAmount = Math.abs(parseFloat(transaction.amount) || 0);
+
     return invoices.filter(inv => {
-      const transAmount = Math.abs(parseFloat(transaction.amount) || 0);
-      
-      // First, try to match against net_deposit_amount (if payment had processing fees)
+      // 1. Match against net_deposit_amount on the invoice record (last payment's net, $2 tolerance)
       const netDepositAmount = Math.abs(parseFloat(inv.net_deposit_amount) || 0);
-      if (netDepositAmount > 0 && Math.abs(netDepositAmount - transAmount) < 0.01) {
+      if (netDepositAmount > 0 && Math.abs(netDepositAmount - transAmount) <= 2.00) {
         return true;
       }
-      
-      // Otherwise, match against total invoice amount
+
+      // 2. Check individual payment records — handles invoices with multiple partial payments
+      //    Each Venmo/PayPal payment deposits the NET amount (gross minus fee) into the bank,
+      //    so a bank transaction of $1,642.50 should match a $1,700 payment with $57.50 fee.
+      const hasMatchingPayment = invoicePayments.some(pmt => {
+        if (pmt.invoice_id !== inv.id) return false;
+        const pmtNet = Math.abs(parseFloat(pmt.net_amount) || 0);
+        const pmtGross = Math.abs(parseFloat(pmt.amount) || 0);
+        // Net amount match (within $2 to handle rounding)
+        if (pmtNet > 0 && Math.abs(pmtNet - transAmount) <= 2.00) return true;
+        // Gross amount match (within 1 cent — e.g. no-fee payments like checks/cash)
+        if (pmtGross > 0 && Math.abs(pmtGross - transAmount) < 0.01) return true;
+        return false;
+      });
+      if (hasMatchingPayment) return true;
+
+      // 3. Fallback: match against total invoice amount (exact, within 1 cent)
       const invAmount = Math.abs(parseFloat(inv.total_amount) || 0);
-      // Allow 1 cent tolerance for floating point precision
       return Math.abs(invAmount - transAmount) < 0.01;
     });
   }
@@ -780,52 +803,9 @@ export default function BankTransactions() {
 
           // Proceed with journal entry creation
           {
-            // Get next entry number - use auto-increment to avoid collisions
-            const { data: lastEntry } = await supabase
-              .from('journal_entries')
-              .select('entry_number')
-              .eq('company_id', user.id)
-              .order('entry_number', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-
-            let nextEntryNumber = 1000; // Start at 1000 for readability
-            if (lastEntry?.entry_number) {
-              try {
-                const entryStr = String(lastEntry.entry_number).trim();
-                console.log('Raw entry_number from DB:', entryStr, 'Type:', typeof lastEntry.entry_number);
-                
-                // Handle "JE-YYYY-#####" format (e.g., "JE-2025-00001")
-                if (entryStr.includes('-')) {
-                  const parts = entryStr.split('-');
-                  if (parts.length >= 3) {
-                    const numPart = parseInt(parts[parts.length - 1], 10);
-                    if (!isNaN(numPart) && numPart > 0) {
-                      nextEntryNumber = numPart + 1;
-                      console.log('✅ Parsed JE format. Last number:', numPart, 'Next:', nextEntryNumber);
-                    }
-                  }
-                } else {
-                  // Handle pure integer format
-                  const lastNum = parseInt(entryStr, 10);
-                  if (!isNaN(lastNum) && lastNum > 0) {
-                    nextEntryNumber = lastNum + 1;
-                    console.log('✅ Parsed integer format. Last:', lastNum, 'Next:', nextEntryNumber);
-                  }
-                }
-              } catch (e) {
-                console.warn('⚠️ Could not parse entry number:', lastEntry.entry_number, e);
-              }
-            }
-            
-            // ENSURE entry_number is definitely an integer before insert
-            nextEntryNumber = Math.round(Number(nextEntryNumber));
-            console.log('Final entry_number for insert (should be integer):', nextEntryNumber, 'Type:', typeof nextEntryNumber);
-            
-            // Format entry_number as "JE-YYYY-#####" string (this is what the database expects)
+            // Use the shared entry number generator — same approach used throughout the app
+            // (random 5-digit suffix: e.g. JE-2026-47382)
             const currentYear = new Date().getFullYear();
-            const formattedEntryNumber = `JE-${currentYear}-${String(nextEntryNumber).padStart(5, '0')}`;
-            console.log('Formatted entry_number:', formattedEntryNumber);
 
             // Determine the offset account based on transaction type and category
             let offsetAccountId = null;
@@ -927,21 +907,26 @@ export default function BankTransactions() {
               fullDescription = fullDescription.substring(0, Math.max(10, maxLen)) + ` - ${offsetAccountName.substring(0, 15)}`;
             }
             fullDescription = fullDescription.substring(0, 50); // Final truncation to 50 chars
-            
-            // entry_number should be the formatted string like "JE-2026-00043"
-            const journalEntry = {
-              entry_number: formattedEntryNumber,
-              entry_date: transaction.transaction_date,
-              description: fullDescription,
-              reference_type: 'bank_transaction',
-              reference_id: transaction.id,
-              created_by: user.id,
-              company_id: user.id
-            };
+
+            // Generate a unique entry number using the shared utility
+            // This uses the same random approach as the rest of the app (e.g. JE-2026-47382)
+            const entryNumber = await getNextJournalEntryNumber(user.id);
+            console.log('Using entry_number:', entryNumber);
 
             const { data: newEntry, error: entryError } = await supabase
               .from('journal_entries')
-              .insert([journalEntry])
+              .insert([{
+                entry_number: entryNumber,
+                entry_date: transaction.transaction_date,
+                description: fullDescription,
+                reference_type: 'bank_transaction',
+                reference_id: transaction.id,
+                created_by: user.id,
+                company_id: user.id,
+                is_posted: true,
+                posted_at: new Date().toISOString(),
+                posted_by: user.id
+              }])
               .select()
               .single();
 
@@ -950,6 +935,8 @@ export default function BankTransactions() {
               alert(`⚠️ Transaction cleared but journal entry failed: ${entryError.message}`);
               return;
             }
+
+            console.log('✅ Journal entry created (posted):', newEntry.id);
 
             if (newEntry) {
             // Create journal entry lines
@@ -1337,6 +1324,40 @@ export default function BankTransactions() {
           <p style={styles.subtitle}>{bankAccount.bank_name || 'Bank Transactions'}</p>
         </div>
         <div style={styles.headerButtons}>
+          <button
+            onClick={handleClearSelected}
+            disabled={isClearing || selectedTransactions.size === 0}
+            style={{
+              ...styles.newButton,
+              backgroundColor: selectedTransactions.size > 0 ? '#10b981' : '#6b7280',
+              cursor: selectedTransactions.size > 0 ? 'pointer' : 'not-allowed',
+              opacity: selectedTransactions.size > 0 ? 1 : 0.6,
+            }}
+            title="Check rows below then click to clear them all at once"
+          >
+            {isClearing
+              ? '⏳ Clearing...'
+              : selectedTransactions.size > 0
+                ? `✅ Clear Selected (${selectedTransactions.size})`
+                : '✅ Clear Selected'}
+          </button>
+          <button
+            onClick={handleUnclearSelected}
+            disabled={isUnclearing || selectedClearedTransactions.size === 0}
+            style={{
+              ...styles.newButton,
+              backgroundColor: selectedClearedTransactions.size > 0 ? '#f59e0b' : '#6b7280',
+              cursor: selectedClearedTransactions.size > 0 ? 'pointer' : 'not-allowed',
+              opacity: selectedClearedTransactions.size > 0 ? 1 : 0.6,
+            }}
+            title="Check cleared rows below then click to unclear them"
+          >
+            {isUnclearing
+              ? '⏳ Unclearing...'
+              : selectedClearedTransactions.size > 0
+                ? `🔓 Unclear Selected (${selectedClearedTransactions.size})`
+                : '🔓 Unclear Selected'}
+          </button>
           <button 
             onClick={async () => {
               console.log('Refreshing account balances...');
@@ -1631,6 +1652,13 @@ export default function BankTransactions() {
                   <td style={styles.td}>
                     <div style={styles.actionButtons}>
                       <button
+                        onClick={() => handleToggleCleared(transaction)}
+                        style={styles.clearedButton}
+                        title={transaction.is_cleared ? 'Click to unclear' : 'Click to clear'}
+                      >
+                        {transaction.is_cleared ? '✅' : '🔲'}
+                      </button>
+                      <button
                         onClick={() => openEditModal(transaction)}
                         style={styles.actionBtn}
                         title="Edit"
@@ -1838,13 +1866,65 @@ export default function BankTransactions() {
                 </div>
               )}
 
-              {/* No Matches */}
+              {/* No Matches - show manual link list */}
               {getMatchCount(selectedTransaction) === 0 && !selectedTransaction.linked_expense_id && !selectedTransaction.linked_invoice_id && (
-                <div style={styles.noMatches}>
-                  <div style={{fontSize: 48, marginBottom: 12}}>🔍</div>
-                  <p style={{fontSize: 16, color: '#666', margin: 0}}>
-                    No matching expenses or invoices found for this transaction amount.
-                  </p>
+                <div>
+                  <div style={{textAlign: 'center', padding: '20px 0 16px'}}>
+                    <div style={{fontSize: 36, marginBottom: 8}}>🔍</div>
+                    <p style={{fontSize: 14, color: '#666', margin: '0 0 4px'}}>
+                      No automatic match found for <strong>{formatCurrency(selectedTransaction.amount)}</strong>
+                    </p>
+                    <p style={{fontSize: 13, color: '#999', margin: 0}}>
+                      Manually link this transaction to an invoice below:
+                    </p>
+                  </div>
+                  <div style={{...styles.matchesSection, marginBottom: 0}}>
+                    <h3 style={styles.sectionTitle}>💰 All Invoices — Manual Link</h3>
+                    <div style={{maxHeight: 400, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10}}>
+                      {invoices.length === 0 ? (
+                        <p style={{color: '#999', fontSize: 14, padding: 12}}>No invoices found.</p>
+                      ) : (
+                        invoices.map(invoice => (
+                          <div
+                            key={invoice.id}
+                            style={{
+                              ...styles.matchCard,
+                              backgroundColor: selectedTransaction.linked_invoice_id === invoice.id ? '#dcfce7' : '#fff',
+                              alignItems: 'center'
+                            }}
+                          >
+                            <div style={styles.matchCardContent}>
+                              <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                                <strong style={{fontSize: 15}}>Invoice #{invoice.invoice_number}</strong>
+                                <span style={{fontWeight: 700, color: '#10b981', fontSize: 15}}>
+                                  {formatCurrency(invoice.total_amount)}
+                                  {invoice.net_deposit_amount && invoice.net_deposit_amount !== invoice.total_amount && (
+                                    <span style={{fontSize: 12, color: '#666', marginLeft: 6}}>
+                                      (net {formatCurrency(invoice.net_deposit_amount)})
+                                    </span>
+                                  )}
+                                </span>
+                              </div>
+                              <div style={{fontSize: 13, color: '#666', marginTop: 4}}>
+                                📅 {formatDate(invoice.invoice_date)}
+                                {invoice.customer_id && <span style={{marginLeft: 12}}>👤 {invoice.customer_id}</span>}
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => handleLinkInvoice(selectedTransaction.id, invoice.id)}
+                              style={{
+                                ...styles.linkButton,
+                                backgroundColor: selectedTransaction.linked_invoice_id === invoice.id ? '#9ca3af' : '#10b981'
+                              }}
+                              disabled={selectedTransaction.linked_invoice_id === invoice.id}
+                            >
+                              {selectedTransaction.linked_invoice_id === invoice.id ? '✓ Linked' : '🔗 Link'}
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

@@ -96,14 +96,8 @@ export default function WeeklyTotals() {
 
   const [entries, setEntries] = useState([]);
 
-  // reuse the same lunch setting you already store
-  const [lunchByDate] = useState(() => {
-  try {
-    return JSON.parse(localStorage.getItem("lunchByDate") || "{}");
-  } catch {
-    return {};
-  }
-});
+  // Lunch state is read from the database (is_lunch on shift_segments), not localStorage
+  const [lunchByDate, setLunchByDate] = useState({});
 // Swipe right to go back (mobile only)
 useEffect(() => {
   if (!isMobileApp) return;
@@ -142,10 +136,6 @@ useEffect(() => {
 
 const [openWeek, setOpenWeek] = useState(null);
 
-  useEffect(() => {
-    localStorage.setItem("lunchByDate", JSON.stringify(lunchByDate));
-  }, [lunchByDate]);
-
   // Load recent segments (enough to build a bunch of weeks)
   useEffect(() => {
     (async () => {
@@ -157,7 +147,7 @@ const [openWeek, setOpenWeek] = useState(null);
 
       const { data: segs, error } = await supabase
         .from("shift_segments")
-        .select("id, project_task, start_at, end_at")
+        .select("id, project_task, start_at, end_at, is_lunch")
         .eq("user_id", userId)
         .order("start_at", { ascending: false })
         .limit(800);
@@ -165,6 +155,16 @@ const [openWeek, setOpenWeek] = useState(null);
       if (error) return alert("Load totals error: " + error.message);
 
       setEntries(mapSegmentsToEntries(segs));
+
+      // Build lunchByDate from is_lunch flag in database
+      const dbLunch = {};
+      for (const seg of (segs || [])) {
+        if (seg.is_lunch) {
+          const date = toDateYMD(new Date(seg.start_at));
+          dbLunch[date] = true;
+        }
+      }
+      setLunchByDate(dbLunch);
     })();
   }, []);
 

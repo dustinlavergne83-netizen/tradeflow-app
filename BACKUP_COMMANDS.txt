@@ -7,7 +7,7 @@ QUICK BACKUPS (Copy & Paste These!)
 ==================
 
 # Cloud Backup (Google Drive) - RECOMMENDED
-.\backup-to-google-drive.ps1 -Label "your description here"
+.\backup-to-google-drive.ps1 -Label "estimates and CO work"
 
 # Examples:
 .\backup-to-google-drive.ps1 -Label "Fixed export bug"

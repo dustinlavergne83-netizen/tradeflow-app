@@ -1,0 +1,50 @@
+{
+  "expo": {
+    "name": "DML Comms",
+    "slug": "dml-comms",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "dmlcomms",
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0b3ea8"
+    },
+    "android": {
+      "package": "com.dmlelectric.comms",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#0b3ea8"
+      },
+      "permissions": [
+        "RECORD_AUDIO",
+        "READ_PHONE_STATE"
+      ],
+      "versionCode": 2
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#0b3ea8"
+        }
+      ],
+      "expo-dev-client"
+    ],
+    "runtimeVersion": "raw",
+    "updates": {
+      "enabled": false
+    },
+    "extra": {
+      "eas": {
+        "projectId": "f8a147fc-f1b1-46fe-bb4b-cbca9e2b3944"
+      },
+      "supabaseUrl": "https://hyhjxdgdetdqoyoscflu.supabase.co",
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh5aGp4ZGdkZXRkcW95b3NjZmx1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU4MjQ0NDUsImV4cCI6MjA4MTQwMDQ0NX0.kuEyoo4q-7utRafZHqjPD2lndBm-vRyUPeVqjkfDUF4"
+    },
+    "owner": "dmlelectric"
+  }
+}

@@ -231,7 +231,52 @@ export default function ProposalResidentialContractor() {
         .single();
 
       if (coData) {
-        setProject({ name: coData.project_name });
+        // Transform change order to look like an estimate so the proposal renders correctly
+        const estimateFromCO = {
+          id: coData.id,
+          estimate_number: coData.change_order_number || `CO-${coData.id.slice(0, 8)}`,
+          estimate_date: coData.change_order_date || new Date().toISOString(),
+          total: coData.total || 0,
+          description: coData.description || coData.title || 'Change Order',
+          project_description: coData.description || coData.title,
+        };
+        setBaseEstimate(estimateFromCO);
+
+        // Load project by ID from the URL path first, then fall back to name
+        let projectData = null;
+        if (projectId) {
+          const { data } = await supabase
+            .from("projects")
+            .select("*")
+            .eq("id", projectId)
+            .single();
+          projectData = data;
+        } else if (coData.project_name) {
+          const { data } = await supabase
+            .from("projects")
+            .select("*")
+            .eq("name", coData.project_name)
+            .single();
+          projectData = data;
+        }
+
+        if (projectData) {
+          setProject(projectData);
+
+          // Load contractors for the project
+          const { data: contractorsData } = await supabase
+            .from("project_contractors")
+            .select("*")
+            .eq("project_id", projectData.id);
+
+          if (contractorsData && contractorsData.length > 0) {
+            setContractors(contractorsData);
+            setSelectedContractor(contractorsData[0]);
+          }
+        } else {
+          // Fallback: use minimal project object so the page still renders
+          setProject({ name: coData.project_name || 'Change Order' });
+        }
       }
     } catch (err) {
       console.error("Error loading change order:", err);
@@ -258,7 +303,12 @@ export default function ProposalResidentialContractor() {
     try {
       const proposalData = {
         company_id: user.id,
-        base_estimate_id: baseEstimate.id,
+        // For change orders, use change_order_id instead of base_estimate_id
+        // (base_estimate_id has a foreign key to the estimates table)
+        ...(coId 
+          ? { change_order_id: coId, base_estimate_id: null }
+          : { base_estimate_id: baseEstimate.id }
+        ),
         project_id: project?.id,
         contractor_name: selectedContractor?.contractor_name || selectedContractor?.name,
         contractor_email: selectedContractor?.email,
@@ -514,7 +564,7 @@ export default function ProposalResidentialContractor() {
 
             {/* Title Section with Customer & Project */}
             <div style={styles.titleSection}>
-              <h1 style={styles.proposalTitle}>{baseEstimate.description || "PROJECT PROPOSAL"}</h1>
+              <h1 style={styles.proposalTitle}>{"PROJECT PROPOSAL"}</h1>
 
               {selectedContractor && (
                 <>
@@ -547,6 +597,16 @@ export default function ProposalResidentialContractor() {
                         </tr>
                       ))}
                     </>
+                  )}
+
+                  {/* For change orders (no estimate items), show the description as a line item */}
+                  {includeBaseBid && estimateItems.length === 0 && baseEstimate.description && (
+                    <tr style={styles.tableRow}>
+                      <td style={styles.td}>{baseEstimate.description}</td>
+                      <td style={{...styles.td, textAlign: "right", fontWeight: "600"}}>
+                        ${(baseEstimate.total || 0).toFixed(2)}
+                      </td>
+                    </tr>
                   )}
 
                   {alternates

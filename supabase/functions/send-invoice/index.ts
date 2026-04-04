@@ -433,48 +433,36 @@ Deno.serve(async (req) => {
               </div>
               ` : ''}
 
-              <!-- Pay Now + View Buttons -->
+              <!-- View / Print / Pay Button -->
               ${(balanceDue || 0) > 0 ? `
-              <!-- PAY NOW - Primary CTA -->
               <table width="100%" cellpadding="0" cellspacing="0" style="margin: 24px 0 12px 0;">
                 <tr>
                   <td align="center">
-                    <a href="${invoiceUrl}" style="display: inline-block; padding: 18px 48px; background-color: #16a34a; color: #ffffff; text-decoration: none; border-radius: 10px; font-size: 20px; font-weight: bold; box-shadow: 0 4px 12px rgba(22,163,74,0.35); letter-spacing: 0.3px;">
-                      💳 Pay Invoice Online
+                    <a href="${invoiceUrl}" style="display: inline-block; padding: 18px 48px; background-color: #16a34a; color: #ffffff; text-decoration: none; border-radius: 10px; font-size: 19px; font-weight: bold; box-shadow: 0 4px 12px rgba(22,163,74,0.35); letter-spacing: 0.3px;">
+                      📄 View or Print / Pay Invoice
                     </a>
                   </td>
                 </tr>
                 <tr>
                   <td align="center" style="padding-top: 8px;">
-                    <p style="margin: 0; font-size: 12px; color: #6b7280;">🔒 Secure checkout &bull; Credit card or ACH bank transfer</p>
+                    <p style="margin: 0; font-size: 12px; color: #6b7280;">🔒 Secure online payment &bull; Credit card or ACH bank transfer &bull; No fee for ACH</p>
                   </td>
                 </tr>
               </table>
 
-              <!-- View Invoice - Secondary CTA -->
-              <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 24px 0;">
-                <tr>
-                  <td align="center">
-                    <a href="${invoiceUrl}" style="display: inline-block; padding: 12px 28px; background-color: transparent; color: #fc6b04; text-decoration: none; border-radius: 8px; font-size: 15px; font-weight: 600; border: 2px solid #fc6b04;">
-                      📄 View & Print Invoice
-                    </a>
-                  </td>
-                </tr>
-              </table>
-
-              <div style="margin: 0 0 20px 0; padding: 14px 16px; background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
+              <div style="margin: 12px 0 20px 0; padding: 14px 16px; background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
                 <p style="margin: 0; color: #78350f; font-size: 14px; line-height: 1.6;">
                   <strong>Payment Due${dueDate ? ` by ${formatDate(dueDate)}` : ''}.</strong>
-                  Pay online with a credit card or bank transfer, or make checks payable to ${companyName}.
+                  Pay online with a credit card or ACH bank transfer, or make checks payable to ${companyName}.
                 </p>
               </div>
               ` : `
-              <!-- View Invoice -->
+              <!-- View Invoice (paid) -->
               <table width="100%" cellpadding="0" cellspacing="0" style="margin: 24px 0;">
                 <tr>
                   <td align="center">
                     <a href="${invoiceUrl}" style="display: inline-block; padding: 16px 40px; background-color: #fc6b04; color: #ffffff; text-decoration: none; border-radius: 8px; font-size: 18px; font-weight: bold; box-shadow: 0 2px 4px rgba(252, 107, 4, 0.3);">
-                      📄 View & Print Invoice
+                      📄 View or Print Invoice
                     </a>
                   </td>
                 </tr>

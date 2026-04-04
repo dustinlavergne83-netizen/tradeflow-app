@@ -15,6 +15,7 @@ export default function InvoiceView() {
   const [loading, setLoading] = useState(true);
   const [payLoading, setPayLoading] = useState(false);
   const [payError, setPayError] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState(null); // null | 'card' | 'ach'
 
   useEffect(() => {
     if (invoiceId) loadInvoice();
@@ -38,17 +39,32 @@ export default function InvoiceView() {
   }
 
   async function handlePayNow() {
-    if (!invoiceId) return;
+    if (!invoiceId || !paymentMethod) return;
     setPayLoading(true);
     setPayError("");
+    const ccFee = paymentMethod === 'card'
+      ? Math.round(payableAmount * 0.03 * 100) / 100
+      : 0;
     try {
       const { data, error } = await supabase.functions.invoke("create-checkout-session", {
         body: {
           invoiceId,
           siteUrl: window.location.origin,
+          ccFee,
+          paymentType: paymentMethod,
         },
       });
-      if (error) throw error;
+
+      // Extract real error from function response body if it's a non-2xx error
+      if (error) {
+        let realMsg = error.message;
+        try {
+          const errBody = await error.context?.json();
+          if (errBody?.error) realMsg = errBody.error;
+        } catch (_) {}
+        throw new Error(realMsg);
+      }
+
       if (data?.error) throw new Error(data.error);
       if (data?.url) {
         window.location.href = data.url;
@@ -208,40 +224,130 @@ export default function InvoiceView() {
           </span>
         </div>
 
-        {/* Pay Now Button — shown whenever there's an outstanding balance */}
-        {payableAmount > 0 && invoice?.status !== "paid" && (
-          <div style={{marginTop:16, marginBottom:8}}>
-            <button
-              onClick={handlePayNow}
-              disabled={payLoading}
-              style={{
-                width:"100%",
-                padding:"16px",
-                background: payLoading ? "#9ca3af" : GREEN,
-                color:"#fff",
-                border:"none",
-                borderRadius:10,
-                fontSize:17,
-                fontWeight:"bold",
-                cursor: payLoading ? "not-allowed" : "pointer",
-                boxShadow:"0 2px 8px rgba(22,163,74,0.3)",
-                transition:"background 0.2s",
-              }}
-            >
-              {payLoading
-                ? "⏳ Redirecting to Checkout..."
-                : `💳 Pay ${fmtMoney(payableAmount)} Now`}
-            </button>
-            <p style={{fontSize:12, color:"#6b7280", textAlign:"center", margin:"8px 0 0", lineHeight:1.5}}>
-              🔒 Secure checkout · Credit card or bank transfer (ACH)
-            </p>
-            {payError && (
-              <p style={{fontSize:13, color:"#ef4444", textAlign:"center", marginTop:6, fontWeight:600}}>
-                ⚠️ {payError}
+        {/* Pay Now — payment method selector */}
+        {payableAmount > 0 && invoice?.status !== "paid" && (() => {
+          const ccFee = Math.round(payableAmount * 0.03 * 100) / 100;
+          const totalWithFee = payableAmount + ccFee;
+          return (
+            <div style={{marginTop:16, marginBottom:8}}>
+              {!paymentMethod ? (
+                <>
+                  <p style={{fontSize:14, fontWeight:"bold", color:"#111", textAlign:"center", marginBottom:12}}>
+                    How would you like to pay?
+                  </p>
+                  <div style={{display:"flex", gap:10, marginBottom:10}}>
+                    <button
+                      onClick={() => setPaymentMethod("card")}
+                      style={{
+                        flex:1, padding:"14px 10px",
+                        background:"#fff",
+                        border:"2px solid #e5e7eb", borderRadius:10,
+                        cursor:"pointer", textAlign:"center",
+                      }}
+                    >
+                      <div style={{fontSize:22}}>💳</div>
+                      <div style={{fontSize:13, fontWeight:"bold", color:"#111", marginTop:4}}>Credit / Debit Card</div>
+                      <div style={{fontSize:11, color:"#ef4444", marginTop:2}}>+3% processing fee</div>
+                    </button>
+                    <button
+                      onClick={() => setPaymentMethod("ach")}
+                      style={{
+                        flex:1, padding:"14px 10px",
+                        background:"#f0fdf4",
+                        border:"2px solid #10b981", borderRadius:10,
+                        cursor:"pointer", textAlign:"center",
+                      }}
+                    >
+                      <div style={{fontSize:22}}>🏦</div>
+                      <div style={{fontSize:13, fontWeight:"bold", color:"#111", marginTop:4}}>Bank Transfer (ACH)</div>
+                      <div style={{fontSize:11, color:"#10b981", marginTop:2}}>No processing fee · Save {fmtMoney(ccFee)}</div>
+                    </button>
+                  </div>
+                  <p style={{fontSize:11, color:"#9ca3af", textAlign:"center", margin:0}}>
+                    Or mail a check to: P.O. Box 363, Jennings, LA 70546
+                  </p>
+                </>
+              ) : (
+                <>
+                  {/* Card breakdown */}
+                  {paymentMethod === "card" && (
+                    <div style={{background:"#fef9c3", border:"1px solid #fde68a", borderRadius:8, padding:12, marginBottom:12}}>
+                      <div style={{display:"flex", justifyContent:"space-between", fontSize:13, color:"#666", marginBottom:4}}>
+                        <span>Invoice Balance</span>
+                        <span>{fmtMoney(payableAmount)}</span>
+                      </div>
+                      <div style={{display:"flex", justifyContent:"space-between", fontSize:13, color:"#ef4444", marginBottom:4}}>
+                        <span>Credit Card Processing Fee (3%)</span>
+                        <span>+{fmtMoney(ccFee)}</span>
+                      </div>
+                      <div style={{display:"flex", justifyContent:"space-between", fontSize:15, fontWeight:"bold", color:"#111", borderTop:"1px solid #fde68a", paddingTop:8}}>
+                        <span>Total Charged to Card</span>
+                        <span>{fmtMoney(totalWithFee)}</span>
+                      </div>
+                    </div>
+                  )}
+                  {/* ACH breakdown */}
+                  {paymentMethod === "ach" && (
+                    <div style={{background:"#f0fdf4", border:"1px solid #86efac", borderRadius:8, padding:12, marginBottom:12}}>
+                      <div style={{display:"flex", justifyContent:"space-between", fontSize:15, fontWeight:"bold", color:"#111"}}>
+                        <span>Total (No Fee)</span>
+                        <span style={{color:"#10b981"}}>{fmtMoney(payableAmount)}</span>
+                      </div>
+                      <div style={{fontSize:11, color:"#059669", marginTop:4}}>
+                        🎉 You save {fmtMoney(ccFee)} compared to paying by card!
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={handlePayNow}
+                    disabled={payLoading}
+                    style={{
+                      width:"100%",
+                      padding:"16px",
+                      background: payLoading ? "#9ca3af" : paymentMethod === "ach" ? GREEN : ACCENT,
+                      color:"#fff",
+                      border:"none",
+                      borderRadius:10,
+                      fontSize:17,
+                      fontWeight:"bold",
+                      cursor: payLoading ? "not-allowed" : "pointer",
+                      boxShadow: paymentMethod === "ach"
+                        ? "0 2px 8px rgba(22,163,74,0.3)"
+                        : "0 2px 8px rgba(252,107,4,0.3)",
+                    }}
+                  >
+                    {payLoading
+                      ? "⏳ Redirecting to Checkout..."
+                      : paymentMethod === "card"
+                        ? `💳 Pay ${fmtMoney(totalWithFee)} by Card`
+                        : `🏦 Pay ${fmtMoney(payableAmount)} via ACH`}
+                  </button>
+
+                  <button
+                    onClick={() => { setPaymentMethod(null); setPayError(""); }}
+                    style={{
+                      width:"100%", padding:"8px",
+                      background:"transparent", border:"none",
+                      color:"#9ca3af", cursor:"pointer", fontSize:13, marginTop:6,
+                    }}
+                  >
+                    ← Change payment method
+                  </button>
+
+                  {payError && (
+                    <p style={{fontSize:13, color:"#ef4444", textAlign:"center", marginTop:6, fontWeight:600}}>
+                      ⚠️ {payError}
+                    </p>
+                  )}
+                </>
+              )}
+              <p style={{fontSize:11, color:"#9ca3af", textAlign:"center", margin:"8px 0 0"}}>
+                🔒 Secure checkout powered by Stripe
               </p>
-            )}
-          </div>
-        )}
+            </div>
+          );
+        })()}
 
         {/* Already paid badge */}
         {(invoice?.status === "paid") && (

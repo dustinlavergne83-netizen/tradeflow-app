@@ -219,23 +219,29 @@ export default function WeeklyTimesheet() {
 
         // Calculate hours for each day using shift segments
         const empSegments = (segments || []).filter(s => s.user_id === emp.user_id);
-        
+
+        // Collect raw hours per day
+        const rawDayHours = {};
+        weekDays.forEach(day => { rawDayHours[day] = 0; });
+
         for (const segment of empSegments) {
           const segmentDate = segment.start_at.split('T')[0];
           
           if (weekDays.includes(segmentDate)) {
-            let hours = 0;
-            
             if (segment.end_at) {
               const start = new Date(segment.start_at);
               const end = new Date(segment.end_at);
               const diffMs = end - start;
-              hours = diffMs / (1000 * 60 * 60);
+              rawDayHours[segmentDate] += diffMs / (1000 * 60 * 60);
             }
-            
-            row.days[segmentDate] += hours;
           }
         }
+
+        // Apply lunch deduction: if any segment for that day has is_lunch=true, deduct 0.5h
+        weekDays.forEach(day => {
+          const hasLunch = empSegments.some(s => s.is_lunch && s.start_at.split('T')[0] === day);
+          row.days[day] = Math.max(0, rawDayHours[day] - (hasLunch ? 0.5 : 0));
+        });
 
         // Round each day's hours to nearest quarter hour and calculate week total
         weekDays.forEach(day => {

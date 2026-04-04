@@ -74,15 +74,14 @@ export async function getExpenseAccount(companyId, category) {
  * Generate next journal entry number
  * Uses sequential numbering with a random component to prevent collisions
  */
-async function getNextJournalEntryNumber(companyId) {
+export async function getNextJournalEntryNumber(companyId) {
   const year = new Date().getFullYear();
-  const timestamp = Date.now();
-  // Create unique ID: JE-YYYY-XXXXX-RANDOM
-  // This prevents race condition conflicts where multiple simultaneous requests
-  // might try to create entries with the same sequential number
-  const randomPart = Math.floor(Math.random() * 100000).toString().padStart(5, '0');
-  const entryNumber = `JE-${year}-${randomPart}`;
-  
+  // Use timestamp (milliseconds) + random suffix for near-guaranteed uniqueness
+  // Format: JE-YYYY-TTTTTTTTT-RRR  (timestamp ms + 3-digit random)
+  // This gives ~1 trillion unique combinations per year per company
+  const tsPart = (Date.now() % 1000000000).toString(); // last 9 digits of ms timestamp
+  const randomSuffix = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+  const entryNumber = `JE-${year}-${tsPart}-${randomSuffix}`;
   return entryNumber;
 }
 

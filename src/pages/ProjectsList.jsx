@@ -294,33 +294,78 @@ export default function ProjectsList() {
             Showing {filteredProjects.length} of {projects.length} projects
           </div>
 
-          {/* Projects Grid */}
+          {/* Projects Table */}
           {filteredProjects.length === 0 ? (
             <div style={styles.noResults}>
               <p>No projects match your filters</p>
             </div>
           ) : (
-            <div style={styles.grid}>
+            <div style={styles.tableWrapper}>
+              <div style={styles.tableHeader}>
+                <div style={{...styles.th, flex: 2.5}}>Project</div>
+                <div style={{...styles.th, flex: 2}}>Customer / Contractor</div>
+                <div style={{...styles.th, flex: 1}}>Status</div>
+                <div style={{...styles.th, flex: 1, textAlign: 'right'}}>Contract Value</div>
+                <div style={{...styles.th, flex: 0.5, textAlign: 'center'}}>Actions</div>
+              </div>
               {filteredProjects.map((project) => {
-                // Use whichever ID field exists (uuid, id, or fallback to name)
                 const projectId = project.uuid || project.id || project.name;
                 
                 return (
                   <div
                     key={projectId}
-                    style={styles.card}
+                    style={styles.tableRow}
                     onClick={() => navigate(`/project/${projectId}`)}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.transform = "translateY(-4px)";
-                      e.currentTarget.style.boxShadow = "0 8px 24px rgba(0,0,0,0.15)";
+                      e.currentTarget.style.backgroundColor = "#e0f2fe";
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.transform = "translateY(0)";
-                      e.currentTarget.style.boxShadow = "none";
+                      e.currentTarget.style.backgroundColor = "#fff";
                     }}
                   >
-                    <div style={styles.cardHeader}>
-                      <h3 style={styles.projectName}>{project.name}</h3>
+                    <div style={{...styles.td, flex: 2.5}}>
+                      <div style={{fontWeight: '700', fontSize: 15, color: '#111'}}>{project.name}</div>
+                      {project.address && (
+                        <div style={{fontSize: 12, color: '#888', marginTop: 2}}>📍 {project.address}</div>
+                      )}
+                    </div>
+                    <div style={{...styles.td, flex: 2}}>
+                      {project.customer && (
+                        <div style={{fontSize: 13, color: '#444'}}>👤 {project.customer}</div>
+                      )}
+                      {project.contractor && (
+                        <div style={{fontSize: 13, color: '#444'}}>🔨 {project.contractor}</div>
+                      )}
+                    </div>
+                    <div style={{...styles.td, flex: 1}}>
+                      <span
+                        style={{
+                          display: "inline-block",
+                          padding: "4px 10px",
+                          borderRadius: 6,
+                          fontSize: 11,
+                          fontWeight: "bold",
+                          textTransform: "uppercase",
+                          backgroundColor:
+                            project.status === "bidding" ? "#fef3c7" :
+                            project.status === "pending" ? "#dbeafe" :
+                            project.status === "approved" ? "#d1fae5" :
+                            project.status === "active" ? "#10b981" :
+                            project.status === "canceled" ? "#fee2e2" :
+                            project.status === "postponed" ? "#e5e7eb" :
+                            project.status === "completed" ? "#6b7280" : "#f59e0b",
+                          color:
+                            project.status === "active" ? "#fff" :
+                            project.status === "completed" ? "#fff" : "#111",
+                        }}
+                      >
+                        {project.status || "—"}
+                      </span>
+                    </div>
+                    <div style={{...styles.td, flex: 1, textAlign: 'right', fontWeight: '600', fontSize: 14, color: '#111'}}>
+                      {project.active_worth > 0 ? `$${project.active_worth.toLocaleString()}` : "—"}
+                    </div>
+                    <div style={{...styles.td, flex: 0.5, textAlign: 'center'}}>
                       <button
                         onClick={(e) => handleDeleteProject(projectId, project.name, e)}
                         style={styles.deleteButton}
@@ -333,44 +378,6 @@ export default function ProjectsList() {
                       >
                         🗑️
                       </button>
-                    </div>
-                    
-                    {project.customer && (
-                      <p style={styles.customer}>👤 {project.customer}</p>
-                    )}
-                    {project.contractor && (
-                      <p style={styles.customer}>🔨 {project.contractor}</p>
-                    )}
-                    {project.address && (
-                      <p style={styles.address}>📍 {project.address}</p>
-                    )}
-                    
-                    <div style={styles.cardFooter}>
-                      {project.active_worth > 0 && (
-                        <div style={styles.budget}>
-                          💰 ${project.active_worth.toLocaleString()}
-                        </div>
-                      )}
-                      {project.status && (
-                        <span
-                          style={{
-                            ...styles.status,
-                            backgroundColor:
-                              project.status === "bidding" ? "#fef3c7" :
-                              project.status === "pending" ? "#dbeafe" :
-                              project.status === "approved" ? "#d1fae5" :
-                              project.status === "active" ? "#10b981" :
-                              project.status === "canceled" ? "#fee2e2" :
-                              project.status === "postponed" ? "#e5e7eb" :
-                              project.status === "completed" ? "#6b7280" : "#f59e0b",
-                            color:
-                              project.status === "active" ? "#fff" :
-                              project.status === "completed" ? "#fff" : "#111",
-                          }}
-                        >
-                          {project.status}
-                        </span>
-                      )}
                     </div>
                   </div>
                 );
@@ -627,5 +634,36 @@ const styles = {
     height: 1,
     backgroundColor: "#e5e7eb",
     margin: "12px 0",
+  },
+  tableWrapper: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  tableHeader: {
+    display: "flex",
+    padding: "14px 20px",
+    backgroundColor: "#f3f4f6",
+    borderBottom: "2px solid #e5e7eb",
+  },
+  th: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#666",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  tableRow: {
+    display: "flex",
+    padding: "14px 20px",
+    borderBottom: "1px solid #f3f4f6",
+    cursor: "pointer",
+    transition: "background-color 0.15s",
+    backgroundColor: "#fff",
+    alignItems: "center",
+  },
+  td: {
+    fontSize: 14,
+    color: "#111",
   },
 };

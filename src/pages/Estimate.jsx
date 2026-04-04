@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { loadMaterials } from "../data/materials";
@@ -599,6 +600,381 @@ function EstimateSummary({ projectId, currentEstimateId, navigate, projectName, 
             }}
           >
             📐 Digital Takeoff
+          </button>
+          <button
+            onClick={() => {
+              // Gather all items from all sections
+              const allItems = [];
+              const sNames = {
+                lighting: '💡 Lighting',
+                switchgear: '⚙️ SwitchGear'
+              };
+              Object.keys(sNames).forEach(sKey => {
+                const items = sections[sKey] || [];
+                const parentItems = items.filter(item => !item.parent_id && item.description);
+                if (parentItems.length > 0) {
+                  allItems.push({ section: sNames[sKey], items: parentItems });
+                }
+              });
+
+              // Open print window
+              const w = window.open('', '_blank', 'width=800,height=900');
+              w.document.write(`<!DOCTYPE html><html><head><title>Count Sheet - ${projectName}</title>
+              <style>
+                @page { margin: 0.5in; }
+                body { font-family: Arial, sans-serif; padding: 20px; color: #111; }
+                .header { background: #0b3ea8; color: #fff; padding: 16px 20px; border-radius: 8px; margin-bottom: 20px; }
+                .header h1 { margin: 0 0 4px 0; font-size: 22px; color: #f97316; }
+                .header p { margin: 2px 0; font-size: 13px; }
+                .meta { display: flex; justify-content: space-between; margin-bottom: 16px; font-size: 13px; color: #666; }
+                h2 { font-size: 16px; color: #0b3ea8; border-bottom: 2px solid #0b3ea8; padding-bottom: 4px; margin: 20px 0 8px 0; }
+                table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+                th { background: #f3f4f6; padding: 8px 12px; text-align: left; font-size: 13px; font-weight: 700; color: #555; border-bottom: 2px solid #d1d5db; }
+                td { padding: 8px 12px; border-bottom: 1px solid #e5e7eb; font-size: 14px; }
+                .qty { text-align: center; font-weight: 700; font-size: 16px; }
+                .unit { text-align: center; color: #666; }
+                .supplier-col { width: 140px; }
+                .price-col { width: 90px; }
+                .total-row { font-weight: 700; background: #f0f9ff; }
+                .footer { margin-top: 30px; padding-top: 12px; border-top: 2px solid #e5e7eb; font-size: 12px; color: #999; }
+                .notes { margin-top: 24px; border: 2px solid #e5e7eb; border-radius: 8px; padding: 12px; min-height: 80px; }
+                .notes-label { font-size: 13px; font-weight: 700; color: #555; margin-bottom: 4px; }
+                @media print { .no-print { display: none; } }
+              </style></head><body>
+              <div class="no-print" style="margin-bottom:16px">
+                <button onclick="window.print()" style="padding:10px 24px;background:#0b3ea8;color:#fff;border:none;border-radius:6px;font-size:15px;font-weight:700;cursor:pointer;margin-right:12px">🖨️ Print / Save PDF</button>
+                <button onclick="window.close()" style="padding:10px 24px;background:#666;color:#fff;border:none;border-radius:6px;font-size:15px;cursor:pointer">Close</button>
+              </div>
+              <div class="header">
+                <h1>DML ELECTRICAL SERVICE LLC</h1>
+                <p>MATERIAL COUNT SHEET</p>
+              </div>
+              <div class="meta">
+                <div><strong>Project:</strong> ${projectName || 'N/A'}</div>
+                <div><strong>Date:</strong> ${new Date().toLocaleDateString()}</div>
+              </div>
+              ${allItems.map(s => `
+                <h2>${s.section}</h2>
+                <table>
+                  <tr><th style="width:50%">Item</th><th style="width:70px;text-align:center">Qty</th><th style="width:60px;text-align:center">Unit</th><th class="supplier-col">Supplier Price</th><th class="price-col">Ext. Total</th></tr>
+                  ${s.items.map(item => `
+                    <tr>
+                      <td>${item.description}</td>
+                      <td class="qty">${item.quantity || 0}</td>
+                      <td class="unit">${item.unit || 'ea'}</td>
+                      <td></td>
+                      <td></td>
+                    </tr>
+                  `).join('')}
+                  <tr class="total-row"><td>Section Total: ${s.items.length} items</td><td class="qty">${s.items.reduce((s2,i)=>s2+(Number(i.quantity)||0),0)}</td><td></td><td></td><td></td></tr>
+                </table>
+              `).join('')}
+              <div class="total-row" style="font-size:16px;padding:12px;background:#f0f9ff;border-radius:6px;margin-top:16px">
+                <strong>Grand Total: ${allItems.reduce((s2,sec)=>s2+sec.items.length,0)} items / ${allItems.reduce((s2,sec)=>s2+sec.items.reduce((s3,i)=>s3+(Number(i.quantity)||0),0),0)} units</strong>
+              </div>
+              <div class="notes"><div class="notes-label">Supplier Notes / Quote #:</div></div>
+              <div class="footer">Generated from TradeFlow Estimator • ${new Date().toLocaleString()}</div>
+              </body></html>`);
+              w.document.close();
+            }}
+            style={{
+              padding: "10px 20px",
+              backgroundColor: "#10b981",
+              border: "none",
+              color: "#fff",
+              borderRadius: 8,
+              cursor: "pointer",
+              fontSize: 15,
+              fontWeight: "bold",
+            }}
+          >
+            📋 Count Sheet
+          </button>
+          <button
+            onClick={() => {
+              // ===== SUPPLIER PRICING LIST =====
+              // Pull ALL materials from ALL sections, break out assemblies, consolidate duplicates
+              const allSectionKeys = ['lighting', 'power', 'branch', 'switchgear', 'feeders', 'equipment', 'special'];
+              const sNames = {
+                lighting: '💡 Lighting',
+                power: '🔌 Power',
+                branch: '🔀 Branch',
+                switchgear: '⚙️ SwitchGear',
+                feeders: '⚡ Feeders',
+                equipment: '🔧 Equipment',
+                special: '🏢 Special Systems'
+              };
+
+              // Step 1: Gather all individual materials (break out assemblies)
+              const allMaterials = []; // { description, qty, unit, section }
+              const sectionBreakdown = []; // For section-by-section view
+
+              allSectionKeys.forEach(sKey => {
+                const items = sections[sKey] || [];
+                const parentItems = items.filter(item => !item.parent_id && item.description);
+                const children = items.filter(item => item.parent_id);
+                const sectionMaterials = [];
+
+                parentItems.forEach(parent => {
+                  const parentChildren = children.filter(c => c.parent_id === parent.id);
+                  
+                  if (parentChildren.length > 0) {
+                    // Assembly: break out each child component, multiply by parent qty
+                    const parentQty = Number(parent.quantity || 1);
+                    parentChildren.forEach(child => {
+                      const childQty = Number(child.quantity || 0) * parentQty;
+                      if (childQty > 0 && child.description) {
+                        sectionMaterials.push({
+                          description: child.description,
+                          qty: childQty,
+                          unit: child.unit || 'ea',
+                          section: sKey,
+                          fromAssembly: parent.description
+                        });
+                      }
+                    });
+                  } else {
+                    // Regular item
+                    const qty = Number(parent.quantity || 0);
+                    if (qty > 0) {
+                      sectionMaterials.push({
+                        description: parent.description,
+                        qty: qty,
+                        unit: parent.unit || 'ea',
+                        section: sKey,
+                        fromAssembly: null
+                      });
+                    }
+                  }
+                });
+
+                if (sectionMaterials.length > 0) {
+                  sectionBreakdown.push({ key: sKey, name: sNames[sKey], items: sectionMaterials });
+                }
+                allMaterials.push(...sectionMaterials);
+              });
+
+              // Step 2: Consolidate duplicates
+              const consolidated = new Map();
+              allMaterials.forEach(mat => {
+                const key = `${mat.description}|||${mat.unit}`;
+                if (consolidated.has(key)) {
+                  const existing = consolidated.get(key);
+                  existing.qty += mat.qty;
+                  if (!existing.sections.includes(mat.section)) {
+                    existing.sections.push(mat.section);
+                  }
+                } else {
+                  consolidated.set(key, {
+                    description: mat.description,
+                    qty: mat.qty,
+                    unit: mat.unit,
+                    sections: [mat.section]
+                  });
+                }
+              });
+
+              const consolidatedList = Array.from(consolidated.values())
+                .sort((a, b) => a.description.localeCompare(b.description));
+
+              const totalItems = consolidatedList.length;
+              const totalUnits = consolidatedList.reduce((s, i) => s + i.qty, 0);
+
+              // Step 3: Build clipboard text
+              const clipboardLines = [
+                `SUPPLIER PRICING REQUEST - ${projectName || 'Project'}`,
+                `Date: ${new Date().toLocaleDateString()}`,
+                `From: DML Electrical Service LLC`,
+                ``,
+                `${'Item'.padEnd(60)} ${'Qty'.padStart(8)} ${'Unit'.padStart(6)}`,
+                `${'─'.repeat(76)}`,
+                ...consolidatedList.map(item => 
+                  `${item.description.substring(0, 58).padEnd(60)} ${String(item.qty).padStart(8)} ${item.unit.padStart(6)}`
+                ),
+                `${'─'.repeat(76)}`,
+                `Total: ${totalItems} items / ${totalUnits} units`,
+                ``,
+                `Please provide unit pricing and extended totals.`,
+                `Quote #: _______________  Valid Until: _______________`
+              ];
+              const clipboardText = clipboardLines.join('\n');
+
+              // Step 4: Open print window
+              const w = window.open('', '_blank', 'width=900,height=1000');
+              w.document.write(`<!DOCTYPE html><html><head><title>Supplier Pricing List - ${projectName}</title>
+              <style>
+                @page { margin: 0.4in; size: letter; }
+                body { font-family: Arial, sans-serif; padding: 20px; color: #111; font-size: 12px; }
+                .header { background: #0b3ea8; color: #fff; padding: 16px 20px; border-radius: 8px; margin-bottom: 16px; }
+                .header h1 { margin: 0 0 2px 0; font-size: 20px; color: #f97316; }
+                .header p { margin: 2px 0; font-size: 12px; }
+                .header .subtitle { font-size: 15px; font-weight: bold; color: #fff; margin-top: 4px; }
+                .meta { display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 12px; color: #666; padding: 8px 12px; background: #f9fafb; border-radius: 6px; border: 1px solid #e5e7eb; }
+                .meta div { line-height: 1.6; }
+                .instructions { background: #fffbeb; border: 1px solid #f59e0b; border-radius: 6px; padding: 10px 14px; margin-bottom: 16px; font-size: 12px; color: #92400e; }
+                .instructions strong { color: #78350f; }
+                table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+                th { background: #1e3a5f; color: #fff; padding: 8px 10px; text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+                th.right { text-align: right; }
+                th.center { text-align: center; }
+                td { padding: 6px 10px; border-bottom: 1px solid #e5e7eb; font-size: 12px; }
+                tr:nth-child(even) { background: #f9fafb; }
+                .qty { text-align: center; font-weight: 700; font-size: 13px; }
+                .unit { text-align: center; color: #666; }
+                .price-col { text-align: right; min-width: 80px; border-left: 1px solid #d1d5db; }
+                .price-input { border-bottom: 1px dotted #999; min-width: 60px; display: inline-block; height: 16px; }
+                .section-header { background: #f0f4ff; font-weight: 700; color: #1e3a5f; font-size: 13px; border-top: 2px solid #1e3a5f; }
+                .section-header td { padding: 8px 10px; }
+                .total-row { font-weight: 700; background: #e0f2fe; border-top: 2px solid #1e3a5f; }
+                .grand-total { font-size: 14px; font-weight: 700; background: #1e3a5f; color: #fff; }
+                .grand-total td { padding: 10px; }
+                .footer-section { margin-top: 20px; }
+                .sign-block { display: flex; gap: 40px; margin-top: 16px; }
+                .sign-line { flex: 1; border-bottom: 1px solid #333; padding-bottom: 4px; font-size: 12px; color: #666; }
+                .notes-box { border: 2px solid #e5e7eb; border-radius: 8px; padding: 12px; min-height: 60px; margin-top: 8px; }
+                .notes-label { font-size: 12px; font-weight: 700; color: #555; margin-bottom: 4px; }
+                .footer { margin-top: 20px; padding-top: 8px; border-top: 1px solid #e5e7eb; font-size: 10px; color: #999; text-align: center; }
+                .btn-bar { margin-bottom: 16px; display: flex; gap: 10px; }
+                .btn { padding: 10px 24px; border: none; border-radius: 6px; font-size: 14px; font-weight: 700; cursor: pointer; }
+                .btn-print { background: #0b3ea8; color: #fff; }
+                .btn-copy { background: #10b981; color: #fff; }
+                .btn-close { background: #666; color: #fff; }
+                .btn:hover { opacity: 0.9; }
+                @media print { .no-print { display: none !important; } }
+              </style></head><body>
+              <div class="no-print btn-bar">
+                <button class="btn btn-print" onclick="window.print()">🖨️ Print / Save PDF</button>
+                <button class="btn btn-copy" onclick="copyToClipboard()">📋 Copy to Clipboard</button>
+                <button class="btn btn-close" onclick="window.close()">Close</button>
+              </div>
+              <div class="header">
+                <h1>DML ELECTRICAL SERVICE LLC</h1>
+                <div class="subtitle">SUPPLIER PRICING REQUEST</div>
+                <p>Please provide unit pricing for the materials listed below</p>
+              </div>
+              <div class="meta">
+                <div>
+                  <strong>Project:</strong> ${projectName || 'N/A'}<br/>
+                  <strong>Date:</strong> ${new Date().toLocaleDateString()}<br/>
+                  <strong>Requested By:</strong> DML Electrical Service LLC
+                </div>
+                <div style="text-align:right">
+                  <strong>Total Line Items:</strong> ${totalItems}<br/>
+                  <strong>Pricing Due By:</strong> _______________<br/>
+                  <strong>Quote #:</strong> _______________
+                </div>
+              </div>
+              <div class="instructions">
+                <strong>Instructions:</strong> Please provide your best unit pricing for each item below. 
+                Return completed pricing sheet via email or fax. Include lead times for any items not in stock.
+              </div>
+
+              <!-- CONSOLIDATED TABLE -->
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width:4%">#</th>
+                    <th style="width:46%">Material Description</th>
+                    <th class="center" style="width:8%">Qty</th>
+                    <th class="center" style="width:6%">Unit</th>
+                    <th class="right" style="width:12%">Unit Price</th>
+                    <th class="right" style="width:12%">Ext. Total</th>
+                    <th class="center" style="width:12%">Lead Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${consolidatedList.map((item, idx) => `
+                    <tr>
+                      <td style="color:#999;text-align:center">${idx + 1}</td>
+                      <td>${item.description}</td>
+                      <td class="qty">${item.qty}</td>
+                      <td class="unit">${item.unit}</td>
+                      <td class="price-col"><span class="price-input"></span></td>
+                      <td class="price-col"><span class="price-input"></span></td>
+                      <td class="price-col"><span class="price-input"></span></td>
+                    </tr>
+                  `).join('')}
+                  <tr class="grand-total">
+                    <td></td>
+                    <td>TOTAL: ${totalItems} line items</td>
+                    <td style="text-align:center">${totalUnits}</td>
+                    <td></td>
+                    <td></td>
+                    <td class="price-col" style="color:#f97316">$___________</td>
+                    <td></td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <!-- SECTION BREAKDOWN (reference) -->
+              <details class="no-print" style="margin-top:16px">
+                <summary style="cursor:pointer;color:#0b3ea8;font-weight:bold;font-size:14px;margin-bottom:8px">
+                  📊 View Section-by-Section Breakdown
+                </summary>
+                ${sectionBreakdown.map(sec => `
+                  <h4 style="color:#1e3a5f;margin:12px 0 4px 0;border-bottom:1px solid #ddd;padding-bottom:4px">${sec.name}</h4>
+                  <table style="margin-bottom:8px">
+                    <tr style="background:#f3f4f6"><th style="padding:4px 8px;font-size:11px">Item</th><th style="padding:4px 8px;font-size:11px;width:60px;text-align:center">Qty</th><th style="padding:4px 8px;font-size:11px;width:50px;text-align:center">Unit</th></tr>
+                    ${sec.items.map(item => `
+                      <tr>
+                        <td style="padding:3px 8px;font-size:11px;border-bottom:1px solid #eee">${item.fromAssembly ? '<span style="color:#f97316;font-size:10px">⚡ from ' + item.fromAssembly + '</span> ' : ''}${item.description}</td>
+                        <td style="padding:3px 8px;font-size:11px;text-align:center;border-bottom:1px solid #eee;font-weight:bold">${item.qty}</td>
+                        <td style="padding:3px 8px;font-size:11px;text-align:center;border-bottom:1px solid #eee;color:#666">${item.unit}</td>
+                      </tr>
+                    `).join('')}
+                  </table>
+                `).join('')}
+              </details>
+
+              <!-- NOTES & SIGNATURE -->
+              <div class="footer-section">
+                <div class="notes-box">
+                  <div class="notes-label">Supplier Notes / Terms / Conditions:</div>
+                </div>
+                <div class="sign-block">
+                  <div class="sign-line">Supplier Company: ___________________________</div>
+                  <div class="sign-line">Contact Name: ___________________________</div>
+                </div>
+                <div class="sign-block" style="margin-top:12px">
+                  <div class="sign-line">Phone / Email: ___________________________</div>
+                  <div class="sign-line">Date: ___________________________</div>
+                </div>
+              </div>
+              <div class="footer">Generated from TradeFlow Estimator &bull; ${new Date().toLocaleString()}</div>
+
+              <textarea id="clipData" style="position:absolute;left:-9999px">${clipboardText.replace(/"/g, '&quot;')}</textarea>
+              <script>
+                function copyToClipboard() {
+                  const text = document.getElementById('clipData').value;
+                  navigator.clipboard.writeText(text).then(() => {
+                    alert('✅ Material list copied to clipboard!\\nPaste into an email to send to your supplier.');
+                  }).catch(() => {
+                    // Fallback
+                    const ta = document.getElementById('clipData');
+                    ta.style.position = 'static';
+                    ta.select();
+                    document.execCommand('copy');
+                    ta.style.position = 'absolute';
+                    ta.style.left = '-9999px';
+                    alert('✅ Material list copied to clipboard!');
+                  });
+                }
+              </script>
+              </body></html>`);
+              w.document.close();
+            }}
+            style={{
+              padding: "10px 20px",
+              backgroundColor: "#3b82f6",
+              border: "none",
+              color: "#fff",
+              borderRadius: 8,
+              cursor: "pointer",
+              fontSize: 15,
+              fontWeight: "bold",
+            }}
+          >
+            📦 Supplier Pricing List
           </button>
           <button
             onClick={() => navigate('/assemblies')}
@@ -1659,6 +2035,13 @@ export default function Estimate({ mode = "full" }) {
   const [saveToAssemblyManager, setSaveToAssemblyManager] = useState(false);
   const [existingAssemblyPick, setExistingAssemblyPick] = useState(null);
   
+  // Save Assembly Modal state
+  const [showSaveAssemblyModal, setShowSaveAssemblyModal] = useState(false);
+  const [saveAssemblyName, setSaveAssemblyName] = useState("");
+  const [saveAssemblyCategory, setSaveAssemblyCategory] = useState("ASSEMBLIES");
+  const [saveAssemblyRowIndex, setSaveAssemblyRowIndex] = useState(null);
+  const [saveAssemblySource, setSaveAssemblySource] = useState("inline"); // "inline" or "modal"
+  
   // Alternates state
   const [availableAlternates, setAvailableAlternates] = useState([]);
   const [currentAlternate, setCurrentAlternate] = useState(0); // 0 = Base Bid
@@ -1694,6 +2077,10 @@ export default function Estimate({ mode = "full" }) {
   // Editing state for double-click cells
   const [editingCell, setEditingCell] = useState(null); // format: "rowIndex-fieldName"
   
+  // Assembly clipboard state (copy/paste components between rows)
+  const [copiedAssemblyChildren, setCopiedAssemblyChildren] = useState(null); // Array of children objects
+  const [copiedAssemblyName, setCopiedAssemblyName] = useState(""); // Name of source assembly
+
   // Add custom item modal
   const [showAddItemModal, setShowAddItemModal] = useState(false);
   const [customItem, setCustomItem] = useState({
@@ -1702,6 +2089,101 @@ export default function Estimate({ mode = "full" }) {
     price: 0,
     laborHours: 0
   });
+
+  // ===== SMART SEARCH FUNCTION =====
+  // Handles shorthand like "emt12" → "1/2" EMT, "122mc" → "12/2 MC Cable", etc.
+  const smartSearch = (itemName, searchTerm) => {
+    if (!searchTerm || !itemName) return true;
+    const name = itemName.toLowerCase();
+    const term = searchTerm.toLowerCase().trim();
+    
+    // Direct substring match first
+    if (name.includes(term)) return true;
+    
+    // Stripped match: remove all special chars and compare
+    const stripChars = (s) => s.replace(/[^a-z0-9]/g, '');
+    const nameStripped = stripChars(name);
+    const termStripped = stripChars(term);
+    if (nameStripped.includes(termStripped)) return true;
+    
+    // Conduit size shorthand map (e.g., "12" → "1/2")
+    const conduitSizeMap = {
+      '12': '1/2', '34': '3/4', '14': '1/4', '38': '3/8',
+      '18': '1/8', '112': '1-1/2', '114': '1-1/4', '212': '2-1/2',
+      '312': '3-1/2'
+    };
+    
+    // Wire gauge map (e.g., "122" → "12/2", "143" → "14/3")
+    const wireGaugeMap = {
+      '122': '12/2', '123': '12/3', '124': '12/4',
+      '142': '14/2', '143': '14/3', '144': '14/4',
+      '102': '10/2', '103': '10/3', '104': '10/4',
+      '82': '8/2', '83': '8/3', '84': '8/4',
+      '62': '6/2', '63': '6/3', '64': '6/4',
+      '42': '4/2', '43': '4/3',
+      '832': '8/3/2', '1032': '10/3/2',
+    };
+    
+    // Combined map for expanding shorthand
+    const allMaps = { ...conduitSizeMap, ...wireGaugeMap };
+    
+    // Try to expand the search term using wire gauge first (longer patterns)
+    // e.g., "122mc" → check if starts with "122" → expand to "12/2" + "mc"
+    const expandTerm = (t) => {
+      // Try wire gauge patterns first (3-digit before 2-digit)
+      const sorted = Object.keys(allMaps).sort((a, b) => b.length - a.length);
+      for (const key of sorted) {
+        if (t.startsWith(key)) {
+          return [allMaps[key], ...expandTerm(t.slice(key.length))];
+        }
+      }
+      // If no map match, return the term itself if non-empty
+      return t ? [t] : [];
+    };
+    
+    // Split search into letter/number groups
+    const parts = term.match(/[a-z\/\-]+|[0-9\/]+/g);
+    if (parts && parts.length >= 1) {
+      // For each part, try to expand it
+      const expandedParts = [];
+      for (const p of parts) {
+        // Check if it's a pure number that maps to a size/gauge
+        if (/^[0-9]+$/.test(p) && allMaps[p]) {
+          expandedParts.push(allMaps[p]);
+        } else {
+          expandedParts.push(p);
+        }
+      }
+      
+      // Also try expanding the entire stripped term as one unit
+      const fullExpanded = expandTerm(termStripped);
+      
+      // Check if ALL expanded parts match
+      const allPartsMatch = expandedParts.every(p => name.includes(p));
+      if (allPartsMatch && expandedParts.length > 0) return true;
+      
+      // Check full expansion
+      if (fullExpanded.length > 0) {
+        const fullMatch = fullExpanded.every(p => name.includes(p));
+        if (fullMatch) return true;
+      }
+    }
+    
+    // Split search by spaces and match all words (with expansion)
+    const words = term.split(/\s+/).filter(Boolean);
+    if (words.length > 1) {
+      const expandedWords = words.map(w => {
+        const stripped = stripChars(w);
+        return allMaps[stripped] || w;
+      });
+      if (expandedWords.every(w => name.includes(w))) return true;
+      
+      // Also try: each word individually stripped-matched
+      if (expandedWords.every(w => nameStripped.includes(stripChars(w)))) return true;
+    }
+    
+    return false;
+  };
 
   const materials = materialsDB;
 
@@ -2494,6 +2976,7 @@ for (const row of validRows) {
           .from("estimates")
           .insert([{
             company_id: user.id,
+            project_id: projectId,
             project_name: projectName,
             estimate_number: estimateNumber,
             estimate_date: estimateDate,
@@ -2650,6 +3133,7 @@ for (const row of validRows) {
       // Create the estimate header
       const estimateData = {
         company_id: user?.id,
+        project_id: projectId,
         project_name: projectName,
         customer_name: customerName,
         project_location: projectLocation,
@@ -3014,6 +3498,43 @@ for (const row of validRows) {
           </span>
         </div>
 
+        {/* CLIPBOARD INDICATOR BAR */}
+        {copiedAssemblyChildren && copiedAssemblyChildren.length > 0 && (
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "6px 14px",
+            marginBottom: 6,
+            background: "#1a3a2a",
+            border: "1px solid #10b981",
+            borderRadius: 6,
+            flexShrink: 0
+          }}>
+            <span style={{ color: "#10b981", fontSize: 12, fontWeight: "bold" }}>
+              📋 Copied: <span style={{ color: "#fff" }}>{copiedAssemblyName}</span> ({copiedAssemblyChildren.length} components)
+              <span style={{ color: "#999", marginLeft: 8, fontWeight: "normal" }}>— click "📋 Paste" on any line item to apply</span>
+            </span>
+            <button
+              onClick={() => {
+                setCopiedAssemblyChildren(null);
+                setCopiedAssemblyName("");
+              }}
+              style={{
+                background: "none",
+                border: "1px solid #555",
+                borderRadius: 4,
+                color: "#999",
+                fontSize: 11,
+                cursor: "pointer",
+                padding: "2px 8px"
+              }}
+            >
+              ✕ Clear
+            </button>
+          </div>
+        )}
+
         {/* TABLE */}
         <div style={{ 
           flex: 1,
@@ -3136,51 +3657,162 @@ for (const row of validRows) {
               }}>
                 {/* Expand/Collapse OR Convert to Assembly button */}
                 <td style={{ width: 40, textAlign: 'center', padding: '8px 4px' }}>
-                  {r.children && r.children.length > 0 ? (
-                    <button
-                      onClick={() => {
-                        const newExpanded = new Set(expandedAssemblyItems);
-                        if (newExpanded.has(i)) {
-                          newExpanded.delete(i);
-                        } else {
-                          newExpanded.add(i);
-                        }
-                        setExpandedAssemblyItems(newExpanded);
-                      }}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        fontSize: 16,
-                        color: '#3b82f6',
-                        padding: 4
-                      }}
-                    >
-                      {expandedAssemblyItems.has(i) ? '▼' : '▶'}
-                    </button>
+                {r.children && r.children.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                      <button
+                        onClick={() => {
+                          const newExpanded = new Set(expandedAssemblyItems);
+                          if (newExpanded.has(i)) {
+                            newExpanded.delete(i);
+                          } else {
+                            newExpanded.add(i);
+                          }
+                          setExpandedAssemblyItems(newExpanded);
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          fontSize: 16,
+                          color: '#3b82f6',
+                          padding: 2
+                        }}
+                      >
+                        {expandedAssemblyItems.has(i) ? '▼' : '▶'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setConvertingRowIndex(i);
+                          // Pre-populate the modal with existing children
+                          const existingComponents = (r.children || []).map(child => ({
+                            material_id: child.material_id || null,
+                            name: child.description || child.material_name || 'Unknown',
+                            quantity: Number(child.quantity || 1),
+                            unit: child.unit || 'ea',
+                            price: Number(child.material_unit_cost || 0),
+                            laborHours: Number(child.labor_hours || 0)
+                          }));
+                          setAssemblyBuildComponents(existingComponents);
+                          setAssemblyBuildSearch("");
+                          setExistingAssemblyPick(null);
+                          setSaveToAssemblyManager(false);
+                          setShowConvertToAssemblyModal(true);
+                        }}
+                        style={{
+                          background: 'none',
+                          border: '1px solid #555',
+                          cursor: 'pointer',
+                          fontSize: 10,
+                          color: '#f97316',
+                          padding: '1px 3px',
+                          borderRadius: 3
+                        }}
+                        title="Edit Assembly - modify component items"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        onClick={() => {
+                          // Copy assembly children to clipboard (deep copy)
+                          const childrenCopy = (r.children || []).map(child => ({
+                            description: child.description,
+                            quantity: Number(child.quantity || 0),
+                            unit: child.unit || 'ea',
+                            material_unit_cost: Number(child.material_unit_cost || 0),
+                            material_total: Number(child.material_total || 0),
+                            labor_hours: Number(child.labor_hours || 0),
+                            labor_multiplier: Number(child.labor_multiplier || 1),
+                            labor_rate: Number(child.labor_rate || LABOR_RATE),
+                            labor_total: Number(child.labor_total || 0),
+                            line_total: Number(child.line_total || 0)
+                          }));
+                          setCopiedAssemblyChildren(childrenCopy);
+                          setCopiedAssemblyName(r.item || "Assembly");
+                          console.log(`📋 Copied ${childrenCopy.length} components from "${r.item}"`);
+                        }}
+                        style={{
+                          background: copiedAssemblyName === r.item && copiedAssemblyChildren ? '#10b981' : 'none',
+                          border: '1px solid #555',
+                          cursor: 'pointer',
+                          fontSize: 10,
+                          color: copiedAssemblyName === r.item && copiedAssemblyChildren ? '#fff' : '#3b82f6',
+                          padding: '1px 3px',
+                          borderRadius: 3
+                        }}
+                        title="Copy assembly components to clipboard"
+                      >
+                        📋
+                      </button>
+                    </div>
                   ) : r.item && r.item.trim() !== "" && !r.isAssembly ? (
-                    <button
-                      onClick={() => {
-                        setConvertingRowIndex(i);
-                        setAssemblyBuildComponents([]);
-                        setAssemblyBuildSearch("");
-                        setExistingAssemblyPick(null);
-                        setSaveToAssemblyManager(false);
-                        setShowConvertToAssemblyModal(true);
-                      }}
-                      style={{
-                        background: 'none',
-                        border: '1px solid #555',
-                        cursor: 'pointer',
-                        fontSize: 13,
-                        color: '#f97316',
-                        padding: '2px 4px',
-                        borderRadius: 3
-                      }}
-                      title="Convert to Assembly - add component items"
-                    >
-                      🔧
-                    </button>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                      <button
+                        onClick={() => {
+                          setConvertingRowIndex(i);
+                          setAssemblyBuildComponents([]);
+                          setAssemblyBuildSearch("");
+                          setExistingAssemblyPick(null);
+                          setSaveToAssemblyManager(false);
+                          setShowConvertToAssemblyModal(true);
+                        }}
+                        style={{
+                          background: 'none',
+                          border: '1px solid #555',
+                          cursor: 'pointer',
+                          fontSize: 13,
+                          color: '#f97316',
+                          padding: '2px 4px',
+                          borderRadius: 3
+                        }}
+                        title="Convert to Assembly - add component items"
+                      >
+                        🔧
+                      </button>
+                      {copiedAssemblyChildren && copiedAssemblyChildren.length > 0 && (
+                        <button
+                          onClick={() => {
+                            // Paste copied children onto this row, converting it to an assembly
+                            const pastedChildren = copiedAssemblyChildren.map(child => ({
+                              ...child,
+                              id: undefined,
+                              parent_id: undefined
+                            }));
+                            const updatedRows = [...rows];
+                            updatedRows[i] = {
+                              ...updatedRows[i],
+                              isAssembly: true,
+                              children: pastedChildren,
+                              components: pastedChildren.map(c => ({
+                                material_name: c.description,
+                                quantity: c.quantity,
+                                unit: c.unit,
+                                material_unit_cost: c.material_unit_cost,
+                                labor_hours: c.labor_hours
+                              }))
+                            };
+                            setRows(updatedRows);
+                            // Auto-expand to show children
+                            const newExpanded = new Set(expandedAssemblyItems);
+                            newExpanded.add(i);
+                            setExpandedAssemblyItems(newExpanded);
+                            console.log(`📋 Pasted ${pastedChildren.length} components onto "${r.item}"`);
+                          }}
+                          style={{
+                            background: '#10b981',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: 9,
+                            color: '#fff',
+                            padding: '2px 4px',
+                            borderRadius: 3,
+                            fontWeight: 'bold'
+                          }}
+                          title={`Paste ${copiedAssemblyChildren.length} components from "${copiedAssemblyName}"`}
+                        >
+                          📋 Paste
+                        </button>
+                      )}
+                    </div>
                   ) : null}
                 </td>
                 
@@ -3658,72 +4290,12 @@ for (const row of validRows) {
                   <tr style={{ background: "#1a1a1a", borderLeft: "4px solid #fc6b04ff" }}>
                     <td colSpan="10" style={{ padding: "8px 12px", textAlign: "center" }}>
                       <button
-                        onClick={async () => {
-                          if (confirm("Do you want to save these changes to the Assembly Manager? This will update the assembly for all future uses.")) {
-                            try {
-                              // Use children (always populated) as the source of truth
-                              const sourceComponents = r.children || r.components || [];
-                              if (sourceComponents.length === 0) {
-                                alert("No components to save!");
-                                return;
-                              }
-                              
-                              const assembly = assembliesDB.find(asm => asm.name === r.item);
-                              if (assembly && r.assemblyId) {
-                                // Delete existing components
-                                await supabase
-                                  .from("assembly_components")
-                                  .delete()
-                                  .eq("assembly_id", r.assemblyId);
-                                
-                                // Insert updated components - handle both children format and components format
-                                const componentsToInsert = sourceComponents.map((comp, idx) => {
-                                  const obj = {
-                                    assembly_id: r.assemblyId,
-                                    material_name: comp.material_name || comp.description || comp.name || 'Unknown',
-                                    quantity: Number(comp.quantity || 0),
-                                    unit: comp.unit || 'ea',
-                                    material_unit_cost: Number(comp.material_unit_cost || comp.price || 0),
-                                    labor_hours: Number(comp.labor_hours || comp.laborHours || 0),
-                                    sequence: idx
-                                  };
-                                  // Only include material_id if valid
-                                  const matId = comp.material_id || comp.component_material_id;
-                                  if (matId && matId !== 'undefined' && matId !== 'null') {
-                                    obj.material_id = String(matId);
-                                    obj.component_material_id = String(matId);
-                                  }
-                                  return obj;
-                                });
-                                
-                                console.log('📝 Saving assembly components:', componentsToInsert);
-                                const { error: compError } = await supabase
-                                  .from("assembly_components")
-                                  .insert(componentsToInsert);
-                                
-                                if (compError) {
-                                  console.error('❌ Component save error:', compError);
-                                  alert("Failed to save components: " + compError.message);
-                                } else {
-                                  // Also update assembly totals
-                                  const totalMat = componentsToInsert.reduce((s, c) => s + (c.quantity * c.material_unit_cost), 0);
-                                  const totalHrs = componentsToInsert.reduce((s, c) => s + (c.quantity * c.labor_hours), 0);
-                                  await supabase.from("assemblies").update({
-                                    total_material_cost: totalMat,
-                                    total_labor_hours: totalHrs
-                                  }).eq("id", r.assemblyId);
-                                  
-                                  alert(`Assembly saved successfully! (${componentsToInsert.length} components)`);
-                                  await loadAssemblies(); // Reload assemblies
-                                }
-                              } else {
-                                alert("No assembly ID found. Try saving via the Convert to Assembly modal with 'Save to Assembly Manager' checked.");
-                              }
-                            } catch (error) {
-                              console.error("Error saving assembly:", error);
-                              alert("Failed to save assembly: " + error.message);
-                            }
-                          }
+                        onClick={() => {
+                          setSaveAssemblyRowIndex(i);
+                          setSaveAssemblyName(r.item || "");
+                          setSaveAssemblyCategory(r.assemblyId ? "UPDATE_EXISTING" : "ASSEMBLIES");
+                          setSaveAssemblySource("inline");
+                          setShowSaveAssemblyModal(true);
                         }}
                         style={{
                           padding: "6px 10px",
@@ -4336,7 +4908,7 @@ for (const row of validRows) {
                           // Filter by selected category
                           const categoryMatch = selectedCategory === "ALL ITEMS" || material.category === selectedCategory;
                           // Filter by search
-                          const searchMatch = material.name.toLowerCase().includes(catalogSearch.toLowerCase());
+                          const searchMatch = smartSearch(material.name, catalogSearch);
                           return categoryMatch && searchMatch;
                         })
                         .map((material) => (
@@ -4455,6 +5027,87 @@ for (const row of validRows) {
       </div>
     </div>
 
+    {/* ===== SAVE ASSEMBLY MODAL ===== */}
+    {showSaveAssemblyModal && saveAssemblyRowIndex !== null && (
+      <div style={{
+        position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+        background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1200
+      }}>
+        <div style={{
+          background: "#2a2a2a", border: "2px solid #8b5cf6", borderRadius: 12, padding: 24, width: 450, maxWidth: "90%"
+        }}>
+          <h3 style={{ margin: "0 0 16px 0", color: "#8b5cf6", fontSize: 20 }}>💾 Save Assembly</h3>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: "block", marginBottom: 6, color: "#fff", fontSize: 13, fontWeight: "bold" }}>Assembly Name *</label>
+            <input type="text" value={saveAssemblyName} onChange={(e) => setSaveAssemblyName(e.target.value)} placeholder="Enter assembly name..."
+              style={{ width: "100%", padding: "10px 12px", background: "#1a1a1a", border: "1px solid #555", borderRadius: 6, color: "#fff", fontSize: 14 }} autoFocus />
+          </div>
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ display: "block", marginBottom: 6, color: "#fff", fontSize: 13, fontWeight: "bold" }}>Category</label>
+            <select value={saveAssemblyCategory} onChange={(e) => setSaveAssemblyCategory(e.target.value)}
+              style={{ width: "100%", padding: "10px 12px", background: "#1a1a1a", border: "1px solid #555", borderRadius: 6, color: "#fff", fontSize: 14 }}>
+              {rows[saveAssemblyRowIndex]?.assemblyId && <option value="UPDATE_EXISTING">🔄 Update Existing Assembly</option>}
+              <option value="ASSEMBLIES">ASSEMBLIES</option>
+              {categories.filter(c => c !== "All").map(cat => <option key={cat} value={cat}>{cat}</option>)}
+            </select>
+          </div>
+          <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+            <button onClick={() => setShowSaveAssemblyModal(false)}
+              style={{ padding: "10px 20px", background: "transparent", border: "1px solid #666", borderRadius: 6, color: "#999", fontSize: 14, cursor: "pointer" }}>Cancel</button>
+            <button onClick={async () => {
+              if (!saveAssemblyName.trim()) { alert("Please enter an assembly name"); return; }
+              const r = rows[saveAssemblyRowIndex];
+              const sourceComponents = r.children || r.components || [];
+              if (sourceComponents.length === 0) { alert("No components to save!"); return; }
+              try {
+                const componentsToInsert = sourceComponents.map((comp, idx) => {
+                  const compName = comp.material_name || comp.description || comp.name || 'Unknown';
+                  const matId = comp.material_id || comp.component_material_id;
+                  const safeMatId = (matId && matId !== 'undefined' && matId !== 'null' && String(matId).length > 5) ? String(matId) : `custom_${compName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50)}`;
+                  const qty = Number(comp.quantity || comp.component_quantity || 0);
+                  return { 
+                    material_name: compName, 
+                    material_id: safeMatId, 
+                    component_material_id: safeMatId,
+                    quantity: qty, 
+                    component_quantity: qty,
+                    component_quantity_type: comp.component_quantity_type || comp.quantity_type || 'fixed',
+                    component_description: comp.component_description || compName,
+                    unit: comp.unit || 'ea', 
+                    material_unit_cost: Number(comp.material_unit_cost || comp.price || 0), 
+                    labor_hours: Number(comp.labor_hours || comp.laborHours || 0), 
+                    sequence: idx 
+                  };
+                });
+                const totalMat = componentsToInsert.reduce((s, c) => s + (c.quantity * c.material_unit_cost), 0);
+                const totalHrs = componentsToInsert.reduce((s, c) => s + (c.quantity * c.labor_hours), 0);
+                if (saveAssemblyCategory === "UPDATE_EXISTING" && r.assemblyId) {
+                  await supabase.from("assembly_components").delete().eq("assembly_id", r.assemblyId);
+                  const withId = componentsToInsert.map(c => ({ ...c, assembly_id: r.assemblyId }));
+                  const { error: compError } = await supabase.from("assembly_components").insert(withId);
+                  if (compError) { alert("Failed: " + compError.message); return; }
+                  await supabase.from("assemblies").update({ name: saveAssemblyName, total_material_cost: totalMat, total_labor_hours: totalHrs }).eq("id", r.assemblyId);
+                  alert(`Assembly "${saveAssemblyName}" updated! (${componentsToInsert.length} components)`);
+                } else {
+                  const { data: newAsm, error: asmError } = await supabase.from('assemblies').insert([{ name: saveAssemblyName, description: `Created from estimate on ${new Date().toLocaleDateString()}`, category: saveAssemblyCategory, unit: 'ea', is_custom: true, is_active: true, company_id: user?.id, total_material_cost: totalMat, total_labor_hours: totalHrs }]).select().single();
+                  if (asmError) throw asmError;
+                  const withId = componentsToInsert.map(c => ({ ...c, assembly_id: newAsm.id }));
+                  const { error: compError } = await supabase.from('assembly_components').insert(withId);
+                  if (compError) { alert("Assembly created but components failed: " + compError.message); return; }
+                  const updatedRows2 = [...rows]; updatedRows2[saveAssemblyRowIndex].assemblyId = newAsm.id; setRows(updatedRows2);
+                  alert(`Assembly "${saveAssemblyName}" saved! (${componentsToInsert.length} components)`);
+                }
+                await loadAssemblies();
+                setShowSaveAssemblyModal(false);
+              } catch (error) { console.error("Error:", error); alert("Failed: " + error.message); }
+            }} style={{ padding: "10px 24px", background: "#8b5cf6", border: "none", borderRadius: 6, color: "#fff", fontSize: 14, fontWeight: "bold", cursor: "pointer" }}>
+              💾 Save Assembly
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
     {/* ===== CONVERT TO ASSEMBLY MODAL ===== */}
     {showConvertToAssemblyModal && convertingRowIndex !== null && rows[convertingRowIndex] && (
       <div style={{
@@ -4560,7 +5213,7 @@ for (const row of validRows) {
             {assemblyBuildSearch.length >= 2 && (
               <div style={{ maxHeight: 160, overflowY: "auto", border: "1px solid #444", borderRadius: 4, marginTop: 4, background: "#1a1a1a" }}>
                 {materialsDB
-                  .filter(m => m.name.toLowerCase().includes(assemblyBuildSearch.toLowerCase()))
+                  .filter(m => smartSearch(m.name, assemblyBuildSearch))
                   .slice(0, 25)
                   .map(m => (
                     <div
@@ -4802,23 +5455,27 @@ for (const row of validRows) {
 
                     if (assemblyError) throw assemblyError;
 
-                    // Insert components
+                    // Insert components - provide ALL NOT NULL columns
                     const componentsToInsert = assemblyBuildComponents.map((comp, idx) => {
-                      const obj = {
+                      const safeMatId = (comp.material_id && comp.material_id !== 'undefined' && comp.material_id !== 'null' && String(comp.material_id).length > 5)
+                        ? String(comp.material_id)
+                        : `custom_${comp.name.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50)}`;
+                      const qty = Number(comp.quantity || 0);
+                      
+                      return {
                         assembly_id: assemblyData.id,
+                        material_id: safeMatId,
+                        component_material_id: safeMatId,
                         material_name: comp.name,
-                        quantity: comp.quantity,
+                        quantity: qty,
+                        component_quantity: qty,
+                        component_quantity_type: 'fixed',
+                        component_description: comp.name,
                         unit: comp.unit || 'ea',
-                        material_unit_cost: comp.price,
-                        labor_hours: comp.laborHours,
+                        material_unit_cost: Number(comp.price || 0),
+                        labor_hours: Number(comp.laborHours || 0),
                         sequence: idx
                       };
-                      // Only include material_id fields if they exist and are valid
-                      if (comp.material_id && comp.material_id !== 'undefined') {
-                        obj.material_id = String(comp.material_id);
-                        obj.component_material_id = String(comp.material_id);
-                      }
-                      return obj;
                     });
 
                     console.log('📝 Inserting assembly components:', JSON.stringify(componentsToInsert, null, 2));

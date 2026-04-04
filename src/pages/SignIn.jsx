@@ -24,7 +24,7 @@ export default function SignIn() {
 
     try {
       await signIn(email, password);
-      navigate("/");
+      navigate("/dashboard");
     } catch (err) {
       setError(err.message || "Failed to sign in");
     } finally {
@@ -98,6 +98,53 @@ export default function SignIn() {
             }}
           >
             Create Account
+          </button>
+        </div>
+
+        {/* Divider */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "24px 0 16px" }}>
+          <div style={{ flex: 1, height: 1, backgroundColor: "#e2e8f0" }} />
+          <span style={{ fontSize: 12, color: "#a0aec0", fontWeight: 600 }}>OR</span>
+          <div style={{ flex: 1, height: 1, backgroundColor: "#e2e8f0" }} />
+        </div>
+
+        {/* Customer portal link */}
+        <div style={{ textAlign: "center" }}>
+          <p style={{ fontSize: 13, color: "#718096", marginBottom: 10 }}>
+            Are you a customer?
+          </p>
+          <button
+            onClick={() => navigate("/customer/login")}
+            style={{
+              width: "100%",
+              padding: "12px",
+              backgroundColor: "transparent",
+              border: "2px solid #e2e8f0",
+              color: "#4a5568",
+              borderRadius: 10,
+              cursor: "pointer",
+              fontSize: 14,
+              fontWeight: 600,
+            }}
+          >
+            👤 Customer Portal Login
+          </button>
+        </div>
+
+        {/* Back to website */}
+        <div style={{ textAlign: "center", marginTop: 16 }}>
+          <button
+            onClick={() => navigate("/welcome")}
+            style={{
+              background: "none",
+              border: "none",
+              color: "#a0aec0",
+              fontSize: 13,
+              cursor: "pointer",
+              textDecoration: "underline",
+            }}
+          >
+            ← Back to DML Electrical Website
           </button>
         </div>
       </div>

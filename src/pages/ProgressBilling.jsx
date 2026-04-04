@@ -158,8 +158,11 @@ export default function ProgressBilling() {
         setDeposits(depositsData || []);
       }
 
-      // Total contract value is the proposal total
-      const contractValue = proposalData.total_amount || 0;
+      // Total contract value = project's active_worth (includes approved COs)
+      // Fall back to proposal total if active_worth not set
+      const contractValue = (projectData?.active_worth && projectData.active_worth > 0) 
+        ? projectData.active_worth 
+        : (proposalData.total_amount || 0);
       setTotalContractValue(contractValue);
 
       // Load previous progress billing invoices for this project
@@ -316,11 +319,12 @@ export default function ProgressBilling() {
 
       let invoiceNumber;
 
+      // Get the project's base invoice number
+      let baseNumber = 1001;
       if (projectInvoices && projectInvoices.length > 0) {
         const firstInvoice = projectInvoices[0].invoice_number;
-        const baseNumber = firstInvoice.split('-')[0];
-        const suffix = projectInvoices.length + 1;
-        invoiceNumber = `${baseNumber}-${suffix}`;
+        const match = firstInvoice.match(/^(\d+)/);
+        if (match) baseNumber = parseInt(match[1]);
       } else {
         const { data: allInvoices } = await supabase
           .from('invoices')
@@ -328,13 +332,33 @@ export default function ProgressBilling() {
           .order('created_at', { ascending: false })
           .limit(1);
 
-        let nextBaseNumber = 1001;
         if (allInvoices && allInvoices.length > 0) {
           const lastInvoiceNum = allInvoices[0].invoice_number;
           const baseNum = parseInt(lastInvoiceNum.split('-')[0]) || 1000;
-          nextBaseNumber = baseNum + 1;
+          baseNumber = baseNum + 1;
         }
-        invoiceNumber = `${nextBaseNumber}-1`;
+      }
+
+      if (coId && changeOrder) {
+        // CHANGE ORDER PROGRESS INVOICE: Format 1007-CO1-1, 1007-CO1-2
+        // Extract CO suffix from the change order number (e.g., "1010-CO1" → "CO1")
+        const coMatch = changeOrder.change_order_number.match(/(CO\d+)$/);
+        const coSuffix = coMatch ? coMatch[1] : 'CO1';
+
+        // Count existing progress invoices for this specific change order
+        const coInvoicePrefix = `${baseNumber}-${coSuffix}`;
+        const { data: existingCOInvoices } = await supabase
+          .from('invoices')
+          .select('invoice_number')
+          .eq('project_name', projectName)
+          .like('invoice_number', `${coInvoicePrefix}-%`);
+
+        const nextProgressNum = (existingCOInvoices?.length || 0) + 1;
+        invoiceNumber = `${coInvoicePrefix}-${nextProgressNum}`;
+      } else {
+        // REGULAR PROGRESS INVOICE: Format 1007-1, 1007-2
+        const suffix = (projectInvoices?.length || 0) + 1;
+        invoiceNumber = `${baseNumber}-${suffix}`;
       }
 
       const calculatedDueDate = calculateDueDate(paymentTerm);

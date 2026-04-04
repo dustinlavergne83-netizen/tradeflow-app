@@ -295,7 +295,7 @@ export default function QuickEstimate() {
 
     setIsSaving(true);
     try {
-      const total = calculateTotal();
+      const total = getFinalTotal();
       
       if (isChangeOrder) {
         // CHANGE ORDER LOGIC

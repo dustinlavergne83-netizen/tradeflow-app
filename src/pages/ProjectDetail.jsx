@@ -1364,10 +1364,23 @@ async function handleAddContractor() {
           {contractors.length === 0 ? (
             <p style={styles.emptyText}>No contractors added yet. Click "+ Add Contractor" to add one for proposal selection!</p>
           ) : (
-            <div style={styles.contractorCompactList}>
-              {contractors.map((contractor) => (
+            <div style={{...styles.contractorCompactList, maxHeight: 260, overflowY: 'auto'}}>
+              {contractors.map((contractor) => {
+                const allProposals = Object.values(proposals).flat();
+                const hasSent = allProposals.some(p => p.contractor_name === contractor.contractor_name && p.status === 'sent');
+                const hasProposal = allProposals.some(p => p.contractor_name === contractor.contractor_name);
+                return (
                 <div key={contractor.id} style={styles.contractorCompactRow}>
-                  <span style={styles.contractorCompactName}>{contractor.contractor_name}</span>
+                  <div style={{display: 'flex', alignItems: 'center', gap: 8, flex: 1}}>
+                    <span style={styles.contractorCompactName}>{contractor.contractor_name}</span>
+                    {hasSent ? (
+                      <span style={{fontSize: 11, fontWeight: '700', backgroundColor: '#d1fae5', color: '#065f46', borderRadius: 20, padding: '2px 8px'}}>✅ Sent</span>
+                    ) : hasProposal ? (
+                      <span style={{fontSize: 11, fontWeight: '700', backgroundColor: '#fef3c7', color: '#92400e', borderRadius: 20, padding: '2px 8px'}}>⏳ Not Sent</span>
+                    ) : (
+                      <span style={{fontSize: 11, fontWeight: '700', backgroundColor: '#f3f4f6', color: '#9ca3af', borderRadius: 20, padding: '2px 8px'}}>No Proposal</span>
+                    )}
+                  </div>
                   <button
                     onClick={async () => {
                       if (confirm(`Delete contractor ${contractor.contractor_name}?`)) {
@@ -1390,7 +1403,8 @@ async function handleAddContractor() {
                     ✕
                   </button>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -2349,15 +2363,23 @@ async function handleAddContractor() {
                     }}
                   >
                     <div style={{flex: 1}}>
-                      <div style={{fontWeight: 'bold', fontSize: 16, color: '#111', marginBottom: 4}}>
-                        {proposal.contractor_name || 'No Contractor'}
+                      <div style={{display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4}}>
+                        <span style={{fontWeight: 'bold', fontSize: 16, color: '#111'}}>
+                          {proposal.contractor_name || 'No Contractor'}
+                        </span>
+                        {proposal.status === 'sent' && (
+                          <span style={{display: 'inline-flex', alignItems: 'center', gap: 4, backgroundColor: '#d1fae5', color: '#065f46', borderRadius: 20, padding: '2px 10px', fontSize: 12, fontWeight: '700'}}>
+                            ✅ SENT
+                          </span>
+                        )}
                       </div>
                       <div style={{fontSize: 13, color: '#666', marginBottom: 2}}>
                         {proposal.contractor_email || 'No email'}
                       </div>
                       <div style={{fontSize: 12, color: '#999'}}>
                         Saved: {new Date(proposal.created_at).toLocaleDateString()} • 
-                        Status: <span style={{textTransform: 'capitalize', fontWeight: '600'}}>{proposal.status}</span>
+                        Status: <span style={{textTransform: 'capitalize', fontWeight: '600', color: proposal.status === 'sent' ? '#10b981' : '#666'}}>{proposal.status}</span>
+                        {proposal.sent_at && <span> • Sent: {new Date(proposal.sent_at).toLocaleDateString()}</span>}
                       </div>
                     </div>
                     <div style={{textAlign: 'right', marginRight: 12}}>

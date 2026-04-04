@@ -2,8 +2,10 @@ import { NavLink } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 
 export default function Sidebar({ onNavigate }) {
-  const { isAdmin } = useAuth();
-  
+  const { isAdmin, employee } = useAuth();
+
+  const isSupervisor = employee?.role === "supervisor" || employee?.role === "admin";
+
   const linkStyle = ({ isActive }) => ({
     display: "block",
     padding: "12px 14px",
@@ -18,7 +20,7 @@ export default function Sidebar({ onNavigate }) {
   return (
     <div style={{ padding: 12, paddingTop: 8 }}>
       <div style={{ marginTop: 8, marginBottom: 8 }}>
-        <NavLink to="/" style={linkStyle} onClick={() => onNavigate?.()}>
+        <NavLink to="/dashboard" style={linkStyle} onClick={() => onNavigate?.()}>
           Dashboard
         </NavLink>
       </div>
@@ -49,6 +51,49 @@ export default function Sidebar({ onNavigate }) {
       <NavLink to="/timeclock" style={linkStyle} onClick={() => onNavigate?.()}>
         Time Clock
       </NavLink>
+
+      {/* Communications — visible to admin and supervisors */}
+      {isSupervisor && (
+        <NavLink
+          to="/communications"
+          style={({ isActive }) => ({
+            display: "block",
+            padding: "12px 14px",
+            color: "white",
+            textDecoration: "none",
+            fontWeight: isActive ? 800 : 600,
+            background: isActive ? "rgba(34,197,94,0.25)" : "rgba(34,197,94,0.1)",
+            borderRadius: 10,
+            marginBottom: 6,
+            border: "1px solid rgba(34,197,94,0.3)",
+          })}
+          onClick={() => onNavigate?.()}
+        >
+          💬 Communications
+        </NavLink>
+      )}
+
+      {/* Website Manager — visible to admin and supervisors */}
+      {isSupervisor && (
+        <NavLink
+          to="/website-manager"
+          style={({ isActive }) => ({
+            display: "block",
+            padding: "12px 14px",
+            color: "white",
+            textDecoration: "none",
+            fontWeight: isActive ? 800 : 600,
+            background: isActive ? "rgba(252,107,4,0.25)" : "rgba(252,107,4,0.1)",
+            borderRadius: 10,
+            marginBottom: 6,
+            border: "1px solid rgba(252,107,4,0.3)",
+          })}
+          onClick={() => onNavigate?.()}
+        >
+          🌐 Website Manager
+        </NavLink>
+      )}
+
       {isAdmin && (
         <NavLink to="/admin" style={linkStyle} onClick={() => onNavigate?.()}>
           Admin

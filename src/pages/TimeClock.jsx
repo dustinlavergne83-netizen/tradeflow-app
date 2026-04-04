@@ -112,6 +112,9 @@ export default function TimeClock() {
         };
         breakdownRows.push(dayRow);
 
+        // Track which employees have already had lunch deducted for this day
+        const lunchDeductedForEmp = {};
+
         // Add project rows for this day
         projects.forEach(project => {
           const projectRow = {
@@ -137,16 +140,22 @@ export default function TimeClock() {
               const lastSeg = empSegments[empSegments.length - 1];
               
               // Calculate total hours for this project
-              const totalHours = empSegments.reduce((sum, seg) => 
+              let totalHours = empSegments.reduce((sum, seg) => 
                 sum + calculateSegmentHours(seg.start_at, seg.end_at), 0
               );
 
-              // Check if they took lunch (look for lunch segment between work segments)
+              // Check if they took lunch (any segment for this employee on this day has is_lunch=true)
               const allDaySegs = segments.filter(s => 
                 s.user_id === emp.user_id && 
                 s.start_at.split('T')[0] === day
               );
               const hasLunch = allDaySegs.some(s => s.is_lunch);
+
+              // Deduct 30 min lunch from the FIRST project row for this employee on this day
+              if (hasLunch && !lunchDeductedForEmp[empKey]) {
+                totalHours = Math.max(0, totalHours - 0.5);
+                lunchDeductedForEmp[empKey] = true;
+              }
 
               projectRow.employees[empKey] = {
                 startTime: formatTime(firstSeg.start_at),
@@ -326,23 +335,29 @@ export default function TimeClock() {
         // Calculate hours for each day using shift segments
         const empSegments = (segments || []).filter(s => s.user_id === emp.user_id);
         
+        // Collect raw hours per day
+        const rawDayHours = {};
+        weekDays.forEach(day => { rawDayHours[day] = 0; });
+
         for (const segment of empSegments) {
           const segmentDate = segment.start_at.split('T')[0];
           
           if (weekDays.includes(segmentDate)) {
-            let hours = 0;
-            
             if (segment.end_at) {
               const start = new Date(segment.start_at);
               const end = new Date(segment.end_at);
               const diffMs = end - start;
-              hours = diffMs / (1000 * 60 * 60);
+              rawDayHours[segmentDate] += diffMs / (1000 * 60 * 60);
             }
-            
-            row.days[segmentDate] += hours;
-            row.weekTotal += hours;
           }
         }
+
+        // Apply lunch deduction: if any segment for that day has is_lunch=true, deduct 0.5h
+        weekDays.forEach(day => {
+          const hasLunch = empSegments.some(s => s.is_lunch && s.start_at.split('T')[0] === day);
+          row.days[day] = Math.max(0, rawDayHours[day] - (hasLunch ? 0.5 : 0));
+          row.weekTotal += row.days[day];
+        });
 
         timesheetRows.push(row);
       }

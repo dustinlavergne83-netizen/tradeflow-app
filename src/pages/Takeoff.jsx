@@ -225,7 +225,10 @@ const [calibrationMethod, setCalibrationMethod] = useState('auto'); // 'auto' or
   const snapshotRectFabricRef = useRef(null);
 
   // Auto-count tool state
-  const [autoCountTemplate, setAutoCountTemplate] = useState(null); // { dataUrl, width, height, compositeCanvas, tmplCanvas }
+  const [autoCountTemplate, setAutoCountTemplate] = useState(null); // primary template (for display)
+  const [autoCountTemplates, setAutoCountTemplates] = useState([]); // ALL templates (primary + variants)
+  const [autoCountRotate, setAutoCountRotate] = useState(true); // try 0°/90°/180°/270°
+  const [autoCountAddingVariant, setAutoCountAddingVariant] = useState(false); // flag: next capture = add variant
   const [showAutoCountModal, setShowAutoCountModal] = useState(false);
   const [autoCountThreshold, setAutoCountThreshold] = useState(0.65);
   const [autoCountMatches, setAutoCountMatches] = useState([]);
@@ -480,6 +483,32 @@ const [calibrationMethod, setCalibrationMethod] = useState('auto'); // 'auto' or
       document.removeEventListener('msfullscreenchange', handleFullscreenChange);
     };
   }, [canvas]);
+
+  // ── Re-enter fullscreen after HMR / page refresh ─────────────────────────
+  // Browsers forcibly exit fullscreen on any page reload. We persist the intent
+  // in sessionStorage and re-request fullscreen shortly after mount so the user
+  // never gets kicked out just because Vite did a hot reload.
+  useEffect(() => {
+    const wasFullscreen = sessionStorage.getItem('takeoff_fullscreen') === 'true';
+    if (wasFullscreen && containerRef.current) {
+      // A small delay lets the DOM settle before requesting fullscreen
+      const t = setTimeout(async () => {
+        try {
+          const el = containerRef.current;
+          if (!document.fullscreenElement && el) {
+            if (el.requestFullscreen) await el.requestFullscreen();
+            else if (el.webkitRequestFullscreen) await el.webkitRequestFullscreen();
+            else if (el.msRequestFullscreen) await el.msRequestFullscreen();
+            setIsFullscreen(true);
+          }
+        } catch (e) {
+          // Browser may block if no user gesture — clear the flag so we don't loop
+          sessionStorage.removeItem('takeoff_fullscreen');
+        }
+      }, 400);
+      return () => clearTimeout(t);
+    }
+  }, []); // run once on mount
 
   // Canvas cleanup on unmount
   useEffect(() => {
@@ -1610,7 +1639,10 @@ try {
       }
       
       setLayers(data || []);
-      if (data && data.length > 0) {
+      // Only set the active layer on the FIRST load (when none is selected yet).
+      // On subsequent reloads (e.g. after saving a count/length) keep whichever
+      // layer the user is currently on so they don't get kicked back to Fixtures.
+      if (data && data.length > 0 && !activeLayerRef.current) {
         setActiveLayer(data[0].id);
       }
     } catch (err) {
@@ -3975,6 +4007,8 @@ const { data, error } = await supabase
         await elem.msRequestFullscreen();
       }
       setIsFullscreen(true);
+      // Persist intent so we can re-enter after a hot reload
+      sessionStorage.setItem('takeoff_fullscreen', 'true');
     } else {
       // Exit fullscreen
       if (document.exitFullscreen) {
@@ -3985,6 +4019,8 @@ const { data, error } = await supabase
         await document.msExitFullscreen();
       }
       setIsFullscreen(false);
+      // User explicitly exited – clear the flag so we don't re-enter on next load
+      sessionStorage.removeItem('takeoff_fullscreen');
     }
   }
 
@@ -4185,30 +4221,34 @@ const { data, error } = await supabase
   }
 
   // ===== AUTO COUNT FUNCTIONS =====
+  // Build composite PDF canvas (shared helper for capture + re-scan)
+  function buildCompositeCanvas(pdfWrapper, fabricEl) {
+    const compositeCanvas = document.createElement('canvas');
+    compositeCanvas.width = pdfWrapper.offsetWidth;
+    compositeCanvas.height = pdfWrapper.offsetHeight;
+    const ctx = compositeCanvas.getContext('2d');
+    const pdfCanvases = pdfWrapper.querySelectorAll('canvas');
+    for (const c of pdfCanvases) {
+      if (c === fabricEl) continue;
+      try {
+        const cRect = c.getBoundingClientRect();
+        const wRect = pdfWrapper.getBoundingClientRect();
+        ctx.drawImage(c, cRect.left - wRect.left, cRect.top - wRect.top, cRect.width, cRect.height);
+      } catch (e) { /* skip tainted canvases */ }
+    }
+    return compositeCanvas;
+  }
+
   async function captureAutoCountTemplate(captureRect, fabricCanvas) {
     setIsRunningAutoCount(true);
     try {
       const pdfWrapper = pdfWrapperRef.current;
       if (!pdfWrapper) throw new Error('PDF wrapper not found');
 
-      // Build composite canvas of the PDF (same technique as snapshot)
-      const compositeCanvas = document.createElement('canvas');
-      compositeCanvas.width = pdfWrapper.offsetWidth;
-      compositeCanvas.height = pdfWrapper.offsetHeight;
-      const ctx = compositeCanvas.getContext('2d');
       const fabricEl = fabricCanvas.getElement();
-      const pdfCanvases = pdfWrapper.querySelectorAll('canvas');
-      for (const c of pdfCanvases) {
-        if (c === fabricEl) continue;
-        try {
-          const cRect = c.getBoundingClientRect();
-          const wRect = pdfWrapper.getBoundingClientRect();
-          ctx.drawImage(c, cRect.left - wRect.left, cRect.top - wRect.top, cRect.width, cRect.height);
-        } catch (e) { /* skip tainted canvases */ }
-      }
+      const compositeCanvas = buildCompositeCanvas(pdfWrapper, fabricEl);
 
-      // Adjust captureRect from canvasWrapper-relative coords to pdfWrapper-relative coords
-      // (they should be identical if the two elements share the same top-left, but fix any gap)
+      // Adjust captureRect coords from canvasWrapper-relative to pdfWrapper-relative
       const cwRect = canvasWrapperRef.current ? canvasWrapperRef.current.getBoundingClientRect() : pdfWrapper.getBoundingClientRect();
       const pwRect = pdfWrapper.getBoundingClientRect();
       const adjX = cwRect.left - pwRect.left;
@@ -4232,13 +4272,26 @@ const { data, error } = await supabase
       );
 
       const templateDataUrl = tmplCanvas.toDataURL('image/png');
+      const newTmpl = { dataUrl: templateDataUrl, width: captureRect.width, height: captureRect.height, compositeCanvas, tmplCanvas };
 
-      setAutoCountTemplate({ dataUrl: templateDataUrl, width: captureRect.width, height: captureRect.height, compositeCanvas, tmplCanvas });
-      setAutoCountMatches([]);
-      setShowAutoCountModal(true);
-
-      // Auto-run matching at default threshold
-      await runAutoCountMatching(compositeCanvas, tmplCanvas, autoCountThreshold, fabricCanvas);
+      if (autoCountAddingVariant) {
+        // ADD VARIANT mode: push to existing templates array, keep modal open, re-scan
+        const updatedTemplates = [...autoCountTemplates, newTmpl];
+        setAutoCountTemplates(updatedTemplates);
+        setAutoCountAddingVariant(false);
+        setActiveTool('autocount'); // keep tool active just in case
+        setAutoCountMatches([]);
+        setShowAutoCountModal(true);
+        // Re-scan with all templates including the new one
+        await runAutoCountMatching(compositeCanvas, updatedTemplates, autoCountThreshold, fabricCanvas);
+      } else {
+        // FRESH scan: replace templates entirely
+        setAutoCountTemplate(newTmpl);
+        setAutoCountTemplates([newTmpl]);
+        setAutoCountMatches([]);
+        setShowAutoCountModal(true);
+        await runAutoCountMatching(compositeCanvas, [newTmpl], autoCountThreshold, fabricCanvas);
+      }
     } catch (err) {
       alert('Failed to capture symbol: ' + err.message);
     } finally {
@@ -4246,7 +4299,72 @@ const { data, error } = await supabase
     }
   }
 
-  async function runAutoCountMatching(compositeCanvas, tmplCanvas, threshold, fabricCanvas) {
+  // ─── Inline Web Worker factory ─────────────────────────────────────────────
+  // All heavy math runs off the main thread so the browser never freezes.
+  function createMatchWorkerUrl() {
+    const code = `
+// ── helpers ──────────────────────────────────────────────────────────────────
+function rgbaToGray(data,w,h){const o=new Float32Array(w*h);for(let i=0;i<w*h;i++){const k=i*4;o[i]=data[k]*.299+data[k+1]*.587+data[k+2]*.114;}return o;}
+function resizeGray(src,sw,sh,dw,dh){const dst=new Float32Array(dw*dh);const xR=sw/dw,yR=sh/dh;for(let dy=0;dy<dh;dy++){const sy0=dy*yR,y0=Math.floor(sy0),y1=Math.min(y0+1,sh-1),wy=sy0-y0;for(let dx=0;dx<dw;dx++){const sx0=dx*xR,x0=Math.floor(sx0),x1=Math.min(x0+1,sw-1),wx=sx0-x0;dst[dy*dw+dx]=src[y0*sw+x0]*(1-wx)*(1-wy)+src[y0*sw+x1]*wx*(1-wy)+src[y1*sw+x0]*(1-wx)*wy+src[y1*sw+x1]*wx*wy;}}return dst;}
+function rotateGray90CW(src,w,h){const dst=new Float32Array(h*w);for(let y=0;y<h;y++)for(let x=0;x<w;x++)dst[x*h+(h-1-y)]=src[y*w+x];return dst;}
+function sobelEdge(g,w,h){const o=new Float32Array(w*h);for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){const gx=-g[(y-1)*w+(x-1)]+g[(y-1)*w+(x+1)]-2*g[y*w+(x-1)]+2*g[y*w+(x+1)]-g[(y+1)*w+(x-1)]+g[(y+1)*w+(x+1)];const gy=-g[(y-1)*w+(x-1)]-2*g[(y-1)*w+x]-g[(y-1)*w+(x+1)]+g[(y+1)*w+(x-1)]+2*g[(y+1)*w+x]+g[(y+1)*w+(x+1)];o[y*w+x]=Math.sqrt(gx*gx+gy*gy);}return o;}
+function buildTemplateZM(a,tw,th,gauss){const n=tw*th,w=new Float32Array(n);if(gauss){const s2=2*Math.pow(Math.max(tw,th)*.5,2);for(let y=0;y<th;y++)for(let x=0;x<tw;x++){const dy=y-(th-1)/2,dx=x-(tw-1)/2;w[y*tw+x]=a[y*tw+x]*Math.exp(-(dx*dx+dy*dy)/s2);}}else for(let i=0;i<n;i++)w[i]=a[i];let s=0;for(let i=0;i<n;i++)s+=w[i];const mean=s/n,zm=new Float32Array(n);let v=0;for(let i=0;i<n;i++){zm[i]=w[i]-mean;v+=zm[i]*zm[i];}const std=Math.sqrt(v);if(std<1e-3)return null;return{zm,std};}
+function buildIntegral(arr,w,h){const stride=w+1,ii=new Float64Array((w+1)*(h+1));for(let y=0;y<h;y++)for(let x=0;x<w;x++)ii[(y+1)*stride+(x+1)]=arr[y*w+x]+ii[y*stride+(x+1)]+ii[(y+1)*stride+x]-ii[y*stride+x];return ii;}
+function nccAt(ig,imgW,zm,std,ii,stride,sx,sy,tw,th){const n=tw*th,pS=ii[(sy+th)*stride+(sx+tw)]-ii[sy*stride+(sx+tw)]-ii[(sy+th)*stride+sx]+ii[sy*stride+sx],pM=pS/n;let num=0,d1=0;for(let ty=0;ty<th;ty++){const row=(sy+ty)*imgW+sx,tr=ty*tw;for(let tx=0;tx<tw;tx++){const iv=ig[row+tx]-pM;num+=iv*zm[tr+tx];d1+=iv*iv;}}const d=Math.sqrt(d1)*std;return d>0?num/d:0;}
+function matchOneScale(iG,iE,iW,iH,tG,tE,tw,th,thr){if(tw<4||th<4||tw>=iW||th>=iH)return[];const gT=buildTemplateZM(tG,tw,th,true);if(!gT)return[];const eT=buildTemplateZM(tE,tw,th,false);const iiG=buildIntegral(iG,iW,iH);const iiE=eT?buildIntegral(iE,iW,iH):null;const stride=iW+1;const wG=eT?.70:1,wE=eT?.30:0;const step=Math.max(1,Math.round(Math.min(tw,th)*.05));const maxX=iW-tw,maxY=iH-th;const cands=[];for(let sy=0;sy<=maxY;sy+=step)for(let sx=0;sx<=maxX;sx+=step){const g=nccAt(iG,iW,gT.zm,gT.std,iiG,stride,sx,sy,tw,th);if(g<thr*.7)continue;let score=g*wG;if(eT&&iiE)score+=nccAt(iE,iW,eT.zm,eT.std,iiE,stride,sx,sy,tw,th)*wE;if(score>=thr)cands.push({x:sx,y:sy,score,tw,th});}if(!cands.length)return[];const ref=[];for(const c of cands){let best=c;for(let dy=-step;dy<=step;dy++)for(let dx=-step;dx<=step;dx++){if(!dx&&!dy)continue;const sx=c.x+dx,sy=c.y+dy;if(sx<0||sx>maxX||sy<0||sy>maxY)continue;const g=nccAt(iG,iW,gT.zm,gT.std,iiG,stride,sx,sy,tw,th);let sc=g*wG;if(eT&&iiE)sc+=nccAt(iE,iW,eT.zm,eT.std,iiE,stride,sx,sy,tw,th)*wE;if(sc>best.score)best={x:sx,y:sy,score:sc,tw,th};}ref.push(best);}return ref;}
+
+onmessage = function(e) {
+  const {imgPixels,imgW,imgH,tmplList,threshold,angles} = e.data;
+  const MAX_W = 1200;
+  const workScale = imgW > MAX_W ? MAX_W / imgW : 1.0;
+  const wW = Math.round(imgW * workScale), wH = Math.round(imgH * workScale);
+  const fullGray = rgbaToGray(imgPixels, imgW, imgH);
+  const imgGray = workScale < 1.0 ? resizeGray(fullGray, imgW, imgH, wW, wH) : fullGray;
+  const imgEdge = sobelEdge(imgGray, wW, wH);
+  const scaleFactors = [0.90, 1.0, 1.10];
+  const allCandidates = [];
+
+  for (const {pixels, tw: origTW, th: origTH} of tmplList) {
+    const fullTmplGray = rgbaToGray(pixels, origTW, origTH);
+    for (const angle of angles) {
+      let rG = fullTmplGray, rW = origTW, rH = origTH;
+      const steps = ((angle/90)%4+4)%4;
+      for (let s = 0; s < steps; s++) { rG = rotateGray90CW(rG,rW,rH); const t=rW; rW=rH; rH=t; }
+      for (const sf of scaleFactors) {
+        const tw = Math.max(4, Math.round(rW * workScale * sf));
+        const th = Math.max(4, Math.round(rH * workScale * sf));
+        if (tw >= wW || th >= wH) continue;
+        const tG = resizeGray(rG, rW, rH, tw, th);
+        const tE = sobelEdge(tG, tw, th);
+        const hits = matchOneScale(imgGray, imgEdge, wW, wH, tG, tE, tw, th, threshold);
+        const dW = Math.round(rW * workScale * sf), dH = Math.round(rH * workScale * sf);
+        for (const h of hits) allCandidates.push({x:h.x/workScale,y:h.y/workScale,score:h.score,tw:dW/workScale,th:dH/workScale,angle});
+      }
+    }
+  }
+
+  if (!allCandidates.length) { postMessage([]); return; }
+
+  const primaryTW = tmplList[0].tw, primaryTH = tmplList[0].th;
+  const suppressR2 = Math.pow(Math.max(primaryTW, primaryTH) * 0.8, 2);
+  allCandidates.sort((a,b) => b.score - a.score);
+  const final = [];
+  for (const c of allCandidates) {
+    const cx=c.x+c.tw/2, cy=c.y+c.th/2;
+    let sup=false;
+    for (const f of final) { if((cx-f.x-f.tw/2)**2+(cy-f.y-f.th/2)**2 < suppressR2){sup=true;break;} }
+    if (!sup) final.push(c);
+  }
+  postMessage(final);
+};
+`;
+    const blob = new Blob([code], { type: 'application/javascript' });
+    return URL.createObjectURL(blob);
+  }
+
+  // compositeCanvas: the full PDF render canvas
+  // templates: array of { tmplCanvas, width, height } objects
+  async function runAutoCountMatching(compositeCanvas, templates, threshold, fabricCanvas) {
     setIsRunningAutoCount(true);
 
     // Clear previous match rects from canvas
@@ -4257,26 +4375,59 @@ const { data, error } = await supabase
       fc.renderAll();
     }
 
-    // Allow UI to update before heavy computation
-    await new Promise(resolve => setTimeout(resolve, 60));
+    // Allow UI to update before launching worker
+    await new Promise(resolve => setTimeout(resolve, 80));
 
     try {
       const imgCtx = compositeCanvas.getContext('2d');
       const imgData = imgCtx.getImageData(0, 0, compositeCanvas.width, compositeCanvas.height);
-      const tCtx = tmplCanvas.getContext('2d');
-      const tmplData = tCtx.getImageData(0, 0, tmplCanvas.width, tmplCanvas.height);
 
-      const matches = templateMatchGrayscale(imgData, tmplData, threshold);
+      // Build transferable template list (raw pixels + dimensions)
+      const tmplList = (Array.isArray(templates) ? templates : [templates]).map(t => {
+        const ctx = t.tmplCanvas.getContext('2d');
+        const d = ctx.getImageData(0, 0, t.tmplCanvas.width, t.tmplCanvas.height);
+        return { pixels: d.data, tw: d.width, th: d.height };
+      });
+
+      // Rotation angles: 0°/90°/180°/270° when autoCountRotate is on, else just 0°
+      const angles = autoCountRotate ? [0, 90, 180, 270] : [0];
+
+      // Run heavy computation in a Web Worker so the main thread stays responsive
+      const matches = await new Promise((resolve, reject) => {
+        const workerUrl = createMatchWorkerUrl();
+        const worker = new Worker(workerUrl);
+
+        worker.onmessage = (e) => {
+          worker.terminate();
+          URL.revokeObjectURL(workerUrl);
+          resolve(e.data);
+        };
+        worker.onerror = (err) => {
+          worker.terminate();
+          URL.revokeObjectURL(workerUrl);
+          reject(err);
+        };
+
+        // Transfer the large image buffer to avoid copying
+        const imgPixelsCopy = new Uint8ClampedArray(imgData.data);
+        worker.postMessage(
+          { imgPixels: imgPixelsCopy, imgW: imgData.width, imgH: imgData.height, tmplList, threshold, angles },
+          [imgPixelsCopy.buffer]
+        );
+      });
+
       setAutoCountMatches(matches);
 
       // Draw green highlight rectangles on canvas for each match
       if (fc) {
         const rects = matches.map(m => {
+          const mw = m.tw || (templates[0]?.width ?? 20);
+          const mh = m.th || (templates[0]?.height ?? 20);
           const rect = new fabric.Rect({
             left: m.x,
             top: m.y,
-            width: tmplCanvas.width,
-            height: tmplCanvas.height,
+            width: mw,
+            height: mh,
             fill: 'rgba(16, 185, 129, 0.2)',
             stroke: '#10b981',
             strokeWidth: 2,
@@ -4300,7 +4451,56 @@ const { data, error } = await supabase
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
-  // Apply Sobel edge-magnitude to a grayscale Float32Array (in-place returns new array)
+
+  // Convert RGBA ImageData to grayscale Float32Array at full resolution
+  function rgbaToGray(data, w, h) {
+    const out = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+      const k = i * 4;
+      out[i] = data[k] * 0.299 + data[k + 1] * 0.587 + data[k + 2] * 0.114;
+    }
+    return out;
+  }
+
+  // Bilinear resize of a grayscale Float32Array from (sw×sh) to (dw×dh)
+  function resizeGray(src, sw, sh, dw, dh) {
+    const dst = new Float32Array(dw * dh);
+    const xRatio = sw / dw;
+    const yRatio = sh / dh;
+    for (let dy = 0; dy < dh; dy++) {
+      const sy0 = dy * yRatio;
+      const y0 = Math.floor(sy0);
+      const y1 = Math.min(y0 + 1, sh - 1);
+      const wy = sy0 - y0;
+      for (let dx = 0; dx < dw; dx++) {
+        const sx0 = dx * xRatio;
+        const x0 = Math.floor(sx0);
+        const x1 = Math.min(x0 + 1, sw - 1);
+        const wx = sx0 - x0;
+        dst[dy * dw + dx] =
+          src[y0 * sw + x0] * (1 - wx) * (1 - wy) +
+          src[y0 * sw + x1] * wx * (1 - wy) +
+          src[y1 * sw + x0] * (1 - wx) * wy +
+          src[y1 * sw + x1] * wx * wy;
+      }
+    }
+    return dst;
+  }
+
+  // Rotate a grayscale Float32Array 90° clockwise
+  // Input: (w×h) → Output: (h×w) — note the dimensions swap
+  function rotateGray90CW(src, w, h) {
+    const dst = new Float32Array(h * w); // new dimensions: newW=h, newH=w
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        // (x, y) → (h-1-y, x) in the rotated image (row=x, col=h-1-y)
+        dst[x * h + (h - 1 - y)] = src[y * w + x];
+      }
+    }
+    return dst;
+  }
+
+  // Sobel edge magnitude on a grayscale Float32Array
   function sobelEdge(g, w, h) {
     const out = new Float32Array(w * h);
     for (let y = 1; y < h - 1; y++) {
@@ -4318,153 +4518,246 @@ const { data, error } = await supabase
     return out;
   }
 
-  function templateMatchGrayscale(imgData, tmplData, threshold) {
+  // ─── Build a zero-mean weighted template vector + its std ────────────────
+  // Returns { zm: Float32Array, std: number } or null if blank
+  function buildTemplateZM(tmplArr, tw, th, useGaussian) {
+    const n = tw * th;
+    const weighted = new Float32Array(n);
+    if (useGaussian) {
+      const sigma2 = 2 * Math.pow(Math.max(tw, th) * 0.5, 2);
+      for (let ty = 0; ty < th; ty++) {
+        for (let tx = 0; tx < tw; tx++) {
+          const dy = ty - (th - 1) / 2;
+          const dx = tx - (tw - 1) / 2;
+          weighted[ty * tw + tx] = tmplArr[ty * tw + tx] * Math.exp(-(dx*dx + dy*dy) / sigma2);
+        }
+      }
+    } else {
+      for (let i = 0; i < n; i++) weighted[i] = tmplArr[i];
+    }
+    let sum = 0;
+    for (let i = 0; i < n; i++) sum += weighted[i];
+    const mean = sum / n;
+    const zm = new Float32Array(n);
+    let variance = 0;
+    for (let i = 0; i < n; i++) {
+      zm[i] = weighted[i] - mean;
+      variance += zm[i] * zm[i];
+    }
+    const std = Math.sqrt(variance);
+    if (std < 1e-3) return null;
+    return { zm, std };
+  }
+
+  // ─── Compute NCC score for one position using prebuilt zero-mean template ──
+  function nccAt(imgArr, imgW, tmplZM, tmplStd, intImg, stride, sx, sy, tw, th) {
+    const n = tw * th;
+    const pSum = intImg[(sy+th)*stride+(sx+tw)] - intImg[sy*stride+(sx+tw)] - intImg[(sy+th)*stride+sx] + intImg[sy*stride+sx];
+    const pMean = pSum / n;
+    let numer = 0, denom1 = 0;
+    for (let ty = 0; ty < th; ty++) {
+      const row = (sy + ty) * imgW + sx;
+      const tRow = ty * tw;
+      for (let tx = 0; tx < tw; tx++) {
+        const iv = imgArr[row + tx] - pMean;
+        numer += iv * tmplZM[tRow + tx];
+        denom1 += iv * iv;
+      }
+    }
+    const denom = Math.sqrt(denom1) * tmplStd;
+    return denom > 0 ? numer / denom : 0;
+  }
+
+  // ─── Build integral image from Float32Array ────────────────────────────────
+  function buildIntegral(arr, w, h) {
+    const stride = w + 1;
+    const intImg = new Float64Array((w + 1) * (h + 1));
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        intImg[(y+1)*stride+(x+1)] = arr[y*w+x] + intImg[y*stride+(x+1)] + intImg[(y+1)*stride+x] - intImg[y*stride+x];
+      }
+    }
+    return intImg;
+  }
+
+  // ─── Core matcher: hybrid grayscale (70%) + edge (30%) ZNCC ──────────────
+  // Using raw grayscale for the intensity pattern + edges for shape outline.
+  // This is far more discriminative than edge-only for symbols on floor plans
+  // where thin structural lines would otherwise confuse a pure edge matcher.
+  function matchOneScale(imgGray, imgEdge, imgW, imgH, tmplGray, tmplEdge, tw, th, threshold) {
+    const n = tw * th;
+    if (tw < 4 || th < 4 || tw >= imgW || th >= imgH) return [];
+
+    // Build zero-mean templates (grayscale uses Gaussian center-weight; edge does not)
+    const grayT = buildTemplateZM(tmplGray, tw, th, true);
+    const edgeT = buildTemplateZM(tmplEdge, tw, th, false);
+    if (!grayT) return []; // blank template
+
+    // Build integral images for fast patch-mean computation
+    const intGray = buildIntegral(imgGray, imgW, imgH);
+    const intEdge = edgeT ? buildIntegral(imgEdge, imgW, imgH) : null;
+    const stride = imgW + 1;
+
+    // Blend weights: heavy on grayscale to capture pixel-level appearance
+    const wGray = edgeT ? 0.70 : 1.00;
+    const wEdge = edgeT ? 0.30 : 0.00;
+
+    // Scan step – 5% of the shorter template dimension for a good speed/accuracy tradeoff
+    const step = Math.max(1, Math.round(Math.min(tw, th) * 0.05));
+    const maxX = imgW - tw;
+    const maxY = imgH - th;
+    const candidates = [];
+
+    for (let sy = 0; sy <= maxY; sy += step) {
+      for (let sx = 0; sx <= maxX; sx += step) {
+        const gScore = nccAt(imgGray, imgW, grayT.zm, grayT.std, intGray, stride, sx, sy, tw, th);
+        if (gScore < threshold * 0.7) continue; // fast-reject on grayscale alone
+
+        let score = gScore * wGray;
+        if (edgeT && intEdge) {
+          const eScore = nccAt(imgEdge, imgW, edgeT.zm, edgeT.std, intEdge, stride, sx, sy, tw, th);
+          score += eScore * wEdge;
+        }
+
+        if (score >= threshold) {
+          candidates.push({ x: sx, y: sy, score, tw, th });
+        }
+      }
+    }
+
+    if (candidates.length === 0) return [];
+
+    // Sub-pixel refinement: search ±step neighbourhood around each candidate
+    const refined = [];
+    for (const c of candidates) {
+      let best = c;
+      for (let dy = -step; dy <= step; dy++) {
+        for (let dx = -step; dx <= step; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const sx = c.x + dx, sy = c.y + dy;
+          if (sx < 0 || sx > maxX || sy < 0 || sy > maxY) continue;
+          const gScore = nccAt(imgGray, imgW, grayT.zm, grayT.std, intGray, stride, sx, sy, tw, th);
+          let score = gScore * wGray;
+          if (edgeT && intEdge) {
+            score += nccAt(imgEdge, imgW, edgeT.zm, edgeT.std, intEdge, stride, sx, sy, tw, th) * wEdge;
+          }
+          if (score > best.score) best = { x: sx, y: sy, score, tw, th };
+        }
+      }
+      refined.push(best);
+    }
+
+    return refined;
+  }
+
+  // ─── Match one template (with optional rotations) against imgData ─────────
+  // angles: array of rotation angles to try, e.g. [0, 90, 180, 270] or [0]
+  // Returns all candidate matches (before global NMS)
+  function matchTemplateWithRotations(imgGray, imgEdge, wW, wH, fullTmplGray, origTW, origTH, workScale, threshold, angles) {
+    const scaleFactors = [0.90, 1.0, 1.10];
+    const candidates = [];
+
+    for (const angle of angles) {
+      // Rotate the full-res template grayscale by this angle
+      let rotGray = fullTmplGray;
+      let rotW = origTW;
+      let rotH = origTH;
+
+      const steps = ((angle / 90) % 4 + 4) % 4; // 0,1,2,3 rotations
+      for (let s = 0; s < steps; s++) {
+        const r = rotateGray90CW(rotGray, rotW, rotH);
+        [rotW, rotH] = [rotH, rotW]; // Swap dimensions
+        rotGray = r;
+      }
+
+      // Try 3 size scales for each rotation
+      for (const sf of scaleFactors) {
+        const tw = Math.max(4, Math.round(rotW * workScale * sf));
+        const th = Math.max(4, Math.round(rotH * workScale * sf));
+        if (tw >= wW || th >= wH) continue;
+
+        const tmplGray = resizeGray(rotGray, rotW, rotH, tw, th);
+        const tmplEdge = sobelEdge(tmplGray, tw, th);
+        const hits = matchOneScale(imgGray, imgEdge, wW, wH, tmplGray, tmplEdge, tw, th, threshold);
+
+        // Map back to original image coords; bounding-box uses the ROTATED template dimensions
+        const dispW = Math.round(rotW * workScale * sf);  // display box width (scaled, rotated)
+        const dispH = Math.round(rotH * workScale * sf);  // display box height (scaled, rotated)
+        for (const h of hits) {
+          candidates.push({
+            x: h.x / workScale,
+            y: h.y / workScale,
+            score: h.score,
+            tw: dispW / workScale, // keep in original-image pixels
+            th: dispH / workScale,
+            angle,
+          });
+        }
+      }
+    }
+    return candidates;
+  }
+
+  // ─── Main entry: multi-template, multi-rotation, multi-scale ZNCC ────────
+  // templates: array of {tmplCanvas} objects (each is a captured template)
+  // angles:    array of rotation angles to try (e.g. [0,90,180,270])
+  function templateMatchGrayscale(imgData, tmplDataOrArray, threshold, angles) {
     const origW = imgData.width;
     const origH = imgData.height;
-    const origTW = tmplData.width;
-    const origTH = tmplData.height;
+    if (origW < 4 || origH < 4) return [];
 
-    if (origTW < 4 || origTH < 4 || origTW >= origW || origTH >= origH) return [];
+    // Normalise to array
+    const tmplList = Array.isArray(tmplDataOrArray) ? tmplDataOrArray : [tmplDataOrArray];
+    const rotAngles = Array.isArray(angles) && angles.length > 0 ? angles : [0];
 
-    // ─── Downscale to 75% for better discrimination (more pixels = better NCC) ─
-    const scale = 0.75;
-    const sW = Math.max(1, Math.floor(origW * scale));
-    const sH = Math.max(1, Math.floor(origH * scale));
-    const stw = Math.max(4, Math.round(origTW * scale));
-    const sth = Math.max(4, Math.round(origTH * scale));
-    const n = stw * sth;
+    // ── Adaptive working resolution: cap at 1800px wide ──────────────────────
+    const MAX_W = 1800;
+    const workScale = origW > MAX_W ? MAX_W / origW : 1.0;
+    const wW = Math.round(origW * workScale);
+    const wH = Math.round(origH * workScale);
 
-    const imgGray = new Float32Array(sW * sH);
-    for (let sy = 0; sy < sH; sy++) {
-      const y0 = sy * 2;
-      for (let sx = 0; sx < sW; sx++) {
-        const x0 = sx * 2;
-        let sum = 0, cnt = 0;
-        for (let dy = 0; dy < 2; dy++) {
-          const ry = y0 + dy;
-          if (ry >= origH) continue;
-          for (let dx = 0; dx < 2; dx++) {
-            const rx = x0 + dx;
-            if (rx >= origW) continue;
-            const k = (ry * origW + rx) * 4;
-            sum += imgData.data[k] * 0.299 + imgData.data[k + 1] * 0.587 + imgData.data[k + 2] * 0.114;
-            cnt++;
-          }
-        }
-        imgGray[sy * sW + sx] = cnt > 0 ? sum / cnt : 0;
-      }
+    const fullGray = rgbaToGray(imgData.data, origW, origH);
+    const imgGray = workScale < 1.0 ? resizeGray(fullGray, origW, origH, wW, wH) : fullGray;
+    const imgEdge = sobelEdge(imgGray, wW, wH);
+
+    // Run matching for every template × rotation
+    const allCandidates = [];
+    for (const tmplData of tmplList) {
+      const origTW = tmplData.width;
+      const origTH = tmplData.height;
+      if (origTW < 4 || origTH < 4 || origTW >= origW || origTH >= origH) continue;
+
+      const fullTmplGray = rgbaToGray(tmplData.data, origTW, origTH);
+      const hits = matchTemplateWithRotations(imgGray, imgEdge, wW, wH, fullTmplGray, origTW, origTH, workScale, threshold, rotAngles);
+      allCandidates.push(...hits);
     }
 
-    const tmplGray = new Float32Array(n);
-    for (let ty = 0; ty < sth; ty++) {
-      const y0 = ty * 2;
-      for (let tx = 0; tx < stw; tx++) {
-        const x0 = tx * 2;
-        let sum = 0, cnt = 0;
-        for (let dy = 0; dy < 2; dy++) {
-          const ry = y0 + dy;
-          if (ry >= origTH) continue;
-          for (let dx = 0; dx < 2; dx++) {
-            const rx = x0 + dx;
-            if (rx >= origTW) continue;
-            const k = (ry * origTW + rx) * 4;
-            sum += tmplData.data[k] * 0.299 + tmplData.data[k + 1] * 0.587 + tmplData.data[k + 2] * 0.114;
-            cnt++;
-          }
-        }
-        tmplGray[ty * stw + tx] = cnt > 0 ? sum / cnt : 0;
-      }
-    }
+    if (allCandidates.length === 0) return [];
 
-    // ─── Apply Sobel edge detection – match on edge patterns, not pixel intensity ─
-    // This is the key fix: symbols have distinct edge shapes; labels/text elsewhere
-    // produce different edge patterns, so NCC on edges is far more discriminative.
-    const imgEdge = sobelEdge(imgGray, sW, sH);
-    const tmplEdge = sobelEdge(tmplGray, stw, sth);
+    // ── Global NMS across ALL templates and rotations ─────────────────────────
+    // Suppression radius = 80% of the max dimension of the primary template
+    const primaryTW = tmplList[0].width;
+    const primaryTH = tmplList[0].height;
+    const suppressR2 = Math.pow(Math.max(primaryTW, primaryTH) * 0.8, 2);
 
-    // ─── Apply Gaussian center-weight to template edges ───────────────────────
-    // Weight center pixels more heavily so peripheral text/annotations
-    // contribute less to the correlation score.
-    const sigma2 = 2 * Math.pow(Math.min(stw, sth) * 0.45, 2);
-    for (let ty = 0; ty < sth; ty++) {
-      for (let tx = 0; tx < stw; tx++) {
-        const dy = ty - (sth - 1) / 2;
-        const dx = tx - (stw - 1) / 2;
-        const w = Math.exp(-(dx * dx + dy * dy) / sigma2);
-        tmplEdge[ty * stw + tx] *= w;
-      }
-    }
-
-    // Template mean & zero-mean copy (on edge-weighted data)
-    let tmplSum = 0;
-    for (let i = 0; i < n; i++) tmplSum += tmplEdge[i];
-    const tmplMean = tmplSum / n;
-    const tmplZM = new Float32Array(n);
-    let tmplVar = 0;
-    for (let i = 0; i < n; i++) {
-      tmplZM[i] = tmplEdge[i] - tmplMean;
-      tmplVar += tmplZM[i] * tmplZM[i];
-    }
-    const tmplStd = Math.sqrt(tmplVar);
-    if (tmplStd < 0.5) return []; // Uniform/blank template – can't match
-
-    // ─── Build integral image over EDGE map for O(1) patch mean ───────────────
-    const stride = sW + 1;
-    const intImg = new Float64Array((sW + 1) * (sH + 1));
-    for (let y = 0; y < sH; y++) {
-      for (let x = 0; x < sW; x++) {
-        intImg[(y + 1) * stride + (x + 1)] =
-          imgEdge[y * sW + x]           // ← use edge map
-          + intImg[y * stride + (x + 1)]
-          + intImg[(y + 1) * stride + x]
-          - intImg[y * stride + x];
-      }
-    }
-    const patchSumFn = (x1, y1, x2, y2) =>
-      intImg[y2 * stride + x2]
-      - intImg[y1 * stride + x2]
-      - intImg[y2 * stride + x1]
-      + intImg[y1 * stride + x1];
-
-    // ─── Scan every pixel on the downscaled image (=every 2px on original) ────
-    const candidates = [];
-    const maxX = sW - stw;
-    const maxY = sH - sth;
-
-    for (let sy = 0; sy <= maxY; sy++) {
-      for (let sx = 0; sx <= maxX; sx++) {
-        const pMean = patchSumFn(sx, sy, sx + stw, sy + sth) / n;
-
-        let numer = 0, denom1 = 0;
-        for (let ty = 0; ty < sth; ty++) {
-          const imgRow = (sy + ty) * sW + sx;
-          const tmplRow = ty * stw;
-          for (let tx = 0; tx < stw; tx++) {
-            const iv = imgEdge[imgRow + tx] - pMean;  // ← use edge map
-            numer += iv * tmplZM[tmplRow + tx];
-            denom1 += iv * iv;
-          }
-        }
-        const denom = Math.sqrt(denom1) * tmplStd;
-        const ncc = denom > 0 ? numer / denom : 0;
-        if (ncc >= threshold) {
-          // Map back to original pixel coordinates
-          candidates.push({ x: sx / scale, y: sy / scale, score: ncc });
-        }
-      }
-    }
-
-    // Non-maximum suppression – keep only the best match within minDist
-    candidates.sort((a, b) => b.score - a.score);
+    allCandidates.sort((a, b) => b.score - a.score);
     const final = [];
-    const minDist2 = Math.pow(Math.max(origTW, origTH) * 0.5, 2);
-    for (const c of candidates) {
-      let tooClose = false;
+
+    for (const c of allCandidates) {
+      const cx = c.x + c.tw / 2;
+      const cy = c.y + c.th / 2;
+      let suppressed = false;
       for (const f of final) {
-        if ((c.x - f.x) ** 2 + (c.y - f.y) ** 2 < minDist2) { tooClose = true; break; }
+        const fx = f.x + f.tw / 2;
+        const fy = f.y + f.th / 2;
+        if ((cx - fx) ** 2 + (cy - fy) ** 2 < suppressR2) {
+          suppressed = true;
+          break;
+        }
       }
-      if (!tooClose) final.push(c);
+      if (!suppressed) final.push(c);
     }
+
     return final;
   }
 
@@ -4656,34 +4949,59 @@ const { data, error } = await supabase
                 <label style={styles.colorLabel}>
                   {activeTool === 'count' ? 'Marker' : 'Line'} Color:
                 </label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 8 }}>
                   {[
                     { name: 'Orange', value: '#FF6B00' },
                     { name: 'Red', value: '#EF4444' },
+                    { name: 'Dark Red', value: '#991B1B' },
                     { name: 'Yellow', value: '#EAB308' },
+                    { name: 'Amber', value: '#F59E0B' },
+                    { name: 'Lime', value: '#84CC16' },
                     { name: 'Green', value: '#10B981' },
+                    { name: 'Dark Green', value: '#065F46' },
+                    { name: 'Teal', value: '#14B8A6' },
+                    { name: 'Cyan', value: '#06B6D4' },
+                    { name: 'Sky Blue', value: '#0EA5E9' },
                     { name: 'Blue', value: '#3B82F6' },
+                    { name: 'Indigo', value: '#6366F1' },
+                    { name: 'Violet', value: '#7C3AED' },
                     { name: 'Purple', value: '#A855F7' },
                     { name: 'Pink', value: '#EC4899' },
-                    { name: 'Cyan', value: '#06B6D4' },
+                    { name: 'Rose', value: '#F43F5E' },
+                    { name: 'Brown', value: '#92400E' },
+                    { name: 'Gray', value: '#6B7280' },
+                    { name: 'White', value: '#F9FAFB' },
                   ].map(color => (
                     <button
                       key={color.value}
                       onClick={() => setSelectedColor(color.value)}
                       style={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: 6,
+                        width: 26,
+                        height: 26,
+                        borderRadius: 5,
                         backgroundColor: color.value,
-                        opacity: 0.6,
-                        border: selectedColor === color.value ? '3px solid #fff' : '2px solid rgba(255,255,255,0.3)',
+                        opacity: 0.75,
+                        border: selectedColor === color.value ? '3px solid #fff' : '1px solid rgba(255,255,255,0.25)',
                         cursor: 'pointer',
-                        transition: 'all 0.2s',
-                        boxShadow: selectedColor === color.value ? '0 0 0 2px ' + color.value : 'none'
+                        transition: 'all 0.15s',
+                        boxShadow: selectedColor === color.value ? '0 0 0 2px ' + color.value + ', 0 0 6px rgba(255,255,255,0.4)' : 'none',
+                        flexShrink: 0,
                       }}
                       title={color.name}
                     />
                   ))}
+                </div>
+                {/* Custom colour picker – lets user choose any colour */}
+                <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label style={{ fontSize: 11, color: '#aaa', whiteSpace: 'nowrap' }}>Custom:</label>
+                  <input
+                    type="color"
+                    value={selectedColor}
+                    onChange={(e) => setSelectedColor(e.target.value)}
+                    style={{ width: 36, height: 26, padding: 0, border: '1px solid #555', borderRadius: 4, cursor: 'pointer', backgroundColor: 'transparent' }}
+                    title="Pick any custom colour"
+                  />
+                  <span style={{ fontSize: 11, color: '#aaa', fontFamily: 'monospace' }}>{selectedColor.toUpperCase()}</span>
                 </div>
               </div>
             )}
@@ -8016,47 +8334,92 @@ const { data, error } = await supabase
           }
           setShowAutoCountModal(false);
           setAutoCountTemplate(null);
+          setAutoCountTemplates([]);
           setAutoCountMatches([]);
         }}>
-          <div style={{ ...styles.modalContent, maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
+          <div style={{ ...styles.modalContent, maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
             <h2 style={styles.modalTitle}>🔍 Auto Count Results</h2>
 
-            {/* Template preview */}
-            <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', marginBottom: 20 }}>
-              <div>
-                <p style={{ fontSize: 12, color: '#666', margin: '0 0 6px' }}>Symbol template:</p>
-                <img
-                  src={autoCountTemplate.dataUrl}
-                  alt="Template"
-                  style={{ border: '2px solid #10b981', borderRadius: 6, maxWidth: 100, maxHeight: 100, objectFit: 'contain', backgroundColor: '#f9fafb', display: 'block' }}
-                />
-                <p style={{ fontSize: 11, color: '#999', margin: '4px 0 0', textAlign: 'center' }}>
-                  {autoCountTemplate.width}×{autoCountTemplate.height} px
-                </p>
-              </div>
-              <div style={{ flex: 1 }}>
-                {isRunningAutoCount ? (
-                  <div style={{ padding: 20, textAlign: 'center', color: '#666' }}>
-                    <div style={{ fontSize: 28, marginBottom: 8 }}>⏳</div>
-                    <div style={{ fontSize: 14, fontWeight: '600' }}>Scanning for matches…</div>
-                    <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>Running template matching</div>
+            {/* All template thumbnails */}
+            <div style={{ marginBottom: 16 }}>
+              <p style={{ fontSize: 12, color: '#666', margin: '0 0 8px', fontWeight: '600' }}>
+                Symbol templates ({autoCountTemplates.length}):
+              </p>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                {autoCountTemplates.map((tmpl, idx) => (
+                  <div key={idx} style={{ textAlign: 'center' }}>
+                    <img
+                      src={tmpl.dataUrl}
+                      alt={`Template ${idx + 1}`}
+                      style={{ border: idx === 0 ? '2px solid #10b981' : '2px solid #6366f1', borderRadius: 6, maxWidth: 80, maxHeight: 80, objectFit: 'contain', backgroundColor: '#f9fafb', display: 'block' }}
+                    />
+                    <p style={{ fontSize: 10, color: '#999', margin: '3px 0 0', textAlign: 'center' }}>
+                      {idx === 0 ? 'Primary' : `Variant ${idx}`}
+                    </p>
                   </div>
-                ) : (
-                  <div style={{ padding: 16, backgroundColor: autoCountMatches.length > 0 ? '#f0fdf4' : '#fef2f2', borderRadius: 8, border: `2px solid ${autoCountMatches.length > 0 ? '#10b981' : '#ef4444'}` }}>
-                    <div style={{ fontSize: 32, fontWeight: '800', color: autoCountMatches.length > 0 ? '#059669' : '#dc2626', textAlign: 'center', marginBottom: 4 }}>
-                      {autoCountMatches.length}
-                    </div>
-                    <div style={{ fontSize: 14, fontWeight: '600', color: '#333', textAlign: 'center' }}>
-                      {autoCountMatches.length === 1 ? 'match found' : 'matches found'}
-                    </div>
-                    {autoCountMatches.length > 0 && (
-                      <div style={{ fontSize: 12, color: '#666', textAlign: 'center', marginTop: 6 }}>
-                        Green boxes shown on plan
-                      </div>
-                    )}
-                  </div>
-                )}
+                ))}
+                {/* Add Variant button */}
+                <button
+                  onClick={() => {
+                    setAutoCountAddingVariant(true);
+                    setShowAutoCountModal(false);
+                    setActiveTool('autocount');
+                  }}
+                  disabled={isRunningAutoCount}
+                  style={{ width: 80, height: 80, border: '2px dashed #6366f1', borderRadius: 6, backgroundColor: '#f0f0ff', color: '#6366f1', cursor: 'pointer', fontSize: 11, fontWeight: '600', lineHeight: 1.3, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}
+                  title="Drag another rectangle to add a variant symbol (e.g. horizontal version)"
+                >
+                  <span style={{ fontSize: 22 }}>➕</span>
+                  <span>Add Variant</span>
+                </button>
               </div>
+              {autoCountAddingVariant && (
+                <div style={{ marginTop: 8, padding: 8, backgroundColor: '#e0e7ff', borderRadius: 6, fontSize: 12, color: '#3730a3' }}>
+                  🎯 Draw a rectangle around the variant symbol on the plan…
+                </div>
+              )}
+            </div>
+
+            {/* Match count result */}
+            <div style={{ marginBottom: 16 }}>
+              {isRunningAutoCount ? (
+                <div style={{ padding: 20, textAlign: 'center', color: '#666', backgroundColor: '#f9fafb', borderRadius: 8 }}>
+                  <div style={{ fontSize: 28, marginBottom: 8 }}>⏳</div>
+                  <div style={{ fontSize: 14, fontWeight: '600' }}>Scanning for matches…</div>
+                  <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>Running template matching across all variants</div>
+                </div>
+              ) : (
+                <div style={{ padding: 16, backgroundColor: autoCountMatches.length > 0 ? '#f0fdf4' : '#fef2f2', borderRadius: 8, border: `2px solid ${autoCountMatches.length > 0 ? '#10b981' : '#ef4444'}` }}>
+                  <div style={{ fontSize: 36, fontWeight: '800', color: autoCountMatches.length > 0 ? '#059669' : '#dc2626', textAlign: 'center', marginBottom: 4 }}>
+                    {autoCountMatches.length}
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: '600', color: '#333', textAlign: 'center' }}>
+                    {autoCountMatches.length === 1 ? 'match found' : 'matches found'}
+                  </div>
+                  {autoCountMatches.length > 0 && (
+                    <div style={{ fontSize: 12, color: '#666', textAlign: 'center', marginTop: 6 }}>
+                      Green boxes shown on plan
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Rotation toggle */}
+            <div style={{ marginBottom: 12, padding: '10px 14px', backgroundColor: '#f0f0ff', borderRadius: 8, border: '1px solid #c7d2fe', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <input
+                type="checkbox"
+                id="rotateToggle"
+                checked={autoCountRotate}
+                onChange={(e) => setAutoCountRotate(e.target.checked)}
+                style={{ width: 16, height: 16, cursor: 'pointer', accentColor: '#6366f1' }}
+              />
+              <label htmlFor="rotateToggle" style={{ fontSize: 13, fontWeight: '600', color: '#3730a3', cursor: 'pointer', flex: 1 }}>
+                🔄 Find rotated versions (0°, 90°, 180°, 270°)
+              </label>
+              <span style={{ fontSize: 11, color: '#6366f1' }}>
+                {autoCountRotate ? 'ON' : 'OFF'}
+              </span>
             </div>
 
             {/* Threshold slider */}
@@ -8086,16 +8449,16 @@ const { data, error } = await supabase
 
             {autoCountMatches.length === 0 && !isRunningAutoCount && (
               <div style={{ padding: 12, backgroundColor: '#fef3c7', borderRadius: 6, marginBottom: 16, fontSize: 13, color: '#92400e', border: '1px solid #fbbf24' }}>
-                💡 No matches found. Try lowering the sensitivity slider, or capture a larger/cleaner symbol template.
+                💡 No matches found. Try lowering the sensitivity, enabling rotation, or adding a variant template for the other orientation.
               </div>
             )}
 
             <div style={styles.modalButtons}>
               <button
                 onClick={() => {
-                  // Re-run with current threshold
-                  if (autoCountTemplate) {
-                    runAutoCountMatching(autoCountTemplate.compositeCanvas, autoCountTemplate.tmplCanvas, autoCountThreshold, fabricCanvasRef.current);
+                  // Re-run with all templates + current settings
+                  if (autoCountTemplates.length > 0) {
+                    runAutoCountMatching(autoCountTemplates[0].compositeCanvas, autoCountTemplates, autoCountThreshold, fabricCanvasRef.current);
                   }
                 }}
                 style={{ ...styles.cancelButton, backgroundColor: '#e0f2fe', color: '#1e40af' }}

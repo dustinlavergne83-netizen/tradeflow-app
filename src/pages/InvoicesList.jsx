@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
-import { createInvoicePaymentJournalEntry } from "../utils/accountingJournals";
+import { createInvoicePaymentJournalEntry, getNextJournalEntryNumber } from "../utils/accountingJournals";
 
 export default function InvoicesList() {
   const navigate = useNavigate();
@@ -18,6 +18,31 @@ export default function InvoicesList() {
   const [paymentFilter, setPaymentFilter] = useState("all");
   const [projectDepositsMap, setProjectDepositsMap] = useState({});
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showSplitPaymentModal, setShowSplitPaymentModal] = useState(false);
+  const [showPaymentHistoryModal, setShowPaymentHistoryModal] = useState(false);
+  const [paymentHistory, setPaymentHistory] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [showEditPaymentModal, setShowEditPaymentModal] = useState(false);
+  const [editingPayment, setEditingPayment] = useState(null);
+  const [editPaymentForm, setEditPaymentForm] = useState({
+    amount: '',
+    date: '',
+    method: 'check',
+    processing_fee: '',
+    notes: '',
+    bank_account_id: '',
+  });
+  const [splitPaymentForm, setSplitPaymentForm] = useState({
+    totalAmount: '',
+    date: new Date().toISOString().split('T')[0],
+    method: 'check',
+    bank_account_id: '',
+    deposit_type: 'bank',
+    holding_account_id: '',
+    processing_fee: '',
+    notes: '',
+    allocations: {} // { invoiceId: amount }
+  });
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [paymentForm, setPaymentForm] = useState({
     amount: '',
@@ -56,10 +81,12 @@ export default function InvoicesList() {
 
   async function loadInvoices() {
     try {
+      // NOTE: No explicit created_by filter — RLS handles company scoping.
+      // This ensures invoices created from the mobile app (by admins or supervisors)
+      // also appear here, since they are saved with created_by = admin's company UID.
       const { data, error } = await supabase
         .from("invoices")
         .select("*")
-        .eq("created_by", user.id)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -249,6 +276,29 @@ export default function InvoicesList() {
     setShowPaymentModal(true);
   }
 
+  async function loadPaymentHistory(invoice) {
+    setSelectedInvoice(invoice);
+    setLoadingHistory(true);
+    setPaymentHistory([]);
+    setShowPaymentHistoryModal(true);
+    try {
+      const { data, error } = await supabase
+        .from('invoice_payments')
+        .select('*')
+        .eq('invoice_id', invoice.id)
+        .order('payment_date', { ascending: false });
+
+      if (error) throw error;
+      setPaymentHistory(data || []);
+    } catch (err) {
+      console.error('Error loading payment history:', err);
+      // If table doesn't exist yet, show a friendly message
+      setPaymentHistory([]);
+    } finally {
+      setLoadingHistory(false);
+    }
+  }
+
   async function handlePayment() {
     if (!paymentForm.amount || paymentForm.amount <= 0) {
       alert('Please enter a valid payment amount');
@@ -404,7 +454,7 @@ export default function InvoicesList() {
           .limit(1)
           .maybeSingle();
 
-        const nextEntryNumber = (lastEntry?.entry_number || 0) + 1;
+        const nextEntryNumber = await getNextJournalEntryNumber(user.id);
 
         const depositAccountDescription = paymentForm.deposit_type === 'holding_account' ? 'Payment held pending deposit' : 'Payment deposited to bank';
 
@@ -458,6 +508,8 @@ export default function InvoicesList() {
               credit: 0,
               description: `${paymentForm.method === 'venmo' ? 'Venmo' : paymentForm.method === 'paypal' ? 'PayPal' : 'Payment processing'} fee`
             });
+            // Renumber all lines after splice to avoid duplicate line_number constraint
+            lines.forEach((line, idx) => { line.line_number = idx + 1; });
           }
 
           const { error: linesError } = await supabase
@@ -526,7 +578,7 @@ export default function InvoicesList() {
                       .limit(1)
                       .maybeSingle();
 
-                    const nextEntryNumber2 = (lastEntry2?.entry_number || 0) + 1;
+                    const nextEntryNumber2 = await getNextJournalEntryNumber(user.id);
 
                     const clearDepositEntry = {
                       entry_number: nextEntryNumber2,
@@ -598,6 +650,26 @@ export default function InvoicesList() {
         alert('Payment recorded successfully! (No bank account selected, so no journal entry was created)');
       }
 
+      // Save individual payment record for history tracking
+      try {
+        await supabase.from('invoice_payments').insert([{
+          invoice_id: selectedInvoice.id,
+          company_id: user.id,
+          payment_date: paymentForm.date,
+          amount: parseFloat(paymentForm.amount),
+          payment_method: paymentForm.method,
+          processing_fee: parseFloat(paymentForm.processing_fee) || 0,
+          net_amount: parseFloat(paymentForm.amount) - (parseFloat(paymentForm.processing_fee) || 0),
+          notes: paymentForm.notes || null,
+          bank_account_id: paymentForm.bank_account_id || null,
+          created_by: user.id
+        }]);
+        console.log('✅ Payment history record saved');
+      } catch (historyErr) {
+        // Don't fail the payment if history insert fails (table might not exist yet)
+        console.warn('Could not save payment history record:', historyErr.message);
+      }
+
       // Force a hard refresh to ensure payment status updates
       setTimeout(() => {
         window.location.reload();
@@ -605,6 +677,204 @@ export default function InvoicesList() {
     } catch (err) {
       console.error('Error recording payment:', err);
       alert(`Failed to record payment: ${err.message}`);
+    }
+  }
+
+  // ─── Open edit payment modal ───────────────────────────────────────────────
+  function openEditPaymentModal(payment) {
+    setEditingPayment(payment);
+    setEditPaymentForm({
+      amount: payment.amount || '',
+      date: payment.payment_date || new Date().toISOString().split('T')[0],
+      method: payment.payment_method || 'check',
+      processing_fee: payment.processing_fee || '',
+      notes: payment.notes || '',
+      bank_account_id: payment.bank_account_id || '',
+    });
+    setShowEditPaymentModal(true);
+  }
+
+  // ─── Save edited payment ────────────────────────────────────────────────────
+  async function handleSaveEditPayment() {
+    if (!editPaymentForm.amount || parseFloat(editPaymentForm.amount) <= 0) {
+      alert('Please enter a valid payment amount');
+      return;
+    }
+
+    try {
+      const newAmount = parseFloat(editPaymentForm.amount);
+      const newFee = parseFloat(editPaymentForm.processing_fee) || 0;
+      const newNet = newAmount - newFee;
+
+      // 1. Update the invoice_payments record
+      const { error: updateErr } = await supabase
+        .from('invoice_payments')
+        .update({
+          amount: newAmount,
+          payment_date: editPaymentForm.date,
+          payment_method: editPaymentForm.method,
+          processing_fee: newFee,
+          net_amount: newNet,
+          notes: editPaymentForm.notes || null,
+          bank_account_id: editPaymentForm.bank_account_id || null,
+        })
+        .eq('id', editingPayment.id);
+
+      if (updateErr) throw updateErr;
+
+      // 2. Recalculate invoice amount_paid from all remaining payments
+      const { data: allPayments, error: fetchErr } = await supabase
+        .from('invoice_payments')
+        .select('amount')
+        .eq('invoice_id', editingPayment.invoice_id);
+
+      if (fetchErr) throw fetchErr;
+
+      const totalPaid = (allPayments || []).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+      const inv = invoices.find(i => i.id === editingPayment.invoice_id);
+      const invoiceTotal = inv?.total || 0;
+      const balanceDue = Math.max(0, invoiceTotal - totalPaid);
+      const paymentStatus = balanceDue <= 0 ? 'paid' : totalPaid > 0 ? 'partial' : 'unpaid';
+
+      const { error: invUpdateErr } = await supabase
+        .from('invoices')
+        .update({
+          amount_paid: totalPaid,
+          balance_due: balanceDue,
+          payment_status: paymentStatus,
+          payment_date: editPaymentForm.date,
+          payment_method: editPaymentForm.method,
+        })
+        .eq('id', editingPayment.invoice_id);
+
+      if (invUpdateErr) throw invUpdateErr;
+
+      // 3. Reload payment history and close modal
+      alert('✅ Payment updated successfully!');
+      setShowEditPaymentModal(false);
+      setEditingPayment(null);
+
+      // Reload payment history for the open invoice
+      if (selectedInvoice) {
+        await loadPaymentHistory(selectedInvoice);
+      }
+      loadInvoices();
+    } catch (err) {
+      console.error('Error editing payment:', err);
+      alert(`Failed to update payment: ${err.message}`);
+    }
+  }
+
+  // ─── Delete individual payment ──────────────────────────────────────────────
+  async function handleDeletePayment(payment) {
+    const inv = invoices.find(i => i.id === payment.invoice_id) || selectedInvoice;
+    if (!confirm(`Delete this payment of ${formatCurrency(payment.amount)} dated ${formatDate(payment.payment_date)}? This will reduce the amount paid on the invoice.`)) {
+      return;
+    }
+
+    try {
+      // 1. Delete the payment record
+      const { error: deleteErr } = await supabase
+        .from('invoice_payments')
+        .delete()
+        .eq('id', payment.id);
+
+      if (deleteErr) throw deleteErr;
+
+      // 2. Recalculate invoice amount_paid from remaining payments
+      const { data: remaining, error: fetchErr } = await supabase
+        .from('invoice_payments')
+        .select('amount')
+        .eq('invoice_id', payment.invoice_id);
+
+      if (fetchErr) throw fetchErr;
+
+      const totalPaid = (remaining || []).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+      const invoiceTotal = inv?.total || 0;
+      const balanceDue = Math.max(0, invoiceTotal - totalPaid);
+      const paymentStatus = balanceDue <= 0 ? 'paid' : totalPaid > 0 ? 'partial' : 'unpaid';
+
+      const invUpdateData = {
+        amount_paid: totalPaid,
+        balance_due: balanceDue,
+        payment_status: paymentStatus,
+      };
+      // If now fully unpaid, clear payment fields
+      if (paymentStatus === 'unpaid') {
+        invUpdateData.payment_date = null;
+        invUpdateData.payment_method = null;
+      }
+
+      const { error: invUpdateErr } = await supabase
+        .from('invoices')
+        .update(invUpdateData)
+        .eq('id', payment.invoice_id);
+
+      if (invUpdateErr) throw invUpdateErr;
+
+      // 3. Create a reversal journal entry if there's a linked journal entry
+      if (payment.journal_entry_id) {
+        try {
+          const { data: arAccount } = await supabase
+            .from('accounts')
+            .select('id')
+            .eq('account_number', '1100')
+            .maybeSingle();
+
+          const nextNum = await getNextJournalEntryNumber(user.id);
+          const { data: reversalJE } = await supabase
+            .from('journal_entries')
+            .insert([{
+              entry_number: nextNum,
+              entry_date: new Date().toISOString().split('T')[0],
+              description: `REVERSAL: Deleted payment of ${formatCurrency(payment.amount)} from Invoice #${inv?.invoice_number || payment.invoice_id}`,
+              reference_type: 'invoice_payment',
+              reference_id: payment.invoice_id,
+              created_by: user.id,
+              company_id: user.id,
+            }])
+            .select()
+            .single();
+
+          if (reversalJE && arAccount) {
+            // Get original journal entry lines to know which accounts to reverse
+            const { data: origLines } = await supabase
+              .from('journal_entry_lines')
+              .select('*')
+              .eq('entry_id', payment.journal_entry_id);
+
+            if (origLines && origLines.length > 0) {
+              const reversalLines = origLines.map((line, idx) => ({
+                entry_id: reversalJE.id,
+                line_number: idx + 1,
+                account_id: line.account_id,
+                debit: line.credit,   // Swap debit/credit
+                credit: line.debit,
+                description: `REVERSAL: ${line.description || ''}`,
+              }));
+              await supabase.from('journal_entry_lines').insert(reversalLines);
+              try {
+                await supabase.rpc('post_journal_entry', { p_entry_id: reversalJE.id, p_user_id: user.id });
+              } catch (e) { console.error('Could not post reversal:', e); }
+            }
+          }
+        } catch (jeErr) {
+          console.warn('Could not create reversal journal entry:', jeErr.message);
+        }
+      }
+
+      alert('✅ Payment deleted and invoice balance updated!');
+
+      // Reload
+      if (selectedInvoice) {
+        await loadPaymentHistory({ ...selectedInvoice, amount_paid: totalPaid, balance_due: balanceDue, payment_status: paymentStatus });
+        // Update selected invoice state
+        setSelectedInvoice(prev => prev ? { ...prev, amount_paid: totalPaid, balance_due: balanceDue, payment_status: paymentStatus } : prev);
+      }
+      loadInvoices();
+    } catch (err) {
+      console.error('Error deleting payment:', err);
+      alert(`Failed to delete payment: ${err.message}`);
     }
   }
 
@@ -709,6 +979,30 @@ export default function InvoicesList() {
         <h1 style={styles.title}>Invoices</h1>
         <div style={styles.headerButtons}>
           <button 
+            onClick={async () => {
+              const accounts = await loadHoldingAccounts();
+              setHoldingAccounts(accounts);
+              const unpaid = invoices.filter(i => calculateTrueBalance(i) > 0);
+              const allocs = {};
+              unpaid.forEach(inv => { allocs[inv.id] = 0; });
+              setSplitPaymentForm({
+                totalAmount: '',
+                date: new Date().toISOString().split('T')[0],
+                method: 'check',
+                bank_account_id: '',
+                deposit_type: 'bank',
+                holding_account_id: '',
+                processing_fee: '',
+                notes: '',
+                allocations: allocs
+              });
+              setShowSplitPaymentModal(true);
+            }}
+            style={{...styles.newButton, backgroundColor: '#8b5cf6'}}
+          >
+            💳 Split Payment
+          </button>
+          <button 
             onClick={() => navigate('/invoice/quick')}
             style={styles.newButton}
           >
@@ -812,24 +1106,27 @@ export default function InvoicesList() {
                   <td style={{...styles.td, width: '18%'}}>
                     <div style={{display: 'flex', flexDirection: 'column', gap: 6}}>
                       <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
-                        <span style={{
-                          ...styles.statusBadge,
-                          backgroundColor: getStatusColor(invoice.status)
-                        }}>
-                          {invoice.status || 'draft'}
-                        </span>
+                        {(() => {
+                          // Show one smart badge: if balance is paid, always show PAID
+                          const payState = getPaymentStatusWithDeposit(invoice);
+                          const effectiveStatus = payState === 'paid' ? 'paid'
+                            : payState === 'partial' ? 'partial'
+                            : invoice.status || 'draft';
+                          const color = effectiveStatus === 'paid' ? '#10b981'
+                            : effectiveStatus === 'partial' ? '#f59e0b'
+                            : effectiveStatus === 'sent' ? '#3b82f6'
+                            : effectiveStatus === 'overdue' ? '#ef4444'
+                            : '#6b7280';
+                          return (
+                            <span style={{...styles.statusBadge, backgroundColor: color}}>
+                              {effectiveStatus}
+                            </span>
+                          );
+                        })()}
                         <span style={styles.invoiceNumber}>
                           #{invoice.invoice_number || 'N/A'}
                         </span>
                       </div>
-                      {invoice.total > 0 && (
-                        <span style={{
-                          ...styles.paymentBadge,
-                          backgroundColor: getPaymentStatusColor(getPaymentStatusWithDeposit(invoice))
-                        }}>
-                          💳 {getPaymentStatusWithDeposit(invoice)?.toUpperCase()}
-                        </span>
-                      )}
                     </div>
                   </td>
                   <td style={{...styles.td, width: '15%'}}>
@@ -918,7 +1215,7 @@ export default function InvoicesList() {
                                     .limit(1)
                                     .maybeSingle();
                                   
-                                  const nextEntryNumber = (lastEntry?.entry_number || 0) + 1;
+                                  const nextEntryNumber = await getNextJournalEntryNumber(user.id);
                                   
                                   const reversalEntry = {
                                     entry_number: nextEntryNumber,
@@ -1023,15 +1320,13 @@ export default function InvoicesList() {
                           🔄 Reset
                         </button>
                         )}
-                      {calculateTrueBalance(invoice) <= 0 && (
-                        <button
-                          onClick={() => navigate(`/invoice?invoiceId=${invoice.id}`)}
-                          style={{...styles.actionButton, backgroundColor: '#8b5cf6', color: '#fff'}}
-                          title="Send paid receipt"
-                        >
-                          📧 Receipt
-                        </button>
-                      )}
+                      <button
+                        onClick={() => loadPaymentHistory(invoice)}
+                        style={{...styles.actionButton, backgroundColor: '#0b3ea8', color: '#fff'}}
+                        title="View payment history"
+                      >
+                        📋 History
+                      </button>
                       <button
                         onClick={() => handleDelete(invoice)}
                         style={{...styles.actionButton, ...styles.deleteButton}}
@@ -1256,6 +1551,600 @@ export default function InvoicesList() {
           </div>
         </div>
       )}
+
+      {/* Payment History Modal */}
+      {showPaymentHistoryModal && selectedInvoice && (
+        <div style={styles.modalOverlay} onClick={() => setShowPaymentHistoryModal(false)}>
+          <div style={{...styles.modalContent, maxWidth: 700}} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <div>
+                <h2 style={styles.modalTitle}>📋 Payment History</h2>
+                <p style={{margin: '4px 0 0', fontSize: 14, color: '#666'}}>
+                  Invoice #{selectedInvoice.invoice_number} — {selectedInvoice.customer_name}
+                </p>
+              </div>
+              <button onClick={() => setShowPaymentHistoryModal(false)} style={styles.closeButton}>×</button>
+            </div>
+
+            <div style={styles.modalBody}>
+              {/* Invoice Summary */}
+              <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 24}}>
+                <div style={{backgroundColor: '#f9fafb', borderRadius: 8, padding: '12px 16px', textAlign: 'center'}}>
+                  <div style={{fontSize: 12, color: '#666', fontWeight: 600, textTransform: 'uppercase', marginBottom: 4}}>Invoice Total</div>
+                  <div style={{fontSize: 20, fontWeight: 700, color: '#111'}}>{formatCurrency(selectedInvoice.total)}</div>
+                </div>
+                <div style={{backgroundColor: '#f0fdf4', borderRadius: 8, padding: '12px 16px', textAlign: 'center'}}>
+                  <div style={{fontSize: 12, color: '#059669', fontWeight: 600, textTransform: 'uppercase', marginBottom: 4}}>Total Paid</div>
+                  <div style={{fontSize: 20, fontWeight: 700, color: '#10b981'}}>{formatCurrency(selectedInvoice.amount_paid || 0)}</div>
+                </div>
+                <div style={{backgroundColor: calculateTrueBalance(selectedInvoice) > 0 ? '#fef2f2' : '#f0fdf4', borderRadius: 8, padding: '12px 16px', textAlign: 'center'}}>
+                  <div style={{fontSize: 12, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4, color: calculateTrueBalance(selectedInvoice) > 0 ? '#dc2626' : '#059669'}}>Balance Due</div>
+                  <div style={{fontSize: 20, fontWeight: 700, color: calculateTrueBalance(selectedInvoice) > 0 ? '#ef4444' : '#10b981'}}>
+                    {formatCurrency(calculateTrueBalance(selectedInvoice))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Payment Records */}
+              {loadingHistory ? (
+                <div style={{textAlign: 'center', padding: '40px 0', color: '#666'}}>Loading payment history...</div>
+              ) : paymentHistory.length === 0 ? (
+                // No records in invoice_payments table — show fallback from invoice fields
+                (() => {
+                  const hasFallback = (selectedInvoice.amount_paid || 0) > 0 || (selectedInvoice.deposit_received || 0) > 0;
+                  if (!hasFallback) {
+                    return (
+                      <div style={{textAlign: 'center', padding: '48px 20px', color: '#666'}}>
+                        <div style={{fontSize: 48, marginBottom: 12}}>💳</div>
+                        <div style={{fontSize: 16, fontWeight: 600, marginBottom: 8}}>No payments recorded yet</div>
+                      </div>
+                    );
+                  }
+                  // Build synthetic rows from invoice data
+                  const fallbackRows = [];
+                  if ((selectedInvoice.amount_paid || 0) > 0) {
+                    fallbackRows.push({
+                      id: 'legacy-payment',
+                      payment_date: selectedInvoice.payment_date,
+                      payment_method: selectedInvoice.payment_method,
+                      amount: selectedInvoice.amount_paid,
+                      processing_fee: selectedInvoice.processing_fee || 0,
+                      net_amount: selectedInvoice.net_deposit_amount || selectedInvoice.amount_paid,
+                      notes: '(recorded before payment history was added)'
+                    });
+                  }
+                  if ((selectedInvoice.deposit_received || 0) > 0) {
+                    fallbackRows.push({
+                      id: 'legacy-deposit',
+                      payment_date: selectedInvoice.deposit_date,
+                      payment_method: 'deposit',
+                      amount: selectedInvoice.deposit_received,
+                      processing_fee: 0,
+                      net_amount: selectedInvoice.deposit_received,
+                      notes: 'Deposit / advance payment'
+                    });
+                  }
+                  return (
+                    <div>
+                      <div style={{fontSize: 13, color: '#f59e0b', marginBottom: 12, fontWeight: 600, backgroundColor: '#fffbeb', padding: '8px 12px', borderRadius: 6, border: '1px solid #fcd34d'}}>
+                        ⚠️ Showing data from invoice record — detailed history tracks new payments going forward.
+                      </div>
+                      <table style={{width: '100%', borderCollapse: 'collapse', fontSize: 14}}>
+                        <thead>
+                          <tr style={{backgroundColor: '#f9fafb', borderBottom: '2px solid #e5e7eb'}}>
+                            <th style={{padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#374151'}}>Date</th>
+                            <th style={{padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#374151'}}>Method</th>
+                            <th style={{padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: '#374151'}}>Amount</th>
+                            <th style={{padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: '#374151'}}>Fee</th>
+                            <th style={{padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: '#374151'}}>Net</th>
+                            <th style={{padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#374151'}}>Notes</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {fallbackRows.map((row, idx) => (
+                            <tr key={row.id} style={{borderBottom: '1px solid #f0f0f0', backgroundColor: idx % 2 === 0 ? '#fff' : '#fafafa'}}>
+                              <td style={{padding: '12px 14px', fontWeight: 600, color: '#111'}}>{formatDate(row.payment_date) || '—'}</td>
+                              <td style={{padding: '12px 14px', textTransform: 'capitalize', color: '#333'}}>
+                                {row.payment_method === 'ach' ? 'ACH' :
+                                 row.payment_method === 'credit_card' ? 'Credit Card' :
+                                 row.payment_method || '—'}
+                              </td>
+                              <td style={{padding: '12px 14px', textAlign: 'right', fontWeight: 700, color: '#10b981'}}>{formatCurrency(row.amount)}</td>
+                              <td style={{padding: '12px 14px', textAlign: 'right', color: row.processing_fee > 0 ? '#ef4444' : '#999'}}>
+                                {row.processing_fee > 0 ? `-${formatCurrency(row.processing_fee)}` : '—'}
+                              </td>
+                              <td style={{padding: '12px 14px', textAlign: 'right', fontWeight: 600, color: '#111'}}>{formatCurrency(row.net_amount)}</td>
+                              <td style={{padding: '12px 14px', color: '#666', fontSize: 13}}>{row.notes || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{backgroundColor: '#f0fdf4', borderTop: '2px solid #10b981'}}>
+                            <td colSpan={2} style={{padding: '12px 14px', fontWeight: 700, color: '#059669'}}>TOTAL</td>
+                            <td style={{padding: '12px 14px', textAlign: 'right', fontWeight: 700, color: '#10b981'}}>
+                              {formatCurrency(fallbackRows.reduce((s, r) => s + (r.amount || 0), 0))}
+                            </td>
+                            <td colSpan={3} />
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  );
+                })()
+              ) : (
+                <div>
+                  <div style={{fontSize: 13, color: '#666', marginBottom: 12, fontWeight: 600}}>
+                    {paymentHistory.length} payment{paymentHistory.length !== 1 ? 's' : ''} recorded
+                  </div>
+                  <table style={{width: '100%', borderCollapse: 'collapse', fontSize: 14}}>
+                    <thead>
+                      <tr style={{backgroundColor: '#f9fafb', borderBottom: '2px solid #e5e7eb'}}>
+                        <th style={{padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#374151'}}>Date</th>
+                        <th style={{padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#374151'}}>Method</th>
+                        <th style={{padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: '#374151'}}>Amount</th>
+                        <th style={{padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: '#374151'}}>Fee</th>
+                        <th style={{padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: '#374151'}}>Net</th>
+                        <th style={{padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#374151'}}>Notes</th>
+                        <th style={{padding: '10px 14px', textAlign: 'center', fontWeight: 700, color: '#374151'}}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paymentHistory.map((payment, idx) => (
+                        <tr key={payment.id} style={{borderBottom: '1px solid #f0f0f0', backgroundColor: idx % 2 === 0 ? '#fff' : '#fafafa'}}>
+                          <td style={{padding: '12px 14px', fontWeight: 600, color: '#111'}}>{formatDate(payment.payment_date)}</td>
+                          <td style={{padding: '12px 14px', textTransform: 'capitalize', color: '#333'}}>
+                            {payment.payment_method === 'ach' ? 'ACH' :
+                             payment.payment_method === 'credit_card' ? 'Credit Card' :
+                             payment.payment_method || 'N/A'}
+                          </td>
+                          <td style={{padding: '12px 14px', textAlign: 'right', fontWeight: 700, color: '#10b981'}}>
+                            {formatCurrency(payment.amount)}
+                          </td>
+                          <td style={{padding: '12px 14px', textAlign: 'right', color: payment.processing_fee > 0 ? '#ef4444' : '#999'}}>
+                            {payment.processing_fee > 0 ? `-${formatCurrency(payment.processing_fee)}` : '—'}
+                          </td>
+                          <td style={{padding: '12px 14px', textAlign: 'right', fontWeight: 600, color: '#111'}}>
+                            {formatCurrency(payment.net_amount || payment.amount)}
+                          </td>
+                          <td style={{padding: '12px 14px', color: '#666', fontSize: 13}}>{payment.notes || '—'}</td>
+                          <td style={{padding: '8px 14px', textAlign: 'center'}}>
+                            <div style={{display: 'flex', gap: 6, justifyContent: 'center'}}>
+                              <button
+                                onClick={() => openEditPaymentModal(payment)}
+                                title="Edit this payment"
+                                style={{padding: '4px 10px', fontSize: 12, fontWeight: 600, backgroundColor: '#f59e0b', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer'}}
+                              >
+                                ✏️ Edit
+                              </button>
+                              <button
+                                onClick={() => handleDeletePayment(payment)}
+                                title="Delete this payment"
+                                style={{padding: '4px 10px', fontSize: 12, fontWeight: 600, backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer'}}
+                              >
+                                🗑️
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{backgroundColor: '#f0fdf4', borderTop: '2px solid #10b981'}}>
+                        <td colSpan={2} style={{padding: '12px 14px', fontWeight: 700, color: '#059669'}}>TOTAL</td>
+                        <td style={{padding: '12px 14px', textAlign: 'right', fontWeight: 700, color: '#10b981'}}>
+                          {formatCurrency(paymentHistory.reduce((s, p) => s + (p.amount || 0), 0))}
+                        </td>
+                        <td style={{padding: '12px 14px', textAlign: 'right', fontWeight: 700, color: '#ef4444'}}>
+                          {formatCurrency(paymentHistory.reduce((s, p) => s + (p.processing_fee || 0), 0)) === '$0.00' ? '—' :
+                           `-${formatCurrency(paymentHistory.reduce((s, p) => s + (p.processing_fee || 0), 0))}`}
+                        </td>
+                        <td style={{padding: '12px 14px', textAlign: 'right', fontWeight: 700, color: '#059669'}}>
+                          {formatCurrency(paymentHistory.reduce((s, p) => s + (p.net_amount || p.amount || 0), 0))}
+                        </td>
+                        <td colSpan={2} />
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div style={styles.modalFooter}>
+              {calculateTrueBalance(selectedInvoice) > 0 && (
+                <button
+                  onClick={() => { setShowPaymentHistoryModal(false); openPaymentModal(selectedInvoice); }}
+                  style={styles.saveButton}
+                >
+                  💰 Record New Payment
+                </button>
+              )}
+              <button onClick={() => setShowPaymentHistoryModal(false)} style={styles.cancelButton}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Payment Modal */}
+      {showEditPaymentModal && editingPayment && (
+        <div style={{...styles.modalOverlay, zIndex: 1100}} onClick={() => setShowEditPaymentModal(false)}>
+          <div style={{...styles.modalContent, maxWidth: 520}} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <div>
+                <h2 style={styles.modalTitle}>✏️ Edit Payment</h2>
+                <p style={{margin: '4px 0 0', fontSize: 14, color: '#666'}}>
+                  Modify the details of this payment
+                </p>
+              </div>
+              <button onClick={() => setShowEditPaymentModal(false)} style={styles.closeButton}>×</button>
+            </div>
+
+            <div style={styles.modalBody}>
+              {/* Original payment info */}
+              <div style={{backgroundColor: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, padding: '12px 16px', marginBottom: 20, fontSize: 13, color: '#92400e'}}>
+                <strong>Original:</strong> {formatCurrency(editingPayment.amount)} on {formatDate(editingPayment.payment_date)} via {editingPayment.payment_method || 'N/A'}
+              </div>
+
+              <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16}}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Payment Amount *</label>
+                  <input
+                    type="number"
+                    value={editPaymentForm.amount}
+                    onChange={(e) => setEditPaymentForm({...editPaymentForm, amount: e.target.value})}
+                    style={styles.input}
+                    placeholder="0.00"
+                    min="0.01"
+                    step="0.01"
+                  />
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Payment Date *</label>
+                  <input
+                    type="date"
+                    value={editPaymentForm.date}
+                    onChange={(e) => setEditPaymentForm({...editPaymentForm, date: e.target.value})}
+                    style={styles.input}
+                  />
+                </div>
+              </div>
+
+              <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16}}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Payment Method</label>
+                  <select
+                    value={editPaymentForm.method}
+                    onChange={(e) => setEditPaymentForm({...editPaymentForm, method: e.target.value})}
+                    style={styles.input}
+                  >
+                    <option value="check">Check</option>
+                    <option value="cash">Cash</option>
+                    <option value="venmo">Venmo</option>
+                    <option value="paypal">PayPal</option>
+                    <option value="credit_card">Credit Card</option>
+                    <option value="ach">ACH/Bank Transfer</option>
+                    <option value="wire">Wire Transfer</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Processing Fee</label>
+                  <input
+                    type="number"
+                    value={editPaymentForm.processing_fee}
+                    onChange={(e) => setEditPaymentForm({...editPaymentForm, processing_fee: e.target.value})}
+                    style={styles.input}
+                    placeholder="0.00"
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
+              </div>
+
+              {editPaymentForm.processing_fee && editPaymentForm.amount && (
+                <div style={{marginTop: -8, marginBottom: 16, padding: '8px 12px', backgroundColor: '#f0f9ff', borderRadius: 6, fontSize: 13}}>
+                  <span style={{color: '#0369a1', fontWeight: 600}}>
+                    💰 Net: {formatCurrency(parseFloat(editPaymentForm.amount || 0) - parseFloat(editPaymentForm.processing_fee || 0))}
+                  </span>
+                </div>
+              )}
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Bank Account</label>
+                <select
+                  value={editPaymentForm.bank_account_id}
+                  onChange={(e) => setEditPaymentForm({...editPaymentForm, bank_account_id: e.target.value})}
+                  style={styles.input}
+                >
+                  <option value="">No change / not applicable</option>
+                  {cashAccounts.map(account => (
+                    <option key={account.id} value={account.id}>
+                      {account.account_name} {account.bank_name ? `(${account.bank_name})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Notes</label>
+                <input
+                  type="text"
+                  value={editPaymentForm.notes}
+                  onChange={(e) => setEditPaymentForm({...editPaymentForm, notes: e.target.value})}
+                  style={styles.input}
+                  placeholder="e.g., Check #1234, correction note..."
+                />
+              </div>
+
+              <div style={{backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#991b1b'}}>
+                ⚠️ <strong>Note:</strong> Editing a payment updates the invoice balance automatically. If this payment had an associated journal entry, you may need to adjust it manually in the Journal Entries page.
+              </div>
+            </div>
+
+            <div style={styles.modalFooter}>
+              <button onClick={() => setShowEditPaymentModal(false)} style={styles.cancelButton}>Cancel</button>
+              <button onClick={handleSaveEditPayment} style={{...styles.saveButton, backgroundColor: '#f59e0b'}}>
+                ✏️ Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Split Payment Modal */}
+      {showSplitPaymentModal && (() => {
+        const unpaidInvoices = invoices.filter(i => calculateTrueBalance(i) > 0);
+        const totalAllocated = Object.values(splitPaymentForm.allocations).reduce((s, v) => s + (parseFloat(v) || 0), 0);
+        const totalAmount = parseFloat(splitPaymentForm.totalAmount) || 0;
+        const processingFee = parseFloat(splitPaymentForm.processing_fee) || 0;
+        const remaining = totalAmount - totalAllocated;
+
+        return (
+          <div style={styles.modalOverlay} onClick={() => setShowSplitPaymentModal(false)}>
+            <div style={{...styles.modalContent, maxWidth: 750}} onClick={(e) => e.stopPropagation()}>
+              <div style={styles.modalHeader}>
+                <h2 style={styles.modalTitle}>💳 Split Payment Across Invoices</h2>
+                <button onClick={() => setShowSplitPaymentModal(false)} style={styles.closeButton}>×</button>
+              </div>
+
+              <div style={styles.modalBody}>
+                <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20}}>
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Total Payment Amount *</label>
+                    <input type="number" value={splitPaymentForm.totalAmount}
+                      onChange={(e) => setSplitPaymentForm({...splitPaymentForm, totalAmount: e.target.value})}
+                      style={styles.input} placeholder="0.00" min="0" step="0.01" />
+                  </div>
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Payment Date *</label>
+                    <input type="date" value={splitPaymentForm.date}
+                      onChange={(e) => setSplitPaymentForm({...splitPaymentForm, date: e.target.value})}
+                      style={styles.input} />
+                  </div>
+                </div>
+
+                <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20}}>
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Payment Method *</label>
+                    <select value={splitPaymentForm.method}
+                      onChange={(e) => setSplitPaymentForm({...splitPaymentForm, method: e.target.value})}
+                      style={styles.input}>
+                      <option value="check">Check</option>
+                      <option value="cash">Cash</option>
+                      <option value="venmo">Venmo</option>
+                      <option value="paypal">PayPal</option>
+                      <option value="ach">ACH/Bank Transfer</option>
+                      <option value="wire">Wire Transfer</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Processing Fee</label>
+                    <input type="number" value={splitPaymentForm.processing_fee}
+                      onChange={(e) => setSplitPaymentForm({...splitPaymentForm, processing_fee: e.target.value})}
+                      style={styles.input} placeholder="0.00" min="0" step="0.01" />
+                  </div>
+                </div>
+
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Bank Account *</label>
+                  <select value={splitPaymentForm.bank_account_id}
+                    onChange={(e) => setSplitPaymentForm({...splitPaymentForm, bank_account_id: e.target.value})}
+                    style={styles.input}>
+                    <option value="">Select Bank Account...</option>
+                    {cashAccounts.map(account => (
+                      <option key={account.id} value={account.id}>
+                        {account.account_name} - {account.account_type} {account.bank_name ? `(${account.bank_name})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Allocation Summary */}
+                <div style={{padding: 12, borderRadius: 8, marginBottom: 16,
+                  backgroundColor: Math.abs(remaining) < 0.01 && totalAmount > 0 ? '#f0fdf4' : remaining < 0 ? '#fef2f2' : '#f0f9ff',
+                  border: `2px solid ${Math.abs(remaining) < 0.01 && totalAmount > 0 ? '#10b981' : remaining < 0 ? '#ef4444' : '#3b82f6'}`}}>
+                  <div style={{display: 'flex', justifyContent: 'space-between', fontSize: 14, marginBottom: 4}}>
+                    <span>Total Payment:</span><strong>{formatCurrency(totalAmount)}</strong>
+                  </div>
+                  {processingFee > 0 && <div style={{display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 4}}>
+                    <span>Processing Fee:</span><span>-{formatCurrency(processingFee)}</span>
+                  </div>}
+                  <div style={{display: 'flex', justifyContent: 'space-between', fontSize: 14, marginBottom: 4}}>
+                    <span>Allocated:</span><strong>{formatCurrency(totalAllocated)}</strong>
+                  </div>
+                  <div style={{display: 'flex', justifyContent: 'space-between', fontSize: 15, fontWeight: 700,
+                    color: Math.abs(remaining) < 0.01 ? '#10b981' : remaining < 0 ? '#ef4444' : '#0369a1'}}>
+                    <span>Remaining:</span><span>{formatCurrency(remaining)}</span>
+                  </div>
+                </div>
+
+                {/* Auto-allocate button */}
+                {totalAmount > 0 && (
+                  <button onClick={() => {
+                    let left = totalAmount;
+                    const newAllocs = {};
+                    // Allocate oldest first
+                    const sorted = [...unpaidInvoices].sort((a, b) => new Date(a.invoice_date) - new Date(b.invoice_date));
+                    sorted.forEach(inv => {
+                      const bal = calculateTrueBalance(inv);
+                      const apply = Math.min(bal, left);
+                      newAllocs[inv.id] = apply > 0 ? parseFloat(apply.toFixed(2)) : 0;
+                      left -= apply;
+                    });
+                    setSplitPaymentForm({...splitPaymentForm, allocations: newAllocs});
+                  }} style={{marginBottom: 16, padding: '8px 16px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600}}>
+                    ⚡ Auto-Allocate (Oldest First)
+                  </button>
+                )}
+
+                {/* Invoice allocation list */}
+                <div style={{maxHeight: 300, overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: 8}}>
+                  <table style={{width: '100%', borderCollapse: 'collapse', fontSize: 13}}>
+                    <thead>
+                      <tr style={{backgroundColor: '#f9fafb', position: 'sticky', top: 0}}>
+                        <th style={{padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#666'}}>Invoice</th>
+                        <th style={{padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#666'}}>Customer / Project</th>
+                        <th style={{padding: '10px 8px', textAlign: 'right', fontWeight: 700, color: '#666'}}>Balance</th>
+                        <th style={{padding: '10px 8px', textAlign: 'right', fontWeight: 700, color: '#666', width: 120}}>Apply</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {unpaidInvoices.map(inv => {
+                        const bal = calculateTrueBalance(inv);
+                        const alloc = splitPaymentForm.allocations[inv.id] || 0;
+                        return (
+                          <tr key={inv.id} style={{borderBottom: '1px solid #f0f0f0', backgroundColor: alloc > 0 ? '#f0fdf4' : '#fff'}}>
+                            <td style={{padding: '8px 12px', fontWeight: 600, color: '#0b3ea8'}}>#{inv.invoice_number}</td>
+                            <td style={{padding: '8px 12px'}}>
+                              <div style={{fontWeight: 500, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 200}}>
+                                {inv.customer_name || 'N/A'}
+                              </div>
+                              <div style={{fontSize: 11, color: '#666', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 200}}>
+                                {inv.project_name || ''}
+                              </div>
+                            </td>
+                            <td style={{padding: '8px 8px', textAlign: 'right', fontWeight: 600, color: '#ef4444'}}>{formatCurrency(bal)}</td>
+                            <td style={{padding: '8px 8px', textAlign: 'right'}}>
+                              <input type="number" value={alloc || ''} min="0" max={bal} step="0.01" placeholder="0.00"
+                                onChange={(e) => {
+                                  const val = parseFloat(e.target.value) || 0;
+                                  setSplitPaymentForm({...splitPaymentForm, allocations: {...splitPaymentForm.allocations, [inv.id]: Math.min(val, bal)}});
+                                }}
+                                style={{width: 100, padding: '6px 8px', fontSize: 13, border: '2px solid #e5e7eb', borderRadius: 4, textAlign: 'right', boxSizing: 'border-box'}} />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div style={{...styles.formGroup, marginTop: 16}}>
+                  <label style={styles.label}>Notes</label>
+                  <input type="text" value={splitPaymentForm.notes}
+                    onChange={(e) => setSplitPaymentForm({...splitPaymentForm, notes: e.target.value})}
+                    style={styles.input} placeholder="e.g., Check #1234" />
+                </div>
+              </div>
+
+              <div style={styles.modalFooter}>
+                <button onClick={() => setShowSplitPaymentModal(false)} style={styles.cancelButton}>Cancel</button>
+                <button
+                  disabled={totalAmount <= 0 || totalAllocated <= 0 || !splitPaymentForm.bank_account_id || remaining < -0.01}
+                  onClick={async () => {
+                    try {
+                      const allocs = splitPaymentForm.allocations;
+                      const invoicesToPay = Object.entries(allocs).filter(([, amt]) => (parseFloat(amt) || 0) > 0);
+                      if (invoicesToPay.length === 0) { alert('Please allocate amounts to at least one invoice'); return; }
+
+                      // Get AR account & bank account
+                      const { data: arAccount } = await supabase.from('accounts').select('id').eq('account_number', '1100').maybeSingle();
+                      if (!arAccount) { alert('AR account (1100) not found'); return; }
+
+                      const { data: bankRec } = await supabase.from('bank_accounts').select('chart_account_id').eq('id', splitPaymentForm.bank_account_id).single();
+                      if (!bankRec?.chart_account_id) { alert('Bank account not linked to chart of accounts'); return; }
+
+                      let feeAccountId = null;
+                      if (processingFee > 0) {
+                        const { data: feeAcct } = await supabase.from('accounts').select('id').eq('account_number', '7610').maybeSingle();
+                        feeAccountId = feeAcct?.id;
+                      }
+
+                      // Update each invoice
+                      const invoiceNumbers = [];
+                      for (const [invId, amt] of invoicesToPay) {
+                        const amount = parseFloat(amt);
+                        const inv = invoices.find(i => i.id === invId);
+                        if (!inv) continue;
+                        const newPaid = (inv.amount_paid || 0) + amount;
+                        const status = newPaid >= inv.total ? 'paid' : 'partial';
+                        const upd = { payment_status: status, amount_paid: newPaid, balance_due: inv.total - newPaid,
+                          payment_date: splitPaymentForm.date, payment_method: splitPaymentForm.method,
+                          bank_account_id: splitPaymentForm.bank_account_id };
+                        if (status === 'paid') { upd.deposit_received = 0; upd.deposit_date = null; }
+                        await supabase.from('invoices').update(upd).eq('id', invId);
+                        invoiceNumbers.push(`#${inv.invoice_number}`);
+                      }
+
+                      // Create ONE journal entry for the whole split payment
+                      const nextNum = await getNextJournalEntryNumber(user.id);
+                      const netDeposit = totalAmount - processingFee;
+                      const { data: newJE, error: jeErr } = await supabase.from('journal_entries').insert([{
+                        entry_number: nextNum, entry_date: splitPaymentForm.date,
+                        description: `Split payment across ${invoiceNumbers.join(', ')}${processingFee > 0 ? ` (Fee: ${formatCurrency(processingFee)})` : ''}`,
+                        reference_type: 'invoice_payment', created_by: user.id, company_id: user.id
+                      }]).select().single();
+
+                      if (newJE && !jeErr) {
+                        const lines = [{ entry_id: newJE.id, line_number: 1, account_id: bankRec.chart_account_id,
+                          debit: netDeposit, credit: 0, description: 'Split payment deposited to bank' }];
+                        let lineNum = 2;
+                        if (processingFee > 0 && feeAccountId) {
+                          lines.push({ entry_id: newJE.id, line_number: lineNum++, account_id: feeAccountId,
+                            debit: processingFee, credit: 0, description: 'Processing fee' });
+                        }
+                        lines.push({ entry_id: newJE.id, line_number: lineNum, account_id: arAccount.id,
+                          debit: 0, credit: totalAllocated, description: `Split payment applied to ${invoiceNumbers.join(', ')}` });
+
+                        await supabase.from('journal_entry_lines').insert(lines);
+                        try { await supabase.rpc('post_journal_entry', { p_entry_id: newJE.id, p_user_id: user.id }); } catch (e) { console.error(e); }
+                      }
+
+                      // Save individual payment records for each invoice
+                      try {
+                        const historyRows = invoicesToPay.map(([invId, amt]) => ({
+                          invoice_id: invId,
+                          company_id: user.id,
+                          payment_date: splitPaymentForm.date,
+                          amount: parseFloat(amt),
+                          payment_method: splitPaymentForm.method,
+                          processing_fee: 0,
+                          net_amount: parseFloat(amt),
+                          notes: splitPaymentForm.notes || null,
+                          bank_account_id: splitPaymentForm.bank_account_id || null,
+                          created_by: user.id
+                        }));
+                        await supabase.from('invoice_payments').insert(historyRows);
+                      } catch (histErr) {
+                        console.warn('Could not save split payment history:', histErr.message);
+                      }
+
+                      alert(`✅ Split payment of ${formatCurrency(totalAmount)} applied to ${invoiceNumbers.join(', ')}!`);
+                      setShowSplitPaymentModal(false);
+                      setTimeout(() => window.location.reload(), 500);
+                    } catch (err) {
+                      console.error('Split payment error:', err);
+                      alert(`Failed: ${err.message}`);
+                    }
+                  }}
+                  style={{...styles.saveButton, opacity: (totalAmount <= 0 || totalAllocated <= 0 || !splitPaymentForm.bank_account_id) ? 0.5 : 1}}>
+                  💳 Apply Split Payment
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

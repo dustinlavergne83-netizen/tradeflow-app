@@ -79,6 +79,12 @@ export default function DesktopHeader({ title: propTitle }) {
                 {isAdmin && <span style={styles.adminBadge}>ADMIN</span>}
               </>
             )}
+            <button
+              onClick={() => window.open("/", "_blank")}
+              style={styles.websiteButton}
+            >
+              🌐 Website
+            </button>
             <button onClick={handleSignOut} style={styles.signOutButton}>
               Sign Out
             </button>
@@ -182,6 +188,16 @@ const styles = {
     fontSize: 11,
     fontWeight: 700,
     letterSpacing: 0.5,
+  },
+  websiteButton: {
+    padding: "7px 14px",
+    backgroundColor: "rgba(255,255,255,0.12)",
+    border: "1px solid rgba(255,255,255,0.35)",
+    color: "#fff",
+    borderRadius: 6,
+    cursor: "pointer",
+    fontSize: 13,
+    fontWeight: 600,
   },
   signOutButton: {
     padding: "8px 16px",

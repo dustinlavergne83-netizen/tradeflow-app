@@ -1,11 +1,10 @@
- 
- import React, { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { supabase } from "../lib/supabase";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-
 import { formatDate } from "../utils/dateUtils";
+import AIAssistant from "../Components/AIAssistant";
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -82,7 +81,7 @@ export default function Home() {
       
       let invoicesQuery = supabase
         .from("invoices")
-        .select("total, status");
+        .select("total, status, amount_paid, deposit_received, balance_due");
       
       let employeesQuery = supabase
         .from("employees")
@@ -113,14 +112,20 @@ export default function Home() {
       console.log("Invoices data:", invoicesData);
       console.log("Employees data:", employeesData);
 
-      // Calculate invoice stats
+      // Calculate invoice stats — use actual payment fields, not just status
       const totalInvoices = invoicesData.data?.length || 0;
+
+      // Outstanding = true remaining balance on each invoice (total minus all payments & deposits)
       const outstandingAmount = invoicesData.data
-        ?.filter(inv => inv.status !== 'paid')
-        ?.reduce((sum, inv) => sum + (inv.total || 0), 0) || 0;
+        ?.reduce((sum, inv) => {
+          const totalDeductions = (inv.amount_paid || 0) + (inv.deposit_received || 0);
+          return sum + Math.max(0, (inv.total || 0) - totalDeductions);
+        }, 0) || 0;
+
+      // Paid = sum of all money actually received (payments + deposits)
       const paidAmount = invoicesData.data
-        ?.filter(inv => inv.status === 'paid')
-        ?.reduce((sum, inv) => sum + (inv.total || 0), 0) || 0;
+        ?.reduce((sum, inv) => sum + (inv.amount_paid || 0) + (inv.deposit_received || 0), 0) || 0;
+
       const totalRevenue = invoicesData.data?.reduce((sum, inv) => sum + (inv.total || 0), 0) || 0;
 
       // Calculate estimated profit from active projects
@@ -274,7 +279,7 @@ export default function Home() {
       const startDate = period.start.toISOString().split('T')[0];
       const endDate = period.end.toISOString().split('T')[0];
 
-      // Load journal entry lines for income and expense accounts
+      // ── 1. Load journal entry lines for income and expense accounts ──
       const { data: linesData } = await supabase
         .from("journal_entry_lines")
         .select(`
@@ -302,6 +307,39 @@ export default function Home() {
           const categoryName = line.accounts?.account_name || 'Uncategorized';
           expensesByCategory[categoryName] = (expensesByCategory[categoryName] || 0) + expenseAmount;
         }
+      });
+
+      // ── 2. Also pull directly from the expenses table ──
+      // (entries saved from the Expenses page don't always create journal entries)
+      const { data: directExpenses } = await supabase
+        .from("expenses")
+        .select("amount, category, vendor, expense_date")
+        .gte("expense_date", startDate)
+        .lte("expense_date", endDate);
+
+      // Build a Set of amounts already counted via journal entries so we
+      // don't double-count if a journal entry WAS created for the expense.
+      // The safest heuristic: track journal-entry expense total per category
+      // and only add direct expenses that push the total higher.
+      // Simpler & more reliable: just deduplicate by checking if the
+      // expenses table has a linked journal entry. For now we add all
+      // direct expenses that have NO journal entry linked (journal_entry_id IS NULL).
+      const { data: directExpensesNoJE } = await supabase
+        .from("expenses")
+        .select("amount, category, vendor, expense_date")
+        .gte("expense_date", startDate)
+        .lte("expense_date", endDate)
+        .is("journal_entry_id", null);
+
+      // Use the no-JE list if available; fall back to all direct expenses
+      const unmatchedExpenses = directExpensesNoJE ?? directExpenses ?? [];
+
+      unmatchedExpenses.forEach(exp => {
+        const amt = parseFloat(exp.amount) || 0;
+        if (amt <= 0) return; // skip returns/credits
+        expenses += amt;
+        const catName = exp.category || exp.vendor || 'Uncategorized';
+        expensesByCategory[catName] = (expensesByCategory[catName] || 0) + amt;
       });
 
       const profit = income - expenses;
@@ -594,6 +632,9 @@ export default function Home() {
   return (
     <div style={styles.pageWrapper}>
       <div style={styles.container}>
+        {/* AI Assistant - One button to rule them all */}
+        <AIAssistant />
+
         {/* Revenue & Profit Stats */}
         <div style={styles.statsGrid}>
           <StatCard
@@ -731,64 +772,56 @@ export default function Home() {
                   <p style={{ fontSize: 14 }}>Create a new project to get started</p>
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 380, overflowY: 'auto' }}>
                   {activeProjects.map((project) => (
                     <div
                       key={project.id}
                       onClick={() => navigate(`/project/${project.id}`)}
                       style={{
-                        padding: 16,
+                        padding: '10px 14px',
                         backgroundColor: '#f9fafb',
-                        borderRadius: 10,
-                        border: '2px solid #e5e7eb',
+                        borderRadius: 6,
+                        border: '1px solid #e5e7eb',
                         cursor: 'pointer',
-                        transition: 'all 0.2s',
+                        transition: 'all 0.15s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 12,
                       }}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.backgroundColor = '#e0f2fe';
-                        e.currentTarget.style.border = '2px solid #3b82f6';
-                        e.currentTarget.style.transform = 'translateY(-2px)';
-                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+                        e.currentTarget.style.borderColor = '#3b82f6';
                       }}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.backgroundColor = '#f9fafb';
-                        e.currentTarget.style.border = '2px solid #e5e7eb';
-                        e.currentTarget.style.transform = 'translateY(0)';
-                        e.currentTarget.style.boxShadow = 'none';
+                        e.currentTarget.style.borderColor = '#e5e7eb';
                       }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 16, fontWeight: 700, color: '#111', marginBottom: 4 }}>
-                            {project.name}
-                          </div>
-                          {(project.customer || project.contractor) && (
-                            <div style={{ fontSize: 13, color: '#666', marginBottom: 2 }}>
-                              {project.contractor ? `🔨 ${project.contractor}` : `👤 ${project.customer}`}
-                            </div>
-                          )}
-                          {project.address && (
-                            <div style={{ fontSize: 12, color: '#999' }}>
-                              📍 {project.address}
-                            </div>
-                          )}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {project.name}
                         </div>
-                        <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontSize: 14, fontWeight: 600, color: BRAND.primary }}>
-                            {project.percent_complete || 0}% Complete
+                        {(project.customer || project.contractor) && (
+                          <div style={{ fontSize: 12, color: '#666', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {project.contractor ? `🔨 ${project.contractor}` : `👤 ${project.customer}`}
                           </div>
-                          {project.active_worth > 0 && (
-                            <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-                              ${project.active_worth.toLocaleString()}
-                            </div>
-                          )}
+                        )}
+                      </div>
+                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: BRAND.primary }}>
+                          {project.percent_complete || 0}%
                         </div>
+                        {project.active_worth > 0 && (
+                          <div style={{ fontSize: 11, color: '#666' }}>
+                            ${project.active_worth.toLocaleString()}
+                          </div>
+                        )}
                       </div>
                       {project.percent_complete > 0 && (
-                        <div style={{ marginTop: 8 }}>
+                        <div style={{ width: 60, flexShrink: 0 }}>
                           <div style={{ 
                             width: '100%', 
-                            height: 6, 
+                            height: 5, 
                             backgroundColor: '#e5e7eb', 
                             borderRadius: 3, 
                             overflow: 'hidden' 
@@ -797,7 +830,6 @@ export default function Home() {
                               width: `${project.percent_complete}%`, 
                               height: '100%', 
                               backgroundColor: BRAND.primary,
-                              transition: 'width 0.3s ease'
                             }} />
                           </div>
                         </div>

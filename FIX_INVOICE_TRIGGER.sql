@@ -19,19 +19,19 @@ DROP TRIGGER IF EXISTS invoice_status_change ON invoices;
 DROP TRIGGER IF EXISTS trigger_invoice_journal ON invoices;
 
 -- If the above doesn't work, this will drop ALL triggers on invoices table:
--- DO $$ 
--- DECLARE
---     trigger_rec RECORD;
--- BEGIN
---     FOR trigger_rec IN 
---         SELECT trigger_name 
---         FROM information_schema.triggers 
---         WHERE event_object_table = 'invoices'
---     LOOP
---         EXECUTE format('DROP TRIGGER IF EXISTS %I ON invoices', trigger_rec.trigger_name);
---         RAISE NOTICE 'Dropped trigger: %', trigger_rec.trigger_name;
---     END LOOP;
--- END $$;
+ DO $$ 
+ DECLARE
+     trigger_rec RECORD;
+ BEGIN
+-    FOR trigger_rec IN 
+         SELECT trigger_name 
+         FROM information_schema.triggers 
+         WHERE event_object_table = 'invoices'
+     LOOP
+         EXECUTE format('DROP TRIGGER IF EXISTS %I ON invoices', trigger_rec.trigger_name);
+         RAISE NOTICE 'Dropped trigger: %', trigger_rec.trigger_name;
+     END LOOP;
+ END $$;
 
 -- After running this, invoice saves will work properly.
 -- Journal entries are already created by the app code when invoices are SENT (handleSendEmail function).

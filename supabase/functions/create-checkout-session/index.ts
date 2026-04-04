@@ -12,7 +12,7 @@ Deno.serve(async (req) => {
     const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY')
     if (!STRIPE_SECRET_KEY) throw new Error('STRIPE_SECRET_KEY is not configured')
 
-    const { invoiceId, siteUrl } = await req.json()
+    const { invoiceId, siteUrl, ccFee = 0, paymentType = 'card' } = await req.json()
     if (!invoiceId) throw new Error('invoiceId is required')
 
     const baseUrl = (siteUrl || 'https://estimator.dmlelectrical.com').replace(/\/$/, '')
@@ -31,7 +31,28 @@ Deno.serve(async (req) => {
 
     if (error || !invoice) throw new Error('Invoice not found')
 
-    const balanceDue = Number(invoice.balance_due ?? invoice.total ?? 0)
+    // Calculate balance due — prefer DB field, fall back to calculating from items
+    let balanceDue = Number(invoice.balance_due ?? invoice.total ?? invoice.subtotal ?? 0)
+
+    // If DB balance is 0 or null, recalculate from invoice items
+    if (balanceDue <= 0) {
+      const { data: items } = await supabase
+        .from('invoice_items')
+        .select('total, markup_percentage')
+        .eq('invoice_id', invoiceId)
+
+      if (items && items.length > 0) {
+        const itemsTotal = items.reduce((sum: number, item: any) => {
+          const mp = item.markup_percentage || 0
+          return sum + (item.total || 0) * (1 + mp / 100)
+        }, 0)
+        const depositReceived = Number(invoice.deposit_received || 0)
+        const amountPaid = Number(invoice.amount_paid || 0)
+        balanceDue = itemsTotal - depositReceived - amountPaid
+        console.log(`Calculated balance from items: ${itemsTotal} - ${depositReceived} - ${amountPaid} = ${balanceDue}`)
+      }
+    }
+
     if (balanceDue <= 0) {
       return new Response(
         JSON.stringify({ error: 'This invoice has already been paid.' }),
@@ -39,27 +60,37 @@ Deno.serve(async (req) => {
       )
     }
 
-    const amountCents = Math.round(balanceDue * 100)
+    const balanceCents = Math.round(balanceDue * 100)
+    const feeCents = Math.round(Number(ccFee || 0) * 100)
     const invoiceLabel = `Invoice #${invoice.invoice_number || invoiceId}`
     const projectDesc = invoice.project_name || 'Electrical Services'
 
-    // Build Stripe Checkout Session params using URLSearchParams + append
+    // Build Stripe Checkout Session params
     const params = new URLSearchParams()
     params.append('mode', 'payment')
 
-    // Accept both card and ACH bank transfer
-    params.append('payment_method_types[]', 'card')
-    params.append('payment_method_types[]', 'us_bank_account')
+    // Payment method type — card or ACH bank transfer
+    if (paymentType === 'ach') {
+      params.append('payment_method_types[]', 'us_bank_account')
+    } else {
+      params.append('payment_method_types[]', 'card')
+    }
 
-    // ACH requires financial_connections permission
-    params.append('payment_method_options[us_bank_account][financial_connections][permissions][]', 'payment')
-
-    // Line item
+    // Line item 1: Invoice balance
     params.append('line_items[0][price_data][currency]', 'usd')
-    params.append('line_items[0][price_data][unit_amount]', String(amountCents))
+    params.append('line_items[0][price_data][unit_amount]', String(balanceCents))
     params.append('line_items[0][price_data][product_data][name]', invoiceLabel)
     params.append('line_items[0][price_data][product_data][description]', projectDesc)
     params.append('line_items[0][quantity]', '1')
+
+    // Line item 2: CC processing fee (only when card + fee > 0)
+    if (feeCents > 0 && paymentType === 'card') {
+      params.append('line_items[1][price_data][currency]', 'usd')
+      params.append('line_items[1][price_data][unit_amount]', String(feeCents))
+      params.append('line_items[1][price_data][product_data][name]', 'Credit Card Processing Fee (3%)')
+      params.append('line_items[1][price_data][product_data][description]', 'Convenience fee for paying by credit/debit card')
+      params.append('line_items[1][quantity]', '1')
+    }
 
     // Pre-fill customer email if available
     if (invoice.customer_email) {

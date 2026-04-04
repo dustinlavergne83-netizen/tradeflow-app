@@ -3,7 +3,7 @@ import { useAuth } from "../contexts/AuthContext";
 import Sidebar from "./Sidebar.jsx";
 
 export default function ProtectedRoute({ children }) {
-  const { user, employee, loading } = useAuth();
+  const { user, employee, customer, loading } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -17,6 +17,11 @@ export default function ProtectedRoute({ children }) {
 
   if (!user) {
     return <Navigate to="/signin" replace />;
+  }
+
+  // Customer users should not access employee/admin routes
+  if (customer && !employee) {
+    return <Navigate to="/customer/portal" replace />;
   }
 
   if (employee && (!employee.last_name?.trim() || !employee.phone?.trim()) && location.pathname !== "/profile-setup") {

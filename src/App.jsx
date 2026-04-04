@@ -1,10 +1,12 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import ProtectedRoute from "./Components/ProtectedRoute";
+import CustomerRoute from "./Components/CustomerRoute";
 import SignIn from "./pages/SignIn";
 import SignUp from "./pages/SignUp";
 import ProfileSetup from "./pages/ProfileSetup";
 import Home from "./pages/Home";
+import Landing from "./pages/Landing";
 import TimeClock from "./pages/TimeClock";
 import WeeklyTotals from "./pages/WeeklyTotals";
 import EmployeeTimesheets from "./pages/EmployeeTimesheets";
@@ -62,468 +64,540 @@ import ProjectGeofence from "./pages/ProjectGeofence";
 import GeofenceEvents from "./pages/GeofenceEvents";
 import PendingJobs from "./pages/PendingJobs";
 import DesktopHeader from "./Components/DesktopHeader";
+import WebsiteManager from "./pages/WebsiteManager";
+import Communications from "./pages/Communications";
+import TwilioSettings from "./pages/TwilioSettings";
+
+// Portal pages
+import CustomerLogin from "./pages/customer/CustomerLogin";
+import CustomerPortal from "./pages/customer/CustomerPortal";
+import CustomerInvoices from "./pages/customer/CustomerInvoices";
+import CustomerEstimates from "./pages/customer/CustomerEstimates";
+import EmployeePortal from "./pages/employee/EmployeePortal";
+
+// Pages that should never show the DesktopHeader
+const NO_HEADER_PATHS = new Set([
+  "/",
+  "/proposal/commercial-public",
+  "/invoice/commercial-public",
+  "/invoice/view",
+  "/invoice/receipt",
+  "/invoice/pay-success",
+  "/proposal/view",
+  "/estimate/quick/view",
+  // portal & website pages have their own headers
+  "/welcome",
+  "/customer/login",
+  "/customer/portal",
+  "/customer/invoices",
+  "/customer/estimates",
+  "/employee/portal",
+]);
 
 function AppContent() {
   const location = useLocation();
-  
-  // Don't show header on public pages
-  const isPublicPage = location.pathname === '/proposal/commercial-public' || 
-                       location.pathname === '/invoice/commercial-public' ||
-                       location.pathname === '/invoice/view' ||
-                       location.pathname === '/invoice/receipt' ||
-                       location.pathname === '/invoice/pay-success' ||
-                       location.pathname === '/proposal/view' ||
-                       location.pathname === '/estimate/quick/view';
-  
+  const path = location.pathname;
+
+  const isNoHeader =
+    NO_HEADER_PATHS.has(path) ||
+    path.startsWith("/customer/") ||
+    path.startsWith("/employee/");
+
   return (
     <>
-      {!isPublicPage && <DesktopHeader />}
-      <div className="content">
+      {!isNoHeader && <DesktopHeader />}
+      <div className={isNoHeader ? "" : "content"}>
         <Routes>
-                <Route path="/signin" element={<SignIn />} />
-                <Route path="/signup" element={<SignUp />} />
-                <Route 
-                  path="/profile-setup" 
-                  element={<ProfileSetup />} 
-                />
-                <Route
-                  path="/"
-                  element={
-                    <ProtectedRoute>
-                      <Home />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/projects"
-                  element={
-                    <ProtectedRoute>
-                      <ProjectsList />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/project/new"
-                  element={
-                    <ProtectedRoute>
-                      <ProjectSetup />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/project/:id"
-                  element={
-                    <ProtectedRoute>
-                      <ProjectDetail />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/project/:id/reports-photos"
-                  element={
-                    <ProtectedRoute>
-                      <ProjectReportsPhotos />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/project/:id/material-list"
-                  element={
-                    <ProtectedRoute>
-                      <ProjectMaterialList />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/project/:id/info-sheet"
-                  element={
-                    <ProtectedRoute>
-                      <ProjectInfoSheet />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/project/:projectId/plans"
-                  element={
-                    <ProtectedRoute>
-                      <Plans />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/project/:projectId/takeoff"
-                  element={
-                    <ProtectedRoute>
-                      <Takeoff />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/project/:projectId/geofence"
-                  element={
-                    <ProtectedRoute>
-                      <ProjectGeofence />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/timeclock"
-                  element={
-                    <ProtectedRoute>
-                      <TimeClock />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/weekly"
-                  element={
-                    <ProtectedRoute>
-                      <WeeklyTotals />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/timeclock/history"
-                  element={
-                    <ProtectedRoute>
-                      <EmployeeTimesheets />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/customers"
-                  element={
-                    <ProtectedRoute>
-                      <Customers />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/vendors"
-                  element={
-                    <ProtectedRoute>
-                      <Vendors />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/estimates"
-                  element={
-                    <ProtectedRoute>
-                      <EstimatesList />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/invoices"
-                  element={
-                    <ProtectedRoute>
-                      <InvoicesList />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/estimate/new"
-                  element={
-                    <ProtectedRoute>
-                      <Estimate />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/estimate/quick"
-                  element={
-                    <ProtectedRoute>
-                      <QuickEstimate />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/estimate/quick/view"
-                  element={<QuickEstimateView />}
-                />
-                <Route
-                  path="/project/:id/estimate"
-                  element={
-                    <ProtectedRoute>
-                      <Estimate mode="full" />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/project/:id/proposal"
-                  element={
-                    <ProtectedRoute>
-                      <Proposal />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/invoice"
-                  element={
-                    <ProtectedRoute>
-                      <Invoice />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/invoice/quick"
-                  element={
-                    <ProtectedRoute>
-                      <QuickInvoice />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/invoice/progress"
-                  element={
-                    <ProtectedRoute>
-                      <ProgressInvoice />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/invoice/view"
-                  element={<InvoiceView />}
-                />
-                <Route
-                  path="/invoice/receipt"
-                  element={<InvoiceReceipt />}
-                />
-                <Route
-                  path="/invoice/pay-success"
-                  element={<InvoicePaySuccess />}
-                />
-                <Route
-                  path="/invoice/detailed-report"
-                  element={
-                    <ProtectedRoute>
-                      <InvoiceDetailedReport />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/invoice/commercial-public"
-                  element={<InvoiceCommercialPublic />}
-                />
-                <Route
-                  path="/proposal/view"
-                  element={<ProposalView />}
-                />
-                <Route
-                  path="/proposal/commercial-public"
-                  element={<ProposalCommercialPublic />}
-                />
-                <Route
-                  path="/project/:projectId/progress-billing"
-                  element={
-                    <ProtectedRoute>
-                      <ProgressBilling />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/employees"
-                  element={
-                    <ProtectedRoute>
-                      <Employees />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/check-stubs"
-                  element={
-                    <ProtectedRoute>
-                      <CheckStubs />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/employee-locations"
-                  element={
-                    <ProtectedRoute>
-                      <EmployeeLocations />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/geofence-events"
-                  element={
-                    <ProtectedRoute>
-                      <GeofenceEvents />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/pending-jobs"
-                  element={
-                    <ProtectedRoute>
-                      <PendingJobs />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/time-off"
-                  element={
-                    <ProtectedRoute>
-                      <TimeOffRequests />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/expenses"
-                  element={
-                    <ProtectedRoute>
-                      <Expenses />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/admin"
-                  element={
-                    <ProtectedRoute>
-                      <AdminDashboard />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/assemblies"
-                  element={
-                    <ProtectedRoute>
-                      <AssemblyManager />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/base-materials"
-                  element={
-                    <ProtectedRoute>
-                      <BaseMaterialsManager />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/accounting"
-                  element={
-                    <ProtectedRoute>
-                      <AccountingDashboard />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/accounting/chart-of-accounts"
-                  element={
-                    <ProtectedRoute>
-                      <ChartOfAccounts />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/accounting/ledger/:accountId"
-                  element={
-                    <ProtectedRoute>
-                      <AccountLedger />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/accounting/general-ledger"
-                  element={
-                    <ProtectedRoute>
-                      <GeneralLedger />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/accounting/journal-entry"
-                  element={
-                    <ProtectedRoute>
-                      <JournalEntry />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/accounting/bank-accounts"
-                  element={
-                    <ProtectedRoute>
-                      <BankAccounts />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/accounting/bank-transactions"
-                  element={
-                    <ProtectedRoute>
-                      <BankTransactions />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/accounting/bank-reconciliation"
-                  element={
-                    <ProtectedRoute>
-                      <BankReconciliation />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/accounting/bills"
-                  element={
-                    <ProtectedRoute>
-                      <Bills />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/accounting/reports/trial-balance"
-                  element={
-                    <ProtectedRoute>
-                      <TrialBalance />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/accounting/reports/profit-loss"
-                  element={
-                    <ProtectedRoute>
-                      <ProfitLoss />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/accounting/reports/balance-sheet"
-                  element={
-                    <ProtectedRoute>
-                      <BalanceSheet />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/accounting/reports/cash-flow"
-                  element={
-                    <ProtectedRoute>
-                      <CashFlow />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/reports/weekly-timesheet"
-                  element={
-                    <ProtectedRoute>
-                      <WeeklyTimesheet />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/reports/individual-timesheet"
-                  element={
-                    <ProtectedRoute>
-                      <IndividualWeeklyTimesheet />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
+          {/* ── Public website ──────────────────────────────────────────── */}
+          <Route path="/" element={<Landing />} />
+          <Route path="/welcome" element={<Landing />} />
+
+          {/* ── Auth (employees/admin) ───────────────────────────────────── */}
+          <Route path="/signin" element={<SignIn />} />
+          <Route path="/signup" element={<SignUp />} />
+          <Route path="/profile-setup" element={<ProfileSetup />} />
+
+          {/* ── Customer Portal ──────────────────────────────────────────── */}
+          <Route path="/customer/login" element={<CustomerLogin />} />
+          <Route
+            path="/customer/portal"
+            element={
+              <CustomerRoute>
+                <CustomerPortal />
+              </CustomerRoute>
+            }
+          />
+          <Route
+            path="/customer/invoices"
+            element={
+              <CustomerRoute>
+                <CustomerInvoices />
+              </CustomerRoute>
+            }
+          />
+          <Route
+            path="/customer/estimates"
+            element={
+              <CustomerRoute>
+                <CustomerEstimates />
+              </CustomerRoute>
+            }
+          />
+
+          {/* ── Employee Portal ───────────────────────────────────────────── */}
+          <Route
+            path="/employee/portal"
+            element={
+              <ProtectedRoute>
+                <EmployeePortal />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ── Internal App (employees / admin) ─────────────────────────── */}
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute>
+                <Home />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/projects"
+            element={
+              <ProtectedRoute>
+                <ProjectsList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/project/new"
+            element={
+              <ProtectedRoute>
+                <ProjectSetup />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/project/:id"
+            element={
+              <ProtectedRoute>
+                <ProjectDetail />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/project/:id/reports-photos"
+            element={
+              <ProtectedRoute>
+                <ProjectReportsPhotos />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/project/:id/material-list"
+            element={
+              <ProtectedRoute>
+                <ProjectMaterialList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/project/:id/info-sheet"
+            element={
+              <ProtectedRoute>
+                <ProjectInfoSheet />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/project/:projectId/plans"
+            element={
+              <ProtectedRoute>
+                <Plans />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/project/:projectId/takeoff"
+            element={
+              <ProtectedRoute>
+                <Takeoff />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/project/:projectId/geofence"
+            element={
+              <ProtectedRoute>
+                <ProjectGeofence />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/timeclock"
+            element={
+              <ProtectedRoute>
+                <TimeClock />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/weekly"
+            element={
+              <ProtectedRoute>
+                <WeeklyTotals />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/timeclock/history"
+            element={
+              <ProtectedRoute>
+                <EmployeeTimesheets />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/customers"
+            element={
+              <ProtectedRoute>
+                <Customers />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/vendors"
+            element={
+              <ProtectedRoute>
+                <Vendors />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/estimates"
+            element={
+              <ProtectedRoute>
+                <EstimatesList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/invoices"
+            element={
+              <ProtectedRoute>
+                <InvoicesList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/estimate/new"
+            element={
+              <ProtectedRoute>
+                <Estimate />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/estimate/quick"
+            element={
+              <ProtectedRoute>
+                <QuickEstimate />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/estimate/quick/view" element={<QuickEstimateView />} />
+          <Route
+            path="/project/:id/estimate"
+            element={
+              <ProtectedRoute>
+                <Estimate mode="full" />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/project/:id/proposal"
+            element={
+              <ProtectedRoute>
+                <Proposal />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/invoice"
+            element={
+              <ProtectedRoute>
+                <Invoice />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/invoice/quick"
+            element={
+              <ProtectedRoute>
+                <QuickInvoice />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/invoice/progress"
+            element={
+              <ProtectedRoute>
+                <ProgressInvoice />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/invoice/view" element={<InvoiceView />} />
+          <Route path="/invoice/receipt" element={<InvoiceReceipt />} />
+          <Route path="/invoice/pay-success" element={<InvoicePaySuccess />} />
+          <Route
+            path="/invoice/detailed-report"
+            element={
+              <ProtectedRoute>
+                <InvoiceDetailedReport />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/invoice/commercial-public" element={<InvoiceCommercialPublic />} />
+          <Route path="/proposal/view" element={<ProposalView />} />
+          <Route path="/proposal/commercial-public" element={<ProposalCommercialPublic />} />
+          <Route
+            path="/project/:projectId/progress-billing"
+            element={
+              <ProtectedRoute>
+                <ProgressBilling />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/employees"
+            element={
+              <ProtectedRoute>
+                <Employees />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/check-stubs"
+            element={
+              <ProtectedRoute>
+                <CheckStubs />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/employee-locations"
+            element={
+              <ProtectedRoute>
+                <EmployeeLocations />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/geofence-events"
+            element={
+              <ProtectedRoute>
+                <GeofenceEvents />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/pending-jobs"
+            element={
+              <ProtectedRoute>
+                <PendingJobs />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/time-off"
+            element={
+              <ProtectedRoute>
+                <TimeOffRequests />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/expenses"
+            element={
+              <ProtectedRoute>
+                <Expenses />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/website-manager"
+            element={
+              <ProtectedRoute>
+                <WebsiteManager />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/communications"
+            element={
+              <ProtectedRoute>
+                <Communications />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/twilio-settings"
+            element={
+              <ProtectedRoute>
+                <TwilioSettings />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              <ProtectedRoute>
+                <AdminDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/assemblies"
+            element={
+              <ProtectedRoute>
+                <AssemblyManager />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/base-materials"
+            element={
+              <ProtectedRoute>
+                <BaseMaterialsManager />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounting"
+            element={
+              <ProtectedRoute>
+                <AccountingDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounting/chart-of-accounts"
+            element={
+              <ProtectedRoute>
+                <ChartOfAccounts />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounting/ledger/:accountId"
+            element={
+              <ProtectedRoute>
+                <AccountLedger />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounting/general-ledger"
+            element={
+              <ProtectedRoute>
+                <GeneralLedger />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounting/journal-entry"
+            element={
+              <ProtectedRoute>
+                <JournalEntry />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounting/bank-accounts"
+            element={
+              <ProtectedRoute>
+                <BankAccounts />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounting/bank-transactions"
+            element={
+              <ProtectedRoute>
+                <BankTransactions />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounting/bank-reconciliation"
+            element={
+              <ProtectedRoute>
+                <BankReconciliation />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounting/bills"
+            element={
+              <ProtectedRoute>
+                <Bills />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounting/reports/trial-balance"
+            element={
+              <ProtectedRoute>
+                <TrialBalance />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounting/reports/profit-loss"
+            element={
+              <ProtectedRoute>
+                <ProfitLoss />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounting/reports/balance-sheet"
+            element={
+              <ProtectedRoute>
+                <BalanceSheet />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounting/reports/cash-flow"
+            element={
+              <ProtectedRoute>
+                <CashFlow />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/reports/weekly-timesheet"
+            element={
+              <ProtectedRoute>
+                <WeeklyTimesheet />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/reports/individual-timesheet"
+            element={
+              <ProtectedRoute>
+                <IndividualWeeklyTimesheet />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ── Fallback ─────────────────────────────────────────────────── */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </div>
     </>
   );

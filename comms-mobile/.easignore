@@ -1,0 +1,43 @@
+# Ignore files not needed for the build to reduce archive size
+
+# Android build output
+android/
+android/.gradle/
+android/app/build/
+
+# iOS build output
+ios/build/
+ios/Pods/
+
+# Node modules (EAS installs these on the build server)
+node_modules/
+
+# Git history
+.git/
+
+# Test files
+__tests__/
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+
+# Development/debug files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+tmp/
+temp/

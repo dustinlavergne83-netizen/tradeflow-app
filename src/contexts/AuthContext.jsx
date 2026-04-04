@@ -6,6 +6,7 @@ const AuthContext = createContext({});
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [employee, setEmployee] = useState(null);
+  const [customer, setCustomer] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -13,7 +14,7 @@ export function AuthProvider({ children }) {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       if (session?.user) {
-        loadEmployeeData(session.user.id);
+        loadUserData(session.user.id);
       } else {
         setLoading(false);
       }
@@ -23,9 +24,10 @@ export function AuthProvider({ children }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) {
-        loadEmployeeData(session.user.id);
+        loadUserData(session.user.id);
       } else {
         setEmployee(null);
+        setCustomer(null);
         setLoading(false);
       }
     });
@@ -33,35 +35,55 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  async function loadEmployeeData(userId) {
+  async function loadUserData(userId) {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      
+
       if (!user?.email) {
+        setEmployee(null);
+        setCustomer(null);
+        setLoading(false);
+        return;
+      }
+
+      const cleanEmail = user.email.trim().toLowerCase();
+
+      // ── 1. Check employees table first ──────────────────────────────────
+      const { data: empData, error: empError } = await supabase
+        .from("employees")
+        .select("id, email, first_name, last_name, role, is_active, phone, date_of_birth, user_id")
+        .ilike("email", cleanEmail)
+        .maybeSingle();
+
+      if (empData) {
+        empData.full_name = `${empData.first_name || ""} ${empData.last_name || ""}`.trim();
+        setEmployee(empData);
+        setCustomer(null);
+        setLoading(false);
+        return;
+      }
+
+      // ── 2. Check customers table ─────────────────────────────────────────
+      const { data: custData, error: custError } = await supabase
+        .from("customers")
+        .select("id, name, email, phone, address, city, state, zip, company_id")
+        .ilike("email", cleanEmail)
+        .maybeSingle();
+
+      if (custData) {
+        setCustomer(custData);
         setEmployee(null);
         setLoading(false);
         return;
       }
 
-      // Try to find employee by email
-      const cleanEmail = user.email.trim().toLowerCase();
-      const { data, error } = await supabase
-        .from("employees")
-        .select("id, email, first_name, last_name, role, is_active, phone, date_of_birth")
-        .ilike("email", cleanEmail) // Case-insensitive match
-        .maybeSingle();
-
-      if (error) {
-        setEmployee(null);
-      } else if (data) {
-        // Add full_name property for easier display
-        data.full_name = `${data.first_name || ''} ${data.last_name || ''}`.trim();
-        setEmployee(data);
-      } else {
-        setEmployee(null);
-      }
-    } catch (err) {
+      // ── 3. Not found in either table ─────────────────────────────────────
       setEmployee(null);
+      setCustomer(null);
+    } catch (err) {
+      console.error("AuthContext loadUserData error:", err);
+      setEmployee(null);
+      setCustomer(null);
     } finally {
       setLoading(false);
     }
@@ -77,12 +99,16 @@ export function AuthProvider({ children }) {
     if (error) throw error;
     setUser(null);
     setEmployee(null);
+    setCustomer(null);
   }
 
   const value = {
     user,
     employee,
-    isAdmin: employee?.role === 'admin',
+    customer,
+    isAdmin: employee?.role === "admin",
+    isEmployee: !!employee,
+    isCustomer: !!customer,
     loading,
     signIn,
     signOut,

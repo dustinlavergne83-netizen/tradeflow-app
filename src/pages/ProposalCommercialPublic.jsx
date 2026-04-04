@@ -42,6 +42,7 @@ export default function ProposalCommercialPublic() {
   const [validUntil, setValidUntil] = useState("");
   const [contractorEmail, setContractorEmail] = useState("");
   const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [priceAdjustment, setPriceAdjustment] = useState(""); // +/- dollar override
 
   useEffect(() => {
     if (proposalId) {
@@ -93,6 +94,11 @@ export default function ProposalCommercialPublic() {
 
       if (!altsError) {
         setProposalAlternates(altsData || []);
+      }
+
+      // Load price adjustment if saved
+      if (proposalData.price_adjustment && proposalData.price_adjustment !== 0) {
+        setPriceAdjustment(proposalData.price_adjustment.toString());
       }
       
       setIsEditing(false);
@@ -368,15 +374,22 @@ export default function ProposalCommercialPublic() {
       const baseBidAmount = includeBaseBid ? (baseEstimate.total || 0) : 0;
       const selectedAlts = alternates.filter(alt => selectedAlternates.includes(alt.id));
       const alternatesTotal = selectedAlts.reduce((sum, alt) => sum + (alt.price || 0), 0);
-      const totalAmount = baseBidAmount + alternatesTotal;
+      const adj = parseFloat(priceAdjustment) || 0;
+      const totalAmount = baseBidAmount + alternatesTotal + adj;
 
       const proposalData = {
         company_id: user.id,
         project_id: projectId,
-        base_estimate_id: estimateId || baseEstimate.id,
+        // For change orders, use change_order_id instead of base_estimate_id
+        // (base_estimate_id has a foreign key to the estimates table)
+        ...(coId 
+          ? { change_order_id: coId, base_estimate_id: null }
+          : { base_estimate_id: estimateId || baseEstimate.id }
+        ),
         contractor_name: selectedContractor?.contractor_name || proposal?.contractor_name,
         base_bid_amount: includeBaseBid ? baseBidAmount : 0,
         total_amount: totalAmount,
+        price_adjustment: adj !== 0 ? adj : null,
         valid_until: validUntil || null,
         created_at: new Date().toISOString(),
       };
@@ -468,7 +481,9 @@ export default function ProposalCommercialPublic() {
     : proposalAlternates;
   
   const alternatesTotal = displayAlternates.reduce((sum, alt) => sum + (alt.price || alt.amount || 0), 0);
-  const totalAmount = baseBidAmount + alternatesTotal;
+  const adjustmentValue = parseFloat(priceAdjustment) || 0;
+  const calculatedTotal = baseBidAmount + alternatesTotal;
+  const totalAmount = calculatedTotal + adjustmentValue;
 
   return (
     <div style={styles.container}>
@@ -530,7 +545,16 @@ export default function ProposalCommercialPublic() {
                 </button>
               </>
             )}
-            <button onClick={() => window.print()} style={{...styles.button, ...styles.printButton}}>
+            <button
+              onClick={async () => {
+                window.print();
+                if (proposalId) {
+                  await supabase.from('proposals').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', proposalId);
+                  setProposal(prev => prev ? { ...prev, status: 'sent' } : prev);
+                }
+              }}
+              style={{...styles.button, ...styles.printButton}}
+            >
               🖨️ Print
             </button>
           </>
@@ -625,6 +649,63 @@ export default function ProposalCommercialPublic() {
                     </label>
                   </div>
                 ))}
+              </div>
+
+              {/* ── Price Adjustment ── */}
+              <div style={{marginTop: 28, paddingTop: 24, borderTop: '2px dashed #e5e7eb'}}>
+                <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10}}>
+                  <div>
+                    <h3 style={{...styles.cardSectionTitle, marginBottom: 4}}>💲 Price Adjustment</h3>
+                    <div style={{fontSize: 12, color: '#666'}}>
+                      Add or subtract an amount from the calculated total for this contractor. Use negative numbers to reduce the price (e.g. <strong>-500</strong> to lower by $500).
+                    </div>
+                  </div>
+                  <div style={{textAlign: 'right', marginLeft: 24, flexShrink: 0}}>
+                    <div style={{fontSize: 12, color: '#888', marginBottom: 2}}>Calculated</div>
+                    <div style={{fontSize: 18, fontWeight: '600', color: '#555'}}>
+                      ${calculatedTotal.toLocaleString('en-US', {minimumFractionDigits: 2})}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{display: 'flex', alignItems: 'center', gap: 16}}>
+                  <div style={{flex: 1}}>
+                    <input
+                      type="number"
+                      value={priceAdjustment}
+                      onChange={(e) => setPriceAdjustment(e.target.value)}
+                      placeholder="0.00  (e.g. -500 or 250)"
+                      style={{
+                        ...styles.cardDateInput,
+                        width: '100%',
+                        border: adjustmentValue !== 0 ? '2px solid #f59e0b' : '2px solid #e5e7eb',
+                        backgroundColor: adjustmentValue !== 0 ? '#fffbeb' : '#fff',
+                      }}
+                      step="0.01"
+                    />
+                  </div>
+                  {priceAdjustment !== '' && (
+                    <button
+                      onClick={() => setPriceAdjustment('')}
+                      style={{padding: '10px 14px', backgroundColor: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: 8, cursor: 'pointer', fontSize: 13, color: '#666'}}
+                    >
+                      ✕ Clear
+                    </button>
+                  )}
+                </div>
+
+                {adjustmentValue !== 0 && (
+                  <div style={{marginTop: 14, padding: '12px 16px', backgroundColor: adjustmentValue < 0 ? '#fef2f2' : '#f0fdf4', borderRadius: 8, border: `1px solid ${adjustmentValue < 0 ? '#fca5a5' : '#86efac'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                    <div style={{fontSize: 14, color: '#555'}}>
+                      Adjustment: <strong style={{color: adjustmentValue < 0 ? '#ef4444' : '#10b981'}}>
+                        {adjustmentValue > 0 ? '+' : ''}{adjustmentValue.toLocaleString('en-US', {style: 'currency', currency: 'USD'})}
+                      </strong>
+                    </div>
+                    <div style={{fontSize: 18, fontWeight: 'bold', color: BRAND.accent}}>
+                      Adjusted Total: ${totalAmount.toLocaleString('en-US', {minimumFractionDigits: 2})}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -779,7 +860,7 @@ export default function ProposalCommercialPublic() {
                     {baseEstimate.description || baseEstimate.project_description || "Base scope of work"}
                   </td>
                   <td style={{...styles.td, textAlign: "right", fontWeight: "600", fontSize: 16}}>
-                    ${baseBidAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    ${(baseBidAmount + adjustmentValue).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </td>
                 </tr>
               )}
@@ -799,7 +880,6 @@ export default function ProposalCommercialPublic() {
                   </td>
                 </tr>
               ))}
-
               <tr style={styles.totalRow}>
                 <td colSpan="2" style={{...styles.td, fontWeight: "bold", fontSize: 18}}>
                   TOTAL INVESTMENT
