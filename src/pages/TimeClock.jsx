@@ -19,6 +19,8 @@ export default function TimeClock() {
   const [weeklyTimesheet, setWeeklyTimesheet] = useState([]);
   const [detailedBreakdown, setDetailedBreakdown] = useState([]);
   const [shiftDetails, setShiftDetails] = useState([]);
+  const [editModal, setEditModal] = useState(null); // segment edit modal
+  const [editSaving, setEditSaving] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [uploadingPhotoFor, setUploadingPhotoFor] = useState(null);
@@ -161,7 +163,12 @@ export default function TimeClock() {
                 startTime: formatTime(firstSeg.start_at),
                 endTime: lastSeg.end_at ? formatTime(lastSeg.end_at) : 'In Progress',
                 hours: totalHours,
-                hasLunch: hasLunch
+                hasLunch: hasLunch,
+                firstSegId: firstSeg.id,
+                lastSegId: lastSeg.id,
+                rawStart: firstSeg.start_at,
+                rawEnd: lastSeg.end_at || null,
+                allDaySegIds: allDaySegs.map(s => s.id),
               };
             } else {
               projectRow.employees[empKey] = null;
@@ -229,6 +236,73 @@ export default function TimeClock() {
     } catch (err) {
       console.error("Error loading day details:", err);
     }
+  }
+
+  function isoToHHMM(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  }
+
+  function openSegmentEdit(empData, empName, project, rowDay) {
+    if (!empData || !empData.firstSegId) return;
+    setEditModal({
+      firstSegId: empData.firstSegId,
+      lastSegId: empData.lastSegId,
+      allDaySegIds: empData.allDaySegIds || [],
+      startDate: rowDay,
+      endDate: empData.rawEnd ? empData.rawEnd.split('T')[0] : rowDay,
+      startTime: isoToHHMM(empData.rawStart),
+      endTime: isoToHHMM(empData.rawEnd),
+      hasLunch: empData.hasLunch || false,
+      empName,
+      project,
+    });
+  }
+
+  async function saveSegmentEdit() {
+    if (!editModal) return;
+    setEditSaving(true);
+    try {
+      const { firstSegId, lastSegId, allDaySegIds, startDate, endDate, startTime, endTime, hasLunch } = editModal;
+
+      // Build start ISO in local timezone
+      const [sh, sm] = startTime.split(':').map(Number);
+      const startD = new Date(startDate + 'T00:00:00');
+      startD.setHours(sh, sm, 0, 0);
+
+      const { error: startErr } = await supabase
+        .from('shift_segments')
+        .update({ start_at: startD.toISOString() })
+        .eq('id', firstSegId);
+      if (startErr) throw startErr;
+
+      // Build end ISO in local timezone
+      if (lastSegId && endTime) {
+        const [eh, em] = endTime.split(':').map(Number);
+        const endD = new Date(endDate + 'T00:00:00');
+        endD.setHours(eh, em, 0, 0);
+        const { error: endErr } = await supabase
+          .from('shift_segments')
+          .update({ end_at: endD.toISOString() })
+          .eq('id', lastSegId);
+        if (endErr) throw endErr;
+      }
+
+      // Update is_lunch — set on first segment, clear on rest
+      if (allDaySegIds && allDaySegIds.length > 0) {
+        await supabase.from('shift_segments').update({ is_lunch: hasLunch }).eq('id', allDaySegIds[0]);
+        for (let i = 1; i < allDaySegIds.length; i++) {
+          await supabase.from('shift_segments').update({ is_lunch: false }).eq('id', allDaySegIds[i]);
+        }
+      }
+
+      setEditModal(null);
+      await loadDetailedBreakdown();
+    } catch (e) {
+      alert('Save failed: ' + e.message);
+    }
+    setEditSaving(false);
   }
 
   function closeDetailsModal() {
@@ -1085,34 +1159,50 @@ export default function TimeClock() {
                           
                           return (
                             <React.Fragment key={empIdx}>
-                              <td style={{
-                                padding: "8px 8px",
-                                textAlign: "center",
-                                borderBottom: "1px solid #e5e7eb",
-                                borderLeft: empIdx === 0 ? "2px solid #e5e7eb" : "1px solid #e5e7eb",
-                                fontSize: 12,
-                                color: "#111",
-                              }}>
+                              <td
+                                title={empData ? "Click to edit" : ""}
+                                onClick={() => empData && openSegmentEdit(empData, empName, row.project, row.day)}
+                                style={{
+                                  padding: "8px 8px",
+                                  textAlign: "center",
+                                  borderBottom: "1px solid #e5e7eb",
+                                  borderLeft: empIdx === 0 ? "2px solid #e5e7eb" : "1px solid #e5e7eb",
+                                  fontSize: 12,
+                                  color: empData ? "#0b3ea8" : "#9ca3af",
+                                  cursor: empData ? "pointer" : "default",
+                                  fontWeight: empData ? 600 : 400,
+                                  textDecoration: empData ? "underline dotted" : "none",
+                                }}>
                                 {empData ? empData.startTime : ""}
                               </td>
-                              <td style={{
-                                padding: "8px 8px",
-                                textAlign: "center",
-                                borderBottom: "1px solid #e5e7eb",
-                                borderLeft: "1px solid #e5e7eb",
-                                fontSize: 16,
-                                color: empData?.hasLunch ? "#10b981" : "#d1d5db",
-                              }}>
-                                {empData?.hasLunch ? "✓" : ""}
+                              <td
+                                title={empData ? "Click to edit lunch" : ""}
+                                onClick={() => empData && openSegmentEdit(empData, empName, row.project, row.day)}
+                                style={{
+                                  padding: "8px 8px",
+                                  textAlign: "center",
+                                  borderBottom: "1px solid #e5e7eb",
+                                  borderLeft: "1px solid #e5e7eb",
+                                  fontSize: 16,
+                                  color: empData?.hasLunch ? "#10b981" : "#d1d5db",
+                                  cursor: empData ? "pointer" : "default",
+                                }}>
+                                {empData?.hasLunch ? "✓" : (empData ? "—" : "")}
                               </td>
-                              <td style={{
-                                padding: "8px 8px",
-                                textAlign: "center",
-                                borderBottom: "1px solid #e5e7eb",
-                                borderLeft: "1px solid #e5e7eb",
-                                fontSize: 12,
-                                color: "#111",
-                              }}>
+                              <td
+                                title={empData ? "Click to edit" : ""}
+                                onClick={() => empData && openSegmentEdit(empData, empName, row.project, row.day)}
+                                style={{
+                                  padding: "8px 8px",
+                                  textAlign: "center",
+                                  borderBottom: "1px solid #e5e7eb",
+                                  borderLeft: "1px solid #e5e7eb",
+                                  fontSize: 12,
+                                  color: empData ? "#0b3ea8" : "#9ca3af",
+                                  cursor: empData ? "pointer" : "default",
+                                  fontWeight: empData ? 600 : 400,
+                                  textDecoration: empData ? "underline dotted" : "none",
+                                }}>
                                 {empData ? empData.endTime : ""}
                               </td>
                               <td style={{
@@ -1146,6 +1236,96 @@ export default function TimeClock() {
                   })}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {/* Segment Edit Modal */}
+        {editModal && (
+          <div
+            style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000, padding: 20 }}
+            onClick={() => setEditModal(null)}
+          >
+            <div
+              style={{ backgroundColor: "#fff", borderRadius: 12, maxWidth: 500, width: "100%", padding: 28, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+                <h3 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: "#111" }}>✏️ Edit Time Entry</h3>
+                <button onClick={() => setEditModal(null)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#6b7280" }}>✕</button>
+              </div>
+              <p style={{ margin: "0 0 20px 0", fontSize: 13, color: "#6b7280" }}>
+                {editModal.empName} — {editModal.project}
+              </p>
+
+              <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginBottom: 4 }}>Clock In Date</label>
+                  <input
+                    type="date"
+                    value={editModal.startDate}
+                    onChange={e => setEditModal(m => ({ ...m, startDate: e.target.value }))}
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #d1d5db", fontSize: 14, boxSizing: "border-box" }}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginBottom: 4 }}>Start Time</label>
+                  <input
+                    type="time"
+                    value={editModal.startTime}
+                    onChange={e => setEditModal(m => ({ ...m, startTime: e.target.value }))}
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #d1d5db", fontSize: 14, boxSizing: "border-box" }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 12, marginBottom: 18 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginBottom: 4 }}>Clock Out Date</label>
+                  <input
+                    type="date"
+                    value={editModal.endDate}
+                    onChange={e => setEditModal(m => ({ ...m, endDate: e.target.value }))}
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #d1d5db", fontSize: 14, boxSizing: "border-box" }}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginBottom: 4 }}>End Time</label>
+                  <input
+                    type="time"
+                    value={editModal.endTime}
+                    onChange={e => setEditModal(m => ({ ...m, endTime: e.target.value }))}
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #d1d5db", fontSize: 14, boxSizing: "border-box" }}
+                  />
+                </div>
+              </div>
+
+              <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 22, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={editModal.hasLunch}
+                  onChange={e => setEditModal(m => ({ ...m, hasLunch: e.target.checked }))}
+                  style={{ width: 18, height: 18, accentColor: "#10b981" }}
+                />
+                <span style={{ fontSize: 14, fontWeight: 600, color: "#111" }}>Deduct 30 min lunch break</span>
+              </label>
+
+              <div style={{ display: "flex", gap: 10 }}>
+                <button
+                  onClick={saveSegmentEdit}
+                  disabled={editSaving}
+                  style={{ flex: 1, backgroundColor: "#0b3ea8", color: "#fff", border: "none", borderRadius: 8, padding: "11px 16px", fontSize: 15, fontWeight: 700, cursor: editSaving ? "not-allowed" : "pointer", opacity: editSaving ? 0.7 : 1 }}
+                >
+                  {editSaving ? "Saving…" : "💾 Save Changes"}
+                </button>
+                <button
+                  onClick={() => setEditModal(null)}
+                  disabled={editSaving}
+                  style={{ flex: 1, backgroundColor: "#f3f4f6", color: "#374151", border: "1px solid #d1d5db", borderRadius: 8, padding: "11px 16px", fontSize: 15, fontWeight: 700, cursor: "pointer" }}
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
         )}
