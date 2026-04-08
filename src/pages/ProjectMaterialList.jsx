@@ -32,6 +32,9 @@ export default function ProjectMaterialList() {
   const [loading, setLoading] = useState(true);
   const [showAddListModal, setShowAddListModal] = useState(false);
   const [showAddItemModal, setShowAddItemModal] = useState(false);
+  const [showEditListModal, setShowEditListModal] = useState(false);
+  const [editingList, setEditingList] = useState(null);
+  const [editListForm, setEditListForm] = useState({ title: '', description: '', status: 'draft' });
   const [selectedList, setSelectedList] = useState(null);
   const [expandedList, setExpandedList] = useState(null);
   const [editingItems, setEditingItems] = useState([]);
@@ -39,6 +42,7 @@ export default function ProjectMaterialList() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [attachments, setAttachments] = useState({});
+  const [itemListRefreshKey, setItemListRefreshKey] = useState({});
   
   const [listForm, setListForm] = useState({
     title: 'Material List',
@@ -89,6 +93,61 @@ export default function ProjectMaterialList() {
       alert("Failed to load material lists: " + err.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleUpdateList() {
+    if (!editListForm.title.trim()) {
+      alert('List title is required');
+      return;
+    }
+    try {
+      const { error } = await supabase
+        .from("project_material_lists")
+        .update({
+          title: editListForm.title.trim(),
+          description: editListForm.description.trim() || null,
+          status: editListForm.status,
+        })
+        .eq("id", editingList.id);
+
+      if (error) throw error;
+
+      setMaterialLists(materialLists.map(l =>
+        l.id === editingList.id
+          ? { ...l, title: editListForm.title.trim(), description: editListForm.description.trim() || null, status: editListForm.status }
+          : l
+      ));
+      setShowEditListModal(false);
+      setEditingList(null);
+    } catch (err) {
+      console.error("Error updating list:", err);
+      alert("Failed to update list: " + err.message);
+    }
+  }
+
+  async function handleDeleteList(list) {
+    if (!window.confirm(`Delete "${list.title}" and all its items? This cannot be undone.`)) return;
+    try {
+      // Delete items first
+      const { error: itemsError } = await supabase
+        .from("material_list_items")
+        .delete()
+        .eq("material_list_id", list.id);
+      if (itemsError) throw itemsError;
+
+      // Delete the list
+      const { error } = await supabase
+        .from("project_material_lists")
+        .delete()
+        .eq("id", list.id);
+      if (error) throw error;
+
+      setMaterialLists(materialLists.filter(l => l.id !== list.id));
+      if (expandedList === list.id) setExpandedList(null);
+    } catch (err) {
+      console.error("Error deleting list:", err);
+      alert("Failed to delete list: " + err.message);
     }
   }
 
@@ -259,7 +318,6 @@ export default function ProjectMaterialList() {
                       <button
                         onClick={() => {
                           setSelectedList(list);
-                          // Initialize with 5 empty rows for the spreadsheet
                           setEditingItems([
                             { description: '', quantity: 1, unit: 'ea', unit_cost: 0, vendor: '', category: 'Wire & Cable' },
                             { description: '', quantity: 1, unit: 'ea', unit_cost: 0, vendor: '', category: 'Wire & Cable' },
@@ -294,11 +352,31 @@ export default function ProjectMaterialList() {
                       >
                         {expandedList === list.id ? 'Hide' : 'View'} Items
                       </button>
+                      <button
+                        onClick={() => {
+                          setEditingList(list);
+                          setEditListForm({ title: list.title, description: list.description || '', status: list.status });
+                          setShowEditListModal(true);
+                        }}
+                        style={{...styles.actionButton, backgroundColor: '#f59e0b'}}
+                      >
+                        ✏️ Edit List
+                      </button>
+                      <button
+                        onClick={() => handleDeleteList(list)}
+                        style={{...styles.actionButton, backgroundColor: '#dc2626'}}
+                      >
+                        🗑️ Delete List
+                      </button>
                     </div>
                   </div>
                   
                   {expandedList === list.id && (
-                    <MaterialListItems listId={list.id} />
+                    <MaterialListItems
+                      listId={list.id}
+                      refreshKey={itemListRefreshKey[list.id] || 0}
+                      onRefresh={() => setItemListRefreshKey(prev => ({ ...prev, [list.id]: (prev[list.id] || 0) + 1 }))}
+                    />
                   )}
                 </div>
               ))}
@@ -582,6 +660,65 @@ export default function ProjectMaterialList() {
         </div>
       )}
 
+      {/* Edit List Modal */}
+      {showEditListModal && editingList && (
+        <div style={styles.modal}>
+          <div style={styles.modalContent}>
+            <h2 style={styles.modalTitle}>✏️ Edit Material List</h2>
+
+            <div style={styles.field}>
+              <label style={styles.label}>Title</label>
+              <input
+                type="text"
+                value={editListForm.title}
+                onChange={(e) => setEditListForm({...editListForm, title: e.target.value})}
+                style={styles.input}
+              />
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.label}>Description</label>
+              <textarea
+                value={editListForm.description}
+                onChange={(e) => setEditListForm({...editListForm, description: e.target.value})}
+                style={styles.textarea}
+                placeholder="Optional description..."
+                rows={3}
+              />
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.label}>Status</label>
+              <select
+                value={editListForm.status}
+                onChange={(e) => setEditListForm({...editListForm, status: e.target.value})}
+                style={styles.select}
+              >
+                <option value="draft">Draft</option>
+                <option value="ordered">Ordered</option>
+                <option value="received">Received</option>
+                <option value="complete">Complete</option>
+              </select>
+            </div>
+
+            <div style={styles.modalActions}>
+              <button
+                onClick={() => { setShowEditListModal(false); setEditingList(null); }}
+                style={styles.cancelButton}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUpdateList}
+                style={styles.primaryButton}
+              >
+                💾 Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* File Upload Modal */}
       {showUploadModal && selectedList && (
         <FileUploadModal
@@ -858,15 +995,19 @@ function FileUploadModal({ isOpen, onClose, projectId, materialListId, listTitle
   );
 }
 
-function MaterialListItems({ listId }) {
+function MaterialListItems({ listId, refreshKey, onRefresh }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [editingItemId, setEditingItemId] = useState(null);
+  const [editItemForm, setEditItemForm] = useState({});
+  const [savingItem, setSavingItem] = useState(false);
 
   useEffect(() => {
     loadItems();
-  }, [listId]);
+  }, [listId, refreshKey]);
 
   async function loadItems() {
+    setLoading(true);
     try {
       const { data, error } = await supabase
         .from("material_list_items")
@@ -880,6 +1021,77 @@ function MaterialListItems({ listId }) {
       console.error("Error loading items:", err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  function startEditItem(item) {
+    setEditingItemId(item.id);
+    setEditItemForm({
+      description: item.description,
+      quantity: item.quantity,
+      unit: item.unit,
+      unit_cost: item.unit_cost,
+      vendor: item.vendor || '',
+      category: item.category || 'Wire & Cable',
+    });
+  }
+
+  function cancelEditItem() {
+    setEditingItemId(null);
+    setEditItemForm({});
+  }
+
+  async function saveEditItem(itemId) {
+    if (!editItemForm.description?.trim()) {
+      alert('Description is required');
+      return;
+    }
+    setSavingItem(true);
+    try {
+      const newTotal = (parseFloat(editItemForm.quantity) || 0) * (parseFloat(editItemForm.unit_cost) || 0);
+      const { error } = await supabase
+        .from("material_list_items")
+        .update({
+          description: editItemForm.description.trim(),
+          quantity: parseFloat(editItemForm.quantity) || 1,
+          unit: editItemForm.unit || 'ea',
+          unit_cost: parseFloat(editItemForm.unit_cost) || 0,
+          total_cost: newTotal,
+          vendor: editItemForm.vendor?.trim() || null,
+          category: editItemForm.category || 'Wire & Cable',
+        })
+        .eq("id", itemId);
+
+      if (error) throw error;
+
+      setItems(items.map(i =>
+        i.id === itemId
+          ? { ...i, ...editItemForm, quantity: parseFloat(editItemForm.quantity) || 1, unit_cost: parseFloat(editItemForm.unit_cost) || 0, total_cost: newTotal }
+          : i
+      ));
+      setEditingItemId(null);
+      setEditItemForm({});
+    } catch (err) {
+      console.error("Error saving item:", err);
+      alert("Failed to save item: " + err.message);
+    } finally {
+      setSavingItem(false);
+    }
+  }
+
+  async function deleteItem(item) {
+    if (!window.confirm(`Delete "${item.description}"?`)) return;
+    try {
+      const { error } = await supabase
+        .from("material_list_items")
+        .delete()
+        .eq("id", item.id);
+
+      if (error) throw error;
+      setItems(items.filter(i => i.id !== item.id));
+    } catch (err) {
+      console.error("Error deleting item:", err);
+      alert("Failed to delete item: " + err.message);
     }
   }
 
@@ -901,24 +1113,124 @@ function MaterialListItems({ listId }) {
         <span>Items ({items.length})</span>
         <span style={styles.totalCost}>Total: ${totalCost.toFixed(2)}</span>
       </div>
-      
+
       <div style={styles.itemsList}>
-        {items.map((item) => (
-          <div key={item.id} style={styles.itemRow}>
-            <div style={styles.itemMain}>
-              <div style={styles.itemDescription}>{item.description}</div>
-              <div style={styles.itemDetails}>
-                {item.quantity} {item.unit} × ${item.unit_cost} = ${item.total_cost?.toFixed(2)}
-              </div>
-              {item.vendor && (
-                <div style={styles.itemVendor}>Vendor: {item.vendor}</div>
+        {items.map((item) => {
+          const isEditing = editingItemId === item.id;
+          return (
+            <div key={item.id} style={{...styles.itemRow, alignItems: isEditing ? 'flex-start' : 'center', flexWrap: 'wrap', gap: 8}}>
+              {isEditing ? (
+                <div style={{flex: 1, display: 'flex', flexDirection: 'column', gap: 8}}>
+                  <div style={{display: 'flex', gap: 8, flexWrap: 'wrap'}}>
+                    <input
+                      type="text"
+                      value={editItemForm.description}
+                      onChange={(e) => setEditItemForm({...editItemForm, description: e.target.value})}
+                      style={{...styles.input, flex: 3, minWidth: 160}}
+                      placeholder="Description"
+                    />
+                    <input
+                      type="number"
+                      value={editItemForm.quantity}
+                      onChange={(e) => setEditItemForm({...editItemForm, quantity: e.target.value})}
+                      style={{...styles.input, flex: 1, minWidth: 60}}
+                      placeholder="Qty"
+                      min="0"
+                      step="0.01"
+                    />
+                    <select
+                      value={editItemForm.unit}
+                      onChange={(e) => setEditItemForm({...editItemForm, unit: e.target.value})}
+                      style={{...styles.select, flex: 1, minWidth: 70}}
+                    >
+                      <option value="ea">ea</option>
+                      <option value="ft">ft</option>
+                      <option value="lf">lf</option>
+                      <option value="roll">roll</option>
+                      <option value="box">box</option>
+                      <option value="bag">bag</option>
+                      <option value="lb">lb</option>
+                      <option value="gal">gal</option>
+                      <option value="set">set</option>
+                    </select>
+                    <input
+                      type="number"
+                      value={editItemForm.unit_cost}
+                      onChange={(e) => setEditItemForm({...editItemForm, unit_cost: e.target.value})}
+                      style={{...styles.input, flex: 1, minWidth: 80}}
+                      placeholder="Unit Cost"
+                      min="0"
+                      step="0.01"
+                    />
+                  </div>
+                  <div style={{display: 'flex', gap: 8, flexWrap: 'wrap'}}>
+                    <input
+                      type="text"
+                      value={editItemForm.vendor}
+                      onChange={(e) => setEditItemForm({...editItemForm, vendor: e.target.value})}
+                      style={{...styles.input, flex: 2, minWidth: 120}}
+                      placeholder="Vendor"
+                    />
+                    <select
+                      value={editItemForm.category}
+                      onChange={(e) => setEditItemForm({...editItemForm, category: e.target.value})}
+                      style={{...styles.select, flex: 2, minWidth: 140}}
+                    >
+                      {MATERIAL_CATEGORIES.map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                    <span style={{...styles.totalCost, alignSelf: 'center', fontSize: 14}}>
+                      = ${((parseFloat(editItemForm.quantity) || 0) * (parseFloat(editItemForm.unit_cost) || 0)).toFixed(2)}
+                    </span>
+                  </div>
+                  <div style={{display: 'flex', gap: 8}}>
+                    <button
+                      onClick={() => saveEditItem(item.id)}
+                      disabled={savingItem}
+                      style={{...styles.actionButton, backgroundColor: '#16a34a', fontSize: 13, padding: '6px 14px'}}
+                    >
+                      {savingItem ? '⏳' : '✅ Save'}
+                    </button>
+                    <button
+                      onClick={cancelEditItem}
+                      style={{...styles.cancelButton, fontSize: 13, padding: '6px 14px'}}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div style={styles.itemMain}>
+                    <div style={styles.itemDescription}>{item.description}</div>
+                    <div style={styles.itemDetails}>
+                      {item.quantity} {item.unit} × ${item.unit_cost} = ${item.total_cost?.toFixed(2)}
+                    </div>
+                    {item.vendor && (
+                      <div style={styles.itemVendor}>Vendor: {item.vendor}</div>
+                    )}
+                  </div>
+                  <div style={{display: 'flex', alignItems: 'center', gap: 8, marginLeft: 8}}>
+                    <span style={styles.categoryBadge}>{item.category}</span>
+                    <button
+                      onClick={() => startEditItem(item)}
+                      style={{...styles.actionButton, backgroundColor: '#f59e0b', fontSize: 12, padding: '5px 10px'}}
+                    >
+                      ✏️ Edit
+                    </button>
+                    <button
+                      onClick={() => deleteItem(item)}
+                      style={{...styles.actionButton, backgroundColor: '#dc2626', fontSize: 12, padding: '5px 10px'}}
+                    >
+                      🗑️ Delete
+                    </button>
+                  </div>
+                </>
               )}
             </div>
-            <div style={styles.itemCategory}>
-              <span style={styles.categoryBadge}>{item.category}</span>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
