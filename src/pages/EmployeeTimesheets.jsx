@@ -129,17 +129,23 @@ export default function EmployeeTimesheets() {
   // Get unique projects
   const projects = [...new Set(timeEntries.map(e => e.project))].sort();
 
-  // Calculate totals by employee (deduct 30 min for lunch entries)
+  // Calculate totals by employee — deduct lunch ONCE per employee-day (not per segment)
+  // First, find which employee-days have any segment with is_lunch=true
+  const lunchDaySet = new Set();
+  filteredEntries.forEach(entry => {
+    if (entry.is_lunch) lunchDaySet.add(entry.user_id + '_' + entry.raw_date);
+  });
+
   const employeeTotals = {};
+  const lunchDeductedDays = new Set(); // track which days already had 0.5h deducted
   filteredEntries.forEach(entry => {
     if (!employeeTotals[entry.user_id]) {
-      employeeTotals[entry.user_id] = {
-        name: entry.employee_name,
-        hours: 0,
-        entries: 0
-      };
+      employeeTotals[entry.user_id] = { name: entry.employee_name, hours: 0, entries: 0 };
     }
-    const effectiveHours = entry.is_lunch ? Math.max(0, entry.hours - 0.5) : entry.hours;
+    const dayKey = entry.user_id + '_' + entry.raw_date;
+    const deductHere = lunchDaySet.has(dayKey) && !lunchDeductedDays.has(dayKey);
+    if (deductHere) lunchDeductedDays.add(dayKey);
+    const effectiveHours = deductHere ? Math.max(0, entry.hours - 0.5) : entry.hours;
     employeeTotals[entry.user_id].hours += effectiveHours;
     employeeTotals[entry.user_id].entries += 1;
   });
