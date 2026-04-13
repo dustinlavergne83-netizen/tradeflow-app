@@ -1,709 +1,767 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../contexts/AuthContext";
+import jsPDF from "jspdf";
+import "jspdf-autotable";
 
-const BRAND = {
-  bg: "#0b3ea8",
-  text: "#f97316",
-  cardBg: "#e5e7eb",
-  cardText: "#fc6b04ff",
-  border: "#1f2937",
-  primary: "#0b3ea8",
-  accent: "#fc6b04ff",
-};
+const BRAND = { bg: "#0b3ea8", accent: "#fc6b04ff", primary: "#0b3ea8" };
 
+// ─── helpers ────────────────────────────────────────────────────────────────
+function getMonday(date) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  d.setDate(diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function addDays(date, n) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+
+function toYMD(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function segDate(seg) {
+  const d = new Date(seg.start_at);
+  return toYMD(d);
+}
+
+function calcDayHours(segs) {
+  const raw = segs.reduce((sum, s) => {
+    if (!s.end_at) return sum;
+    return sum + (new Date(s.end_at) - new Date(s.start_at)) / 3600000;
+  }, 0);
+  const hasLunch = segs.some((s) => s.is_lunch);
+  return Math.max(0, raw - (hasLunch ? 0.5 : 0));
+}
+
+function fmt(d, style = "time") {
+  const date = new Date(d);
+  if (style === "time") return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return date.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+}
+
+function elapsed(start) {
+  const ms = Date.now() - new Date(start).getTime();
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+// ─── component ───────────────────────────────────────────────────────────────
 export default function EmployeeTimesheets() {
   const navigate = useNavigate();
-  const { user } = useAuth();
-  
+  const [weekStart, setWeekStart] = useState(() => getMonday(new Date()));
   const [loading, setLoading] = useState(true);
   const [employees, setEmployees] = useState([]);
-  const [timeEntries, setTimeEntries] = useState([]);
-  const [selectedEmployee, setSelectedEmployee] = useState("all");
-  const [selectedProject, setSelectedProject] = useState("all");
-  const [editingEntry, setEditingEntry] = useState(null);
-  const [editForm, setEditForm] = useState({ date: '', start_time: '', end_time: '', project: '', is_lunch: false });
-  const [startDate, setStartDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 14); // Last 2 weeks
-    return d.toISOString().split('T')[0];
-  });
-  const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [segments, setSegments] = useState([]);
+  const [openSegs, setOpenSegs] = useState([]); // currently clocked-in
+  const [editCell, setEditCell] = useState(null); // { userId, dateStr, empName }
+  const [cellSegs, setCellSegs] = useState([]);
+  const [editSeg, setEditSeg] = useState(null); // segment being edited
+  const [editForm, setEditForm] = useState({});
+  const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    if (user) {
-      loadData();
-    }
-  }, [user, startDate, endDate]);
+  // ── add punch ────────────────────────────────────────────────────────────
+  const [showAddModal, setShowAddModal] = useState(false); // standalone modal
+  const [addingInPanel, setAddingInPanel] = useState(false); // add inside cell panel
+  const blankAdd = { userId: "", date: toYMD(new Date()), startTime: "07:00", endTime: "15:30", project: "", is_lunch: false };
+  const [addForm, setAddForm] = useState(blankAdd);
+
+  const weekDays = Array.from({ length: 7 }, (_, i) => toYMD(addDays(weekStart, i)));
+  const weekEnd = weekDays[6];
+  const weekLabel = `${addDays(weekStart, 0).toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${addDays(weekStart, 6).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+  const DAY_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+  useEffect(() => { loadData(); }, [weekStart]); // eslint-disable-line
 
   async function loadData() {
     setLoading(true);
     try {
-      // Load all employees
-      const { data: employeesData, error: empError } = await supabase
-        .from("employees")
-        .select("user_id, first_name, last_name, preferred_name")
-        .order("first_name");
-
-      if (empError) throw empError;
-
-      setEmployees(employeesData || []);
-
-      // Load all time entries (shift_segments) for date range
-      // Try with is_lunch column first, fall back without it
-      let segmentsData = null;
-      let segError = null;
-      
-      const result1 = await supabase
-        .from("shift_segments")
-        .select("id, user_id, project_task, start_at, end_at, shift_id, is_lunch")
-        .gte("start_at", startDate + "T00:00:00")
-        .lte("start_at", endDate + "T23:59:59")
-        .order("start_at", { ascending: false });
-
-      if (result1.error && result1.error.message?.includes("is_lunch")) {
-        // Column doesn't exist yet, query without it
-        const result2 = await supabase
-          .from("shift_segments")
-          .select("id, user_id, project_task, start_at, end_at, shift_id")
-          .gte("start_at", startDate + "T00:00:00")
-          .lte("start_at", endDate + "T23:59:59")
-          .order("start_at", { ascending: false });
-        segmentsData = result2.data;
-        segError = result2.error;
-      } else {
-        segmentsData = result1.data;
-        segError = result1.error;
-      }
-
-      if (segError) throw segError;
-
-      // Calculate hours and map to entries
-      const entries = (segmentsData || []).map(seg => {
-        const start = new Date(seg.start_at);
-        const end = seg.end_at ? new Date(seg.end_at) : null;
-        const hours = end ? ((end - start) / 3600000) : 0;
-
-        // Find employee
-        const employee = employeesData.find(e => e.user_id === seg.user_id);
-        const employeeName = employee 
-          ? `${employee.first_name} ${employee.last_name}` 
-          : "Unknown";
-
-        return {
-          id: seg.id,
-          user_id: seg.user_id,
-          employee_name: employeeName,
-          project: seg.project_task || "No project",
-          date: start.toLocaleDateString(),
-          raw_date: `${start.getFullYear()}-${String(start.getMonth()+1).padStart(2,'0')}-${String(start.getDate()).padStart(2,'0')}`,
-          raw_start: seg.start_at,
-          raw_end: seg.end_at,
-          start_time: start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          end_time: end ? end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "In Progress",
-          start_time_24: `${String(start.getHours()).padStart(2,'0')}:${String(start.getMinutes()).padStart(2,'0')}`,
-          end_time_24: end ? `${String(end.getHours()).padStart(2,'0')}:${String(end.getMinutes()).padStart(2,'0')}` : '',
-          hours: hours,
-          is_ongoing: !seg.end_at,
-          is_lunch: !!seg.is_lunch
-        };
-      });
-
-      setTimeEntries(entries);
-    } catch (err) {
-      console.error("Error loading data:", err);
-      alert("Failed to load timesheets: " + err.message);
+      const [{ data: emps }, { data: segs }, { data: open }] = await Promise.all([
+        supabase.from("employees").select("user_id, first_name, last_name").order("first_name"),
+        supabase.from("shift_segments")
+          .select("id, user_id, start_at, end_at, is_lunch, project_task")
+          .gte("start_at", weekDays[0] + "T00:00:00")
+          .lte("start_at", weekEnd + "T23:59:59")
+          .order("start_at", { ascending: true }),
+        supabase.from("shift_segments")
+          .select("id, user_id, start_at, project_task")
+          .is("end_at", null)
+          .order("start_at", { ascending: false }),
+      ]);
+      setEmployees(emps || []);
+      setSegments(segs || []);
+      setOpenSegs(open || []);
+    } catch (e) {
+      console.error(e);
     } finally {
       setLoading(false);
     }
   }
 
-  // Filter entries
-  const filteredEntries = timeEntries.filter(entry => {
-    if (selectedEmployee !== "all" && entry.user_id !== selectedEmployee) return false;
-    if (selectedProject !== "all" && entry.project !== selectedProject) return false;
-    return true;
-  });
-
-  // Get unique projects
-  const projects = [...new Set(timeEntries.map(e => e.project))].sort();
-
-  // Calculate totals by employee — deduct lunch ONCE per employee-day (not per segment)
-  // First, find which employee-days have any segment with is_lunch=true
-  const lunchDaySet = new Set();
-  filteredEntries.forEach(entry => {
-    if (entry.is_lunch) lunchDaySet.add(entry.user_id + '_' + entry.raw_date);
-  });
-
-  const employeeTotals = {};
-  const lunchDeductedDays = new Set(); // track which days already had 0.5h deducted
-  filteredEntries.forEach(entry => {
-    if (!employeeTotals[entry.user_id]) {
-      employeeTotals[entry.user_id] = { name: entry.employee_name, hours: 0, entries: 0 };
-    }
-    const dayKey = entry.user_id + '_' + entry.raw_date;
-    const deductHere = lunchDaySet.has(dayKey) && !lunchDeductedDays.has(dayKey);
-    if (deductHere) lunchDeductedDays.add(dayKey);
-    const effectiveHours = deductHere ? Math.max(0, entry.hours - 0.5) : entry.hours;
-    employeeTotals[entry.user_id].hours += effectiveHours;
-    employeeTotals[entry.user_id].entries += 1;
-  });
-
-  const totalHours = Object.values(employeeTotals).reduce((sum, e) => sum + e.hours, 0);
-
-  function openEditModal(entry) {
-    setEditForm({
-      date: entry.raw_date,
-      start_time: entry.start_time_24,
-      end_time: entry.end_time_24,
-      project: entry.project,
-      is_lunch: entry.is_lunch,
-    });
-    setEditingEntry(entry);
+  function getEmpName(uid) {
+    const e = employees.find((x) => x.user_id === uid);
+    return e ? `${e.first_name} ${e.last_name}` : "Unknown";
   }
 
-  async function handleSaveEdit() {
-    if (!editingEntry) return;
-    try {
-      const newStart = new Date(`${editForm.date}T${editForm.start_time}:00`);
-      const newEnd = editForm.end_time ? new Date(`${editForm.date}T${editForm.end_time}:00`) : null;
-      
-      // Handle overnight shifts
-      if (newEnd && newEnd <= newStart) {
-        newEnd.setDate(newEnd.getDate() + 1);
-      }
+  function getSegsForDay(uid, dateStr) {
+    return segments.filter((s) => s.user_id === uid && segDate(s) === dateStr);
+  }
 
-      const updateData = {
+  function getDayProjects(segs) {
+    return [...new Set(segs.map((s) => s.project_task).filter(Boolean))];
+  }
+
+  // active employees this week
+  const activeUids = [...new Set(segments.map((s) => s.user_id).filter(Boolean))];
+  const activeEmployees = activeUids
+    .map((uid) => ({ uid, name: getEmpName(uid) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  function getWeekTotal(uid) {
+    return weekDays.reduce((sum, d) => sum + calcDayHours(getSegsForDay(uid, d)), 0);
+  }
+
+  const grandTotal = activeEmployees.reduce((sum, e) => sum + getWeekTotal(e.uid), 0);
+
+  // ── cell click ────────────────────────────────────────────────────────────
+  function openCellEdit(uid, dateStr, empName) {
+    const segs = getSegsForDay(uid, dateStr);
+    setEditCell({ uid, dateStr, empName });
+    setCellSegs(segs);
+    setEditSeg(null);
+    setEditForm({});
+  }
+
+  function startEditSeg(seg) {
+    const start = new Date(seg.start_at);
+    const end = seg.end_at ? new Date(seg.end_at) : null;
+    setEditSeg(seg.id);
+    setEditForm({
+      date: toYMD(start),
+      startTime: `${String(start.getHours()).padStart(2,"0")}:${String(start.getMinutes()).padStart(2,"0")}`,
+      endTime: end ? `${String(end.getHours()).padStart(2,"0")}:${String(end.getMinutes()).padStart(2,"0")}` : "",
+      project: seg.project_task || "",
+      is_lunch: !!seg.is_lunch,
+    });
+  }
+
+  async function saveSeg() {
+    setSaving(true);
+    try {
+      const newStart = new Date(`${editForm.date}T${editForm.startTime}:00`);
+      let newEnd = editForm.endTime ? new Date(`${editForm.date}T${editForm.endTime}:00`) : null;
+      if (newEnd && newEnd <= newStart) newEnd.setDate(newEnd.getDate() + 1);
+      const { error } = await supabase.from("shift_segments").update({
         start_at: newStart.toISOString(),
         end_at: newEnd ? newEnd.toISOString() : null,
         project_task: editForm.project || null,
         is_lunch: editForm.is_lunch,
-      };
-
-      const { error } = await supabase
-        .from("shift_segments")
-        .update(updateData)
-        .eq("id", editingEntry.id);
-
+      }).eq("id", editSeg);
       if (error) throw error;
-
-      setEditingEntry(null);
-      loadData();
-    } catch (err) {
-      console.error("Error saving edit:", err);
-      alert("Failed to save: " + err.message);
+      setEditSeg(null);
+      await loadData();
+      // refresh cell segs
+      if (editCell) setCellSegs(getSegsForDay(editCell.uid, editCell.dateStr));
+    } catch (e) {
+      alert("Save failed: " + e.message);
+    } finally {
+      setSaving(false);
     }
   }
 
-  async function handleDeleteEntry(entry) {
-    if (!confirm(`Delete this time entry for ${entry.employee_name} on ${entry.date}?\n\nThis cannot be undone.`)) return;
+  async function deleteSeg(id) {
+    if (!confirm("Delete this time entry? This cannot be undone.")) return;
+    const { error } = await supabase.from("shift_segments").delete().eq("id", id);
+    if (error) { alert("Delete failed: " + error.message); return; }
+    await loadData();
+    if (editCell) setCellSegs(getSegsForDay(editCell.uid, editCell.dateStr));
+    setEditSeg(null);
+  }
+
+  async function toggleLunch(seg) {
+    const newVal = !seg.is_lunch;
+    // Set all segments for this employee-day to false, then set this one
+    const daySegs = getSegsForDay(seg.user_id, segDate(seg));
+    if (newVal) {
+      // clear others
+      const otherIds = daySegs.filter(s => s.id !== seg.id).map(s => s.id);
+      if (otherIds.length) await supabase.from("shift_segments").update({ is_lunch: false }).in("id", otherIds);
+    }
+    const { error } = await supabase.from("shift_segments").update({ is_lunch: newVal }).eq("id", seg.id);
+    if (error) { alert("Failed: " + error.message); return; }
+    await loadData();
+    if (editCell) setCellSegs(getSegsForDay(seg.user_id, segDate(seg)));
+  }
+
+  // ── create new punch ─────────────────────────────────────────────────────
+  async function createSeg(form, uid) {
+    if (!uid) { alert("Please select an employee."); return; }
+    if (!form.startTime) { alert("Please enter a start time."); return; }
+    setSaving(true);
     try {
-      const { error } = await supabase
-        .from("shift_segments")
-        .delete()
-        .eq("id", entry.id);
-
+      const newStart = new Date(`${form.date}T${form.startTime}:00`);
+      let newEnd = form.endTime ? new Date(`${form.date}T${form.endTime}:00`) : null;
+      if (newEnd && newEnd <= newStart) newEnd.setDate(newEnd.getDate() + 1);
+      const { error } = await supabase.from("shift_segments").insert({
+        user_id: uid,
+        start_at: newStart.toISOString(),
+        end_at: newEnd ? newEnd.toISOString() : null,
+        project_task: form.project || null,
+        is_lunch: form.is_lunch,
+      });
       if (error) throw error;
-      loadData();
-    } catch (err) {
-      console.error("Error deleting entry:", err);
-      alert("Failed to delete: " + err.message);
+      setShowAddModal(false);
+      setAddingInPanel(false);
+      setAddForm(blankAdd);
+      await loadData();
+      // refresh panel if open
+      if (editCell) setCellSegs(getSegsForDay(editCell.uid, editCell.dateStr));
+      alert("✅ Punch added successfully!");
+    } catch (e) {
+      alert("Failed to add punch: " + e.message);
+    } finally {
+      setSaving(false);
     }
   }
 
-  if (loading) {
-    return (
-      <div style={styles.container}>
-        <div style={styles.loading}>Loading employee timesheets...</div>
-      </div>
-    );
+  // ── email CPA (PDF attachment via Resend) ────────────────────────────────
+  async function emailCPA() {
+    try {
+      // Build the PDF using jsPDF
+      const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "letter" });
+
+      // Header
+      doc.setFillColor(11, 62, 168);
+      doc.rect(0, 0, doc.internal.pageSize.width, 60, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(20);
+      doc.setTextColor(252, 107, 4);
+      doc.text("DML Electrical Service, LLC", 40, 30);
+      doc.setFontSize(12);
+      doc.setTextColor(255, 255, 255);
+      doc.text(`Employee Timesheets — Week of ${weekLabel}`, 40, 50);
+
+      // Date generated
+      doc.setFontSize(9);
+      doc.setTextColor(150, 150, 150);
+      doc.text(`Generated: ${new Date().toLocaleString()}`, 40, 75);
+
+      // Build table data — hours only (no projects)
+      const dayHeaders = weekDays.map((d, i) => {
+        const dt = new Date(d + "T12:00:00");
+        return `${DAY_SHORT[i]}\n${dt.toLocaleDateString("en-US", { month: "numeric", day: "numeric" })}`;
+      });
+
+      const head = [["Employee", ...dayHeaders, "TOTAL"]];
+
+      const body = activeEmployees.map((emp) => {
+        const days = weekDays.map((d) => {
+          const h = calcDayHours(getSegsForDay(emp.uid, d));
+          return h > 0 ? h.toFixed(1) : "—";
+        });
+        return [emp.name, ...days, getWeekTotal(emp.uid).toFixed(1) + "h"];
+      });
+
+      // Totals row
+      const dayTotals = weekDays.map((d) =>
+        activeEmployees.reduce((sum, emp) => sum + calcDayHours(getSegsForDay(emp.uid, d)), 0)
+      );
+      body.push(["WEEK TOTAL", ...dayTotals.map((h) => h > 0 ? h.toFixed(1) : "—"), grandTotal.toFixed(1) + "h"]);
+
+      doc.autoTable({
+        head,
+        body,
+        startY: 90,
+        styles: { fontSize: 10, cellPadding: 6, halign: "center" },
+        headStyles: { fillColor: [11, 62, 168], textColor: 255, fontStyle: "bold" },
+        columnStyles: { 0: { halign: "left", fontStyle: "bold", cellWidth: 140 } },
+        alternateRowStyles: { fillColor: [240, 244, 255] },
+        footStyles: { fillColor: [11, 62, 168], textColor: [252, 107, 4], fontStyle: "bold" },
+        didParseCell(data) {
+          // Style totals row
+          if (data.row.index === body.length - 1) {
+            data.cell.styles.fillColor = [11, 62, 168];
+            data.cell.styles.textColor = [252, 107, 4];
+            data.cell.styles.fontStyle = "bold";
+          }
+        },
+      });
+
+      // Convert to base64 (strip the data:application/pdf;base64, prefix)
+      const pdfBase64 = doc.output("datauristring").split(",")[1];
+
+      // Send via edge function
+      const { data, error } = await supabase.functions.invoke("send-timesheet", {
+        body: { weekLabel, pdfBase64 },
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      alert(`✅ Timesheet sent to CPA (cc@sass.tax) — a copy was sent to dustin@dmlelectrical.com`);
+    } catch (e) {
+      alert("Failed to send email: " + e.message);
+    }
   }
 
+  // ── render ────────────────────────────────────────────────────────────────
   return (
-    <div style={styles.container}>
-      <div style={styles.header}>
-        <div>
-          <button onClick={() => navigate('/timeclock')} style={styles.backButton}>
-            ← Back
-          </button>
-          <h1 style={styles.title}>📋 Employee Timesheets</h1>
-          <p style={styles.subtitle}>View all employee time entries</p>
-        </div>
+    <div style={{ backgroundColor: BRAND.bg, minHeight: "100vh", padding: "24px 16px" }}>
+      {/* Header */}
+      <div style={{ marginBottom: 20 }}>
+        <button onClick={() => navigate("/timeclock")}
+          style={{ padding: "6px 14px", backgroundColor: "transparent", border: "2px solid #fff", color: "#fff", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, marginBottom: 12 }}>
+          ← Back
+        </button>
+        <h1 style={{ color: BRAND.accent, fontSize: 28, fontWeight: 900, margin: "0 0 4px" }}>⏱ Weekly Timesheets</h1>
+        <p style={{ color: "#fff", margin: 0, fontSize: 14 }}>DML Electrical</p>
       </div>
 
-      {/* Filters */}
-      <div style={styles.filtersCard}>
-        <div style={styles.filtersGrid}>
-          <div>
-            <label style={styles.label}>From Date:</label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              style={styles.input}
-            />
-          </div>
-          
-          <div>
-            <label style={styles.label}>To Date:</label>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              style={styles.input}
-            />
-          </div>
-
-          <div>
-            <label style={styles.label}>Employee:</label>
-            <select
-              value={selectedEmployee}
-              onChange={(e) => setSelectedEmployee(e.target.value)}
-              style={styles.select}
-            >
-              <option value="all">All Employees</option>
-              {employees.map(emp => (
-                <option key={emp.user_id} value={emp.user_id}>
-                  {emp.first_name} {emp.last_name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label style={styles.label}>Project:</label>
-            <select
-              value={selectedProject}
-              onChange={(e) => setSelectedProject(e.target.value)}
-              style={styles.select}
-            >
-              <option value="all">All Projects</option>
-              {projects.map(proj => (
-                <option key={proj} value={proj}>{proj}</option>
-              ))}
-            </select>
-          </div>
+      {/* ── Live Status Bar ─────────────────────────────────────────────── */}
+      <div style={{ backgroundColor: "#fff", borderRadius: 12, padding: "14px 18px", marginBottom: 20 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#555", marginBottom: 10, textTransform: "uppercase", letterSpacing: 1 }}>
+          🟢 Currently Clocked In
         </div>
-      </div>
-
-      {/* Summary Cards */}
-      <div style={styles.summaryGrid}>
-        <div style={styles.summaryCard}>
-          <div style={styles.summaryLabel}>Total Employees</div>
-          <div style={styles.summaryValue}>{Object.keys(employeeTotals).length}</div>
-        </div>
-        
-        <div style={styles.summaryCard}>
-          <div style={styles.summaryLabel}>Total Hours</div>
-          <div style={{...styles.summaryValue, color: BRAND.accent}}>
-            {totalHours.toFixed(2)}h
-          </div>
-        </div>
-        
-        <div style={styles.summaryCard}>
-          <div style={styles.summaryLabel}>Total Entries</div>
-          <div style={styles.summaryValue}>{filteredEntries.length}</div>
-        </div>
-      </div>
-
-      {/* Employee Totals */}
-      {Object.keys(employeeTotals).length > 0 && (
-        <div style={styles.card}>
-          <h3 style={styles.cardTitle}>Employee Totals</h3>
-          <div style={styles.employeeGrid}>
-            {Object.values(employeeTotals)
-              .sort((a, b) => b.hours - a.hours)
-              .map((emp, idx) => (
-                <div key={idx} style={styles.employeeRow}>
-                  <div style={styles.employeeName}>{emp.name}</div>
-                  <div style={styles.employeeStats}>
-                    <span style={{color: BRAND.accent, fontWeight: 'bold'}}>
-                      {emp.hours.toFixed(2)}h
-                    </span>
-                    <span style={{color: '#999', fontSize: 13}}>
-                      ({emp.entries} {emp.entries === 1 ? 'entry' : 'entries'})
-                    </span>
-                  </div>
-                </div>
-              ))}
-          </div>
-        </div>
-      )}
-
-      {/* Time Entries Table */}
-      <div style={styles.card}>
-        <h3 style={styles.cardTitle}>Time Entries</h3>
-        
-        {filteredEntries.length === 0 ? (
-          <div style={styles.noData}>No time entries found for selected filters</div>
+        {openSegs.length === 0 ? (
+          <div style={{ color: "#999", fontSize: 14 }}>No one is currently clocked in.</div>
         ) : (
-          <div style={styles.tableContainer}>
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>Employee</th>
-                  <th style={styles.th}>Project</th>
-                  <th style={styles.th}>Date</th>
-                  <th style={styles.th}>Start</th>
-                  <th style={styles.th}>End</th>
-                  <th style={styles.th}>Hours</th>
-                  <th style={{...styles.th, textAlign: 'center'}}>Lunch</th>
-                  <th style={styles.th}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredEntries.map((entry) => (
-                  <tr key={entry.id} style={{...styles.tr, cursor: 'pointer'}} onDoubleClick={() => openEditModal(entry)}>
-                    <td style={styles.td}>{entry.employee_name}</td>
-                    <td style={styles.td}>{entry.project}</td>
-                    <td style={styles.td}>{entry.date}</td>
-                    <td style={styles.td}>{entry.start_time}</td>
-                    <td style={styles.td}>
-                      {entry.is_ongoing ? (
-                        <span style={{color: '#10b981'}}>In Progress</span>
-                      ) : (
-                        entry.end_time
-                      )}
-                    </td>
-                    <td style={{...styles.td, fontWeight: 'bold', color: entry.is_lunch ? '#f59e0b' : BRAND.accent}}>
-                      {entry.is_ongoing ? "—" : (
-                        entry.is_lunch ? (
-                          <span title={`${entry.hours.toFixed(2)} - 0.50 lunch = ${Math.max(0, entry.hours - 0.5).toFixed(2)}`}>
-                            {Math.max(0, entry.hours - 0.5).toFixed(2)}
-                            <span style={{fontSize: 11, color: '#999', marginLeft: 4}}>(-30m)</span>
-                          </span>
-                        ) : entry.hours.toFixed(2)
-                      )}
-                    </td>
-                    <td style={{...styles.td, textAlign: 'center'}}>
-                      <input
-                        type="checkbox"
-                        checked={entry.is_lunch}
-                        onChange={async (e) => {
-                          e.stopPropagation();
-                          try {
-                            const { error } = await supabase
-                              .from("shift_segments")
-                              .update({ is_lunch: !entry.is_lunch })
-                              .eq("id", entry.id);
-                            if (error) throw error;
-                            loadData();
-                          } catch (err) {
-                            alert("Failed to update: " + err.message);
-                          }
-                        }}
-                        style={{width: 18, height: 18, cursor: 'pointer', accentColor: '#f59e0b'}}
-                        title={entry.is_lunch ? "Took lunch" : "No lunch"}
-                      />
-                    </td>
-                    <td style={styles.td}>
-                      <div style={{display: 'flex', gap: 6}}>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); openEditModal(entry); }}
-                          style={{padding: '4px 10px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12, fontWeight: 600}}
-                        >
-                          ✏️ Edit
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleDeleteEntry(entry); }}
-                          style={{padding: '4px 10px', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12, fontWeight: 600}}
-                        >
-                          🗑️
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+            {openSegs.map((seg) => (
+              <div key={seg.id} style={{ backgroundColor: "#ecfdf5", border: "1px solid #6ee7b7", borderRadius: 8, padding: "8px 14px", fontSize: 14 }}>
+                <span style={{ fontWeight: 700, color: "#065f46" }}>{getEmpName(seg.user_id)}</span>
+                <span style={{ color: "#6b7280", marginLeft: 8 }}>{elapsed(seg.start_at)} ago</span>
+                {seg.project_task && (
+                  <span style={{ color: "#0b3ea8", marginLeft: 8, fontSize: 12 }}>· {seg.project_task}</span>
+                )}
+              </div>
+            ))}
           </div>
         )}
       </div>
 
-      {/* Edit Time Entry Modal */}
-      {editingEntry && (
-        <div style={{position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000}} onClick={() => setEditingEntry(null)}>
-          <div style={{backgroundColor: '#fff', borderRadius: 12, padding: 32, maxWidth: 500, width: '90%'}} onClick={(e) => e.stopPropagation()}>
-            <h2 style={{fontSize: 22, fontWeight: 'bold', color: '#111', marginTop: 0, marginBottom: 8}}>✏️ Edit Time Entry</h2>
-            <p style={{fontSize: 14, color: '#666', marginBottom: 24}}>
-              {editingEntry.employee_name}
-            </p>
+      {/* ── Week Navigation + Actions ───────────────────────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button onClick={() => setWeekStart(addDays(weekStart, -7))}
+            style={{ padding: "8px 16px", backgroundColor: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 900, fontSize: 18, color: "#0b3ea8" }}>
+            ←
+          </button>
+          <span style={{ color: "#fff", fontWeight: 700, fontSize: 16 }}>Week of {weekLabel}</span>
+          <button onClick={() => setWeekStart(addDays(weekStart, 7))}
+            style={{ padding: "8px 16px", backgroundColor: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 900, fontSize: 18, color: "#0b3ea8" }}>
+            →
+          </button>
+          <button onClick={() => setWeekStart(getMonday(new Date()))}
+            style={{ padding: "6px 12px", backgroundColor: "rgba(255,255,255,0.2)", border: "1px solid #fff", borderRadius: 8, cursor: "pointer", color: "#fff", fontSize: 13, fontWeight: 600 }}>
+            This Week
+          </button>
+        </div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button onClick={() => { setAddForm(blankAdd); setShowAddModal(true); }}
+            style={{ padding: "10px 18px", backgroundColor: BRAND.accent, border: "none", borderRadius: 8, cursor: "pointer", color: "#fff", fontWeight: 700, fontSize: 14 }}>
+            ➕ Add Manual Punch
+          </button>
+          <button onClick={emailCPA}
+            style={{ padding: "10px 18px", backgroundColor: "#059669", border: "none", borderRadius: 8, cursor: "pointer", color: "#fff", fontWeight: 700, fontSize: 14 }}>
+            📧 Email CPA
+          </button>
+          <button onClick={() => window.print()}
+            style={{ padding: "10px 18px", backgroundColor: "#7c3aed", border: "none", borderRadius: 8, cursor: "pointer", color: "#fff", fontWeight: 700, fontSize: 14 }}>
+            🖨️ Print
+          </button>
+        </div>
+      </div>
 
-            <div style={{marginBottom: 16}}>
-              <label style={{display: 'block', marginBottom: 6, fontSize: 14, fontWeight: 600, color: '#333'}}>Date</label>
-              <input
-                type="date"
-                value={editForm.date}
-                onChange={(e) => setEditForm({...editForm, date: e.target.value})}
-                style={{width: '100%', padding: '10px 12px', fontSize: 15, border: '2px solid #e5e7eb', borderRadius: 6, boxSizing: 'border-box'}}
-              />
+      {/* ── Weekly Grid Table ────────────────────────────────────────────── */}
+      {loading ? (
+        <div style={{ backgroundColor: "#fff", borderRadius: 12, padding: 40, textAlign: "center", color: "#999" }}>
+          Loading...
+        </div>
+      ) : (
+        <div style={{ backgroundColor: "#fff", borderRadius: 12, overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ backgroundColor: BRAND.bg }}>
+                <th style={{ padding: "12px 16px", textAlign: "left", color: "#fff", fontWeight: 700, minWidth: 160 }}>Employee</th>
+                {weekDays.map((d, i) => {
+                  const dt = new Date(d + "T12:00:00");
+                  const isToday = toYMD(new Date()) === d;
+                  return (
+                    <th key={d} style={{ padding: "12px 10px", textAlign: "center", color: "#fff", fontWeight: 700, minWidth: 90, backgroundColor: isToday ? "#1e50c8" : undefined }}>
+                      <div>{DAY_SHORT[i]}</div>
+                      <div style={{ fontSize: 11, fontWeight: 400, opacity: 0.8 }}>
+                        {dt.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      </div>
+                    </th>
+                  );
+                })}
+                <th style={{ padding: "12px 14px", textAlign: "center", color: BRAND.accent, fontWeight: 800, minWidth: 80 }}>TOTAL</th>
+              </tr>
+            </thead>
+            <tbody>
+              {activeEmployees.length === 0 && (
+                <tr>
+                  <td colSpan={9} style={{ padding: 40, textAlign: "center", color: "#999" }}>
+                    No time entries for this week.
+                  </td>
+                </tr>
+              )}
+              {activeEmployees.map((emp, empIdx) => {
+                const weekTotal = getWeekTotal(emp.uid);
+                const isIn = openSegs.some((s) => s.user_id === emp.uid);
+                return (
+                  <tr key={emp.uid} style={{ borderBottom: "1px solid #e5e7eb", backgroundColor: empIdx % 2 === 0 ? "#fff" : "#f9fafb" }}>
+                    <td style={{ padding: "12px 16px", fontWeight: 700, color: "#111" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        {isIn && <span title="Currently clocked in" style={{ color: "#10b981", fontSize: 10 }}>●</span>}
+                        {emp.name}
+                      </div>
+                    </td>
+                    {weekDays.map((d) => {
+                      const daySeg = getSegsForDay(emp.uid, d);
+                      const hours = calcDayHours(daySeg);
+                      const projects = getDayProjects(daySeg);
+                      const hasLunch = daySeg.some((s) => s.is_lunch);
+                      const hasOpen = daySeg.some((s) => !s.end_at);
+                      const isToday = toYMD(new Date()) === d;
+                      return (
+                        <td key={d}
+                          onClick={() => openCellEdit(emp.uid, d, emp.name)}
+                          title="Click to view/edit or add punch"
+                          style={{
+                            padding: "10px 8px",
+                            textAlign: "center",
+                            cursor: "pointer",
+                            backgroundColor: isToday ? "#eff6ff" : undefined,
+                            transition: "background 0.15s",
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "#dbeafe"; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = isToday ? "#eff6ff" : (empIdx % 2 === 0 ? "#fff" : "#f9fafb"); }}
+                        >
+                          {daySeg.length === 0 ? (
+                            <span style={{ color: "#d1d5db", fontSize: 18 }}>+</span>
+                          ) : (
+                            <>
+                              <div style={{ fontWeight: 700, color: hasOpen ? "#f59e0b" : "#111", fontSize: 14 }}>
+                                {hasOpen ? "In…" : `${hours.toFixed(1)}h`}
+                                {hasLunch && <span style={{ fontSize: 10, marginLeft: 3 }} title="Lunch taken">🍽</span>}
+                              </div>
+                              {projects.slice(0, 2).map((p, pi) => (
+                                <div key={pi} style={{ fontSize: 10, color: "#6b7280", lineHeight: 1.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 88 }} title={p}>
+                                  {p}
+                                </div>
+                              ))}
+                              {projects.length > 2 && (
+                                <div style={{ fontSize: 10, color: "#9ca3af" }}>+{projects.length - 2} more</div>
+                              )}
+                            </>
+                          )}
+                        </td>
+                      );
+                    })}
+                    <td style={{ padding: "12px 14px", textAlign: "center", fontWeight: 800, fontSize: 15, color: weekTotal > 0 ? BRAND.primary : "#d1d5db" }}>
+                      {weekTotal > 0 ? `${weekTotal.toFixed(1)}h` : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+              {/* Totals row */}
+              {activeEmployees.length > 0 && (
+                <tr style={{ borderTop: "3px solid #0b3ea8", backgroundColor: "#f0f4ff" }}>
+                  <td style={{ padding: "12px 16px", fontWeight: 800, color: "#111", fontSize: 13, textTransform: "uppercase" }}>Week Total</td>
+                  {weekDays.map((d) => {
+                    const dayTotal = activeEmployees.reduce((sum, emp) => sum + calcDayHours(getSegsForDay(emp.uid, d)), 0);
+                    return (
+                      <td key={d} style={{ padding: "12px 8px", textAlign: "center", fontWeight: 700, color: dayTotal > 0 ? "#111" : "#d1d5db" }}>
+                        {dayTotal > 0 ? `${dayTotal.toFixed(1)}h` : "—"}
+                      </td>
+                    );
+                  })}
+                  <td style={{ padding: "12px 14px", textAlign: "center", fontWeight: 900, fontSize: 16, color: BRAND.accent }}>
+                    {grandTotal.toFixed(1)}h
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ── Cell Edit Panel ─────────────────────────────────────────────── */}
+      {editCell && (
+        <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: 420, backgroundColor: "#fff", boxShadow: "-4px 0 24px rgba(0,0,0,0.2)", zIndex: 2000, display: "flex", flexDirection: "column", overflowY: "auto" }}>
+          {/* Panel header */}
+          <div style={{ backgroundColor: BRAND.bg, padding: "18px 20px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div>
+              <div style={{ color: BRAND.accent, fontWeight: 800, fontSize: 18 }}>{editCell.empName}</div>
+              <div style={{ color: "#fff", fontSize: 13, marginTop: 2 }}>
+                {new Date(editCell.dateStr + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+              </div>
+            </div>
+            <button onClick={() => { setEditCell(null); setEditSeg(null); }}
+              style={{ background: "none", border: "none", color: "#fff", fontSize: 22, cursor: "pointer", lineHeight: 1 }}>✕</button>
+          </div>
+
+          <div style={{ padding: 20, flex: 1 }}>
+            {/* Summary */}
+            <div style={{ backgroundColor: "#f0f4ff", borderRadius: 8, padding: "12px 16px", marginBottom: 20 }}>
+              <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4, fontWeight: 600 }}>DAY TOTAL</div>
+              <div style={{ fontSize: 28, fontWeight: 900, color: BRAND.primary }}>
+                {calcDayHours(cellSegs).toFixed(2)}h
+              </div>
+              {cellSegs.some((s) => s.is_lunch) && (
+                <div style={{ fontSize: 12, color: "#f59e0b", marginTop: 2 }}>🍽 30 min lunch deducted</div>
+              )}
             </div>
 
-            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16}}>
-              <div>
-                <label style={{display: 'block', marginBottom: 6, fontSize: 14, fontWeight: 600, color: '#333'}}>Start Time</label>
-                <input
-                  type="time"
-                  value={editForm.start_time}
-                  onChange={(e) => setEditForm({...editForm, start_time: e.target.value})}
-                  style={{width: '100%', padding: '10px 12px', fontSize: 15, border: '2px solid #e5e7eb', borderRadius: 6, boxSizing: 'border-box'}}
-                />
-              </div>
-              <div>
-                <label style={{display: 'block', marginBottom: 6, fontSize: 14, fontWeight: 600, color: '#333'}}>End Time</label>
-                <input
-                  type="time"
-                  value={editForm.end_time}
-                  onChange={(e) => setEditForm({...editForm, end_time: e.target.value})}
-                  style={{width: '100%', padding: '10px 12px', fontSize: 15, border: '2px solid #e5e7eb', borderRadius: 6, boxSizing: 'border-box'}}
-                />
-              </div>
-            </div>
+            {/* Segments */}
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: 8 }}>Time Entries</div>
+            {cellSegs.map((seg) => {
+              const hours = seg.end_at
+                ? ((new Date(seg.end_at) - new Date(seg.start_at)) / 3600000).toFixed(2)
+                : null;
+              const isEditing = editSeg === seg.id;
 
-            <div style={{marginBottom: 16}}>
-              <label style={{display: 'block', marginBottom: 6, fontSize: 14, fontWeight: 600, color: '#333'}}>Project</label>
-              <input
-                type="text"
-                value={editForm.project}
-                onChange={(e) => setEditForm({...editForm, project: e.target.value})}
-                list="edit-project-list"
-                style={{width: '100%', padding: '10px 12px', fontSize: 15, border: '2px solid #e5e7eb', borderRadius: 6, boxSizing: 'border-box'}}
-                placeholder="Project name..."
-              />
-              <datalist id="edit-project-list">
-                {projects.map(p => <option key={p} value={p} />)}
-              </datalist>
-            </div>
+              return (
+                <div key={seg.id} style={{ border: "1px solid #e5e7eb", borderRadius: 10, marginBottom: 12, overflow: "hidden" }}>
+                  {/* Segment header */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", backgroundColor: "#f9fafb", borderBottom: isEditing ? "1px solid #e5e7eb" : "none" }}>
+                    <div>
+                      <span style={{ fontWeight: 700, color: "#111", fontSize: 14 }}>
+                        {fmt(seg.start_at)} → {seg.end_at ? fmt(seg.end_at) : <span style={{ color: "#f59e0b" }}>In progress</span>}
+                      </span>
+                      {hours && <span style={{ marginLeft: 8, color: "#6b7280", fontSize: 12 }}>({hours}h)</span>}
+                      {seg.is_lunch && <span style={{ marginLeft: 6, fontSize: 11, color: "#f59e0b" }}>🍽</span>}
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button onClick={() => isEditing ? setEditSeg(null) : startEditSeg(seg)}
+                        style={{ padding: "4px 10px", backgroundColor: isEditing ? "#e5e7eb" : "#3b82f6", color: isEditing ? "#111" : "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                        {isEditing ? "Cancel" : "✏️ Edit"}
+                      </button>
+                      <button onClick={() => deleteSeg(seg.id)}
+                        style={{ padding: "4px 10px", backgroundColor: "#ef4444", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>🗑️</button>
+                    </div>
+                  </div>
 
-            {/* Lunch Break Checkbox */}
-            <label style={{display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, padding: '12px 16px', backgroundColor: editForm.is_lunch ? '#fef3c7' : '#f9fafb', border: editForm.is_lunch ? '2px solid #f59e0b' : '2px solid #e5e7eb', borderRadius: 8, cursor: 'pointer', transition: 'all 0.2s'}}>
-              <input
-                type="checkbox"
-                checked={editForm.is_lunch}
-                onChange={(e) => setEditForm({...editForm, is_lunch: e.target.checked})}
-                style={{width: 20, height: 20, cursor: 'pointer'}}
-              />
-              <div>
-                <div style={{fontSize: 15, fontWeight: 600, color: '#111'}}>🍽️ Lunch Break</div>
-                <div style={{fontSize: 12, color: '#666'}}>Deducts 30 minutes from this entry's hours</div>
-              </div>
-            </label>
+                  {/* Project + lunch badges */}
+                  {!isEditing && (
+                    <div style={{ padding: "8px 14px", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      {seg.project_task && (
+                        <span style={{ backgroundColor: "#dbeafe", color: "#1e40af", fontSize: 11, padding: "2px 8px", borderRadius: 12, fontWeight: 600 }}>{seg.project_task}</span>
+                      )}
+                      <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#6b7280", cursor: "pointer" }}>
+                        <input type="checkbox" checked={seg.is_lunch} onChange={() => toggleLunch(seg)} style={{ accentColor: "#f59e0b" }} />
+                        Lunch taken
+                      </label>
+                    </div>
+                  )}
 
-            {/* Preview calculated hours */}
-            {editForm.start_time && editForm.end_time && (
-              <div style={{padding: 12, backgroundColor: '#f0fdf4', borderRadius: 6, marginBottom: 20}}>
-                <div style={{display: 'flex', justifyContent: 'space-between'}}>
-                  <span style={{fontSize: 14, color: '#666'}}>Calculated Hours:</span>
-                  <span style={{fontSize: 18, fontWeight: 'bold', color: '#10b981'}}>
-                    {(() => {
-                      const [sh, sm] = editForm.start_time.split(':').map(Number);
-                      const [eh, em] = editForm.end_time.split(':').map(Number);
-                      let mins = (eh * 60 + em) - (sh * 60 + sm);
-                      if (mins < 0) mins += 24 * 60;
-                      return (mins / 60).toFixed(2);
-                    })()}h
-                  </span>
+                  {/* Edit form */}
+                  {isEditing && (
+                    <div style={{ padding: 14 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                        <div>
+                          <label style={labelStyle}>Start Time</label>
+                          <input type="time" value={editForm.startTime} onChange={(e) => setEditForm({ ...editForm, startTime: e.target.value })} style={inputStyle} />
+                        </div>
+                        <div>
+                          <label style={labelStyle}>End Time</label>
+                          <input type="time" value={editForm.endTime} onChange={(e) => setEditForm({ ...editForm, endTime: e.target.value })} style={inputStyle} />
+                        </div>
+                      </div>
+                      <div style={{ marginBottom: 10 }}>
+                        <label style={labelStyle}>Date</label>
+                        <input type="date" value={editForm.date} onChange={(e) => setEditForm({ ...editForm, date: e.target.value })} style={inputStyle} />
+                      </div>
+                      <div style={{ marginBottom: 12 }}>
+                        <label style={labelStyle}>Project</label>
+                        <input type="text" value={editForm.project} onChange={(e) => setEditForm({ ...editForm, project: e.target.value })} style={inputStyle} placeholder="Project name..." />
+                      </div>
+                      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 14, cursor: "pointer" }}>
+                        <input type="checkbox" checked={editForm.is_lunch} onChange={(e) => setEditForm({ ...editForm, is_lunch: e.target.checked })} style={{ accentColor: "#f59e0b", width: 16, height: 16 }} />
+                        <span style={{ fontWeight: 600 }}>🍽 Lunch break (deduct 30 min)</span>
+                      </label>
+                      {/* Preview */}
+                      {editForm.startTime && editForm.endTime && (
+                        <div style={{ backgroundColor: "#f0fdf4", borderRadius: 6, padding: "8px 12px", marginBottom: 12, fontSize: 13 }}>
+                          Hours: <strong>
+                            {(() => {
+                              const [sh, sm] = editForm.startTime.split(":").map(Number);
+                              const [eh, em] = editForm.endTime.split(":").map(Number);
+                              let mins = (eh * 60 + em) - (sh * 60 + sm);
+                              if (mins < 0) mins += 1440;
+                              return (mins / 60).toFixed(2);
+                            })()}h
+                          </strong>
+                          {editForm.is_lunch && <span style={{ color: "#f59e0b", marginLeft: 8 }}>(-30 min lunch)</span>}
+                        </div>
+                      )}
+                      <button onClick={saveSeg} disabled={saving}
+                        style={{ width: "100%", padding: "10px 0", backgroundColor: "#10b981", border: "none", borderRadius: 8, color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                        {saving ? "Saving..." : "💾 Save Changes"}
+                      </button>
+                    </div>
+                  )}
                 </div>
-              </div>
+              );
+            })}
+
+            {cellSegs.length === 0 && !addingInPanel && (
+              <div style={{ textAlign: "center", color: "#9ca3af", padding: "20px 0 10px" }}>No entries for this day.</div>
             )}
 
-            <div style={{display: 'flex', gap: 12, justifyContent: 'flex-end'}}>
-              <button
-                onClick={() => setEditingEntry(null)}
-                style={{padding: '12px 24px', backgroundColor: 'transparent', border: '2px solid #d1d5db', color: '#374151', borderRadius: 8, cursor: 'pointer', fontSize: 15, fontWeight: 600}}
-              >
-                Cancel
+            {/* ── Add Punch inline form ── */}
+            {addingInPanel ? (
+              <div style={{ border: "2px solid #fc6b04", borderRadius: 10, padding: 16, marginTop: 8 }}>
+                <div style={{ fontWeight: 700, color: "#fc6b04", fontSize: 14, marginBottom: 12 }}>➕ New Punch</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                  <div>
+                    <label style={labelStyle}>Start Time</label>
+                    <input type="time" value={addForm.startTime} onChange={(e) => setAddForm({ ...addForm, startTime: e.target.value })} style={inputStyle} />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>End Time</label>
+                    <input type="time" value={addForm.endTime} onChange={(e) => setAddForm({ ...addForm, endTime: e.target.value })} style={inputStyle} />
+                  </div>
+                </div>
+                <div style={{ marginBottom: 10 }}>
+                  <label style={labelStyle}>Project (optional)</label>
+                  <input type="text" value={addForm.project} onChange={(e) => setAddForm({ ...addForm, project: e.target.value })} style={inputStyle} placeholder="Project name..." />
+                </div>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 14, cursor: "pointer" }}>
+                  <input type="checkbox" checked={addForm.is_lunch} onChange={(e) => setAddForm({ ...addForm, is_lunch: e.target.checked })} style={{ accentColor: "#f59e0b", width: 16, height: 16 }} />
+                  <span style={{ fontWeight: 600 }}>🍽 Lunch break (deduct 30 min)</span>
+                </label>
+                {addForm.startTime && addForm.endTime && (
+                  <div style={{ backgroundColor: "#f0fdf4", borderRadius: 6, padding: "8px 12px", marginBottom: 12, fontSize: 13 }}>
+                    Hours: <strong>{(() => {
+                      const [sh, sm] = addForm.startTime.split(":").map(Number);
+                      const [eh, em] = addForm.endTime.split(":").map(Number);
+                      let mins = (eh * 60 + em) - (sh * 60 + sm);
+                      if (mins < 0) mins += 1440;
+                      return (mins / 60).toFixed(2);
+                    })()}h</strong>
+                    {addForm.is_lunch && <span style={{ color: "#f59e0b", marginLeft: 8 }}>(-30 min lunch)</span>}
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => createSeg({ ...addForm, date: editCell.dateStr }, editCell.uid)} disabled={saving}
+                    style={{ flex: 1, padding: "10px 0", backgroundColor: "#10b981", border: "none", borderRadius: 8, color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                    {saving ? "Saving..." : "💾 Save Punch"}
+                  </button>
+                  <button onClick={() => { setAddingInPanel(false); setAddForm(blankAdd); }}
+                    style={{ padding: "10px 16px", backgroundColor: "#e5e7eb", border: "none", borderRadius: 8, color: "#111", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => { setAddingInPanel(true); setAddForm({ ...blankAdd, date: editCell.dateStr }); }}
+                style={{ width: "100%", marginTop: 12, padding: "10px 0", backgroundColor: "#f0f4ff", border: "2px dashed #0b3ea8", borderRadius: 8, color: "#0b3ea8", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                ➕ Add Punch for This Day
               </button>
-              <button
-                onClick={() => { handleDeleteEntry(editingEntry); setEditingEntry(null); }}
-                style={{padding: '12px 24px', backgroundColor: '#ef4444', border: 'none', color: '#fff', borderRadius: 8, cursor: 'pointer', fontSize: 15, fontWeight: 600}}
-              >
-                🗑️ Delete
-              </button>
-              <button
-                onClick={handleSaveEdit}
-                style={{padding: '12px 24px', backgroundColor: '#10b981', border: 'none', color: '#fff', borderRadius: 8, cursor: 'pointer', fontSize: 15, fontWeight: 600}}
-              >
-                💾 Save Changes
-              </button>
-            </div>
+            )}
           </div>
         </div>
       )}
+
+      {/* Overlay when panel is open */}
+      {editCell && (
+        <div onClick={() => { setEditCell(null); setEditSeg(null); }}
+          style={{ position: "fixed", top: 0, left: 0, right: 420, bottom: 0, backgroundColor: "rgba(0,0,0,0.3)", zIndex: 1999 }} />
+      )}
+
+      {/* ── Standalone Add Manual Punch Modal ──────────────────────────── */}
+      {showAddModal && (
+        <>
+          <div onClick={() => { setShowAddModal(false); setAddForm(blankAdd); }}
+            style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", zIndex: 3000 }} />
+          <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: 460, maxWidth: "95vw", backgroundColor: "#fff", borderRadius: 14, zIndex: 3001, overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+            {/* Modal header */}
+            <div style={{ backgroundColor: BRAND.bg, padding: "18px 22px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ color: BRAND.accent, fontWeight: 800, fontSize: 18 }}>➕ Add Manual Punch</div>
+              <button onClick={() => { setShowAddModal(false); setAddForm(blankAdd); }}
+                style={{ background: "none", border: "none", color: "#fff", fontSize: 22, cursor: "pointer" }}>✕</button>
+            </div>
+            <div style={{ padding: 22 }}>
+              {/* Employee */}
+              <div style={{ marginBottom: 14 }}>
+                <label style={labelStyle}>Employee</label>
+                <select value={addForm.userId} onChange={(e) => setAddForm({ ...addForm, userId: e.target.value })}
+                  style={{ ...inputStyle, backgroundColor: "#fff" }}>
+                  <option value="">— Select employee —</option>
+                  {employees.map((emp) => (
+                    <option key={emp.user_id} value={emp.user_id}>{emp.first_name} {emp.last_name}</option>
+                  ))}
+                </select>
+              </div>
+              {/* Date */}
+              <div style={{ marginBottom: 14 }}>
+                <label style={labelStyle}>Date</label>
+                <input type="date" value={addForm.date} onChange={(e) => setAddForm({ ...addForm, date: e.target.value })} style={inputStyle} />
+              </div>
+              {/* Times */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                <div>
+                  <label style={labelStyle}>Clock In</label>
+                  <input type="time" value={addForm.startTime} onChange={(e) => setAddForm({ ...addForm, startTime: e.target.value })} style={inputStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Clock Out</label>
+                  <input type="time" value={addForm.endTime} onChange={(e) => setAddForm({ ...addForm, endTime: e.target.value })} style={inputStyle} />
+                </div>
+              </div>
+              {/* Project */}
+              <div style={{ marginBottom: 14 }}>
+                <label style={labelStyle}>Project (optional)</label>
+                <input type="text" value={addForm.project} onChange={(e) => setAddForm({ ...addForm, project: e.target.value })} style={inputStyle} placeholder="Project name..." />
+              </div>
+              {/* Lunch */}
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 16, cursor: "pointer" }}>
+                <input type="checkbox" checked={addForm.is_lunch} onChange={(e) => setAddForm({ ...addForm, is_lunch: e.target.checked })} style={{ accentColor: "#f59e0b", width: 16, height: 16 }} />
+                <span style={{ fontWeight: 600 }}>🍽 Lunch break (deduct 30 min)</span>
+              </label>
+              {/* Hours preview */}
+              {addForm.startTime && addForm.endTime && (
+                <div style={{ backgroundColor: "#f0fdf4", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 14 }}>
+                  Total Hours: <strong>{(() => {
+                    const [sh, sm] = addForm.startTime.split(":").map(Number);
+                    const [eh, em] = addForm.endTime.split(":").map(Number);
+                    let mins = (eh * 60 + em) - (sh * 60 + sm);
+                    if (mins < 0) mins += 1440;
+                    if (addForm.is_lunch) mins -= 30;
+                    return Math.max(0, mins / 60).toFixed(2);
+                  })()}h</strong>
+                  {addForm.is_lunch && <span style={{ color: "#f59e0b", marginLeft: 8, fontSize: 12 }}>(30 min lunch deducted)</span>}
+                </div>
+              )}
+              <button onClick={() => createSeg(addForm, addForm.userId)} disabled={saving}
+                style={{ width: "100%", padding: "12px 0", backgroundColor: BRAND.accent, border: "none", borderRadius: 8, color: "#fff", fontWeight: 800, fontSize: 16, cursor: "pointer" }}>
+                {saving ? "Saving..." : "✅ Add Punch"}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Print styles */}
+      <style>{`
+        @media print {
+          body { background: white !important; }
+          button, .no-print { display: none !important; }
+          table { font-size: 11px !important; }
+        }
+      `}</style>
     </div>
   );
 }
 
-const styles = {
-  container: {
-    maxWidth: 1400,
-    margin: "0 auto",
-    padding: "40px 20px",
-    backgroundColor: BRAND.bg,
-    minHeight: "100vh",
-  },
-  header: {
-    marginBottom: 30,
-  },
-  backButton: {
-    padding: "8px 16px",
-    backgroundColor: "#fff",
-    border: "2px solid #e5e7eb",
-    borderRadius: 6,
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#666",
-    cursor: "pointer",
-    marginBottom: 12,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: "bold",
-    color: "#fff",
-    margin: 0,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: "#fff",
-    marginTop: 8,
-    opacity: 0.9,
-  },
-  loading: {
-    textAlign: "center",
-    padding: 60,
-    fontSize: 18,
-    color: "#fff",
-  },
-  filtersCard: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 20,
-    boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
-  },
-  filtersGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-    gap: 16,
-  },
-  label: {
-    display: "block",
-    marginBottom: 6,
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#333",
-  },
-  input: {
-    width: "100%",
-    padding: "10px 12px",
-    fontSize: 15,
-    border: "2px solid #e5e7eb",
-    borderRadius: 6,
-    backgroundColor: "#fff",
-    color: "#111",
-    boxSizing: "border-box",
-  },
-  select: {
-    width: "100%",
-    padding: "10px 12px",
-    fontSize: 15,
-    border: "2px solid #e5e7eb",
-    borderRadius: 6,
-    backgroundColor: "#fff",
-    color: "#111",
-    boxSizing: "border-box",
-  },
-  summaryGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-    gap: 20,
-    marginBottom: 30,
-  },
-  summaryCard: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 24,
-    boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-  },
-  summaryLabel: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 8,
-    fontWeight: "600",
-    textTransform: "uppercase",
-  },
-  summaryValue: {
-    fontSize: 32,
-    fontWeight: "bold",
-    color: "#111",
-  },
-  card: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 24,
-    marginBottom: 20,
-    boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
-  },
-  cardTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#111",
-    marginTop: 0,
-    marginBottom: 16,
-  },
-  employeeGrid: {
-    display: "grid",
-    gap: 12,
-  },
-  employeeRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: "12px 16px",
-    backgroundColor: "#f9fafb",
-    borderRadius: 8,
-    border: "1px solid #e5e7eb",
-  },
-  employeeName: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#111",
-  },
-  employeeStats: {
-    display: "flex",
-    gap: 12,
-    alignItems: "center",
-  },
-  noData: {
-    textAlign: "center",
-    padding: 40,
-    color: "#999",
-    fontSize: 15,
-  },
-  tableContainer: {
-    overflowX: "auto",
-  },
-  table: {
-    width: "100%",
-    borderCollapse: "collapse",
-    fontSize: 14,
-  },
-  th: {
-    textAlign: "left",
-    padding: "12px 16px",
-    backgroundColor: "#f9fafb",
-    borderBottom: "2px solid #e5e7eb",
-    fontWeight: "bold",
-    color: "#111",
-    fontSize: 13,
-    textTransform: "uppercase",
-  },
-  tr: {
-    borderBottom: "1px solid #e5e7eb",
-  },
-  td: {
-    padding: "12px 16px",
-    color: "#333",
-  },
-};
+const labelStyle = { display: "block", fontSize: 11, fontWeight: 700, color: "#6b7280", marginBottom: 4, textTransform: "uppercase" };
+const inputStyle = { width: "100%", padding: "8px 10px", fontSize: 14, border: "1px solid #d1d5db", borderRadius: 6, boxSizing: "border-box", color: "#111" };
