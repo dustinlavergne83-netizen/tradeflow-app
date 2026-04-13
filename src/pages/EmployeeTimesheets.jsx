@@ -584,9 +584,9 @@ export default function EmployeeTimesheets() {
                         <label style={labelStyle}>Project</label>
                         <input type="text" value={editForm.project} onChange={(e) => setEditForm({ ...editForm, project: e.target.value })} style={inputStyle} placeholder="Project name..." />
                       </div>
-                      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 14, cursor: "pointer" }}>
+                      <label style={lunchLabelStyle}>
                         <input type="checkbox" checked={editForm.is_lunch} onChange={(e) => setEditForm({ ...editForm, is_lunch: e.target.checked })} style={{ accentColor: "#f59e0b", width: 16, height: 16 }} />
-                        <span style={{ fontWeight: 600 }}>🍽 Lunch break (deduct 30 min)</span>
+                        <span>🍽 Lunch break (deduct 30 min)</span>
                       </label>
                       {/* Preview */}
                       {editForm.startTime && editForm.endTime && (
@@ -635,9 +635,9 @@ export default function EmployeeTimesheets() {
                   <label style={labelStyle}>Project (optional)</label>
                   <input type="text" value={addForm.project} onChange={(e) => setAddForm({ ...addForm, project: e.target.value })} style={inputStyle} placeholder="Project name..." />
                 </div>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 14, cursor: "pointer" }}>
+                <label style={lunchLabelStyle}>
                   <input type="checkbox" checked={addForm.is_lunch} onChange={(e) => setAddForm({ ...addForm, is_lunch: e.target.checked })} style={{ accentColor: "#f59e0b", width: 16, height: 16 }} />
-                  <span style={{ fontWeight: 600 }}>🍽 Lunch break (deduct 30 min)</span>
+                  <span>🍽 Lunch break (deduct 30 min)</span>
                 </label>
                 {addForm.startTime && addForm.endTime && (
                   <div style={{ backgroundColor: "#f0fdf4", borderRadius: 6, padding: "8px 12px", marginBottom: 12, fontSize: 13 }}>
@@ -724,9 +724,9 @@ export default function EmployeeTimesheets() {
                 <input type="text" value={addForm.project} onChange={(e) => setAddForm({ ...addForm, project: e.target.value })} style={inputStyle} placeholder="Project name..." />
               </div>
               {/* Lunch */}
-              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 16, cursor: "pointer" }}>
+              <label style={{ ...lunchLabelStyle, marginBottom: 16 }}>
                 <input type="checkbox" checked={addForm.is_lunch} onChange={(e) => setAddForm({ ...addForm, is_lunch: e.target.checked })} style={{ accentColor: "#f59e0b", width: 16, height: 16 }} />
-                <span style={{ fontWeight: 600 }}>🍽 Lunch break (deduct 30 min)</span>
+                <span>🍽 Lunch break (deduct 30 min)</span>
               </label>
               {/* Hours preview */}
               {addForm.startTime && addForm.endTime && (
@@ -764,4 +764,5 @@ export default function EmployeeTimesheets() {
 }
 
 const labelStyle = { display: "block", fontSize: 11, fontWeight: 700, color: "#6b7280", marginBottom: 4, textTransform: "uppercase" };
-const inputStyle = { width: "100%", padding: "8px 10px", fontSize: 14, border: "1px solid #d1d5db", borderRadius: 6, boxSizing: "border-box", color: "#111" };
+const inputStyle = { width: "100%", padding: "8px 10px", fontSize: 14, border: "1px solid #d1d5db", borderRadius: 6, boxSizing: "border-box", color: "#111", backgroundColor: "#fff", colorScheme: "light" };
+const lunchLabelStyle = { display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 14, cursor: "pointer", color: "#374151", fontWeight: 600 };
