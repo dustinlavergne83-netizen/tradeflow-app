@@ -59,6 +59,7 @@ export default function EmployeeTimesheets() {
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()));
   const [loading, setLoading] = useState(true);
   const [employees, setEmployees] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [segments, setSegments] = useState([]);
   const [openSegs, setOpenSegs] = useState([]); // currently clocked-in
   const [editCell, setEditCell] = useState(null); // { userId, dateStr, empName }
@@ -70,7 +71,7 @@ export default function EmployeeTimesheets() {
   // ── add punch ────────────────────────────────────────────────────────────
   const [showAddModal, setShowAddModal] = useState(false); // standalone modal
   const [addingInPanel, setAddingInPanel] = useState(false); // add inside cell panel
-  const blankAdd = { userId: "", date: toYMD(new Date()), startTime: "07:00", endTime: "15:30", project: "", is_lunch: false };
+  const blankAdd = { userId: "", startDate: toYMD(new Date()), endDate: toYMD(new Date()), startTime: "07:00", endTime: "15:30", project: "", is_lunch: false };
   const [addForm, setAddForm] = useState(blankAdd);
 
   const weekDays = Array.from({ length: 7 }, (_, i) => toYMD(addDays(weekStart, i)));
@@ -83,7 +84,7 @@ export default function EmployeeTimesheets() {
   async function loadData() {
     setLoading(true);
     try {
-      const [{ data: emps }, { data: segs }, { data: open }] = await Promise.all([
+      const [{ data: emps }, { data: segs }, { data: open }, { data: projs }] = await Promise.all([
         supabase.from("employees").select("user_id, first_name, last_name").order("first_name"),
         supabase.from("shift_segments")
           .select("id, user_id, start_at, end_at, is_lunch, project_task")
@@ -94,10 +95,15 @@ export default function EmployeeTimesheets() {
           .select("id, user_id, start_at, project_task")
           .is("end_at", null)
           .order("start_at", { ascending: false }),
+        supabase.from("projects")
+          .select("id, name, status")
+          .not("status", "ilike", "%complete%")
+          .order("name"),
       ]);
       setEmployees(emps || []);
       setSegments(segs || []);
       setOpenSegs(open || []);
+      setProjects(projs || []);
     } catch (e) {
       console.error(e);
     } finally {
@@ -206,9 +212,9 @@ export default function EmployeeTimesheets() {
     if (!form.startTime) { alert("Please enter a start time."); return; }
     setSaving(true);
     try {
-      const newStart = new Date(`${form.date}T${form.startTime}:00`);
-      let newEnd = form.endTime ? new Date(`${form.date}T${form.endTime}:00`) : null;
-      if (newEnd && newEnd <= newStart) newEnd.setDate(newEnd.getDate() + 1);
+      const newStart = new Date(`${form.startDate}T${form.startTime}:00`);
+      const endDateStr = form.endDate || form.startDate;
+      let newEnd = form.endTime ? new Date(`${endDateStr}T${form.endTime}:00`) : null;
       const { error } = await supabase.from("shift_segments").insert({
         user_id: uid,
         start_at: newStart.toISOString(),
@@ -633,7 +639,12 @@ export default function EmployeeTimesheets() {
                 </div>
                 <div style={{ marginBottom: 10 }}>
                   <label style={labelStyle}>Project (optional)</label>
-                  <input type="text" value={addForm.project} onChange={(e) => setAddForm({ ...addForm, project: e.target.value })} style={inputStyle} placeholder="Project name..." />
+                  <select value={addForm.project} onChange={(e) => setAddForm({ ...addForm, project: e.target.value })} style={{ ...inputStyle, backgroundColor: "#fff" }}>
+                    <option value="">— No project —</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.name}>{p.name}</option>
+                    ))}
+                  </select>
                 </div>
                 <label style={lunchLabelStyle}>
                   <input type="checkbox" checked={addForm.is_lunch} onChange={(e) => setAddForm({ ...addForm, is_lunch: e.target.checked })} style={{ accentColor: "#f59e0b", width: 16, height: 16 }} />
@@ -652,7 +663,7 @@ export default function EmployeeTimesheets() {
                   </div>
                 )}
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={() => createSeg({ ...addForm, date: editCell.dateStr }, editCell.uid)} disabled={saving}
+                  <button onClick={() => createSeg({ ...addForm, startDate: editCell.dateStr, endDate: editCell.dateStr }, editCell.uid)} disabled={saving}
                     style={{ flex: 1, padding: "10px 0", backgroundColor: "#10b981", border: "none", borderRadius: 8, color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
                     {saving ? "Saving..." : "💾 Save Punch"}
                   </button>
@@ -663,7 +674,7 @@ export default function EmployeeTimesheets() {
                 </div>
               </div>
             ) : (
-              <button onClick={() => { setAddingInPanel(true); setAddForm({ ...blankAdd, date: editCell.dateStr }); }}
+              <button onClick={() => { setAddingInPanel(true); setAddForm({ ...blankAdd, startDate: editCell.dateStr, endDate: editCell.dateStr }); }}
                 style={{ width: "100%", marginTop: 12, padding: "10px 0", backgroundColor: "#f0f4ff", border: "2px dashed #0b3ea8", borderRadius: 8, color: "#0b3ea8", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
                 ➕ Add Punch for This Day
               </button>
@@ -702,12 +713,17 @@ export default function EmployeeTimesheets() {
                   ))}
                 </select>
               </div>
-              {/* Date */}
-              <div style={{ marginBottom: 14 }}>
-                <label style={labelStyle}>Date</label>
-                <input type="date" value={addForm.date} onChange={(e) => setAddForm({ ...addForm, date: e.target.value })} style={inputStyle} />
+              {/* Dates + Times */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                <div>
+                  <label style={labelStyle}>Clock-In Date</label>
+                  <input type="date" value={addForm.startDate} onChange={(e) => setAddForm({ ...addForm, startDate: e.target.value })} style={inputStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Clock-Out Date</label>
+                  <input type="date" value={addForm.endDate} onChange={(e) => setAddForm({ ...addForm, endDate: e.target.value })} style={inputStyle} />
+                </div>
               </div>
-              {/* Times */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
                 <div>
                   <label style={labelStyle}>Clock In</label>
@@ -721,7 +737,12 @@ export default function EmployeeTimesheets() {
               {/* Project */}
               <div style={{ marginBottom: 14 }}>
                 <label style={labelStyle}>Project (optional)</label>
-                <input type="text" value={addForm.project} onChange={(e) => setAddForm({ ...addForm, project: e.target.value })} style={inputStyle} placeholder="Project name..." />
+                <select value={addForm.project} onChange={(e) => setAddForm({ ...addForm, project: e.target.value })} style={{ ...inputStyle, backgroundColor: "#fff" }}>
+                  <option value="">— No project —</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.name}>{p.name}</option>
+                  ))}
+                </select>
               </div>
               {/* Lunch */}
               <label style={{ ...lunchLabelStyle, marginBottom: 16 }}>
