@@ -475,6 +475,7 @@ const styles = {
     width: "100%",
     padding: "12px 16px",
     fontSize: 15,
+    fontFamily: "Arial, Helvetica, sans-serif",
     border: "2px solid #e5e7eb",
     borderRadius: 8,
     outline: "none",
@@ -482,6 +483,7 @@ const styles = {
     color: "#111",
     boxSizing: "border-box",
     transition: "border-color 0.2s",
+    WebkitTextFillColor: "#111",
   },
   submitBtn: {
     padding: "14px",
