@@ -19,7 +19,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Audio } from "expo-av";
 import * as Notifications from "expo-notifications";
 import Constants from "expo-constants";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import { supabase } from "../../lib/supabase";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -123,6 +123,12 @@ export default function AIAssistantTab() {
   // Animation for mic button pulse
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const durationTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Refs so stopRecording always has the latest values (avoids stale closure crash)
+  const recordingRef = useRef<Audio.Recording | null>(null);
+  const recordingDurationRef = useRef(0);
+  const isStoppingRef = useRef(false); // guard against double-stop
+  // ref to sendToAI so stopRecording doesn't need it in its dep array (avoids hoisting error)
+  const sendToAIRef = useRef<(input: { type: "text" | "voice"; message?: string; audioBase64?: string; audioFormat?: string }) => Promise<void>>(async () => {});
 
   // ── Init: Register push + load conversation history ──────────────────────
   useEffect(() => {
@@ -165,9 +171,14 @@ export default function AIAssistantTab() {
         ])
       ).start();
 
-      // Duration counter
+      // Duration counter — keep ref in sync so stopRecording closure always has latest
+      recordingDurationRef.current = 0;
       durationTimer.current = setInterval(() => {
-        setRecordingDuration((d) => d + 1);
+        setRecordingDuration((d) => {
+          const next = d + 1;
+          recordingDurationRef.current = next;
+          return next;
+        });
       }, 1000);
     } else {
       pulseAnim.setValue(1);
@@ -190,6 +201,7 @@ export default function AIAssistantTab() {
 
   // ── Start Recording ───────────────────────────────────────────────────────
   const startRecording = useCallback(async () => {
+    if (isStoppingRef.current) return; // still cleaning up previous session
     try {
       const { granted } = await Audio.requestPermissionsAsync();
       if (!granted) {
@@ -209,6 +221,7 @@ export default function AIAssistantTab() {
       const { recording: newRecording } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY
       );
+      recordingRef.current = newRecording; // keep ref in sync
       setRecording(newRecording);
       setIsRecording(true);
     } catch (error) {
@@ -219,24 +232,30 @@ export default function AIAssistantTab() {
 
   // ── Stop Recording & Process ──────────────────────────────────────────────
   const stopRecording = useCallback(async () => {
-    if (!recording) return;
+    // Use ref — avoids stale closure when React re-renders during recording
+    const activeRecording = recordingRef.current;
+    if (!activeRecording || isStoppingRef.current) return;
 
+    isStoppingRef.current = true;
+    recordingRef.current = null;
+    setRecording(null);
     setIsRecording(false);
     setIsLoading(true);
 
     try {
-      await recording.stopAndUnloadAsync();
+      await activeRecording.stopAndUnloadAsync();
       await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
 
-      const uri = recording.getURI();
-      setRecording(null);
+      const uri = activeRecording.getURI();
 
       if (!uri) {
         throw new Error("No recording URI");
       }
 
-      if (recordingDuration < 1) {
+      // Use ref value — state value may be stale in this closure
+      if (recordingDurationRef.current < 1) {
         setIsLoading(false);
+        isStoppingRef.current = false;
         return; // Too short, ignore
       }
 
@@ -248,14 +267,16 @@ export default function AIAssistantTab() {
       // Clean up temp file
       await FileSystem.deleteAsync(uri, { idempotent: true });
 
-      // Send to AI
-      await sendToAI({ type: "voice", audioBase64: base64, audioFormat: "m4a" });
+      // Send to AI — use ref so we don't depend on sendToAI before it's declared
+      await sendToAIRef.current({ type: "voice", audioBase64: base64, audioFormat: "m4a" });
     } catch (error) {
       console.error("Stop recording error:", error);
       setIsLoading(false);
-      Alert.alert("Error", "Failed to process recording. Please try again.");
+      Alert.alert("Recording Error", "Could not process your voice message. Please try again.");
+    } finally {
+      isStoppingRef.current = false;
     }
-  }, [recording, recordingDuration]);
+  }, []); // no deps needed — all values accessed via refs
 
   // ── Send Text Message ─────────────────────────────────────────────────────
   const sendTextMessage = useCallback(async () => {
@@ -346,6 +367,8 @@ export default function AIAssistantTab() {
     },
     [messages, pushToken]
   );
+  // Always keep the ref pointing to the latest sendToAI (so stopRecording can call it)
+  sendToAIRef.current = sendToAI;
 
   // ── Render Message Bubble ─────────────────────────────────────────────────
   const renderMessage = (msg: Message) => {
@@ -377,20 +400,56 @@ export default function AIAssistantTab() {
           {/* Action Buttons */}
           {msg.action === "add_materials" && msg.actionData?.materials && (
             <View style={styles.actionButtons}>
-              <TouchableOpacity
-                style={styles.actionBtn}
-                onPress={() => {
-                  Clipboard.setString(
-                    msg.actionData.materials
-                      .map((m: any) => `${m.qty} ${m.unit} - ${m.item}`)
-                      .join("\n")
-                  );
-                  Alert.alert("✅ Copied!", "Material list copied to clipboard.");
-                }}
-              >
-                <Ionicons name="copy-outline" size={16} color="#fff" />
-                <Text style={styles.actionBtnText}>Copy List</Text>
-              </TouchableOpacity>
+              {msg.actionData.saved_to_project ? (
+                <View style={styles.savedBadge}>
+                  <Ionicons name="checkmark-circle" size={16} color="#059669" />
+                  <Text style={styles.savedBadgeText}>
+                    Saved to {msg.actionData.saved_to_project}
+                  </Text>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.actionBtn}
+                  onPress={() => {
+                    Clipboard.setString(
+                      msg.actionData.materials
+                        .map((m: any) => `${m.qty} ${m.unit} - ${m.item}`)
+                        .join("\n")
+                    );
+                    Alert.alert("✅ Copied!", "Material list copied to clipboard.");
+                  }}
+                >
+                  <Ionicons name="copy-outline" size={16} color="#fff" />
+                  <Text style={styles.actionBtnText}>Copy List</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+
+          {msg.action === "invoice_paid" && msg.actionData && (
+            <View style={styles.savedBadge}>
+              <Ionicons name="checkmark-circle" size={16} color="#059669" />
+              <Text style={styles.savedBadgeText}>
+                Invoice #{msg.actionData.invoiceNumber} — Paid ✓
+              </Text>
+            </View>
+          )}
+
+          {msg.action === "invoice_created" && msg.actionData && (
+            <View style={styles.savedBadge}>
+              <Ionicons name="document-text-outline" size={16} color="#0b3ea8" />
+              <Text style={styles.savedBadgeText}>
+                Invoice #{msg.actionData.invoiceNumber} created (Draft)
+              </Text>
+            </View>
+          )}
+
+          {msg.action === "estimate_created" && msg.actionData && (
+            <View style={styles.savedBadge}>
+              <Ionicons name="calculator-outline" size={16} color="#0b3ea8" />
+              <Text style={styles.savedBadgeText}>
+                Estimate created for {msg.actionData.customerName} (Draft)
+              </Text>
             </View>
           )}
 
@@ -500,7 +559,7 @@ export default function AIAssistantTab() {
           <View style={styles.recordingBar}>
             <View style={styles.recordingDot} />
             <Text style={styles.recordingText}>
-              Recording... {recordingDuration}s — Release to send
+              Recording... {recordingDuration}s — Tap mic to send
             </Text>
           </View>
         )}
@@ -533,15 +592,15 @@ export default function AIAssistantTab() {
             </TouchableOpacity>
           </View>
 
-          {/* Mic Button */}
+          {/* Mic Button — tap once to start, tap again to stop & send */}
           <View style={styles.micRow}>
             <Text style={styles.micHint}>
-              {isRecording ? "🔴 Recording... lift finger to send" : "Hold to talk"}
+              {isRecording ? "🔴 Tap to stop & send" : "Tap to talk"}
             </Text>
-            <TouchableWithoutFeedback
-              onPressIn={startRecording}
-              onPressOut={stopRecording}
+            <TouchableOpacity
+              onPress={isRecording ? stopRecording : startRecording}
               disabled={isLoading}
+              activeOpacity={0.8}
             >
               <Animated.View
                 style={[
@@ -552,12 +611,12 @@ export default function AIAssistantTab() {
                 ]}
               >
                 <Ionicons
-                  name={isRecording ? "radio-button-on" : "mic"}
+                  name={isRecording ? "stop-circle" : "mic"}
                   size={36}
                   color="#fff"
                 />
               </Animated.View>
-            </TouchableWithoutFeedback>
+            </TouchableOpacity>
             <Text style={styles.micHintRight}>
               {isLoading ? "Processing..." : "or type above"}
             </Text>
@@ -826,5 +885,21 @@ const styles = StyleSheet.create({
   micButtonLoading: {
     backgroundColor: "#9ca3af",
     shadowColor: "#9ca3af",
+  },
+  savedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 8,
+    backgroundColor: "#d1fae5",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  savedBadgeText: {
+    fontSize: 12,
+    color: "#065f46",
+    fontWeight: "700",
+    flexShrink: 1,
   },
 });
