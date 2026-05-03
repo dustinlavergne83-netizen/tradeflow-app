@@ -29,7 +29,7 @@ export default defineConfig({
       },
       workbox: {
         navigateFallback: "/index.html",
-        maximumFileSizeToCacheInBytes: 5000000,
+        maximumFileSizeToCacheInBytes: 10000000,
       },
     }),
   ],
