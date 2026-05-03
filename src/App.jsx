@@ -24,6 +24,7 @@ import ProjectDetail from "./pages/ProjectDetail";
 import ProjectReportsPhotos from "./pages/ProjectReportsPhotos";
 import ProjectMaterialList from "./pages/ProjectMaterialList";
 import ProjectInfoSheet from "./pages/ProjectInfoSheet";
+import ProjectStatement from "./pages/ProjectStatement";
 import Proposal from "./pages/Proposal";
 import Invoice from "./pages/Invoice";
 import ProgressInvoice from "./pages/ProgressInvoice";
@@ -59,9 +60,12 @@ import TimeOffRequests from "./pages/TimeOffRequests";
 import Plans from "./pages/Plans";
 import Takeoff from "./pages/Takeoff";
 import CheckStubs from "./pages/CheckStubs";
+import CheckStubsBrowser from "./pages/CheckStubsBrowser";
 import EmployeeLocations from "./pages/EmployeeLocations";
 import ProjectGeofence from "./pages/ProjectGeofence";
 import GeofenceEvents from "./pages/GeofenceEvents";
+import CompanyLocations from "./pages/CompanyLocations";
+import ScheduledNotifications from "./pages/ScheduledNotifications";
 import PendingJobs from "./pages/PendingJobs";
 import DesktopHeader from "./Components/DesktopHeader";
 import WebsiteManager from "./pages/WebsiteManager";
@@ -212,6 +216,14 @@ function AppContent() {
             }
           />
           <Route
+            path="/project/:id/statement"
+            element={
+              <ProtectedRoute>
+                <ProjectStatement />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/project/:projectId/plans"
             element={
               <ProtectedRoute>
@@ -239,7 +251,7 @@ function AppContent() {
             path="/timeclock"
             element={
               <ProtectedRoute>
-                <TimeClock />
+                <EmployeeTimesheets />
               </ProtectedRoute>
             }
           />
@@ -387,6 +399,14 @@ function AppContent() {
             }
           />
           <Route
+            path="/check-stubs/browse"
+            element={
+              <ProtectedRoute>
+                <CheckStubsBrowser />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/employee-locations"
             element={
               <ProtectedRoute>
@@ -399,6 +419,22 @@ function AppContent() {
             element={
               <ProtectedRoute>
                 <GeofenceEvents />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/company-locations"
+            element={
+              <ProtectedRoute>
+                <CompanyLocations />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/scheduled-notifications"
+            element={
+              <ProtectedRoute>
+                <ScheduledNotifications />
               </ProtectedRoute>
             }
           />

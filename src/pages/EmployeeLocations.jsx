@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import DesktopHeader from '../Components/DesktopHeader';
 
 import { formatDate } from "../utils/dateUtils";
 
 export default function EmployeeLocations() {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [employees, setEmployees] = useState([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
@@ -99,9 +101,29 @@ export default function EmployeeLocations() {
       <DesktopHeader />
       
       <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '24px' }}>
-        <h1 style={{ fontSize: '2rem', fontWeight: 'bold', marginBottom: '24px', color: '#111827' }}>
-          📍 Employee Location Tracking
-        </h1>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: '24px' }}>
+          <h1 style={{ fontSize: '2rem', fontWeight: 'bold', margin: 0, color: '#111827' }}>
+            📍 Employee Location Tracking
+          </h1>
+          <button
+            onClick={() => navigate('/company-locations')}
+            style={{
+              backgroundColor: '#0b3ea8',
+              color: '#fff',
+              border: 'none',
+              padding: '10px 20px',
+              borderRadius: 8,
+              fontSize: 14,
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            🏢 Company Locations
+          </button>
+        </div>
 
         {/* Employee Selection */}
         <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>

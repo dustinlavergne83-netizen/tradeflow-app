@@ -12,6 +12,9 @@ const BRAND = {
   primary: "#2563eb",
 };
 
+// Helper: detect video by file extension
+const isVideo = (name) => /\.(mp4|mov|avi|webm|mkv|m4v|mpeg|3gp)$/i.test(name || '');
+
 // Common electrical job sections for photo organization
 const JOB_SECTIONS = [
   { id: 'rough-in', name: 'Rough-in', color: '#EF4444', icon: '🔌' },
@@ -138,16 +141,15 @@ export default function ProjectReportsPhotos() {
     if (!files.length) return;
     
     // Validate file types and sizes
-    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic'];
-    const maxSize = 10 * 1024 * 1024; // 10MB
+    const maxSize = 500 * 1024 * 1024; // 500MB — videos can be large
     
     for (const file of files) {
-      if (!validTypes.includes(file.type)) {
-        alert(`Invalid file type: ${file.name}. Please upload JPEG, PNG, WebP, or HEIC images only.`);
+      if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
+        alert(`Invalid file type: ${file.name}. Please upload images or videos.`);
         return;
       }
       if (file.size > maxSize) {
-        alert(`File too large: ${file.name}. Please upload images smaller than 10MB.`);
+        alert(`File too large: ${file.name}. Please keep files under 500MB.`);
         return;
       }
     }
@@ -653,10 +655,10 @@ export default function ProjectReportsPhotos() {
             <h2 style={{ ...styles.cardTitle, marginBottom: 0 }}>📸 Reports & Photos</h2>
             <div style={{display: 'flex', gap: 8}}>
               <label style={{...styles.addButton, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', opacity: uploadingPhoto ? 0.6 : 1}}>
-                {uploadingPhoto ? '⏳ Uploading...' : '📷 Upload Photos'}
+                {uploadingPhoto ? '⏳ Uploading...' : '📷 Upload Photos & Videos'}
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/*,video/*"
                   multiple
                   style={{display: 'none'}}
                   disabled={uploadingPhoto}
@@ -771,8 +773,16 @@ export default function ProjectReportsPhotos() {
                         }
                       })
                       .map((photo, idx) => (
-                        <div key={idx} style={{position: 'relative', borderRadius: 8, overflow: 'hidden', border: '1px solid #e5e7eb', aspectRatio: '1', cursor: 'pointer'}} onClick={() => setSelectedPhoto(photo)}>
-                          <img src={photo.url} alt={photo.name} style={{width: '100%', height: '100%', objectFit: 'cover'}} />
+                        <div key={idx} style={{position: 'relative', borderRadius: 8, overflow: 'hidden', border: '1px solid #e5e7eb', aspectRatio: '1', cursor: 'pointer', backgroundColor: '#000'}} onClick={() => setSelectedPhoto(photo)}>
+                          {isVideo(photo.name)
+                            ? <video src={photo.url} preload="metadata" muted style={{width: '100%', height: '100%', objectFit: 'cover'}} />
+                            : <img src={photo.url} alt={photo.name} style={{width: '100%', height: '100%', objectFit: 'cover'}} />
+                          }
+                          {isVideo(photo.name) && (
+                            <div style={{position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none'}}>
+                              <div style={{background: 'rgba(0,0,0,0.55)', borderRadius: '50%', width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22}}>▶️</div>
+                            </div>
+                          )}
                           <button onClick={handleDeletePhoto(photo)} style={{position: 'absolute', top: 4, right: 4, background: 'rgba(239,68,68,0.9)', border: 'none', color: '#fff', borderRadius: '50%', width: 24, height: 24, cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center'}}>✕</button>
                         </div>
                       ))}
@@ -1688,46 +1698,30 @@ export default function ProjectReportsPhotos() {
         )}
       </div>
 
-      {/* Photo Lightbox & Annotation */}
+      {/* Photo / Video Lightbox & Annotation */}
       {selectedPhoto && !annotatingPhoto && (
         <div style={{position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000}} onClick={(e) => { if (e.target === e.currentTarget) setSelectedPhoto(null); }}>
           <div style={{position: 'relative', maxWidth: '90vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column', alignItems: 'center'}}>
-            <img src={selectedPhoto.url} alt={selectedPhoto.name} style={{maxWidth: '100%', maxHeight: '80vh', objectFit: 'contain', borderRadius: 8}} />
+            {isVideo(selectedPhoto.name)
+              ? <video src={selectedPhoto.url} controls autoPlay style={{maxWidth: '100%', maxHeight: '80vh', borderRadius: 8, backgroundColor: '#000'}} />
+              : <img src={selectedPhoto.url} alt={selectedPhoto.name} style={{maxWidth: '100%', maxHeight: '80vh', objectFit: 'contain', borderRadius: 8}} />
+            }
             <div style={{marginTop: 16, display: 'flex', gap: 12}}>
-              <button 
-                onClick={() => {
-                  setAnnotatingPhoto(selectedPhoto);
-                  setAnnotations([]);
-                  setSelectedPhoto(null);
-                }}
-                style={{
-                  padding: '12px 24px', 
-                  backgroundColor: '#10b981', 
-                  border: 'none', 
-                  color: '#fff', 
-                  borderRadius: 8, 
-                  cursor: 'pointer', 
-                  fontSize: 16, 
-                  fontWeight: 600,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8
-                }}
-              >
-                ✏️ Add Annotations & Arrows
-              </button>
+              {!isVideo(selectedPhoto.name) && (
+                <button 
+                  onClick={() => {
+                    setAnnotatingPhoto(selectedPhoto);
+                    setAnnotations([]);
+                    setSelectedPhoto(null);
+                  }}
+                  style={{padding: '12px 24px', backgroundColor: '#10b981', border: 'none', color: '#fff', borderRadius: 8, cursor: 'pointer', fontSize: 16, fontWeight: 600}}
+                >
+                  ✏️ Add Annotations & Arrows
+                </button>
+              )}
               <button 
                 onClick={() => setSelectedPhoto(null)}
-                style={{
-                  padding: '12px 24px', 
-                  backgroundColor: 'rgba(255,255,255,0.2)', 
-                  border: 'none', 
-                  color: '#fff', 
-                  borderRadius: 8, 
-                  cursor: 'pointer', 
-                  fontSize: 16, 
-                  fontWeight: 600
-                }}
+                style={{padding: '12px 24px', backgroundColor: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 8, cursor: 'pointer', fontSize: 16, fontWeight: 600}}
               >
                 ✕ Close
               </button>

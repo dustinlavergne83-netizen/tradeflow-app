@@ -2341,7 +2341,8 @@ export default function Estimate({ mode = "full" }) {
   // Separate effect for initial load
   useEffect(() => {
     if ((currentEstimateId || (isChangeOrder && coId)) && !hasLoadedInitialData) {
-      loadSectionData();
+      setIsLoadingSection(true); // Prevent autosave during initial load
+      loadSectionData().finally(() => setIsLoadingSection(false));
       setHasLoadedInitialData(true);
     }
   }, [currentEstimateId, coId]); // Only run once when IDs first become available
@@ -2572,17 +2573,36 @@ export default function Estimate({ mode = "full" }) {
         // Change orders use coId, mark as ready for auto-save
         setHasLoadedInitialData(true);
         setRowsSection(currentSection);
-      } else {
-        // FIX: For new estimates (no estimateId in URL), mark as ready immediately.
-        // Previously this was never set, creating a deadlock where:
-        // - auto-save required hasLoadedInitialData=true
-        // - hasLoadedInitialData required currentEstimateId
-        // - currentEstimateId required auto-save to create the estimate
-        const newEstimateNumber = await generateEstimateNumber();
-        setEstimateNumber(newEstimateNumber);
-        setHasLoadedInitialData(true); // No existing data to load, ready for auto-save
-        setRowsSection(currentSection);
-      }
+        } else {
+          // No estimateId in URL - look up existing estimate for this project by project_id (stable)
+          const { data: existingEstimate } = await supabase
+            .from("estimates")
+            .select("*")
+            .eq("project_id", projectId)
+            .eq("company_id", user.id)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (existingEstimate) {
+            // Found an existing estimate for this project - load it
+            console.log(`📂 Found existing estimate for project: ${existingEstimate.id}`);
+            setCurrentEstimateId(existingEstimate.id);
+            setEstimateNumber(existingEstimate.estimate_number);
+            if (existingEstimate.estimate_date) setEstimateDate(existingEstimate.estimate_date);
+            if (existingEstimate.overhead_percent) setOverheadPercent(existingEstimate.overhead_percent);
+            if (existingEstimate.profit_percent) setProfitPercent(existingEstimate.profit_percent);
+            if (existingEstimate.alternate_number !== undefined) setCurrentAlternate(existingEstimate.alternate_number || 0);
+            // hasLoadedInitialData will be set by the currentEstimateId effect below
+          } else {
+            // Truly a new estimate - no existing data to load
+            console.log(`🆕 No existing estimate for project - creating new`);
+            const newEstimateNumber = await generateEstimateNumber();
+            setEstimateNumber(newEstimateNumber);
+            setHasLoadedInitialData(true); // No existing data to load, ready for auto-save
+            setRowsSection(currentSection);
+          }
+        }
     } catch (err) {
       console.error("Error loading project:", err);
       alert("Failed to load project data");
@@ -2694,6 +2714,7 @@ export default function Estimate({ mode = "full" }) {
   useEffect(() => {
     if (!projectId || !user) return;
     if (!hasLoadedInitialData) return; // Don't auto-save until initial data is loaded!
+    if (isLoadingSection) return; // Don't auto-save while section data is loading (prevents deleting items)
     
     // CRITICAL: Don't auto-save if rowsSection doesn't match currentSection
     // This prevents saving stale data from the old section to the new section
@@ -2711,7 +2732,7 @@ export default function Estimate({ mode = "full" }) {
     }, 2000); // Auto-save 2 seconds after last change
 
     return () => clearTimeout(timeoutId);
-  }, [rows, overheadPercent, profitPercent, phase, subPhase, level, subLevel, projectId, user, rowsSection, currentSection, hasLoadedInitialData]);
+  }, [rows, overheadPercent, profitPercent, phase, subPhase, level, subLevel, projectId, user, rowsSection, currentSection, hasLoadedInitialData, isLoadingSection]);
 
   // ===== AUTO-SAVE FUNCTION =====
   async function autoSaveEstimate(sectionToSave) {
@@ -3015,6 +3036,7 @@ for (const row of validRows) {
       setLastSaved(new Date());
     } catch (err) {
       console.error("Auto-save error:", err);
+      alert("❌ Save failed: " + (err.message || JSON.stringify(err)));
     } finally {
       setAutoSaving(false);
     }
@@ -3133,7 +3155,6 @@ for (const row of validRows) {
       // Create the estimate header
       const estimateData = {
         company_id: user?.id,
-        project_id: projectId,
         project_name: projectName,
         customer_name: customerName,
         project_location: projectLocation,
@@ -3263,6 +3284,27 @@ for (const row of validRows) {
               </div>
             </div>
             <div>
+              <button
+                onClick={() => autoSaveEstimate(currentSection)}
+                disabled={autoSaving}
+                style={{
+                  padding: "10px 22px",
+                  background: autoSaving ? "#444" : "#f97316",
+                  border: "none",
+                  borderRadius: 8,
+                  color: "#fff",
+                  fontSize: 15,
+                  fontWeight: "bold",
+                  cursor: autoSaving ? "not-allowed" : "pointer",
+                  opacity: autoSaving ? 0.7 : 1,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  transition: "all 0.2s"
+                }}
+              >
+                {autoSaving ? "⏳ Saving..." : "💾 Save Now"}
+              </button>
             </div>
           </div>
         )}

@@ -933,7 +933,7 @@ export default function InvoicesList() {
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
-    const date = new Date(dateString);
+    const date = new Date(dateString.includes('T') ? dateString : dateString + 'T00:00:00');
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     const year = date.getFullYear();

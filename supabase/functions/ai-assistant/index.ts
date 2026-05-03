@@ -88,13 +88,22 @@ serve(async (req) => {
 
     const companyId = profile?.company_id
 
-    // Fetch recent projects
-    const { data: recentProjects } = await supabase
+    // Fetch all projects using service client (bypasses RLS entirely — no company_id filter needed)
+    // Match the same status values the app uses
+    const { data: recentProjects, error: projectsError } = await supabaseService
       .from('projects')
-      .select('id, name, status, customer_name')
-      .eq('company_id', companyId)
-      .order('created_at', { ascending: false })
-      .limit(15)
+      .select('id, name, status, customer')
+      .order('name', { ascending: true })
+      .limit(200)
+
+    console.log(`Projects loaded: ${recentProjects?.length || 0}, error: ${projectsError?.message}`)
+
+    // Also fetch project_tasks (timeclock project name history) for fuzzy matching
+    const { data: projectTasks } = await supabaseService
+      .from('project_tasks')
+      .select('name')
+      .order('name', { ascending: true })
+      .limit(200)
 
     // Fetch recent invoices
     const { data: recentInvoices } = await supabase
@@ -114,21 +123,36 @@ serve(async (req) => {
       .order('remind_at', { ascending: true })
       .limit(5)
 
-    // Fetch all active employees for name lookup
-    const { data: allEmployees } = await supabase
+    // Fetch all active employees using service client (bypasses RLS)
+    const { data: allEmployees } = await supabaseService
       .from('employees')
       .select('id, user_id, first_name, last_name, preferred_name')
-      .eq('company_id', companyId)
       .eq('is_active', true)
       .or('archived.is.null,archived.eq.false')
       .order('first_name', { ascending: true })
 
+    console.log(`Employees loaded: ${allEmployees?.length || 0}`)
+
     // Fetch currently clocked-in employees (shifts with no clock_out)
     const { data: activeShifts } = await supabaseService
       .from('shifts')
-      .select('id, user_id, clock_in, project_id')
+      .select('id, user_id, clock_in')
       .is('clock_out', null)
       .not('clock_in', 'is', null)
+
+    // Fetch latest open segment for each active shift to get project name
+    const activeShiftIds = (activeShifts || []).map(s => s.id)
+    let segmentsByShiftId: Record<string, string> = {}
+    if (activeShiftIds.length > 0) {
+      const { data: openSegs } = await supabaseService
+        .from('shift_segments')
+        .select('shift_id, project_task')
+        .in('shift_id', activeShiftIds)
+        .is('end_at', null)
+      ;(openSegs || []).forEach(seg => {
+        segmentsByShiftId[seg.shift_id] = seg.project_task || 'No project assigned'
+      })
+    }
 
     // Build a map of user_id -> employee
     const employeeByUserId: Record<string, any> = {}
@@ -148,7 +172,6 @@ serve(async (req) => {
     // Enrich active shifts with employee/project names
     const activeShiftsSummary = (activeShifts || []).map(shift => {
       const emp = employeeByUserId[shift.user_id]
-      const proj = recentProjects?.find(p => p.id === shift.project_id)
       const elapsed = shift.clock_in 
         ? Math.round((Date.now() - new Date(shift.clock_in).getTime()) / 60000)
         : 0
@@ -156,8 +179,7 @@ serve(async (req) => {
         shiftId: shift.id,
         userId: shift.user_id,
         employeeName: emp ? `${emp.first_name} ${emp.last_name}` : 'Unknown',
-        projectName: proj?.name || 'No project assigned',
-        projectId: shift.project_id,
+        projectName: segmentsByShiftId[shift.id] || 'No project assigned',
         clockIn: shift.clock_in,
         elapsedMinutes: elapsed,
       }
@@ -180,18 +202,23 @@ serve(async (req) => {
     const systemPrompt = `You are an AI assistant for DML Electrical Service LLC, a licensed electrical contracting company in Jennings, Louisiana, owned by Dustin Lavergne.
 
 Current Date/Time (Central): ${nowStr}
+Current User (the person talking to you): ${profile?.full_name || 'Dustin Lavergne'} | user_id: ${user.id}
+IMPORTANT: When the user says "clock me in", "clock me out", "I started at...", "my hours", etc. — they are referring to THEMSELVES (${profile?.full_name || 'Dustin Lavergne'}, user_id: ${user.id}). Always use their user_id directly for self-references.
 
 YOUR CAPABILITIES:
 - Set reminders (use set_reminder tool)
-- Parse material lists into structured line items (use add_materials tool)
+- Parse & SAVE material lists directly to a project (use add_materials tool — saves to project_material_lists table)
 - Generate professional proposal/scope of work text (use generate_proposal tool)
 - Generate invoice descriptions (use generate_invoice_description tool)
-- Clock employees in/out of projects (use clock_in_employee / clock_out_employee tools)
+- Create a real invoice in the database for a customer/project (use create_invoice tool)
+- Create a draft estimate in the database (use create_estimate tool)
+- Mark an invoice as paid (use mark_invoice_paid tool)
+- Clock employees in/out of projects — including manual entries for past times (use clock_in_employee / clock_out_employee tools)
 - Check timeclock status and hours (use get_timeclock_status / get_weekly_hours tools)
 - Answer questions about projects, invoices, customers, and timeclock
 
 ACTIVE PROJECTS (${recentProjects?.length || 0}):
-${recentProjects?.map(p => `• "${p.name}" | Status: ${p.status} | Customer: ${p.customer_name || 'N/A'} | ID: ${p.id}`).join('\n') || 'None loaded'}
+${recentProjects?.map(p => `• "${p.name}" | Status: ${p.status} | Customer: ${p.customer || 'N/A'} | ID: ${p.id}`).join('\n') || 'None loaded'}
 
 RECENT INVOICES (${recentInvoices?.length || 0}):
 ${recentInvoices?.map(i => `• Invoice #${i.invoice_number}: ${i.customer_name} | Total: $${i.total} | Balance: $${i.balance_due} | Status: ${i.status}`).join('\n') || 'None loaded'}
@@ -323,7 +350,7 @@ GUIDELINES:
         type: 'function',
         function: {
           name: 'clock_in_employee',
-          description: 'Clock an employee in to a project. Use when user says "clock in [name]", "start [name] on [project]", or "[name] is starting work". Creates a shift record in the timeclock.',
+          description: 'Clock an employee in to a project. Use when user says "clock in [name]", "start [name] on [project]", "[name] is starting work", or "clock [name] in at [time]". Supports manual past-time entry — if a specific time is mentioned (e.g. "at 7 this morning", "at 7:30 am"), pass it as clock_in_time.',
           parameters: {
             type: 'object',
             properties: {
@@ -334,6 +361,10 @@ GUIDELINES:
               project_name: {
                 type: 'string',
                 description: 'Name of the project to clock them into (optional)'
+              },
+              clock_in_time: {
+                type: 'string',
+                description: 'ISO 8601 datetime string for the clock-in time (in America/Chicago timezone, converted to UTC). Use this when the user specifies a past time like "7 this morning" or "7:30 am". If not specified, defaults to right now.'
               }
             },
             required: ['employee_name']
@@ -344,13 +375,17 @@ GUIDELINES:
         type: 'function',
         function: {
           name: 'clock_out_employee',
-          description: 'Clock an employee out, ending their current shift. Use when user says "clock out [name]", "[name] is done", "[name] is leaving", or "end [name]\'s shift".',
+          description: 'Clock an employee out, ending their current shift. Use when user says "clock out [name]", "[name] is done", "[name] is leaving", or "end [name]\'s shift". If a specific clock-out time is mentioned, pass it as clock_out_time.',
           parameters: {
             type: 'object',
             properties: {
               employee_name: {
                 type: 'string',
                 description: 'First name, last name, or preferred name of the employee to clock out'
+              },
+              clock_out_time: {
+                type: 'string',
+                description: 'ISO 8601 datetime string for the clock-out time. Use when the user specifies a past time. Defaults to right now if omitted.'
               }
             },
             required: ['employee_name']
@@ -371,6 +406,65 @@ GUIDELINES:
               }
             },
             required: []
+          }
+        }
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'mark_invoice_paid',
+          description: 'Mark an invoice as paid and set balance_due to 0. Use when user says "mark [invoice/customer] as paid", "[customer] paid", "invoice [number] is paid", etc.',
+          parameters: {
+            type: 'object',
+            properties: {
+              invoice_number: {
+                type: 'string',
+                description: 'Invoice number (e.g. "1023") if the user mentioned it'
+              },
+              customer_name: {
+                type: 'string',
+                description: 'Customer name to look up the invoice if no invoice number was given'
+              },
+              payment_method: {
+                type: 'string',
+                description: 'How they paid — cash, check, card, etc. (optional)'
+              }
+            },
+            required: []
+          }
+        }
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'create_invoice',
+          description: 'Create a new invoice in the database for a customer/project. Use when user says "create an invoice for [customer]", "make an invoice for [project]", "bill [customer] $[amount]", etc.',
+          parameters: {
+            type: 'object',
+            properties: {
+              customer_name: { type: 'string', description: 'Customer name for the invoice' },
+              project_name: { type: 'string', description: 'Project name (optional — used to link to a project)' },
+              total: { type: 'number', description: 'Invoice total amount in dollars' },
+              description: { type: 'string', description: 'Description of the work / invoice notes' },
+            },
+            required: ['customer_name', 'total']
+          }
+        }
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'create_estimate',
+          description: 'Create a draft estimate in the database. Use when user says "create an estimate for [customer]", "make a quote for [project]", "start an estimate", etc.',
+          parameters: {
+            type: 'object',
+            properties: {
+              customer_name: { type: 'string', description: 'Customer name for the estimate' },
+              project_name: { type: 'string', description: 'Project name or description' },
+              total: { type: 'number', description: 'Estimated total amount in dollars (if mentioned)' },
+              description: { type: 'string', description: 'Scope of work or description of what is being estimated' },
+            },
+            required: ['customer_name']
           }
         }
       }
@@ -430,19 +524,73 @@ GUIDELINES:
 
       // ── add_materials ────────────────────────────────────────────────────────
       } else if (toolCall.function.name === 'add_materials') {
+        const materialList = toolArgs.materials
+          .map((m: any) => `• ${m.qty} ${m.unit} — ${m.item}`)
+          .join('\n')
+
+        // Try to save to project if a project name was mentioned
+        let savedToProject: string | null = null
+        let savedListId: string | null = null
+        if (toolArgs.project_name) {
+          const searchTerm = toolArgs.project_name.toLowerCase()
+          const matchedProject = recentProjects?.find(p =>
+            p.name.toLowerCase().includes(searchTerm) ||
+            searchTerm.includes(p.name.toLowerCase()) ||
+            (p.customer && p.customer.toLowerCase().includes(searchTerm))
+          )
+          if (matchedProject) {
+            try {
+              // Create the material list record
+              const { data: newList, error: listError } = await supabaseService
+                .from('project_material_lists')
+                .insert({
+                  project_id: matchedProject.id,
+                  title: 'Material List',
+                  status: 'draft',
+                  created_by: user.id,
+                })
+                .select()
+                .single()
+
+              if (!listError && newList) {
+                savedListId = newList.id
+                // Insert all items
+                const itemRows = toolArgs.materials.map((m: any, idx: number) => ({
+                  material_list_id: newList.id,
+                  description: m.item,
+                  quantity: m.qty,
+                  unit: m.unit,
+                  unit_cost: 0,
+                  total_cost: 0,
+                  category: 'Other',
+                  status: 'needed',
+                  sort_order: idx,
+                }))
+                await supabaseService.from('material_list_items').insert(itemRows)
+                savedToProject = matchedProject.name
+              }
+            } catch (saveErr) {
+              console.error('Error saving material list:', saveErr)
+            }
+          }
+        }
+
         action = 'add_materials'
         actionData = {
           materials: toolArgs.materials,
           project_name: toolArgs.project_name || null,
+          saved_to_project: savedToProject,
+          list_id: savedListId,
         }
-        const materialList = toolArgs.materials
-          .map((m: any) => `• ${m.qty} ${m.unit} — ${m.item}`)
-          .join('\n')
+
         responseMessage = `✅ Got it! Here are your materials (${toolArgs.materials.length} items):\n\n${materialList}`
-        if (toolArgs.project_name) {
-          responseMessage += `\n\nProject: ${toolArgs.project_name}`
+        if (savedToProject) {
+          responseMessage += `\n\n📋 Saved to "${savedToProject}" project! View it under that project's Material Lists in the app.`
+        } else if (toolArgs.project_name) {
+          responseMessage += `\n\n⚠️ Couldn't find project "${toolArgs.project_name}" — list not saved. Tap "Copy List" to use it manually.`
+        } else {
+          responseMessage += `\n\nTap "Copy List" to use these, or say which project to save them to.`
         }
-        responseMessage += `\n\nTap "Add to Estimate" to use these.`
 
       // ── generate_proposal ─────────────────────────────────────────────────
       } else if (toolCall.function.name === 'generate_proposal') {
@@ -533,6 +681,25 @@ Be concise and professional. Start with what was installed/completed.`
           )
         }
 
+        // Self-reference fallback: "me", "myself", "I", or the current user's name
+        if (!matchedEmployee) {
+          const selfTerms = ['me', 'myself', 'i']
+          const currentUserName = (profile?.full_name || 'dustin lavergne').toLowerCase()
+          const isSelf = selfTerms.includes(searchName) ||
+            currentUserName.includes(searchName) ||
+            searchName.includes('dustin')
+          if (isSelf) {
+            // Synthesize an employee object from the current user's profile
+            const nameParts = (profile?.full_name || 'Dustin Lavergne').split(' ')
+            matchedEmployee = {
+              user_id: user.id,
+              first_name: nameParts[0] || 'Dustin',
+              last_name: nameParts.slice(1).join(' ') || 'Lavergne',
+              preferred_name: null,
+            }
+          }
+        }
+
         if (!matchedEmployee) {
           responseMessage = `❌ I couldn't find an employee named "${toolArgs.employee_name}". Available employees: ${(allEmployees || []).map(e => e.first_name).join(', ')}`
         } else {
@@ -541,40 +708,70 @@ Be concise and professional. Start with what was installed/completed.`
           if (alreadyClockedIn) {
             responseMessage = `⚠️ ${matchedEmployee.first_name} ${matchedEmployee.last_name} is already clocked in on "${alreadyClockedIn.projectName}". Clock them out first if you want to switch projects.`
           } else {
-            // Find project
-            let projectId: string | null = null
-            let projectNameDisplay = 'No project'
+            // Find project — search by name AND customer_name, then fall back to project_tasks, then raw text
+            let projectNameDisplay = ''
             if (toolArgs.project_name) {
+              const searchTerm = toolArgs.project_name.toLowerCase()
               const proj = recentProjects?.find(p =>
-                p.name.toLowerCase().includes(toolArgs.project_name.toLowerCase())
+                p.name.toLowerCase().includes(searchTerm) ||
+                searchTerm.includes(p.name.toLowerCase()) ||
+                (p.customer && p.customer.toLowerCase().includes(searchTerm)) ||
+                (p.customer && searchTerm.includes(p.customer.toLowerCase()))
               )
               if (proj) {
-                projectId = proj.id
+                // Use the project name from our system
                 projectNameDisplay = proj.name
+              } else {
+                // Check project_tasks history (timeclock free-text names)
+                const taskMatch = (projectTasks || []).find(t =>
+                  t.name && (
+                    t.name.toLowerCase().includes(searchTerm) ||
+                    searchTerm.includes(t.name.toLowerCase())
+                  )
+                )
+                // Use matched task name, or just use what the user said
+                projectNameDisplay = taskMatch ? taskMatch.name : toolArgs.project_name
               }
             }
 
-            // Create shift record
-            const clockInTime = new Date().toISOString()
-            const { error: shiftError } = await supabaseService
+            // Use provided past time if given, otherwise use now
+            const clockInTime = toolArgs.clock_in_time
+              ? new Date(toolArgs.clock_in_time).toISOString()
+              : new Date().toISOString()
+            const isManualEntry = !!toolArgs.clock_in_time
+
+            // shifts table has NO project_id — project lives in shift_segments
+            const { data: newShift, error: shiftError } = await supabaseService
               .from('shifts')
               .insert({
                 user_id: matchedEmployee.user_id,
                 clock_in: clockInTime,
-                project_id: projectId,
+                clock_out: null,
+              })
+              .select()
+              .single()
+
+            if (!shiftError && newShift) {
+              // Create the first shift_segment with the project name
+              await supabaseService.from('shift_segments').insert({
+                user_id: matchedEmployee.user_id,
+                shift_id: newShift.id,
+                project_task: projectNameDisplay !== 'No project' ? projectNameDisplay : '',
+                start_at: clockInTime,
+                end_at: null,
               })
 
-            if (!shiftError) {
               const displayName = `${matchedEmployee.first_name} ${matchedEmployee.last_name}`
               const formattedTime = new Date(clockInTime).toLocaleTimeString('en-US', {
                 hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago'
               })
               action = 'clock_in'
-              actionData = { employeeName: displayName, projectName: projectNameDisplay, clockIn: clockInTime }
-              responseMessage = `✅ **${displayName}** clocked in!\n\n⏰ ${formattedTime}\n📂 Project: ${projectNameDisplay}\n\nThis shows in the timeclock app immediately.`
+              actionData = { employeeName: displayName, projectName: projectNameDisplay, clockIn: clockInTime, isManualEntry }
+              const manualNote = isManualEntry ? '\n📝 Manual entry — time backdated.' : ''
+              responseMessage = `✅ **${displayName}** clocked in!\n\n⏰ ${formattedTime}\n📂 Project: ${projectNameDisplay}${manualNote}\n\nThis shows in the timeclock app immediately.`
             } else {
               console.error('Clock-in error:', shiftError)
-              responseMessage = `❌ Failed to clock in ${matchedEmployee.first_name}. Error: ${shiftError.message}`
+              responseMessage = `❌ Failed to clock in ${matchedEmployee.first_name}. Error: ${shiftError?.message}`
             }
           }
         }
@@ -593,6 +790,24 @@ Be concise and professional. Start with what was installed/completed.`
           )
         }
 
+        // Self-reference fallback for clock-out too
+        if (!matchedEmployee) {
+          const selfTerms = ['me', 'myself', 'i']
+          const currentUserName = (profile?.full_name || 'dustin lavergne').toLowerCase()
+          const isSelf = selfTerms.includes(searchName) ||
+            currentUserName.includes(searchName) ||
+            searchName.includes('dustin')
+          if (isSelf) {
+            const nameParts = (profile?.full_name || 'Dustin Lavergne').split(' ')
+            matchedEmployee = {
+              user_id: user.id,
+              first_name: nameParts[0] || 'Dustin',
+              last_name: nameParts.slice(1).join(' ') || 'Lavergne',
+              preferred_name: null,
+            }
+          }
+        }
+
         if (!matchedEmployee) {
           responseMessage = `❌ I couldn't find an employee named "${toolArgs.employee_name}".`
         } else {
@@ -602,22 +817,39 @@ Be concise and professional. Start with what was installed/completed.`
           if (!activeShift) {
             responseMessage = `⚠️ ${matchedEmployee.first_name} ${matchedEmployee.last_name} is not currently clocked in.`
           } else {
-            const clockOutTime = new Date().toISOString()
+            // Use provided past time if given, otherwise use now
+            const clockOutTime = toolArgs.clock_out_time
+              ? new Date(toolArgs.clock_out_time).toISOString()
+              : new Date().toISOString()
+            const isManualClockOut = !!toolArgs.clock_out_time
+
             const { error: clockOutError } = await supabaseService
               .from('shifts')
               .update({ clock_out: clockOutTime })
               .eq('id', activeShift.shiftId)
 
+            // Also close any open shift_segments for this shift
+            await supabaseService
+              .from('shift_segments')
+              .update({ end_at: clockOutTime })
+              .eq('shift_id', activeShift.shiftId)
+              .is('end_at', null)
+
             if (!clockOutError) {
               const displayName = `${matchedEmployee.first_name} ${matchedEmployee.last_name}`
-              const totalHrs = Math.floor(activeShift.elapsedMinutes / 60)
-              const totalMins = activeShift.elapsedMinutes % 60
+              // Calculate total from actual clock_in to given clock_out
+              const clockOutMs = new Date(clockOutTime).getTime()
+              const clockInMs = new Date(activeShift.clockIn).getTime()
+              const totalMinutes = Math.max(0, Math.round((clockOutMs - clockInMs) / 60000))
+              const totalHrs = Math.floor(totalMinutes / 60)
+              const totalMins = totalMinutes % 60
               const formattedTime = new Date(clockOutTime).toLocaleTimeString('en-US', {
                 hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago'
               })
+              const manualNote = isManualClockOut ? '\n📝 Manual entry — time backdated.' : ''
               action = 'clock_out'
-              actionData = { employeeName: displayName, clockOut: clockOutTime, totalMinutes: activeShift.elapsedMinutes }
-              responseMessage = `✅ **${displayName}** clocked out!\n\n⏰ ${formattedTime}\n📂 Project: ${activeShift.projectName}\n⏱️ Total time: ${totalHrs}h ${totalMins}m\n\nUpdated in the timeclock app.`
+              actionData = { employeeName: displayName, clockOut: clockOutTime, totalMinutes, isManualClockOut }
+              responseMessage = `✅ **${displayName}** clocked out!\n\n⏰ ${formattedTime}\n📂 Project: ${activeShift.projectName}\n⏱️ Total time: ${totalHrs}h ${totalMins}m${manualNote}\n\nUpdated in the timeclock app.`
             } else {
               console.error('Clock-out error:', clockOutError)
               responseMessage = `❌ Failed to clock out ${matchedEmployee.first_name}. Error: ${clockOutError.message}`
@@ -668,6 +900,161 @@ Be concise and professional. Start with what was installed/completed.`
           const totalH = Math.floor(totalHrs)
           const totalM = Math.round((totalHrs - totalH) * 60)
           responseMessage = `📊 Week of ${weekStart}:\n\n${lines.join('\n')}\n\n**Total crew: ${totalH}h ${totalM}m**`
+        }
+
+      // ── mark_invoice_paid ────────────────────────────────────────────────
+      } else if (toolCall.function.name === 'mark_invoice_paid') {
+        // Find the invoice by number or customer name
+        let targetInvoice: any = null
+
+        if (toolArgs.invoice_number) {
+          targetInvoice = recentInvoices?.find(i =>
+            String(i.invoice_number) === String(toolArgs.invoice_number)
+          )
+          // If not in recent, search DB
+          if (!targetInvoice) {
+            const { data: foundInv } = await supabaseService
+              .from('invoices')
+              .select('id, invoice_number, customer_name, total, balance_due, status')
+              .eq('company_id', companyId)
+              .eq('invoice_number', toolArgs.invoice_number)
+              .single()
+            targetInvoice = foundInv
+          }
+        } else if (toolArgs.customer_name) {
+          const search = toolArgs.customer_name.toLowerCase()
+          targetInvoice = recentInvoices?.find(i =>
+            i.customer_name?.toLowerCase().includes(search)
+          )
+          if (!targetInvoice) {
+            const { data: foundInvs } = await supabaseService
+              .from('invoices')
+              .select('id, invoice_number, customer_name, total, balance_due, status')
+              .eq('company_id', companyId)
+              .ilike('customer_name', `%${toolArgs.customer_name}%`)
+              .order('created_at', { ascending: false })
+              .limit(1)
+            targetInvoice = foundInvs?.[0] || null
+          }
+        }
+
+        if (!targetInvoice) {
+          responseMessage = `❌ Couldn't find that invoice. Try saying the invoice number or the exact customer name.`
+        } else if (targetInvoice.status === 'paid') {
+          responseMessage = `ℹ️ Invoice #${targetInvoice.invoice_number} for ${targetInvoice.customer_name} is already marked as paid.`
+        } else {
+          const { error: paidError } = await supabaseService
+            .from('invoices')
+            .update({
+              status: 'paid',
+              balance_due: 0,
+              payment_method: toolArgs.payment_method || null,
+              paid_at: new Date().toISOString(),
+            })
+            .eq('id', targetInvoice.id)
+
+          if (!paidError) {
+            action = 'invoice_paid'
+            actionData = { invoiceId: targetInvoice.id, invoiceNumber: targetInvoice.invoice_number, customerName: targetInvoice.customer_name, total: targetInvoice.total }
+            const payMethod = toolArgs.payment_method ? ` (${toolArgs.payment_method})` : ''
+            responseMessage = `✅ Invoice #${targetInvoice.invoice_number} marked as paid!\n\n👤 Customer: ${targetInvoice.customer_name}\n💰 Amount: $${Number(targetInvoice.total).toFixed(2)}${payMethod}\n\nBalance is now $0.00.`
+          } else {
+            console.error('Mark paid error:', paidError)
+            responseMessage = `❌ Failed to mark invoice as paid: ${paidError.message}`
+          }
+        }
+
+      // ── create_invoice ───────────────────────────────────────────────────
+      } else if (toolCall.function.name === 'create_invoice') {
+        try {
+          // Get next invoice number
+          const { data: lastInv } = await supabaseService
+            .from('invoices')
+            .select('invoice_number')
+            .eq('company_id', companyId)
+            .order('invoice_number', { ascending: false })
+            .limit(1)
+          const nextNum = lastInv?.[0]?.invoice_number
+            ? Number(lastInv[0].invoice_number) + 1
+            : 1001
+
+          // Try to find project id if project_name given
+          let linkedProjectId: string | null = null
+          if (toolArgs.project_name) {
+            const searchTerm = toolArgs.project_name.toLowerCase()
+            const proj = recentProjects?.find(p =>
+              p.name.toLowerCase().includes(searchTerm) ||
+              searchTerm.includes(p.name.toLowerCase())
+            )
+            if (proj) linkedProjectId = proj.id
+          }
+
+          const { data: newInvoice, error: invError } = await supabaseService
+            .from('invoices')
+            .insert({
+              company_id: companyId,
+              invoice_number: nextNum,
+              customer_name: toolArgs.customer_name,
+              total: toolArgs.total,
+              balance_due: toolArgs.total,
+              status: 'draft',
+              notes: toolArgs.description || null,
+              project_id: linkedProjectId,
+              created_by: user.id,
+            })
+            .select()
+            .single()
+
+          if (!invError && newInvoice) {
+            action = 'invoice_created'
+            actionData = { invoiceId: newInvoice.id, invoiceNumber: nextNum, customerName: toolArgs.customer_name, total: toolArgs.total }
+            responseMessage = `✅ Invoice #${nextNum} created!\n\n👤 Customer: ${toolArgs.customer_name}\n💰 Total: $${Number(toolArgs.total).toFixed(2)}\n📋 Status: Draft${toolArgs.project_name ? `\n📂 Project: ${toolArgs.project_name}` : ''}\n\nOpen the web app to add line items and send it.`
+          } else {
+            responseMessage = `❌ Failed to create invoice: ${invError?.message}`
+          }
+        } catch (invErr: any) {
+          responseMessage = `❌ Invoice creation failed: ${invErr.message}`
+        }
+
+      // ── create_estimate ──────────────────────────────────────────────────
+      } else if (toolCall.function.name === 'create_estimate') {
+        try {
+          // Try to find project id if project_name given
+          let linkedProjectId: string | null = null
+          if (toolArgs.project_name) {
+            const searchTerm = toolArgs.project_name.toLowerCase()
+            const proj = recentProjects?.find(p =>
+              p.name.toLowerCase().includes(searchTerm) ||
+              searchTerm.includes(p.name.toLowerCase())
+            )
+            if (proj) linkedProjectId = proj.id
+          }
+
+          const { data: newEst, error: estError } = await supabaseService
+            .from('estimates')
+            .insert({
+              company_id: companyId,
+              customer_name: toolArgs.customer_name,
+              project_name: toolArgs.project_name || null,
+              total: toolArgs.total || 0,
+              status: 'draft',
+              notes: toolArgs.description || null,
+              project_id: linkedProjectId,
+              created_by: user.id,
+            })
+            .select()
+            .single()
+
+          if (!estError && newEst) {
+            action = 'estimate_created'
+            actionData = { estimateId: newEst.id, customerName: toolArgs.customer_name, projectName: toolArgs.project_name, total: toolArgs.total }
+            const totalStr = toolArgs.total ? `$${Number(toolArgs.total).toFixed(2)}` : 'TBD'
+            responseMessage = `✅ Draft estimate created!\n\n👤 Customer: ${toolArgs.customer_name}${toolArgs.project_name ? `\n📂 Project: ${toolArgs.project_name}` : ''}\n💰 Total: ${totalStr}\n\nOpen the web app to add line items and finalize it.`
+          } else {
+            responseMessage = `❌ Failed to create estimate: ${estError?.message}`
+          }
+        } catch (estErr: any) {
+          responseMessage = `❌ Estimate creation failed: ${estErr.message}`
         }
       }
     }

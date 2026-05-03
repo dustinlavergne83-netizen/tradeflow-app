@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { supabase } from "../lib/supabase";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { formatDate } from "../utils/dateUtils";
+import { formatDate, toLocalDateString } from "../utils/dateUtils";
 import AIAssistant from "../Components/AIAssistant";
 
 const BRAND = {
@@ -26,27 +26,28 @@ export default function Home() {
   const [clockedInEmployees, setClockedInEmployees] = useState([]);
   const [financialData, setFinancialData] = useState(null);
   const [selectedPeriod, setSelectedPeriod] = useState('This Month');
+  const [accountingBasis, setAccountingBasis] = useState('cash'); // 'cash' | 'accrual'
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [periodInvoices, setPeriodInvoices] = useState([]);
+  const [periodDeposits, setPeriodDeposits] = useState([]);
   const [periodExpenses, setPeriodExpenses] = useState([]);
-  const [weeklyTimeData, setWeeklyTimeData] = useState([]);
-  const [detailedBreakdown, setDetailedBreakdown] = useState([]);
+  const [weeklySegs, setWeeklySegs] = useState([]);
+  const [weeklyEmpList, setWeeklyEmpList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeProjects, setActiveProjects] = useState([]);
 
   useEffect(() => {
     loadDashboardData();
     loadActiveProjectsList();
-    loadWeeklyTimeData();
-    loadDetailedBreakdown();
+    loadWeeklyGridData();
   }, [user]);
 
   useEffect(() => {
     if (user) {
-      loadFinancialChartData(selectedPeriod);
+      loadFinancialChartData(selectedPeriod, accountingBasis);
     }
-  }, [user, selectedPeriod]);
+  }, [user, selectedPeriod, accountingBasis]);
 
   function formatTime(isoTime) {
     if (!isoTime) return "";
@@ -273,74 +274,199 @@ export default function Home() {
     return periods[periodLabel] || periods['This Month'];
   }
 
-  async function loadFinancialChartData(periodLabel) {
+  async function loadFinancialChartData(periodLabel, basis = 'cash') {
     try {
-      const period = getPeriodDates(periodLabel);
-      const startDate = period.start.toISOString().split('T')[0];
-      const endDate = period.end.toISOString().split('T')[0];
+      // Get company_id first — used to scope invoice and payment queries
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("company_id")
+        .eq("id", user?.id)
+        .single();
+      const companyId = profile?.company_id;
 
-      // ── 1. Load journal entry lines for income and expense accounts ──
-      const { data: linesData } = await supabase
-        .from("journal_entry_lines")
-        .select(`
-          debit,
-          credit,
-          account_id,
-          accounts!inner(account_type, account_name),
-          journal_entries!inner(entry_date, is_posted)
-        `)
-        .eq("journal_entries.is_posted", true)
-        .gte("journal_entries.entry_date", startDate)
-        .lte("journal_entries.entry_date", endDate);
+      const period = getPeriodDates(periodLabel);
+      const startDate = toLocalDateString(period.start);
+      const endDate = toLocalDateString(period.end);
 
       let income = 0;
       let expenses = 0;
       const expensesByCategory = {};
 
-      (linesData || []).forEach(line => {
-        const accountType = line.accounts?.account_type;
-        if (accountType === 'Income') {
-          income += (line.credit || 0) - (line.debit || 0);
-        } else if (accountType === 'Expense') {
-          const expenseAmount = (line.debit || 0) - (line.credit || 0);
-          expenses += expenseAmount;
-          const categoryName = line.accounts?.account_name || 'Uncategorized';
-          expensesByCategory[categoryName] = (expensesByCategory[categoryName] || 0) + expenseAmount;
-        }
-      });
+      if (basis === 'cash') {
+        // ══════════════════════════════════════════════
+        // CASH BASIS — count income when cash is received
+        // ══════════════════════════════════════════════
 
-      // ── 2. Also pull directly from the expenses table ──
-      // (entries saved from the Expenses page don't always create journal entries)
-      const { data: directExpenses } = await supabase
-        .from("expenses")
-        .select("amount, category, vendor, expense_date")
-        .gte("expense_date", startDate)
-        .lte("expense_date", endDate);
+        // STEP A: Sum invoice_payments records in the period
+        // (covers invoices paid using the payment history feature)
+        const { data: invoicePayments, error: ipError } = await supabase
+          .from("invoice_payments")
+          .select("amount, processing_fee, net_amount, payment_date, invoice_id")
+          .gte("payment_date", startDate)
+          .lte("payment_date", endDate);
 
-      // Build a Set of amounts already counted via journal entries so we
-      // don't double-count if a journal entry WAS created for the expense.
-      // The safest heuristic: track journal-entry expense total per category
-      // and only add direct expenses that push the total higher.
-      // Simpler & more reliable: just deduplicate by checking if the
-      // expenses table has a linked journal entry. For now we add all
-      // direct expenses that have NO journal entry linked (journal_entry_id IS NULL).
-      const { data: directExpensesNoJE } = await supabase
-        .from("expenses")
-        .select("amount, category, vendor, expense_date")
-        .gte("expense_date", startDate)
-        .lte("expense_date", endDate)
-        .is("journal_entry_id", null);
+        if (ipError) console.error("invoice_payments query error:", ipError);
 
-      // Use the no-JE list if available; fall back to all direct expenses
-      const unmatchedExpenses = directExpensesNoJE ?? directExpenses ?? [];
+        (invoicePayments || []).forEach(pmt => {
+          const net = pmt.net_amount != null
+            ? parseFloat(pmt.net_amount) || 0
+            : (parseFloat(pmt.amount) || 0) - (parseFloat(pmt.processing_fee) || 0);
+          income += net;
+        });
 
-      unmatchedExpenses.forEach(exp => {
-        const amt = parseFloat(exp.amount) || 0;
-        if (amt <= 0) return; // skip returns/credits
-        expenses += amt;
-        const catName = exp.category || exp.vendor || 'Uncategorized';
-        expensesByCategory[catName] = (expensesByCategory[catName] || 0) + amt;
-      });
+        console.log(`💵 Cash income for ${startDate}→${endDate}: $${income.toFixed(2)} from ${(invoicePayments || []).length} payment records`);
+
+        // Step 2: Cleared bank deposits NOT from invoice payments
+        // (e.g. other cash deposits, owner contributions, etc.)
+        const { data: clearedDeposits } = await supabase
+          .from("bank_transactions")
+          .select("id, amount, transaction_date, description, payee")
+          .eq("is_cleared", true)
+          .gt("amount", 0)
+          .gte("transaction_date", startDate)
+          .lte("transaction_date", endDate);
+
+        // Only include bank deposits if there are no invoice_payments for the period
+        // (to avoid double-counting: bank deposit + invoice_payment for same transaction)
+        // We include them only if total invoice_payments income is 0 (no invoice payments system)
+        // OR we include all of them — the user can decide.
+        // For now: include cleared deposits as supplemental income (separate section in modal).
+        // We DON'T add them to the income total to avoid double-counting.
+        // The income total = invoice_payments only.
+
+        // Step 3: Expense calculation (same for both bases)
+        // JE expense lines
+        const { data: linesData } = await supabase
+          .from("journal_entry_lines")
+          .select(`
+            debit, credit,
+            accounts!inner(account_type, account_name),
+            journal_entries!inner(entry_date, is_posted, reference_type, reference_id)
+          `)
+          .eq("journal_entries.is_posted", true)
+          .gte("journal_entries.entry_date", startDate)
+          .lte("journal_entries.entry_date", endDate);
+
+        const bankTxIdsInJE = new Set();
+        (linesData || []).forEach(line => {
+          if (line.journal_entries?.reference_type === 'bank_transaction' && line.journal_entries?.reference_id) {
+            bankTxIdsInJE.add(line.journal_entries.reference_id);
+          }
+          if (line.accounts?.account_type === 'Expense') {
+            const expenseAmount = (line.debit || 0) - (line.credit || 0);
+            expenses += expenseAmount;
+            const cat = line.accounts?.account_name || 'Uncategorized';
+            expensesByCategory[cat] = (expensesByCategory[cat] || 0) + expenseAmount;
+          }
+        });
+
+        // Direct expenses with no JE
+        const { data: directExp } = await supabase
+          .from("expenses")
+          .select("amount, category, vendor, expense_date")
+          .gte("expense_date", startDate)
+          .lte("expense_date", endDate)
+          .is("journal_entry_id", null);
+
+        (directExp || []).forEach(exp => {
+          const amt = parseFloat(exp.amount) || 0;
+          if (amt <= 0) return;
+          expenses += amt;
+          const cat = exp.category || exp.vendor || 'Uncategorized';
+          expensesByCategory[cat] = (expensesByCategory[cat] || 0) + amt;
+        });
+
+        // Cleared bank withdrawals not in JEs
+        const { data: clearedBankTx } = await supabase
+          .from("bank_transactions")
+          .select("id, amount, description, payee, transaction_date")
+          .eq("is_cleared", true)
+          .lt("amount", 0)
+          .is("linked_expense_id", null)
+          .gte("transaction_date", startDate)
+          .lte("transaction_date", endDate);
+
+        (clearedBankTx || []).forEach(tx => {
+          if (bankTxIdsInJE.has(tx.id)) return;
+          const expAmt = Math.abs(parseFloat(tx.amount) || 0);
+          expenses += expAmt;
+          const cat = tx.payee || tx.description || 'Bank Transaction';
+          expensesByCategory[cat] = (expensesByCategory[cat] || 0) + expAmt;
+        });
+
+      } else {
+        // ══════════════════════════════════════════════
+        // ACCRUAL BASIS — count income when invoice is created
+        // ══════════════════════════════════════════════
+
+        // Income = total of invoices created in the period
+        const { data: accrualInvoices } = await supabase
+          .from("invoices")
+          .select("total, invoice_date")
+          .gte("invoice_date", startDate)
+          .lte("invoice_date", endDate);
+
+        (accrualInvoices || []).forEach(inv => {
+          income += parseFloat(inv.total) || 0;
+        });
+
+        // Expenses: JE lines + direct expenses + cleared withdrawals
+        const { data: linesData } = await supabase
+          .from("journal_entry_lines")
+          .select(`
+            debit, credit,
+            accounts!inner(account_type, account_name),
+            journal_entries!inner(entry_date, is_posted, reference_type, reference_id)
+          `)
+          .eq("journal_entries.is_posted", true)
+          .gte("journal_entries.entry_date", startDate)
+          .lte("journal_entries.entry_date", endDate);
+
+        const bankTxIdsInJE = new Set();
+        (linesData || []).forEach(line => {
+          if (line.journal_entries?.reference_type === 'bank_transaction' && line.journal_entries?.reference_id) {
+            bankTxIdsInJE.add(line.journal_entries.reference_id);
+          }
+          if (line.accounts?.account_type === 'Expense') {
+            const expenseAmount = (line.debit || 0) - (line.credit || 0);
+            expenses += expenseAmount;
+            const cat = line.accounts?.account_name || 'Uncategorized';
+            expensesByCategory[cat] = (expensesByCategory[cat] || 0) + expenseAmount;
+          }
+        });
+
+        const { data: directExp } = await supabase
+          .from("expenses")
+          .select("amount, category, vendor, expense_date")
+          .gte("expense_date", startDate)
+          .lte("expense_date", endDate)
+          .is("journal_entry_id", null);
+
+        (directExp || []).forEach(exp => {
+          const amt = parseFloat(exp.amount) || 0;
+          if (amt <= 0) return;
+          expenses += amt;
+          const cat = exp.category || exp.vendor || 'Uncategorized';
+          expensesByCategory[cat] = (expensesByCategory[cat] || 0) + amt;
+        });
+
+        const { data: clearedBankTx } = await supabase
+          .from("bank_transactions")
+          .select("id, amount, description, payee, transaction_date")
+          .eq("is_cleared", true)
+          .lt("amount", 0)
+          .is("linked_expense_id", null)
+          .gte("transaction_date", startDate)
+          .lte("transaction_date", endDate);
+
+        (clearedBankTx || []).forEach(tx => {
+          if (bankTxIdsInJE.has(tx.id)) return;
+          const expAmt = Math.abs(parseFloat(tx.amount) || 0);
+          expenses += expAmt;
+          const cat = tx.payee || tx.description || 'Bank Transaction';
+          expensesByCategory[cat] = (expensesByCategory[cat] || 0) + expAmt;
+        });
+      }
 
       const profit = income - expenses;
 
@@ -354,122 +480,100 @@ export default function Home() {
         })).sort((a, b) => b.amount - a.amount)
       });
 
-      // Also load invoices for the period
-      await loadPeriodInvoices(startDate, endDate);
+      await loadPeriodInvoices(startDate, endDate, basis, companyId);
     } catch (err) {
       console.error("Error loading financial chart data:", err);
       setFinancialData(null);
     }
   }
 
-  async function loadPeriodInvoices(startDate, endDate) {
+  async function loadPeriodInvoices(startDate, endDate, basis = 'cash', companyId = null) {
     try {
-      const { data } = await supabase
-        .from("invoices")
-        .select("*")
-        .gte("invoice_date", startDate)
-        .lte("invoice_date", endDate)
-        .order("invoice_date", { ascending: false });
-      
-      setPeriodInvoices(data || []);
+      if (basis === 'cash') {
+        // ── CASH BASIS: show invoices that received payments in this period ──
+        // First get this company's invoice IDs (same scoping as the income calculation)
+        let invIdsQuery = supabase.from("invoices").select("id");
+        if (companyId) invIdsQuery = invIdsQuery.eq("company_id", companyId);
+        const { data: companyInvoicesForModal } = await invIdsQuery;
+        const modalInvoiceIds = (companyInvoicesForModal || []).map(inv => String(inv.id));
+
+        // Query invoice_payments scoped to this company's invoices + date range
+        let pmtQuery = supabase
+          .from("invoice_payments")
+          .select("invoice_id, amount, processing_fee, net_amount, payment_date, payment_method")
+          .gte("payment_date", startDate)
+          .lte("payment_date", endDate)
+          .order("payment_date", { ascending: false });
+
+        if (modalInvoiceIds.length > 0) {
+          pmtQuery = pmtQuery.in("invoice_id", modalInvoiceIds);
+        } else {
+          pmtQuery = pmtQuery.eq("invoice_id", "00000000-0000-0000-0000-000000000000");
+        }
+
+        const { data: pmts, error: pmtsErr } = await pmtQuery;
+
+        if (pmtsErr) console.error("loadPeriodInvoices payments error:", pmtsErr);
+
+        // Build a map: invoice_id → { totalPaid, lastPaymentDate }
+        const invoiceMap = {};
+        (pmts || []).forEach(pmt => {
+          const id = pmt.invoice_id;
+          // Use net_amount if available, otherwise amount - processing_fee
+          const net = pmt.net_amount != null
+            ? parseFloat(pmt.net_amount) || 0
+            : (parseFloat(pmt.amount) || 0) - (parseFloat(pmt.processing_fee) || 0);
+          if (!invoiceMap[id]) invoiceMap[id] = { totalPaid: 0, lastPaymentDate: pmt.payment_date, payments: [] };
+          invoiceMap[id].totalPaid += net;
+          invoiceMap[id].payments.push(pmt);
+        });
+
+        const invoiceIds = Object.keys(invoiceMap);
+        let invoicesData = [];
+        if (invoiceIds.length > 0) {
+          const { data } = await supabase
+            .from("invoices")
+            .select("id, project_name, customer_name, invoice_date, total, status")
+            .in("id", invoiceIds);
+          invoicesData = (data || []).map(inv => ({
+            ...inv,
+            // Attach the amount actually paid in this period
+            paidInPeriod: invoiceMap[inv.id]?.totalPaid || 0,
+            lastPaymentDate: invoiceMap[inv.id]?.lastPaymentDate || inv.invoice_date,
+          }));
+          // Sort by lastPaymentDate desc
+          invoicesData.sort((a, b) => (b.lastPaymentDate || '').localeCompare(a.lastPaymentDate || ''));
+        }
+
+        // Also fetch cleared deposits for supplemental display (not counted in income total)
+        const { data: clearedDeposits } = await supabase
+          .from("bank_transactions")
+          .select("id, amount, transaction_date, payee, description")
+          .eq("is_cleared", true)
+          .gt("amount", 0)
+          .gte("transaction_date", startDate)
+          .lte("transaction_date", endDate)
+          .order("transaction_date", { ascending: false });
+
+        setPeriodInvoices(invoicesData);
+        setPeriodDeposits(clearedDeposits || []);
+
+      } else {
+        // ── ACCRUAL BASIS: show invoices created in this period ──
+        const { data: invoicesInPeriod } = await supabase
+          .from("invoices")
+          .select("id, project_name, customer_name, invoice_date, total, status")
+          .gte("invoice_date", startDate)
+          .lte("invoice_date", endDate)
+          .order("invoice_date", { ascending: false });
+
+        setPeriodInvoices(invoicesInPeriod || []);
+        setPeriodDeposits([]);
+      }
     } catch (err) {
       console.error("Error loading period invoices:", err);
       setPeriodInvoices([]);
-    }
-  }
-
-  async function loadWeeklyTimeData() {
-    try {
-      // Get start of current week (Monday)
-      const now = new Date();
-      const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
-      const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // If Sunday, go back 6 days, otherwise go back to Monday
-      const startOfWeek = new Date(now);
-      startOfWeek.setDate(now.getDate() - daysFromMonday);
-      startOfWeek.setHours(0, 0, 0, 0);
-
-      console.log("Loading weekly data from Monday:", startOfWeek.toISOString());
-
-      // Load all shifts for the current week - try without the foreign key constraint first
-      const { data: shifts, error: shiftsError } = await supabase
-        .from("shifts")
-        .select("*")
-        .gte("clock_in", startOfWeek.toISOString())
-        .order("clock_in", { ascending: false });
-
-      if (shiftsError) {
-        console.error("Error loading shifts:", shiftsError);
-        setWeeklyTimeData([]);
-        return;
-      }
-
-      console.log("Found shifts:", shifts);
-
-      // Load employee names separately
-      const userIds = [...new Set((shifts || []).map(s => s.user_id).filter(Boolean))];
-      const { data: employees } = await supabase
-        .from("employees")
-        .select("user_id, first_name, last_name")
-        .in("user_id", userIds);
-
-      console.log("Found employees:", employees);
-
-      // Load project names separately
-      const projectIds = [...new Set((shifts || []).map(s => s.project_id).filter(Boolean))];
-      const { data: projects } = await supabase
-        .from("projects")
-        .select("id, name")
-        .in("id", projectIds);
-
-      // Create lookup maps
-      const employeeMap = {};
-      (employees || []).forEach(emp => {
-        employeeMap[emp.user_id] = `${emp.first_name} ${emp.last_name}`;
-      });
-
-      const projectMap = {};
-      (projects || []).forEach(proj => {
-        projectMap[proj.id] = proj.name;
-      });
-
-      // Group by employee and day of week
-      const weeklyMap = {};
-      (shifts || []).forEach(shift => {
-        const employeeName = employeeMap[shift.user_id] || 'Unknown Employee';
-        
-        if (!weeklyMap[employeeName]) {
-          weeklyMap[employeeName] = {
-            name: employeeName,
-            days: { Sun: 0, Mon: 0, Tue: 0, Wed: 0, Thu: 0, Fri: 0, Sat: 0 },
-            total: 0
-          };
-        }
-
-        // Only calculate hours for COMPLETED shifts (with both clock_in and clock_out)
-        if (shift.clock_in && shift.clock_out) {
-          const clockIn = new Date(shift.clock_in);
-          const clockOut = new Date(shift.clock_out);
-          const hours = (clockOut - clockIn) / (1000 * 60 * 60);
-          
-          // Get day of week (0 = Sunday, 1 = Monday, etc.)
-          const dayOfWeek = clockIn.getDay();
-          const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-          const dayName = dayNames[dayOfWeek];
-          
-          weeklyMap[employeeName].days[dayName] += hours;
-          weeklyMap[employeeName].total += hours;
-        }
-      });
-
-      // Convert to array and sort by total hours
-      const weeklyData = Object.values(weeklyMap)
-        .sort((a, b) => b.total - a.total);
-
-      console.log("Weekly data processed:", weeklyData);
-      setWeeklyTimeData(weeklyData);
-    } catch (err) {
-      console.error("Error loading weekly time data:", err);
-      setWeeklyTimeData([]);
+      setPeriodDeposits([]);
     }
   }
 
@@ -505,129 +609,75 @@ export default function Home() {
     return days;
   }
 
-  async function loadDetailedBreakdown() {
+  // ── Weekly grid helpers ──────────────────────────────────────────────────
+
+  function calcDayHours(segs) {
+    const raw = segs.reduce((sum, s) => {
+      if (!s.end_at) return sum;
+      return sum + (new Date(s.end_at) - new Date(s.start_at)) / 3600000;
+    }, 0);
+    const hasLunch = segs.some((s) => s.is_lunch);
+    const total = Math.max(0, raw - (hasLunch ? 0.5 : 0));
+    return Math.round(total * 4) / 4;
+  }
+
+  function fmtH(h) {
+    if (!h) return "0";
+    const r = Math.round(h * 4) / 4;
+    const s = r.toFixed(2);
+    return s.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+  }
+
+  async function loadWeeklyGridData() {
     try {
-      const weekStart = getMonday(new Date());
-      const weekDays = getWeekDays(weekStart);
-      const weekEnd = weekDays[6];
-
-      // Get all shift segments for this week
-      const { data: segments, error: segError } = await supabase
-        .from("shift_segments")
-        .select("*")
-        .gte("start_at", weekStart + 'T00:00:00')
-        .lte("start_at", weekEnd + 'T23:59:59')
-        .order("start_at", { ascending: true });
-
-      if (segError) throw segError;
-
-      // Get unique user_ids from segments (only employees who worked)
-      const uniqueUserIds = [...new Set((segments || []).map(s => s.user_id).filter(Boolean))];
-      
-      if (uniqueUserIds.length === 0) {
-        setDetailedBreakdown({ rows: [], employees: [] });
-        return;
-      }
-
-      // Get employee details only for those who have segments
-      const { data: employees, error: empError } = await supabase
-        .from("employees")
-        .select("id, user_id, first_name, last_name, preferred_name")
-        .in("user_id", uniqueUserIds)
-        .order("last_name", { ascending: true});
-
-      if (empError) throw empError;
-
-      // Build rows: each day, then projects under that day
-      const breakdownRows = [];
-
-      for (const day of weekDays) {
-        const daySegments = segments.filter(seg => {
-          const segDate = seg.start_at.split('T')[0];
-          return segDate === day; // Include all segments (is_lunch just means they took a lunch break)
-        });
-
-        if (daySegments.length === 0) continue;
-
-        // Get unique projects for this day
-        const projects = [...new Set(daySegments.map(s => s.project_task || 'No Project'))];
-
-        // Add day row
-        const dayRow = {
-          type: 'day',
-          day: day,
-          dayLabel: new Date(day + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: '2-digit', day: '2-digit' }),
-        };
-        breakdownRows.push(dayRow);
-
-        // Add project rows for this day
-        projects.forEach(project => {
-          const projectRow = {
-            type: 'project',
-            day: day,
-            project: project,
-            employees: {}
-          };
-
-          // For each employee, find their segments for this project
-          employees.forEach(emp => {
-            const displayName = emp.preferred_name || emp.first_name;
-            const empKey = `${displayName} ${emp.last_name}`;
-
-            const empSegments = daySegments.filter(s => 
-              s.user_id === emp.user_id && 
-              (s.project_task || 'No Project') === project
-            );
-
-            if (empSegments.length > 0) {
-              // Get first segment for start time
-              const firstSeg = empSegments[0];
-              const lastSeg = empSegments[empSegments.length - 1];
-              
-              // Calculate total hours for this project
-              const totalHours = empSegments.reduce((sum, seg) => 
-                sum + calculateSegmentHours(seg.start_at, seg.end_at), 0
-              );
-
-              // Check if they took lunch (look for lunch segment between work segments)
-              const allDaySegs = segments.filter(s => 
-                s.user_id === emp.user_id && 
-                s.start_at.split('T')[0] === day
-              );
-              const hasLunch = allDaySegs.some(s => s.is_lunch);
-
-              projectRow.employees[empKey] = {
-                startTime: formatTime(firstSeg.start_at),
-                endTime: lastSeg.end_at ? formatTime(lastSeg.end_at) : 'In Progress',
-                hours: totalHours,
-                hasLunch: hasLunch
-              };
-            } else {
-              projectRow.employees[empKey] = null;
-            }
-          });
-
-          // Calculate row total
-          projectRow.total = Object.values(projectRow.employees)
-            .filter(e => e !== null)
-            .reduce((sum, e) => sum + e.hours, 0);
-
-          breakdownRows.push(projectRow);
-        });
-      }
-
-      setDetailedBreakdown({
-        rows: breakdownRows,
-        employees: employees.map(emp => {
-          const displayName = emp.preferred_name || emp.first_name;
-          return `${displayName} ${emp.last_name}`;
-        })
-      });
+      const mondayStr = getMonday(new Date());
+      const weekDaysArr = getWeekDays(mondayStr);
+      const weekEnd = weekDaysArr[6];
+      const [{ data: segs }, { data: emps }] = await Promise.all([
+        supabase.from("shift_segments")
+          .select("id, user_id, start_at, end_at, is_lunch, project_task")
+          .gte("start_at", mondayStr + "T00:00:00")
+          .lte("start_at", weekEnd + "T23:59:59")
+          .order("start_at", { ascending: true }),
+        supabase.from("employees").select("user_id, first_name, last_name").order("first_name"),
+      ]);
+      setWeeklySegs(segs || []);
+      setWeeklyEmpList(emps || []);
     } catch (err) {
-      console.error("Error loading detailed breakdown:", err);
-      setDetailedBreakdown({ rows: [], employees: [] });
+      console.error("Error loading weekly grid data:", err);
     }
   }
+
+  // Computed weekly grid values
+  const DAY_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const gridWeekDays = getWeekDays(getMonday(new Date()));
+  const todayLocal = (() => { const t = new Date(); return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}-${String(t.getDate()).padStart(2,"0")}`; })();
+
+  function getSegsForDay(uid, dateStr) {
+    return weeklySegs.filter((s) => {
+      const d = new Date(s.start_at);
+      const segStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+      return s.user_id === uid && segStr === dateStr;
+    });
+  }
+
+  function getDayProjects(segs) {
+    return [...new Set(segs.map((s) => s.project_task).filter(Boolean))];
+  }
+
+  const gridActiveUids = [...new Set(weeklySegs.map((s) => s.user_id).filter(Boolean))];
+  const gridActiveEmployees = gridActiveUids
+    .map((uid) => {
+      const emp = weeklyEmpList.find(e => e.user_id === uid);
+      return { uid, name: emp ? `${emp.first_name} ${emp.last_name}` : "Unknown" };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  function getWeekTotalForEmp(uid) {
+    return gridWeekDays.reduce((sum, d) => sum + calcDayHours(getSegsForDay(uid, d)), 0);
+  }
+
+  const gridGrandTotal = gridActiveEmployees.reduce((sum, e) => sum + getWeekTotalForEmp(e.uid), 0);
 
   return (
     <div style={styles.pageWrapper}>
@@ -668,7 +718,42 @@ export default function Home() {
               <div style={styles.chartSection}>
               <div style={styles.chartHeader}>
                 <h3 style={styles.sectionTitle}>📊 Financial Overview</h3>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {/* Cash / Accrual Toggle */}
+                  <div style={{ display: 'flex', backgroundColor: '#f3f4f6', borderRadius: 8, padding: 3, border: '1px solid #e5e7eb' }}>
+                    <button
+                      onClick={() => setAccountingBasis('cash')}
+                      style={{
+                        padding: '7px 14px',
+                        fontSize: 13,
+                        fontWeight: 700,
+                        borderRadius: 6,
+                        border: 'none',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        backgroundColor: accountingBasis === 'cash' ? '#0b3ea8' : 'transparent',
+                        color: accountingBasis === 'cash' ? '#fff' : '#6b7280',
+                      }}
+                    >
+                      💵 Cash
+                    </button>
+                    <button
+                      onClick={() => setAccountingBasis('accrual')}
+                      style={{
+                        padding: '7px 14px',
+                        fontSize: 13,
+                        fontWeight: 700,
+                        borderRadius: 6,
+                        border: 'none',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        backgroundColor: accountingBasis === 'accrual' ? '#0b3ea8' : 'transparent',
+                        color: accountingBasis === 'accrual' ? '#fff' : '#6b7280',
+                      }}
+                    >
+                      📄 Accrual
+                    </button>
+                  </div>
                   <select
                     value={selectedPeriod}
                     onChange={(e) => setSelectedPeriod(e.target.value)}
@@ -688,6 +773,12 @@ export default function Home() {
                     View Full Report →
                   </button>
                 </div>
+              </div>
+              {/* Basis description */}
+              <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12, marginTop: -8 }}>
+                {accountingBasis === 'cash'
+                  ? '💵 Cash Basis: Income counted when payments are received (invoice_payments)'
+                  : '📄 Accrual Basis: Income counted when invoices are created (invoice_date)'}
               </div>
               
               {/* Summary Cards for the Period */}
@@ -842,19 +933,41 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Invoice Modal */}
+        {/* Invoice / Income Modal */}
         {showInvoiceModal && (
           <div style={styles.modalOverlay} onClick={() => setShowInvoiceModal(false)}>
             <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
               <div style={styles.modalHeader}>
-                <h3 style={{ margin: 0 }}>💰 Invoices for {selectedPeriod}</h3>
+                <h3 style={{ margin: 0 }}>💰 Income for {selectedPeriod}</h3>
                 <button onClick={() => setShowInvoiceModal(false)} style={styles.closeButton}>✕</button>
               </div>
               <div style={styles.modalContent}>
-                {periodInvoices.length === 0 ? (
-                  <p style={{ textAlign: 'center', color: '#999', padding: 40 }}>No invoices in this period</p>
-                ) : (
-                  <div>
+
+                {/* Basis badge */}
+                <div style={{ marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span style={{
+                    padding: '4px 10px',
+                    backgroundColor: accountingBasis === 'cash' ? '#dbeafe' : '#fef3c7',
+                    color: accountingBasis === 'cash' ? '#1e40af' : '#92400e',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 700
+                  }}>
+                    {accountingBasis === 'cash' ? '💵 Cash Basis' : '📄 Accrual Basis'}
+                  </span>
+                  <span style={{ fontSize: 12, color: '#6b7280' }}>
+                    {accountingBasis === 'cash'
+                      ? 'Showing payments received this period'
+                      : 'Showing invoices created this period'}
+                  </span>
+                </div>
+
+                {/* ── Invoice list ── */}
+                {periodInvoices.length > 0 && (
+                  <>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+                      {accountingBasis === 'cash' ? '💰 Payments Received' : '📄 Invoices Created'}
+                    </div>
                     {periodInvoices.map(invoice => (
                       <div key={invoice.id} style={styles.listItem}>
                         <div>
@@ -865,14 +978,73 @@ export default function Home() {
                             </div>
                           )}
                           <div style={{ fontSize: 13, color: '#666', marginTop: 2 }}>
-                            📅 {formatDate(invoice.invoice_date || invoice.created_at)} • {invoice.status}
+                            {accountingBasis === 'cash'
+                              ? `💵 Paid: ${formatDate(invoice.lastPaymentDate)} • Invoice total: $${(invoice.total || 0).toLocaleString()}`
+                              : `📅 ${formatDate(invoice.invoice_date)} • ${invoice.status}`
+                            }
                           </div>
                         </div>
-                        <div style={{ fontWeight: 700, color: '#10b981' }}>
-                          ${invoice.total?.toLocaleString() || '0'}
+                        <div style={{ fontWeight: 700, color: '#10b981', textAlign: 'right' }}>
+                          ${accountingBasis === 'cash'
+                            ? (invoice.paidInPeriod || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                            : (invoice.total || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                          }
                         </div>
                       </div>
                     ))}
+                    {/* Period subtotal */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', backgroundColor: '#f0fdf4', borderRadius: 6, marginTop: 4 }}>
+                      <span style={{ fontWeight: 700, color: '#166534' }}>Invoice Subtotal</span>
+                      <span style={{ fontWeight: 800, color: '#166534' }}>
+                        ${periodInvoices.reduce((s, inv) => s + (accountingBasis === 'cash' ? (inv.paidInPeriod || 0) : (inv.total || 0)), 0)
+                          .toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </>
+                )}
+
+                {/* ── Cleared bank deposits (cash mode only, supplemental) ── */}
+                {accountingBasis === 'cash' && periodDeposits.length > 0 && (
+                  <>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1, marginTop: 20, marginBottom: 8 }}>
+                      🏦 Other Cleared Deposits (reference only)
+                    </div>
+                    <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: 8 }}>
+                      These deposits appear in your bank but may overlap with invoice payments above.
+                    </div>
+                    {periodDeposits.map(dep => (
+                      <div key={dep.id} style={{ ...styles.listItem, opacity: 0.75 }}>
+                        <div>
+                          <div style={{ fontWeight: 600 }}>{dep.payee || dep.description || 'Deposit'}</div>
+                          <div style={{ fontSize: 13, color: '#666', marginTop: 2 }}>
+                            📅 {formatDate(dep.transaction_date)}
+                          </div>
+                        </div>
+                        <div style={{ fontWeight: 600, color: '#6b7280' }}>
+                          ${Number(dep.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+
+                {periodInvoices.length === 0 && (
+                  <p style={{ textAlign: 'center', color: '#999', padding: 40 }}>
+                    {accountingBasis === 'cash'
+                      ? 'No payments received in this period'
+                      : 'No invoices created in this period'}
+                  </p>
+                )}
+
+                {/* Income total note */}
+                {financialData && (
+                  <div style={{ marginTop: 20, padding: '12px 16px', backgroundColor: '#eff6ff', borderRadius: 8, border: '1px solid #bfdbfe' }}>
+                    <div style={{ fontSize: 13, color: '#1e40af' }}>
+                      <strong>Income Total: ${financialData.Income.toLocaleString()}</strong>
+                      {accountingBasis === 'cash'
+                        ? ' — Sum of all invoice_payments.net_amount where payment_date is in this period.'
+                        : ' — Sum of all invoice totals where invoice_date is in this period.'}
+                    </div>
                   </div>
                 )}
               </div>
@@ -975,317 +1147,116 @@ export default function Home() {
           </div>
         )}
 
-        {/* Weekly Breakdown - Detailed Segment Breakdown */}
-        {detailedBreakdown && detailedBreakdown.rows && detailedBreakdown.rows.length > 0 ? (
-          <div style={styles.weeklyTimeSection}>
-            <div style={styles.chartHeader}>
-              <h3 style={styles.sectionTitle}>📋 Weekly Breakdown</h3>
-              <button
-                style={styles.viewReportButton}
-                onClick={() => navigate("/timeclock")}
-              >
-                View Full Timesheet →
-              </button>
+        {/* Weekly Timesheet Grid */}
+        <div style={styles.weeklyTimeSection}>
+          <div style={styles.chartHeader}>
+            <h3 style={styles.sectionTitle}>📋 Weekly Timesheet</h3>
+            <button style={styles.viewReportButton} onClick={() => navigate("/timeclock")}>
+              View Full Timesheet →
+            </button>
+          </div>
+          {weeklySegs.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
+              <p style={{ fontSize: 16, marginBottom: 8 }}>No shift segments this week yet</p>
+              <p style={{ fontSize: 14 }}>Hours will appear here once employees start working</p>
             </div>
-            <p style={{ fontSize: 14, color: '#6b7280', margin: "0 0 20px 0" }}>
-              All shift segments by day - Projects and lunch breaks
-            </p>
-
+          ) : (
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
-                  <tr style={{ backgroundColor: "#f3f4f6" }}>
+                  <tr style={{ backgroundColor: "#0b3ea8" }}>
                     <th style={{
-                      padding: "8px 12px",
+                      padding: "12px 16px",
                       textAlign: "left",
-                      borderBottom: "2px solid #e5e7eb",
+                      color: "#fff",
                       fontWeight: 700,
-                      fontSize: 13,
-                      position: "sticky",
-                      left: 0,
-                      backgroundColor: "#f3f4f6",
-                      zIndex: 10,
-                      color: "#111",
-                      width: 200,
-                      maxWidth: 400,
-                    }}>
-                      Project
-                    </th>
-                    {detailedBreakdown.employees.map((empName, idx) => (
-                      <React.Fragment key={idx}>
-                        <th colSpan={4} style={{
-                          padding: "8px 12px",
-                          textAlign: "center",
-                          borderBottom: "2px solid #e5e7eb",
-                          borderLeft: "2px solid #e5e7eb",
-                          fontWeight: 700,
-                          fontSize: 13,
-                          color: "#111",
-                          backgroundColor: "#f3f4f6",
-                        }}>
-                          {empName}
+                      minWidth: 160,
+                    }}>Employee</th>
+                    {gridWeekDays.map((d, i) => {
+                      const dt = new Date(d + "T12:00:00");
+                      const isToday = todayLocal === d;
+                      return (
+                        <th key={d} style={{ padding: "12px 10px", textAlign: "center", color: "#fff", fontWeight: 700, minWidth: 90, backgroundColor: isToday ? "#1e50c8" : undefined }}>
+                          <div>{DAY_SHORT[i]}</div>
+                          <div style={{ fontSize: 11, fontWeight: 400, opacity: 0.8 }}>
+                            {dt.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                          </div>
                         </th>
-                      </React.Fragment>
-                    ))}
-                    <th style={{
-                      padding: "8px 12px",
-                      textAlign: "center",
-                      borderBottom: "2px solid #e5e7eb",
-                      borderLeft: "2px solid #e5e7eb",
-                      fontWeight: 700,
-                      fontSize: 13,
-                      color: "#111",
-                      backgroundColor: "#fef3c7",
-                    }}>
-                      Total
-                    </th>
-                  </tr>
-                  <tr style={{ backgroundColor: "#f9fafb" }}>
-                    <th style={{
-                      padding: "6px 12px",
-                      borderBottom: "2px solid #e5e7eb",
-                      position: "sticky",
-                      left: 0,
-                      backgroundColor: "#f9fafb",
-                      zIndex: 10,
-                    }}></th>
-                    {detailedBreakdown.employees.map((empName, idx) => (
-                      <React.Fragment key={idx}>
-                        <th style={{
-                          padding: "6px 8px",
-                          textAlign: "center",
-                          borderBottom: "2px solid #e5e7eb",
-                          borderLeft: idx === 0 ? "2px solid #e5e7eb" : "1px solid #e5e7eb",
-                          fontSize: 11,
-                          fontWeight: 600,
-                          color: "#6b7280",
-                          width: 70,
-                        }}>Start</th>
-                        <th style={{
-                          padding: "6px 8px",
-                          textAlign: "center",
-                          borderBottom: "2px solid #e5e7eb",
-                          borderLeft: "1px solid #e5e7eb",
-                          fontSize: 11,
-                          fontWeight: 600,
-                          color: "#6b7280",
-                          width: 40,
-                        }}>Lunch</th>
-                        <th style={{
-                          padding: "6px 8px",
-                          textAlign: "center",
-                          borderBottom: "2px solid #e5e7eb",
-                          borderLeft: "1px solid #e5e7eb",
-                          fontSize: 11,
-                          fontWeight: 600,
-                          color: "#6b7280",
-                          width: 70,
-                        }}>End</th>
-                        <th style={{
-                          padding: "6px 8px",
-                          textAlign: "center",
-                          borderBottom: "2px solid #e5e7eb",
-                          borderLeft: "1px solid #e5e7eb",
-                          fontSize: 11,
-                          fontWeight: 600,
-                          color: "#6b7280",
-                          width: 50,
-                        }}>Hours</th>
-                      </React.Fragment>
-                    ))}
-                    <th style={{
-                      padding: "6px 8px",
-                      textAlign: "center",
-                      borderBottom: "2px solid #e5e7eb",
-                      borderLeft: "2px solid #e5e7eb",
-                      fontSize: 11,
-                      fontWeight: 600,
-                      color: "#111",
-                      backgroundColor: "#fef3c7",
-                    }}></th>
+                      );
+                    })}
+                    <th style={{ padding: "12px 14px", textAlign: "center", color: "#fc6b04", fontWeight: 800, minWidth: 80 }}>TOTAL</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {detailedBreakdown.rows.map((row, rowIdx) => {
-                    if (row.type === 'day') {
-                      return (
-                        <tr key={rowIdx} style={{ backgroundColor: "#e0f2fe" }}>
-                          <td colSpan={1 + (detailedBreakdown.employees.length * 4) + 1} style={{
-                            padding: "10px 12px",
-                            fontWeight: 700,
-                            fontSize: 14,
-                            color: "#0369a1",
-                            borderTop: "3px solid #0284c7",
-                            borderBottom: "1px solid #0284c7",
-                          }}>
-                            {row.dayLabel}
-                          </td>
-                        </tr>
-                      );
-                    }
-
-                    // Project row
+                  {gridActiveEmployees.length === 0 && (
+                    <tr>
+                      <td colSpan={9} style={{ padding: 40, textAlign: "center", color: "#999" }}>
+                        No time entries for this week.
+                      </td>
+                    </tr>
+                  )}
+                  {gridActiveEmployees.map((emp, empIdx) => {
+                    const weekTotal = getWeekTotalForEmp(emp.uid);
                     return (
-                      <tr key={rowIdx} style={{ backgroundColor: "#fff" }}>
-                        <td style={{
-                          padding: "8px 12px",
-                          borderBottom: "1px solid #e5e7eb",
-                          fontWeight: 600,
-                          fontSize: 13,
-                          color: "#111",
-                          position: "sticky",
-                          left: 0,
-                          backgroundColor: "#fff",
-                          zIndex: 5,
-                          paddingLeft: 24,
-                        }}>
-                          {row.project}
-                        </td>
-                        {detailedBreakdown.employees.map((empName, empIdx) => {
-                          const empData = row.employees[empName];
-                          
+                      <tr key={emp.uid} style={{ borderBottom: "1px solid #e5e7eb", backgroundColor: empIdx % 2 === 0 ? "#fff" : "#f9fafb" }}>
+                        <td style={{ padding: "12px 16px", fontWeight: 700, color: "#111" }}>{emp.name}</td>
+                        {gridWeekDays.map((d) => {
+                          const daySeg = getSegsForDay(emp.uid, d);
+                          const hours = calcDayHours(daySeg);
+                          const projects = getDayProjects(daySeg);
+                          const hasLunch = daySeg.some((s) => s.is_lunch);
+                          const hasOpen = daySeg.some((s) => !s.end_at);
+                          const isToday = todayLocal === d;
                           return (
-                            <React.Fragment key={empIdx}>
-                              <td style={{
-                                padding: "8px 8px",
-                                textAlign: "center",
-                                borderBottom: "1px solid #e5e7eb",
-                                borderLeft: "2px solid #3b82f6",
-                                fontSize: 12,
-                                color: "#111",
-                              }}>
-                                {empData ? empData.startTime : ""}
-                              </td>
-                              <td style={{
-                                padding: "8px 8px",
-                                textAlign: "center",
-                                borderBottom: "1px solid #e5e7eb",
-                                borderLeft: "1px solid #e5e7eb",
-                                fontSize: 16,
-                                color: empData?.hasLunch ? "#10b981" : "#d1d5db",
-                              }}>
-                                {empData?.hasLunch ? "✓" : ""}
-                              </td>
-                              <td style={{
-                                padding: "8px 8px",
-                                textAlign: "center",
-                                borderBottom: "1px solid #e5e7eb",
-                                borderLeft: "1px solid #e5e7eb",
-                                fontSize: 12,
-                                color: "#111",
-                              }}>
-                                {empData ? empData.endTime : ""}
-                              </td>
-                              <td style={{
-                                padding: "8px 8px",
-                                textAlign: "center",
-                                borderBottom: "1px solid #e5e7eb",
-                                borderLeft: "1px solid #e5e7eb",
-                                borderRight: "2px solid #3b82f6",
-                                fontSize: 13,
-                                fontWeight: 600,
-                                color: "#111",
-                              }}>
-                                {empData ? empData.hours.toFixed(1) : ""}
-                              </td>
-                            </React.Fragment>
+                            <td key={d} style={{ padding: "10px 8px", textAlign: "center", backgroundColor: isToday ? "#eff6ff" : undefined }}>
+                              {daySeg.length === 0 ? (
+                                <span style={{ color: "#d1d5db", fontSize: 18 }}>+</span>
+                              ) : (
+                                <>
+                                  <div style={{ fontWeight: 700, color: hasOpen ? "#f59e0b" : "#111", fontSize: 14 }}>
+                                    {hasOpen ? "In…" : `${fmtH(hours)}h`}
+                                    {hasLunch && <span style={{ fontSize: 10, marginLeft: 3 }} title="Lunch taken">🍽</span>}
+                                  </div>
+                                  {projects.slice(0, 2).map((p, pi) => (
+                                    <div key={pi} style={{ fontSize: 10, color: "#6b7280", lineHeight: 1.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 88 }} title={p}>
+                                      {p}
+                                    </div>
+                                  ))}
+                                  {projects.length > 2 && (
+                                    <div style={{ fontSize: 10, color: "#9ca3af" }}>+{projects.length - 2} more</div>
+                                  )}
+                                </>
+                              )}
+                            </td>
                           );
                         })}
-                        <td style={{
-                          padding: "8px 8px",
-                          textAlign: "center",
-                          borderBottom: "1px solid #e5e7eb",
-                          borderLeft: "2px solid #e5e7eb",
-                          fontSize: 14,
-                          fontWeight: 700,
-                          color: "#111",
-                          backgroundColor: "#fef3c7",
-                        }}>
-                          {row.total ? row.total.toFixed(1) : ""}
+                        <td style={{ padding: "12px 14px", textAlign: "center", fontWeight: 800, fontSize: 15, color: weekTotal > 0 ? "#0b3ea8" : "#d1d5db" }}>
+                          {weekTotal > 0 ? `${fmtH(weekTotal)}h` : "—"}
                         </td>
                       </tr>
                     );
                   })}
-                  
-                  {/* Weekly Totals Row */}
-                  <tr style={{ backgroundColor: "#f0f9ff", borderTop: "3px solid #3b82f6" }}>
-                    <td style={{
-                      padding: "12px",
-                      fontWeight: 700,
-                      fontSize: 14,
-                      color: "#111",
-                      position: "sticky",
-                      left: 0,
-                      backgroundColor: "#f0f9ff",
-                      zIndex: 5,
-                      borderTop: "3px solid #3b82f6",
-                    }}>
-                      WEEKLY TOTALS
-                    </td>
-                    {detailedBreakdown.employees.map((empName, empIdx) => {
-                      // Calculate total hours for this employee across all projects
-                      const totalHours = detailedBreakdown.rows
-                        .filter(r => r.type === 'project')
-                        .reduce((sum, row) => {
-                          const empData = row.employees[empName];
-                          return sum + (empData?.hours || 0);
-                        }, 0);
-                      
-                      return (
-                        <React.Fragment key={empIdx}>
-                          <td colSpan={4} style={{
-                            padding: "12px",
-                            textAlign: "center",
-                            borderLeft: "2px solid #3b82f6",
-                            borderRight: "2px solid #3b82f6",
-                            borderTop: "3px solid #3b82f6",
-                            fontSize: 16,
-                            fontWeight: 700,
-                            color: "#0369a1",
-                            backgroundColor: "#f0f9ff",
-                          }}>
-                            {totalHours.toFixed(1)} hrs
+                  {gridActiveEmployees.length > 0 && (
+                    <tr style={{ borderTop: "3px solid #0b3ea8", backgroundColor: "#f0f4ff" }}>
+                      <td style={{ padding: "12px 16px", fontWeight: 800, color: "#111", fontSize: 13, textTransform: "uppercase" }}>Week Total</td>
+                      {gridWeekDays.map((d) => {
+                        const dayTotal = gridActiveEmployees.reduce((sum, emp) => sum + calcDayHours(getSegsForDay(emp.uid, d)), 0);
+                        return (
+                          <td key={d} style={{ padding: "12px 8px", textAlign: "center", fontWeight: 700, color: dayTotal > 0 ? "#111" : "#d1d5db" }}>
+                            {dayTotal > 0 ? `${fmtH(dayTotal)}h` : "—"}
                           </td>
-                        </React.Fragment>
-                      );
-                    })}
-                    <td style={{
-                      padding: "12px",
-                      textAlign: "center",
-                      borderLeft: "2px solid #e5e7eb",
-                      borderTop: "3px solid #3b82f6",
-                      fontSize: 16,
-                      fontWeight: 700,
-                      color: "#111",
-                      backgroundColor: "#fef3c7",
-                    }}>
-                      {detailedBreakdown.rows
-                        .filter(r => r.type === 'project')
-                        .reduce((sum, row) => sum + (row.total || 0), 0)
-                        .toFixed(1)}
-                    </td>
-                  </tr>
+                        );
+                      })}
+                      <td style={{ padding: "12px 14px", textAlign: "center", fontWeight: 900, fontSize: 16, color: "#fc6b04" }}>
+                        {fmtH(gridGrandTotal)}h
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
-          </div>
-        ) : (
-          <div style={styles.weeklyTimeSection}>
-            <div style={styles.chartHeader}>
-              <h3 style={styles.sectionTitle}>📋 Weekly Breakdown</h3>
-              <button
-                style={styles.viewReportButton}
-                onClick={() => navigate("/timeclock")}
-              >
-                View Full Timesheet →
-              </button>
-            </div>
-            <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
-              <p style={{ fontSize: 16, marginBottom: 8 }}>No shift segments this week yet</p>
-              <p style={{ fontSize: 14 }}>Detailed breakdown will appear here once employees start working</p>
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

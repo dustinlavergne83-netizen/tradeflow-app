@@ -195,7 +195,9 @@ export default function BankAccounts() {
       'Savings': '💰',
       'Credit Card': '💳',
       'Money Market': '📊',
-      'Line of Credit': '🏦'
+      'Line of Credit': '🏦',
+      'Prepaid Card': '💚',
+      'Other': '🏦'
     };
     return icons[type] || '🏦';
   };
@@ -361,6 +363,8 @@ export default function BankAccounts() {
                     <option value="Credit Card">Credit Card</option>
                     <option value="Money Market">Money Market</option>
                     <option value="Line of Credit">Line of Credit</option>
+                    <option value="Prepaid Card">Prepaid Card (e.g. Green Dot)</option>
+                    <option value="Other">Other</option>
                   </select>
                 </div>
               </div>

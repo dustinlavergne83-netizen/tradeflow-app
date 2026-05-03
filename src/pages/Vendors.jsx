@@ -29,18 +29,64 @@ export default function Vendors() {
   const [searchTerm, setSearchTerm] = useState("");
   const [recentExpenses, setRecentExpenses] = useState([]);
   const fileRef = useRef(null);
+  const [vendorContacts, setVendorContacts] = useState([]);
+  const [showAddContact, setShowAddContact] = useState(false);
+  const [contactForm, setContactForm] = useState({ name: '', title: '', email: '', phone: '' });
+  const [savingContact, setSavingContact] = useState(false);
 
   // Load vendors from Supabase
   useEffect(() => {
     loadVendors();
   }, []);
 
-  // Load recent expenses when vendor is selected
+  // Load recent expenses and contacts when vendor is selected
   useEffect(() => {
     if (selectedVendor) {
       loadRecentExpenses(selectedVendor.id);
+      loadVendorContacts(selectedVendor.id);
+      setShowAddContact(false);
+      setContactForm({ name: '', title: '', email: '', phone: '' });
+    } else {
+      setVendorContacts([]);
     }
   }, [selectedVendor]);
+
+  async function loadVendorContacts(vendorId) {
+    const { data, error } = await supabase
+      .from('vendor_contacts')
+      .select('*')
+      .eq('vendor_id', vendorId)
+      .order('is_primary', { ascending: false })
+      .order('created_at', { ascending: true });
+    if (!error) setVendorContacts(data || []);
+  }
+
+  async function addContact() {
+    if (!contactForm.name.trim()) { alert('Contact name is required'); return; }
+    setSavingContact(true);
+    try {
+      const { data, error } = await supabase
+        .from('vendor_contacts')
+        .insert([{ vendor_id: selectedVendor.id, ...contactForm }])
+        .select()
+        .single();
+      if (error) throw error;
+      setVendorContacts(prev => [...prev, data]);
+      setContactForm({ name: '', title: '', email: '', phone: '' });
+      setShowAddContact(false);
+    } catch (err) {
+      alert('Failed to add contact: ' + err.message);
+    } finally {
+      setSavingContact(false);
+    }
+  }
+
+  async function deleteContact(contactId) {
+    if (!confirm('Delete this contact?')) return;
+    const { error } = await supabase.from('vendor_contacts').delete().eq('id', contactId);
+    if (!error) setVendorContacts(prev => prev.filter(c => c.id !== contactId));
+    else alert('Failed to delete contact: ' + error.message);
+  }
 
   const loadVendors = async () => {
     const { data, error } = await supabase
@@ -342,6 +388,81 @@ export default function Vendors() {
             </div>
           </div>
           
+          {/* Contacts Section */}
+          <div style={{ ...styles.section, marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h3 style={{ color: '#fc6b04', margin: 0 }}>👥 Contacts ({vendorContacts.length})</h3>
+              <button
+                onClick={() => setShowAddContact(!showAddContact)}
+                style={{ padding: '6px 14px', background: '#fc6b04', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 700 }}
+              >
+                {showAddContact ? '✕ Cancel' : '+ Add Contact'}
+              </button>
+            </div>
+
+            {/* Add Contact Form */}
+            {showAddContact && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: 8, marginBottom: 12, padding: 12, background: '#1a1a1a', borderRadius: 8 }}>
+                <input
+                  placeholder="Name *"
+                  value={contactForm.name}
+                  onChange={e => setContactForm({ ...contactForm, name: e.target.value })}
+                  style={{ ...styles.input, marginBottom: 0 }}
+                />
+                <input
+                  placeholder="Title / Role"
+                  value={contactForm.title}
+                  onChange={e => setContactForm({ ...contactForm, title: e.target.value })}
+                  style={{ ...styles.input, marginBottom: 0 }}
+                />
+                <input
+                  placeholder="Email"
+                  value={contactForm.email}
+                  onChange={e => setContactForm({ ...contactForm, email: e.target.value })}
+                  style={{ ...styles.input, marginBottom: 0 }}
+                />
+                <input
+                  placeholder="Phone"
+                  value={contactForm.phone}
+                  onChange={e => setContactForm({ ...contactForm, phone: e.target.value })}
+                  style={{ ...styles.input, marginBottom: 0 }}
+                />
+                <button
+                  onClick={addContact}
+                  disabled={savingContact}
+                  style={{ padding: '8px 16px', background: '#22c55e', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap' }}
+                >
+                  {savingContact ? '⏳' : '✅ Save'}
+                </button>
+              </div>
+            )}
+
+            {/* Contacts List */}
+            {vendorContacts.length === 0 ? (
+              <p style={{ color: '#999', margin: 0, fontSize: 13 }}>No contacts added yet. Click "+ Add Contact" to add.</p>
+            ) : (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                {vendorContacts.map(contact => (
+                  <div key={contact.id} style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, padding: '10px 14px', minWidth: 200, flex: '0 1 auto' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <div style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>{contact.name}</div>
+                        {contact.title && <div style={{ color: '#fc6b04', fontSize: 12, marginBottom: 4 }}>{contact.title}</div>}
+                        {contact.email && <div style={{ color: '#9ca3af', fontSize: 12 }}>✉ {contact.email}</div>}
+                        {contact.phone && <div style={{ color: '#9ca3af', fontSize: 12 }}>📱 {contact.phone}</div>}
+                      </div>
+                      <button
+                        onClick={() => deleteContact(contact.id)}
+                        style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 16, lineHeight: 1, marginLeft: 8 }}
+                        title="Delete contact"
+                      >×</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
             <div style={styles.section}>
               <h3 style={{ color: '#fc6b04', marginBottom: 10 }}>Recent Bills</h3>

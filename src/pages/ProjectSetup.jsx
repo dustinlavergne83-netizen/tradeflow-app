@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -8,6 +8,37 @@ const BRAND = {
   text: "#f97316",
   accent: "#fc6b04ff",
 };
+
+const PROJECT_TYPES = [
+  {
+    value: "commercial-public",
+    icon: "🏢",
+    label: "Commercial Public",
+    desc: "Government, schools, public works, municipalities",
+    color: "#1d4ed8",
+  },
+  {
+    value: "commercial-private",
+    icon: "🏗️",
+    label: "Commercial Private",
+    desc: "Private businesses, retail, industrial, offices",
+    color: "#7c3aed",
+  },
+  {
+    value: "residential-contractor",
+    icon: "👷",
+    label: "Residential Contractor",
+    desc: "Working through a general contractor on residential work",
+    color: "#d97706",
+  },
+  {
+    value: "residential-owner",
+    icon: "🏡",
+    label: "Residential Owner",
+    desc: "Working directly with the homeowner",
+    color: "#059669",
+  },
+];
 
 function AutocompleteInput({ name, value, onChange, options, placeholder, label, required }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -88,6 +119,10 @@ function AutocompleteInput({ name, value, onChange, options, placeholder, label,
 export default function ProjectSetup() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const typeFromUrl = searchParams.get("type") || "commercial-public";
+  const selectedType = PROJECT_TYPES.find((t) => t.value === typeFromUrl) || PROJECT_TYPES[0];
+
   const [saving, setSaving] = useState(false);
   const [customers, setCustomers] = useState([]);
   const [showModal, setShowModal] = useState(false);
@@ -106,9 +141,11 @@ export default function ProjectSetup() {
     description: "",
     budget: "",
     labor_rate: "50",
-    status: "active",
+    sq_ft: "",
+    status: typeFromUrl === "residential-contractor" ? "bidding" : "active",
     start_date: new Date().toISOString().split("T")[0],
     percent_complete: "0",
+    project_type: typeFromUrl,
   });
 
   useEffect(() => {
@@ -196,10 +233,10 @@ export default function ProjectSetup() {
     try {
       const projectData = {
         name: formData.name.trim(),
-        created_by: user?.id, // Add the user's ID (matches your existing table column)
+        created_by: user?.id,
+        project_type: formData.project_type || typeFromUrl,
       };
 
-      // Add all fields - if any fail, we'll know which column doesn't exist
       if (formData.customer?.trim()) {
         projectData.customer = formData.customer.trim();
       }
@@ -223,6 +260,9 @@ export default function ProjectSetup() {
       }
       if (formData.percent_complete) {
         projectData.percent_complete = parseFloat(formData.percent_complete);
+      }
+      if (formData.sq_ft) {
+        projectData.sq_ft = parseFloat(formData.sq_ft);
       }
 
       const { data, error} = await supabase
@@ -249,6 +289,24 @@ export default function ProjectSetup() {
         <h1 style={styles.title}>Create New Project</h1>
         <button onClick={() => navigate("/projects")} style={styles.backButton}>
           ← Back to Projects
+        </button>
+      </div>
+
+      {/* Project Type Banner */}
+      <div style={{ ...styles.typeBanner, backgroundColor: selectedType.color }}>
+        <div style={styles.typeBannerIcon}>{selectedType.icon}</div>
+        <div style={styles.typeBannerInfo}>
+          <div style={styles.typeBannerLabel}>Project Type</div>
+          <div style={styles.typeBannerValue}>{selectedType.label}</div>
+          <div style={styles.typeBannerDesc}>{selectedType.desc}</div>
+        </div>
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          style={styles.changeTypeButton}
+          title="Go back to choose a different project type"
+        >
+          ↩ Change Type
         </button>
       </div>
 
@@ -280,14 +338,16 @@ export default function ProjectSetup() {
             />
           </div>
 
-          <AutocompleteInput
-            name="customer"
-            value={formData.customer}
-            onChange={handleChange}
-            options={customers.map((c) => c.customer)}
-            placeholder="Select or type customer name..."
-            label="Customer"
-          />
+          {typeFromUrl !== "residential-contractor" && (
+            <AutocompleteInput
+              name="customer"
+              value={formData.customer}
+              onChange={handleChange}
+              options={customers.map((c) => c.customer)}
+              placeholder="Select or type customer name..."
+              label="Customer"
+            />
+          )}
 
           <AutocompleteInput
             name="contractor"
@@ -326,20 +386,22 @@ export default function ProjectSetup() {
         <div style={styles.section}>
           <h2 style={styles.sectionTitle}>Financial Details</h2>
 
-          <div style={styles.row}>
-            <div style={styles.field}>
-              <label style={styles.label}>Total Budget ($)</label>
-              <input
-                type="number"
-                name="budget"
-                value={formData.budget}
-                onChange={handleChange}
-                style={styles.input}
-                placeholder="10000"
-                step="0.01"
-                min="0"
-              />
-            </div>
+          <div style={typeFromUrl === "residential-contractor" ? {} : styles.row}>
+            {typeFromUrl !== "residential-contractor" && (
+              <div style={styles.field}>
+                <label style={styles.label}>Total Budget ($)</label>
+                <input
+                  type="number"
+                  name="budget"
+                  value={formData.budget}
+                  onChange={handleChange}
+                  style={styles.input}
+                  placeholder="10000"
+                  step="0.01"
+                  min="0"
+                />
+              </div>
+            )}
 
             <div style={styles.field}>
               <label style={styles.label}>Labor Rate ($/hr)</label>
@@ -369,9 +431,14 @@ export default function ProjectSetup() {
                 onChange={handleChange}
                 style={styles.select}
               >
-                <option value="active">Active</option>
+                <option value="bidding">Bidding</option>
                 <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+                <option value="active">Active</option>
                 <option value="completed">Completed</option>
+                <option value="bid_lost">Bid Lost</option>
+                <option value="canceled">Canceled</option>
+                <option value="postponed">Postponed</option>
                 <option value="on-hold">On Hold</option>
               </select>
             </div>
@@ -388,19 +455,35 @@ export default function ProjectSetup() {
             </div>
           </div>
 
-          <div style={styles.field}>
-            <label style={styles.label}>Initial % Complete</label>
-            <input
-              type="number"
-              name="percent_complete"
-              value={formData.percent_complete}
-              onChange={handleChange}
-              style={styles.input}
-              placeholder="0"
-              min="0"
-              max="100"
-              step="1"
-            />
+          <div style={styles.row}>
+            <div style={styles.field}>
+              <label style={styles.label}>Initial % Complete</label>
+              <input
+                type="number"
+                name="percent_complete"
+                value={formData.percent_complete}
+                onChange={handleChange}
+                style={styles.input}
+                placeholder="0"
+                min="0"
+                max="100"
+                step="1"
+              />
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.label}>📐 Square Footage (sq ft)</label>
+              <input
+                type="number"
+                name="sq_ft"
+                value={formData.sq_ft}
+                onChange={handleChange}
+                style={styles.input}
+                placeholder="e.g., 2500"
+                step="1"
+                min="0"
+              />
+            </div>
           </div>
         </div>
 
@@ -517,7 +600,7 @@ const styles = {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 32,
+    marginBottom: 24,
   },
   title: {
     fontSize: 36,
@@ -532,6 +615,53 @@ const styles = {
     borderRadius: 8,
     cursor: "pointer",
     fontSize: 15,
+  },
+  typeBanner: {
+    display: "flex",
+    alignItems: "center",
+    gap: 20,
+    borderRadius: 14,
+    padding: "20px 28px",
+    marginBottom: 28,
+    boxShadow: "0 4px 20px rgba(0,0,0,0.2)",
+  },
+  typeBannerIcon: {
+    fontSize: 48,
+    lineHeight: 1,
+    flexShrink: 0,
+  },
+  typeBannerInfo: {
+    flex: 1,
+  },
+  typeBannerLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "rgba(255,255,255,0.7)",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: 2,
+  },
+  typeBannerValue: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 2,
+  },
+  typeBannerDesc: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.8)",
+  },
+  changeTypeButton: {
+    padding: "10px 20px",
+    backgroundColor: "rgba(255,255,255,0.2)",
+    border: "2px solid rgba(255,255,255,0.5)",
+    color: "#fff",
+    borderRadius: 8,
+    cursor: "pointer",
+    fontSize: 14,
+    fontWeight: "600",
+    flexShrink: 0,
+    transition: "background-color 0.2s",
   },
   form: {
     backgroundColor: "#fff",

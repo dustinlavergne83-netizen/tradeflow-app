@@ -168,7 +168,7 @@ export default function CashFlow() {
   };
 
   const formatDate = (dateString) => {
-    const date = new Date(dateString);
+    const date = new Date(dateString.includes('T') ? dateString : dateString + 'T00:00:00');
     return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   };
 

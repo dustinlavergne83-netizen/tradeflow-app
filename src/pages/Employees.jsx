@@ -622,10 +622,17 @@ export default function Employees() {
                         <input
                           type="number"
                           step="0.01"
+                          min="0"
                           style={styles.input}
                           value={editForm.hourly_rate}
                           onChange={(e) => setEditForm({...editForm, hourly_rate: e.target.value})}
                         />
+                        {parseFloat(editForm.hourly_rate) > 0 && (
+                          <div style={{marginTop: 6, padding: '6px 10px', backgroundColor: '#fef3c7', borderRadius: 6, fontSize: 13, color: '#92400e'}}>
+                            💰 Burdened Cost Rate (×1.4): <strong>${(parseFloat(editForm.hourly_rate) * 1.4).toFixed(2)}/hr</strong>
+                            <span style={{marginLeft: 6, fontSize: 11, color: '#b45309'}}>(taxes, benefits, overhead)</span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -762,6 +769,17 @@ export default function Employees() {
                     <span style={styles.detailValue}>
                       ${selectedEmployee.hourly_rate ? selectedEmployee.hourly_rate.toFixed(2) : '0.00'}/hr
                     </span>
+                  </div>
+                  {selectedEmployee.hourly_rate > 0 && (
+                  <div style={styles.detailRow}>
+                    <span style={styles.detailLabel}>Burdened Cost Rate (×1.4):</span>
+                    <span style={{...styles.detailValue, color: '#d97706', fontWeight: '700'}}>
+                      ${(selectedEmployee.hourly_rate * 1.4).toFixed(2)}/hr
+                    </span>
+                  </div>
+                  )}
+                  <div style={{display: 'none'}}>
+{/* spacer to close extra detailRow opened above */}
                   </div>
                   <div style={styles.detailRow}>
                     <span style={styles.detailLabel}>Created:</span>

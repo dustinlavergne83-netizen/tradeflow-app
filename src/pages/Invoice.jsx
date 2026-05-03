@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { getSiteUrl, isLocalhost } from "../lib/siteUrl";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { createInvoiceJournalEntry } from "../utils/accountingJournals";
@@ -1004,7 +1005,7 @@ export default function Invoice() {
       const { data, error } = await supabase.functions.invoke('send-invoice', {
         body: {
           invoiceId: invoiceId,
-          siteUrl: window.location.origin,
+          siteUrl: getSiteUrl(),
           to: customerEmail,
           customerName: customerName,
           invoiceNumber: invoiceNumber,
@@ -1026,7 +1027,19 @@ export default function Invoice() {
 
       if (error) {
         console.error("Edge Function Error Details:", error);
-        throw new Error(error.message || JSON.stringify(error));
+        // Try to read the actual error body from the response context
+        let errorMessage = error.message || JSON.stringify(error);
+        try {
+          if (error.context) {
+            const errBody = await error.context.json();
+            console.error("Edge Function Error Body:", errBody);
+            if (errBody?.error) errorMessage = errBody.error;
+            if (errBody?.details) errorMessage += '\nDetails: ' + errBody.details;
+          }
+        } catch (parseErr) {
+          console.log("Could not parse error body:", parseErr);
+        }
+        throw new Error(errorMessage);
       }
 
       if (data && data.error) {
@@ -1234,6 +1247,15 @@ export default function Invoice() {
             style={{...styles.button, background: '#10b981'}}
           >
             👁️ Preview/Print (with Details)
+          </button>
+          <button 
+            onClick={async () => {
+              await handleSave({ silent: true });
+              window.open(`/invoice/view?invoiceId=${invoiceId}&print=1`, '_blank');
+            }}
+            style={{...styles.button, background: '#fff', color: '#0b3ea8', border: '2px solid #fff'}}
+          >
+            🖨️ Print to PDF
           </button>
           <button 
             onClick={async () => {
@@ -1650,6 +1672,10 @@ export default function Invoice() {
             const remainAfter = remainNoteMatch ? parseFloat(remainNoteMatch[1].replace(/,/g, '')) : 0;
             const hasOldFormat = invoiceItems.some(it => (it.description || "").includes('\n') && (it.description || "").includes('Original:'));
 
+            // First item = progress draw. Remaining items = extra line items.
+            const drawItems = invoiceItems.slice(0, 1);
+            const extraItems = invoiceItems.slice(1);
+
             return (
             <div style={{marginTop: 32, marginBottom: 24}}>
               <h3 style={{fontSize: 18, fontWeight: 'bold', marginBottom: 16, color: '#111'}}>
@@ -1668,7 +1694,7 @@ export default function Invoice() {
                     </tr>
                   </thead>
                   <tbody>
-                    {invoiceItems.map((item) => {
+                    {drawItems.map((item) => {
                       const desc = item.description || "";
                       const lines = desc.split('\n');
                       const itemName = lines[0];
@@ -1710,6 +1736,63 @@ export default function Invoice() {
                     })}
                   </tbody>
                 </table>
+              </div>
+
+              {/* Extra line items — always shown for progress billing so items can be added/managed */}
+              <div style={{marginTop: 20}}>
+                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12}}>
+                  <h3 style={{fontSize: 16, fontWeight: 'bold', color: '#8b5cf6', margin: 0}}>
+                    ➕ Additional Line Items
+                  </h3>
+                  <button
+                    onClick={handleAddItem}
+                    style={{
+                      padding: '7px 16px',
+                      backgroundColor: '#8b5cf6',
+                      border: 'none',
+                      color: '#fff',
+                      borderRadius: 7,
+                      cursor: 'pointer',
+                      fontSize: 13,
+                      fontWeight: '600',
+                    }}
+                  >
+                    + Add Extra Item
+                  </button>
+                </div>
+
+                {extraItems.length === 0 ? (
+                  <div style={{padding: '18px 16px', border: '2px dashed #e5e7eb', borderRadius: 8, textAlign: 'center', color: '#999', fontSize: 13}}>
+                    No extra items yet. Click <strong>"+ Add Extra Item"</strong> to add per diem, equipment rental, or any charge that bills separately from the contract draw.
+                  </div>
+                ) : (
+                  <div style={{border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden'}}>
+                    <div style={{display: 'grid', gridTemplateColumns: '1fr auto 40px', gap: 0, backgroundColor: '#f3f4f6', padding: '10px 16px', fontSize: 12, fontWeight: 'bold', color: '#666', textTransform: 'uppercase'}}>
+                      <span>Description</span>
+                      <span style={{textAlign: 'right', paddingRight: 12}}>Amount</span>
+                      <span></span>
+                    </div>
+                    {extraItems.map((item, idx) => (
+                      <div key={item.id} style={{display: 'grid', gridTemplateColumns: '1fr auto 40px', gap: 0, padding: '12px 16px', borderTop: '1px solid #e5e7eb', backgroundColor: idx % 2 === 0 ? '#fff' : '#f9fafb', alignItems: 'center'}}>
+                        <span style={{fontSize: 14, color: '#111'}}>{item.description}</span>
+                        <span style={{fontSize: 14, fontWeight: '600', color: '#8b5cf6', textAlign: 'right', paddingRight: 12}}>${(item.total || 0).toFixed(2)}</span>
+                        <button
+                          onClick={() => handleDeleteItem(item.id)}
+                          title="Delete this line item"
+                          style={{background: 'transparent', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 16, padding: '2px 4px'}}
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    ))}
+                    <div style={{display: 'grid', gridTemplateColumns: '1fr auto 40px', gap: 0, padding: '10px 16px', borderTop: '2px solid #e5e7eb', backgroundColor: '#f5f3ff'}}>
+                      <span style={{fontSize: 13, fontWeight: 'bold', color: '#8b5cf6'}}>Additional Items Total</span>
+                      <span style={{fontSize: 14, fontWeight: 'bold', color: '#8b5cf6', textAlign: 'right', paddingRight: 12}}>${extraItems.reduce((s, i) => s + (i.total || 0), 0).toFixed(2)}</span>
+                      <span></span>
+                    </div>
+                  </div>
+                )}
+                <p style={{fontSize: 12, color: '#999', marginTop: 8}}>* These items do not affect the contract progress percentage.</p>
               </div>
             </div>
             );

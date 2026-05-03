@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { getSiteUrl } from "../lib/siteUrl";
 import { useAuth } from "../contexts/AuthContext";
 import PriceAdjustment from "../Components/PriceAdjustment";
 
@@ -25,6 +26,7 @@ export default function QuickEstimate() {
   const [estimateDate, setEstimateDate] = useState(new Date().toISOString().split('T')[0]);
 
   const [projectId, setProjectId] = useState(null);
+  const [projectBudget, setProjectBudget] = useState("");
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [emailTo, setEmailTo] = useState("");
   const [emailMessage, setEmailMessage] = useState("");
@@ -86,7 +88,7 @@ export default function QuickEstimate() {
     try {
       const { data: project, error } = await supabase
         .from("projects")
-        .select("customer, contractor")
+        .select("customer, contractor, budget")
         .eq("id", projectId)
         .single();
 
@@ -95,6 +97,10 @@ export default function QuickEstimate() {
       if (project) {
         // Use contractor for commercial projects, customer for residential
         setCustomerName(project.contractor || project.customer || "");
+        // Pre-fill existing budget if set
+        if (project.budget && project.budget > 0) {
+          setProjectBudget(project.budget.toString());
+        }
       }
     } catch (err) {
       console.error("Error loading project customer:", err);
@@ -593,6 +599,14 @@ export default function QuickEstimate() {
         }
       }
       
+      // If we have a project and a budget was entered, save it
+      if (projectId && projectBudget && parseFloat(projectBudget) > 0) {
+        await supabase
+          .from("projects")
+          .update({ budget: parseFloat(projectBudget) })
+          .eq("id", projectId);
+      }
+
       // Navigate back to project if we came from one, otherwise go to estimates
       if (projectId) {
         navigate(`/project/${projectId}`);
@@ -725,7 +739,7 @@ export default function QuickEstimate() {
                     const { data, error } = await supabase.functions.invoke('send-estimate', {
                       body: {
                         estimateId,
-                        siteUrl: window.location.origin,
+                        siteUrl: getSiteUrl(),
                         to: emailTo,
                         message: emailMessage,
                         estimateNumber: estRecord.estimate_number,
@@ -840,6 +854,27 @@ export default function QuickEstimate() {
                 style={styles.input}
               />
             </div>
+            {projectId && (
+              <div style={styles.field}>
+                <label style={styles.label}>📊 Projected Budget (Cost)</label>
+                <input
+                  type="number"
+                  value={projectBudget}
+                  onChange={(e) => setProjectBudget(e.target.value)}
+                  style={{
+                    ...styles.input,
+                    borderColor: projectBudget > 0 ? '#10b981' : '#e5e7eb',
+                    borderWidth: 2,
+                  }}
+                  placeholder="0.00"
+                  min="0"
+                  step="0.01"
+                />
+                <div style={{fontSize: 12, color: '#6b7280', marginTop: 4}}>
+                  Used in Cost Tracking to show Budget Used % and Remaining Budget
+                </div>
+              </div>
+            )}
           </div>
           <div style={styles.field}>
             <label style={styles.label}>Description/Notes</label>

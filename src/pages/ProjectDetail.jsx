@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { formatDate } from "../utils/dateUtils";
 import jsPDF from "jspdf";
+import { getNextJournalEntryNumber, createInvoicePaymentJournalEntry } from "../utils/accountingJournals";
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -11,6 +12,33 @@ const BRAND = {
   accent: "#fc6b04ff",
   primary: "#2563eb",
 };
+
+const PROJECT_TYPES = [
+  {
+    value: "commercial-public",
+    icon: "🏢",
+    label: "Commercial Public",
+    color: "#1d4ed8",
+  },
+  {
+    value: "commercial-private",
+    icon: "🏗️",
+    label: "Commercial Private",
+    color: "#7c3aed",
+  },
+  {
+    value: "residential-contractor",
+    icon: "👷",
+    label: "Residential Contractor",
+    color: "#d97706",
+  },
+  {
+    value: "residential-owner",
+    icon: "🏡",
+    label: "Residential Owner",
+    color: "#059669",
+  },
+];
 
 export default function ProjectDetail() {
   const { id } = useParams();
@@ -54,7 +82,8 @@ export default function ProjectDetail() {
     end_date: '',
     labor_rate: 50,
     percent_complete: 0,
-    project_type: 'commercial-public'
+    project_type: 'commercial-public',
+    sq_ft: '',
   });
   const [showChangeOrderModal, setShowChangeOrderModal] = useState(false);
   const [changeOrderForm, setChangeOrderForm] = useState({
@@ -70,8 +99,20 @@ export default function ProjectDetail() {
   const [showInvoiceTypeModal, setShowInvoiceTypeModal] = useState(false);
   const [showApplyDepositsModal, setShowApplyDepositsModal] = useState(false);
   const [pendingInvoiceForDeposit, setPendingInvoiceForDeposit] = useState(null);
+  const [editingBudget, setEditingBudget] = useState(false);
+  const [budgetInput, setBudgetInput] = useState('');
+  const [editingActiveWorth, setEditingActiveWorth] = useState(false);
+  const [activeWorthInput, setActiveWorthInput] = useState('');
+  const [savingBudget, setSavingBudget] = useState(false);
+  const [editingSqFt, setEditingSqFt] = useState(false);
+  const [sqFtInput, setSqFtInput] = useState('');
+  const [editingSqFtLiving, setEditingSqFtLiving] = useState(false);
+  const [sqFtLivingInput, setSqFtLivingInput] = useState('');
   const [selectedDepositsToApply, setSelectedDepositsToApply] = useState([]);
   const [deposits, setDeposits] = useState([]);
+  const [showReportsModal, setShowReportsModal] = useState(false);
+  const [timeEntriesExpanded, setTimeEntriesExpanded] = useState(false);
+  const [expensesExpanded, setExpensesExpanded] = useState(false);
   const [showAddDepositModal, setShowAddDepositModal] = useState(false);
   const [depositForm, setDepositForm] = useState({
     deposit_amount: '',
@@ -92,6 +133,22 @@ export default function ProjectDetail() {
   const [editingReport, setEditingReport] = useState(null);
   const [savingReport, setSavingReport] = useState(false);
   const [generatingPdf, setGeneratingPdf] = useState(false);
+
+  // ── Invoice Payment Modal state ──────────────────────────────────────────
+  const [showInvoicePayModal, setShowInvoicePayModal] = useState(false);
+  const [payingInvoice, setPayingInvoice] = useState(null);
+  const [pdCashAccounts, setPdCashAccounts] = useState([]);
+  const [pdHoldingAccounts, setPdHoldingAccounts] = useState([]);
+  const [pdPaymentForm, setPdPaymentForm] = useState({
+    amount: '',
+    date: new Date().toISOString().split('T')[0],
+    method: 'check',
+    deposit_type: 'bank',
+    bank_account_id: '',
+    holding_account_id: '',
+    processing_fee: '',
+    notes: '',
+  });
 
   // Generate PDF report with photos and captions
   async function generateReportPDF(report) {
@@ -324,6 +381,7 @@ export default function ProjectDetail() {
           labor_rate: parseFloat(editProjectForm.labor_rate) || 50,
           percent_complete: parseInt(editProjectForm.percent_complete) || 0,
           project_type: editProjectForm.project_type || 'commercial-public',
+          sq_ft: editProjectForm.sq_ft ? parseFloat(editProjectForm.sq_ft) : null,
         })
         .eq("id", id);
 
@@ -720,6 +778,106 @@ async function handleAddContractor() {
     }
   }
 
+  // ── Invoice Payment helpers ──────────────────────────────────────────────
+  async function openInvoicePaymentModal(invoice) {
+    // Pre-fill balance due
+    const trueBalance = Math.max(0, (invoice.total || 0) - (invoice.amount_paid || 0) - (invoice.deposit_received || 0));
+    setPdPaymentForm({
+      amount: trueBalance > 0 ? trueBalance.toFixed(2) : '',
+      date: new Date().toISOString().split('T')[0],
+      method: 'check',
+      deposit_type: 'bank',
+      bank_account_id: '',
+      holding_account_id: '',
+      processing_fee: '',
+      notes: '',
+    });
+    setPayingInvoice(invoice);
+
+    // Load bank accounts on demand — same tables InvoicesList uses
+    const { data: accts } = await supabase
+      .from('bank_accounts')
+      .select('*')
+      .eq('company_id', user.id)
+      .eq('is_active', true)
+      .order('account_name');
+    setPdCashAccounts(accts || []);
+
+    const { data: holdAccts } = await supabase
+      .from('accounts')
+      .select('id, account_name, account_number, account_type, is_active')
+      .order('account_name');
+    setPdHoldingAccounts((holdAccts || []).filter(a => a.is_active !== false));
+
+    setShowInvoicePayModal(true);
+  }
+
+  async function handleInvoicePayment() {
+    if (!payingInvoice) return;
+    const amount = parseFloat(pdPaymentForm.amount);
+    if (!amount || amount <= 0) { alert('Please enter a valid payment amount'); return; }
+    if (pdPaymentForm.deposit_type === 'bank' && !pdPaymentForm.bank_account_id) {
+      alert('Please select a bank account'); return;
+    }
+    if (pdPaymentForm.deposit_type === 'holding_account' && !pdPaymentForm.holding_account_id) {
+      alert('Please select a holding account'); return;
+    }
+
+    try {
+      const fee = parseFloat(pdPaymentForm.processing_fee) || 0;
+      const netAmount = amount - fee;
+      const totalPaid = (payingInvoice.amount_paid || 0) + amount;
+      const trueBalance = Math.max(0, (payingInvoice.total || 0) - totalPaid - (payingInvoice.deposit_received || 0));
+      const newStatus = trueBalance <= 0.01 ? 'paid' : 'partial';
+
+      // 1. Record in invoice_payments
+      await supabase.from('invoice_payments').insert([{
+        invoice_id: payingInvoice.id,
+        payment_date: pdPaymentForm.date,
+        payment_method: pdPaymentForm.method,
+        amount,
+        processing_fee: fee || null,
+        net_amount: netAmount,
+        bank_account_id: pdPaymentForm.deposit_type === 'bank' ? pdPaymentForm.bank_account_id : null,
+        holding_account_id: pdPaymentForm.deposit_type === 'holding_account' ? pdPaymentForm.holding_account_id : null,
+        notes: pdPaymentForm.notes || null,
+        created_by: user.id,
+      }]);
+
+      // 2. Update invoice
+      await supabase.from('invoices').update({
+        amount_paid: totalPaid,
+        payment_date: pdPaymentForm.date,
+        payment_method: pdPaymentForm.method,
+        net_deposit_amount: netAmount,
+        processing_fee: fee || null,
+        status: newStatus,
+        balance_due: trueBalance,
+      }).eq('id', payingInvoice.id);
+
+      // 3. Journal entry
+      try {
+        const bankAccountId = pdPaymentForm.deposit_type === 'bank'
+          ? pdPaymentForm.bank_account_id
+          : pdPaymentForm.holding_account_id;
+        await createInvoicePaymentJournalEntry(
+          { ...payingInvoice, amount_paid: totalPaid, status: newStatus },
+          amount, user.id, user.id, bankAccountId
+        );
+      } catch (jeErr) {
+        console.warn('Journal entry failed (non-critical):', jeErr);
+      }
+
+      setShowInvoicePayModal(false);
+      setPayingInvoice(null);
+      loadProjectData();
+      alert(`✅ Payment of $${amount.toFixed(2)} recorded!\nInvoice #${payingInvoice.invoice_number} is now ${newStatus}.`);
+    } catch (err) {
+      console.error('Error recording payment:', err);
+      alert('Failed to record payment: ' + err.message);
+    }
+  }
+
   async function loadProjectData() {
     try {
       // Load project details
@@ -776,13 +934,13 @@ async function handleAddContractor() {
           .in("id", unlinkedIds);
       }
 
-      // Fetch employee names for all unique user_ids
+      // Fetch employee names AND hourly_rate for all unique user_ids
       const uniqueUserIds = [...new Set(mergedTimeData.map(e => e.user_id).filter(Boolean))];
       let employeeMap = {};
       if (uniqueUserIds.length > 0) {
         const { data: empData } = await supabase
           .from("employees")
-          .select("user_id, first_name, last_name")
+          .select("user_id, first_name, last_name, hourly_rate")
           .in("user_id", uniqueUserIds);
         
         if (empData) {
@@ -967,7 +1125,15 @@ async function handleAddContractor() {
       // Sync percent_complete to DB based on actual invoices
       // This ensures the Dashboard shows the correct percentage
       const aw = projectData.active_worth || 0;
-      const billed = (invoicesData || []).reduce((sum, inv) => sum + (inv.total || 0), 0);
+      // For progress billing invoices, use only the draw amount from notes (not inv.total)
+      // because extra line items (credits/surcharges) don't count toward contract progress %.
+      const billed = (invoicesData || []).reduce((sum, inv) => {
+        if (inv.notes && inv.notes.includes('Progress billing')) {
+          const drawMatch = inv.notes.match(/This draw: \$([0-9,.]+)/);
+          if (drawMatch) return sum + parseFloat(drawMatch[1].replace(/,/g, ''));
+        }
+        return sum + (inv.total || 0);
+      }, 0);
       const realPercent = aw > 0 ? Math.min(Math.round((billed / aw) * 100), 100) : (projectData.percent_complete || 0);
       
       if (realPercent !== (projectData.percent_complete || 0)) {
@@ -1016,14 +1182,78 @@ async function handleAddContractor() {
     return sum + hours;
   }, 0);
 
-  const laborRate = project.labor_rate || 50; // Default rate if not set
-  const laborCost = laborHours * laborRate;
+  // Per-employee labor cost: use each employee's hourly_rate * 1.4 (40% burden for taxes/benefits).
+  // Falls back to project.labor_rate (or $50) for entries where the employee has no rate set.
+  const BURDEN_MULTIPLIER = 1.4;
+  const fallbackRate = project.labor_rate || 50;
+  const laborCost = timeEntries.reduce((sum, entry) => {
+    if (!entry.clock_out) return sum;
+    const start = new Date(entry.clock_in).getTime();
+    const end = new Date(entry.clock_out).getTime();
+    let hours = (end - start) / (1000 * 60 * 60);
+    if (entry.is_lunch) hours = Math.max(0, hours - 0.5);
+    const empRate = entry.employees?.hourly_rate;
+    const costRate = empRate > 0 ? empRate * BURDEN_MULTIPLIER : fallbackRate;
+    return sum + hours * costRate;
+  }, 0);
+  // Keep a display-only blended rate for the UI label
+  const laborRate = laborHours > 0 ? laborCost / laborHours : fallbackRate;
 
   // Calculate material costs from project_expenses
-  const materialCost = projectExpenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
+  const expensesCost = projectExpenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
+
+  // Materials allocated to the job via negative extra items on progress billing invoices.
+  // e.g. "Material Coburns Ticket -$3,684.29" is a credit given to the customer but
+  // represents a real cost to the company — show it in cost tracking.
+  const invoiceAllocatedMaterials = invoices.reduce((sum, inv) => {
+    if (inv.notes && inv.notes.includes('Progress billing')) {
+      const drawMatch = inv.notes.match(/This draw: \$([0-9,.]+)/);
+      const drawAmount = drawMatch ? parseFloat(drawMatch[1].replace(/,/g, '')) : 0;
+      const extraTotal = (inv.total || 0) - drawAmount; // negative when credits were given
+      // Only count negative extras (credits to customer = material cost to company)
+      if (extraTotal < 0) return sum + Math.abs(extraTotal);
+    }
+    return sum;
+  }, 0);
+
+  const materialCost = expensesCost + invoiceAllocatedMaterials;
 
   // Total costs
   const totalCost = laborCost + materialCost;
+
+  async function saveSqFtField(field, value) {
+    const numVal = parseFloat(value);
+    if (isNaN(numVal) || numVal < 0) { alert("Please enter a valid number."); return; }
+    setSavingBudget(true);
+    try {
+      const { error } = await supabase.from("projects").update({ [field]: numVal }).eq("id", id);
+      if (error) throw error;
+      setProject(prev => ({ ...prev, [field]: numVal }));
+      if (field === "sq_ft") setEditingSqFt(false);
+      if (field === "sq_ft_living") setEditingSqFtLiving(false);
+    } catch (err) {
+      alert("Failed to save: " + err.message);
+    } finally {
+      setSavingBudget(false);
+    }
+  }
+
+  async function saveBudgetField(field, value) {
+    const numVal = parseFloat(value);
+    if (isNaN(numVal) || numVal < 0) { alert("Please enter a valid number."); return; }
+    setSavingBudget(true);
+    try {
+      const { error } = await supabase.from("projects").update({ [field]: numVal }).eq("id", id);
+      if (error) throw error;
+      setProject(prev => ({ ...prev, [field]: numVal }));
+      if (field === "budget") setEditingBudget(false);
+      if (field === "active_worth") setEditingActiveWorth(false);
+    } catch (err) {
+      alert("Failed to save: " + err.message);
+    } finally {
+      setSavingBudget(false);
+    }
+  }
 
   // Budget info
   const budget = project.budget || 0;
@@ -1032,9 +1262,239 @@ async function handleAddContractor() {
 
   // Progress billing - calculate from actual invoices
   const activeWorth = project.active_worth || 0;
-  const billedAmount = invoices.reduce((sum, inv) => sum + (inv.total || 0), 0) || project.billed_amount || 0;
+  // For progress billing invoices use the draw amount from notes, not inv.total,
+  // so extra line items (credits, surcharges) don't distort the contract progress %.
+  const billedAmount = invoices.reduce((sum, inv) => {
+    if (inv.notes && inv.notes.includes('Progress billing')) {
+      const drawMatch = inv.notes.match(/This draw: \$([0-9,.]+)/);
+      if (drawMatch) return sum + parseFloat(drawMatch[1].replace(/,/g, ''));
+    }
+    return sum + (inv.total || 0);
+  }, 0) || project.billed_amount || 0;
   const percentComplete = activeWorth > 0 ? Math.round((billedAmount / activeWorth) * 100) : (project.percent_complete || 0);
   const remainingToBill = activeWorth - billedAmount;
+
+  // ───── Quick Action Button Style ─────
+  function qaBtn(color) {
+    return {
+      display: 'flex', alignItems: 'center', gap: 7,
+      padding: '8px 16px', borderRadius: 8, border: `2px solid ${color}`,
+      backgroundColor: color + '18', color, fontWeight: '700', fontSize: 14,
+      cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.15s',
+    };
+  }
+
+  // ───── PDF REPORT GENERATORS ─────
+
+  function generateCostReport() {
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 20;
+    let y = margin;
+    const safeName = project.name.replace(/[^a-zA-Z0-9]/g, '_');
+
+    doc.setFillColor(11,62,168); doc.rect(0,0,pageWidth,28,'F');
+    doc.setTextColor(249,115,22); doc.setFontSize(16); doc.setFont('helvetica','bold');
+    doc.text('DML ELECTRICAL SERVICE LLC', margin, 12);
+    doc.setTextColor(255,255,255); doc.setFontSize(10); doc.setFont('helvetica','normal');
+    doc.text('Project Cost Report', margin, 20);
+
+    y = 38;
+    doc.setTextColor(11,62,168); doc.setFontSize(16); doc.setFont('helvetica','bold');
+    doc.text(project.name, margin, y); y += 8;
+    doc.setTextColor(80,80,80); doc.setFontSize(10); doc.setFont('helvetica','normal');
+    doc.text(`Generated: ${new Date().toLocaleDateString()}`, margin, y); y += 14;
+
+    const section = (title) => {
+      doc.setFillColor(240,240,240); doc.rect(margin, y-4, pageWidth-margin*2, 10, 'F');
+      doc.setTextColor(11,62,168); doc.setFontSize(12); doc.setFont('helvetica','bold');
+      doc.text(title, margin, y+3); y += 14;
+    };
+    const row = (label, value, color) => {
+      doc.setTextColor(...(color || [50,50,50])); doc.setFontSize(11); doc.setFont('helvetica','normal');
+      doc.text(label, margin, y);
+      doc.text(value, pageWidth-margin, y, {align:'right'}); y += 8;
+    };
+
+    section('LABOR COSTS');
+    row('Total Hours', `${laborHours.toFixed(2)} hrs`);
+    row('Avg Effective Rate', `$${laborRate.toFixed(2)}/hr`);
+    row('Labor Cost (burdened @ 1.4×)', `$${laborCost.toFixed(2)}`);
+    y += 4;
+
+    section('MATERIAL & EXPENSE COSTS');
+    row('Direct Expenses', `$${expensesCost.toFixed(2)}`);
+    if (invoiceAllocatedMaterials > 0) row('Materials via Invoice Credits', `$${invoiceAllocatedMaterials.toFixed(2)}`);
+    row('Total Material Cost', `$${materialCost.toFixed(2)}`);
+    y += 4;
+
+    doc.setFillColor(252,107,4); doc.rect(margin, y-4, pageWidth-margin*2, 12, 'F');
+    doc.setTextColor(255,255,255); doc.setFontSize(13); doc.setFont('helvetica','bold');
+    doc.text(`TOTAL PROJECT COST: $${totalCost.toFixed(2)}`, margin, y+4); y += 20;
+
+    if (budget > 0) {
+      doc.setFontSize(11); doc.setFont('helvetica','normal');
+      const rem = budget - totalCost;
+      doc.setTextColor(50,50,50); doc.text(`Budget: $${budget.toFixed(2)}   Used: ${((totalCost/budget)*100).toFixed(1)}%`, margin, y); y += 8;
+      doc.setTextColor(...(rem < 0 ? [220,38,38] : [16,185,129]));
+      doc.text(`${rem >= 0 ? 'Remaining Budget' : 'Over Budget'}: $${Math.abs(rem).toFixed(2)}`, margin, y);
+    }
+
+    doc.save(`${safeName}_Cost_Report.pdf`);
+  }
+
+  function generateCostVsPriceReport() {
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 20;
+    let y = margin;
+    const safeName = project.name.replace(/[^a-zA-Z0-9]/g, '_');
+
+    doc.setFillColor(11,62,168); doc.rect(0,0,pageWidth,28,'F');
+    doc.setTextColor(249,115,22); doc.setFontSize(16); doc.setFont('helvetica','bold');
+    doc.text('DML ELECTRICAL SERVICE LLC', margin, 12);
+    doc.setTextColor(255,255,255); doc.setFontSize(10); doc.setFont('helvetica','normal');
+    doc.text('Cost vs. Price Report', margin, 20);
+
+    y = 38;
+    doc.setTextColor(11,62,168); doc.setFontSize(16); doc.setFont('helvetica','bold');
+    doc.text(project.name, margin, y); y += 8;
+    doc.setTextColor(80,80,80); doc.setFontSize(10); doc.setFont('helvetica','normal');
+    doc.text(`Generated: ${new Date().toLocaleDateString()}`, margin, y); y += 14;
+
+    const profit = activeWorth - totalCost;
+    const marginPct = activeWorth > 0 ? (profit / activeWorth * 100) : 0;
+    const markupPct = totalCost > 0 ? (profit / totalCost * 100) : 0;
+
+    const rows = [
+      ['Contract Value (Active Worth)', `$${activeWorth.toFixed(2)}`, 'bold', null],
+      ['  Labor Cost', `$${laborCost.toFixed(2)}`, 'normal', null],
+      ['  Material Cost', `$${materialCost.toFixed(2)}`, 'normal', null],
+      ['Total Cost', `$${totalCost.toFixed(2)}`, 'bold', null],
+      ['', '', 'normal', null],
+      ['Gross Profit', `$${profit.toFixed(2)}`, 'bold', profit >= 0 ? [16,185,129] : [220,38,38]],
+      ['Profit Margin', `${marginPct.toFixed(1)}%`, 'normal', null],
+      ['Markup', `${markupPct.toFixed(1)}%`, 'normal', null],
+      ['', '', 'normal', null],
+      ['Amount Billed', `$${billedAmount.toFixed(2)}`, 'normal', null],
+      ['Remaining to Bill', `$${remainingToBill.toFixed(2)}`, 'normal', null],
+      ['% Complete', `${percentComplete}%`, 'normal', null],
+    ];
+    rows.forEach(([label, value, weight, color]) => {
+      if (!label) { y += 4; return; }
+      doc.setFont('helvetica', weight);
+      doc.setFontSize(11);
+      doc.setTextColor(...(color || [50,50,50]));
+      doc.text(label, margin, y);
+      doc.text(value, pageWidth-margin, y, {align:'right'});
+      y += 8;
+    });
+
+    doc.save(`${safeName}_Cost_vs_Price.pdf`);
+  }
+
+  function generateLaborReport() {
+    const doc = new jsPDF('l', 'mm', 'letter');
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 20;
+    let y = margin;
+    const safeName = project.name.replace(/[^a-zA-Z0-9]/g, '_');
+
+    doc.setFillColor(11,62,168); doc.rect(0,0,pageWidth,28,'F');
+    doc.setTextColor(249,115,22); doc.setFontSize(16); doc.setFont('helvetica','bold');
+    doc.text('DML ELECTRICAL SERVICE LLC', margin, 12);
+    doc.setTextColor(255,255,255); doc.setFontSize(10); doc.setFont('helvetica','normal');
+    doc.text('Labor Report', margin, 20);
+
+    y = 38;
+    doc.setTextColor(11,62,168); doc.setFontSize(14); doc.setFont('helvetica','bold');
+    doc.text(project.name, margin, y); y += 8;
+    doc.setTextColor(80,80,80); doc.setFontSize(10); doc.setFont('helvetica','normal');
+    doc.text(`Generated: ${new Date().toLocaleDateString()}  |  Total Hours: ${laborHours.toFixed(2)} hrs  |  Total Cost: $${laborCost.toFixed(2)}`, margin, y); y += 14;
+
+    const colX = [margin, margin+55, margin+100, margin+130, margin+160, margin+185, margin+220];
+    const cols = ['Employee','Date','Clock In','Clock Out','Hours','Rate','Cost'];
+    doc.setFillColor(11,62,168); doc.rect(margin, y-5, pageWidth-margin*2, 10, 'F');
+    doc.setTextColor(255,255,255); doc.setFontSize(10); doc.setFont('helvetica','bold');
+    cols.forEach((c, i) => doc.text(c, colX[i]+1, y+1)); y += 10;
+    doc.setFont('helvetica','normal'); doc.setFontSize(9);
+
+    timeEntries.forEach((entry, idx) => {
+      if (!entry.clock_out) return;
+      if (y > pageHeight - margin - 10) { doc.addPage(); y = margin; }
+      const ci = new Date(entry.clock_in), co = new Date(entry.clock_out);
+      let hrs = (co-ci)/(1000*60*60); if (entry.is_lunch) hrs = Math.max(0,hrs-0.5);
+      const empRate = entry.employees?.hourly_rate;
+      const costRate = empRate > 0 ? empRate*1.4 : (project.labor_rate||50);
+      const cost = hrs * costRate;
+      const empName = entry.employees ? `${entry.employees.first_name} ${entry.employees.last_name}` : 'Unknown';
+      if (idx%2===0) { doc.setFillColor(248,250,252); doc.rect(margin,y-5,pageWidth-margin*2,8,'F'); }
+      doc.setTextColor(50,50,50);
+      const vals = [empName, ci.toLocaleDateString(),
+        ci.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),
+        co.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),
+        hrs.toFixed(2), `$${costRate.toFixed(0)}/hr`, `$${cost.toFixed(2)}`];
+      vals.forEach((v,i) => doc.text(String(v), colX[i]+1, y)); y += 8;
+    });
+
+    y += 4;
+    doc.setFillColor(252,107,4); doc.rect(margin,y-5,pageWidth-margin*2,10,'F');
+    doc.setTextColor(255,255,255); doc.setFontSize(11); doc.setFont('helvetica','bold');
+    doc.text(`TOTAL: ${laborHours.toFixed(2)} hrs`, margin+1, y+1);
+    doc.text(`$${laborCost.toFixed(2)}`, pageWidth-margin-2, y+1, {align:'right'});
+    doc.save(`${safeName}_Labor_Report.pdf`);
+  }
+
+  function generateMaterialReport() {
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 20;
+    let y = margin;
+    const safeName = project.name.replace(/[^a-zA-Z0-9]/g, '_');
+
+    doc.setFillColor(11,62,168); doc.rect(0,0,pageWidth,28,'F');
+    doc.setTextColor(249,115,22); doc.setFontSize(16); doc.setFont('helvetica','bold');
+    doc.text('DML ELECTRICAL SERVICE LLC', margin, 12);
+    doc.setTextColor(255,255,255); doc.setFontSize(10); doc.setFont('helvetica','normal');
+    doc.text('Material & Expense Report', margin, 20);
+
+    y = 38;
+    doc.setTextColor(11,62,168); doc.setFontSize(14); doc.setFont('helvetica','bold');
+    doc.text(project.name, margin, y); y += 8;
+    doc.setTextColor(80,80,80); doc.setFontSize(10); doc.setFont('helvetica','normal');
+    doc.text(`Generated: ${new Date().toLocaleDateString()}  |  Total: $${expensesCost.toFixed(2)}  |  ${projectExpenses.length} item(s)`, margin, y); y += 14;
+
+    if (projectExpenses.length === 0) {
+      doc.setTextColor(150,150,150); doc.text('No expenses recorded for this project.', margin, y);
+    } else {
+      doc.setFillColor(11,62,168); doc.rect(margin,y-5,pageWidth-margin*2,10,'F');
+      doc.setTextColor(255,255,255); doc.setFontSize(10); doc.setFont('helvetica','bold');
+      doc.text('Date', margin+1, y+1);
+      doc.text('Description', margin+28, y+1);
+      doc.text('Vendor', margin+110, y+1);
+      doc.text('Amount', pageWidth-margin-2, y+1, {align:'right'}); y += 10;
+      doc.setFont('helvetica','normal'); doc.setFontSize(10);
+
+      projectExpenses.forEach((exp, idx) => {
+        if (y > pageHeight-margin-10) { doc.addPage(); y = margin; }
+        if (idx%2===0) { doc.setFillColor(248,250,252); doc.rect(margin,y-5,pageWidth-margin*2,8,'F'); }
+        doc.setTextColor(50,50,50);
+        doc.text(exp.expense_date||'', margin+1, y);
+        doc.text(doc.splitTextToSize(exp.description||'',78)[0], margin+28, y);
+        doc.text(doc.splitTextToSize(exp.vendor||'—',50)[0], margin+110, y);
+        doc.text(`$${(exp.amount||0).toFixed(2)}`, pageWidth-margin-2, y, {align:'right'}); y += 8;
+      });
+
+      y += 4;
+      doc.setFillColor(252,107,4); doc.rect(margin,y-5,pageWidth-margin*2,10,'F');
+      doc.setTextColor(255,255,255); doc.setFontSize(11); doc.setFont('helvetica','bold');
+      doc.text(`${projectExpenses.length} items`, margin+1, y+1);
+      doc.text(`TOTAL: $${expensesCost.toFixed(2)}`, pageWidth-margin-2, y+1, {align:'right'});
+    }
+    doc.save(`${safeName}_Material_Report.pdf`);
+  }
 
   return (
     <div style={styles.container}>
@@ -1065,7 +1525,8 @@ async function handleAddContractor() {
                 end_date: project.end_date || '',
                 labor_rate: project.labor_rate || 50,
                 percent_complete: project.percent_complete || 0,
-                project_type: project.project_type || 'commercial-public'
+                project_type: project.project_type || 'commercial-public',
+                sq_ft: project.sq_ft || '',
               });
               setShowEditProjectModal(true);
             }}
@@ -1073,29 +1534,42 @@ async function handleAddContractor() {
           >
             ✏️ Edit Project
           </button>
-          <button 
-            onClick={() => navigate(`/project/${id}/plans`)} 
-            style={{...styles.backButton, background: '#8b5cf6', color: '#fff', border: 'none'}}
-          >
-            📐 Plans & Takeoffs
-          </button>
-          <button onClick={() => navigate(`/project/${id}/estimate`)} style={{...styles.backButton, background: BRAND.accent, color: '#fff', border: 'none'}}>
-            Bid Project
-          </button>
+          {!["residential-contractor", "commercial-private", "residential-owner"].includes(project.project_type) && (
+            <button 
+              onClick={() => navigate(`/project/${id}/plans`)} 
+              style={{...styles.backButton, background: '#8b5cf6', color: '#fff', border: 'none'}}
+            >
+              📐 Plans & Takeoffs
+            </button>
+          )}
+          {!["residential-contractor", "commercial-private", "residential-owner"].includes(project.project_type) && (
+            <button onClick={() => navigate(`/project/${id}/estimate`)} style={{...styles.backButton, background: BRAND.accent, color: '#fff', border: 'none'}}>
+              Bid Project
+            </button>
+          )}
           <button onClick={() => navigate(`/project/${id}/geofence`)} style={{...styles.backButton, background: '#10b981', color: '#fff', border: 'none'}}>
             📍 Geofence
           </button>
           <button onClick={() => navigate(`/geofence-events?projectId=${id}`)} style={{...styles.backButton, background: '#059669', color: '#fff', border: 'none'}}>
             🔔 Geofence Events
           </button>
-          <button onClick={() => navigate(`/project/${id}/reports-photos`)} style={{...styles.backButton, background: '#6366f1', color: '#fff', border: 'none'}}>
-            📸 Reports & Photos
-          </button>
-          <button onClick={() => navigate(`/project/${id}/material-list`)} style={{...styles.backButton, background: '#f59e0b', color: '#fff', border: 'none'}}>
-            📋 Material Lists
-          </button>
-          <button onClick={() => navigate(`/project/${id}/info-sheet`)} style={{...styles.backButton, background: '#8b5cf6', color: '#fff', border: 'none'}}>
-            📄 Project Info Sheet
+          {!["residential-contractor", "commercial-private", "residential-owner"].includes(project.project_type) && (
+            <button onClick={() => navigate(`/project/${id}/reports-photos`)} style={{...styles.backButton, background: '#6366f1', color: '#fff', border: 'none'}}>
+              📸 Reports & Photos
+            </button>
+          )}
+          {!["residential-contractor", "commercial-private", "residential-owner"].includes(project.project_type) && (
+            <button onClick={() => navigate(`/project/${id}/material-list`)} style={{...styles.backButton, background: '#f59e0b', color: '#fff', border: 'none'}}>
+              📋 Material Lists
+            </button>
+          )}
+          {!["residential-contractor", "commercial-private", "residential-owner"].includes(project.project_type) && (
+            <button onClick={() => navigate(`/project/${id}/info-sheet`)} style={{...styles.backButton, background: '#8b5cf6', color: '#fff', border: 'none'}}>
+              📄 Project Info Sheet
+            </button>
+          )}
+          <button onClick={() => setShowReportsModal(true)} style={{...styles.backButton, background: '#f97316', color: '#fff', border: 'none'}}>
+            📊 Reports
           </button>
           <button onClick={() => navigate("/projects")} style={styles.backButton}>
             ← Back to Projects
@@ -1105,7 +1579,7 @@ async function handleAddContractor() {
 
       <div style={styles.grid}>
         {/* Progress & Billing Card */}
-        <div style={styles.card}>
+        <div style={{...styles.card, order: -2}}>
           <h2 style={styles.cardTitle}>Progress & Billing</h2>
           
           <div style={styles.progressSection}>
@@ -1128,12 +1602,50 @@ async function handleAddContractor() {
 
           <div style={styles.row}>
             <span style={styles.label}>Active Worth (Contract Value)</span>
-            <span style={styles.value}>${(project.active_worth || 0).toFixed(2)}</span>
+            {editingActiveWorth ? (
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={activeWorthInput}
+                  onChange={e => setActiveWorthInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") saveBudgetField("active_worth", activeWorthInput); if (e.key === "Escape") setEditingActiveWorth(false); }}
+                  autoFocus
+                  style={{ width: 110, padding: "3px 6px", border: "2px solid #0b3ea8", borderRadius: 6, fontSize: 14, fontWeight: 700 }}
+                />
+                <button onClick={() => saveBudgetField("active_worth", activeWorthInput)} disabled={savingBudget} style={{ padding: "3px 8px", background: "#10b981", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>✓</button>
+                <button onClick={() => setEditingActiveWorth(false)} style={{ padding: "3px 6px", background: "#e5e7eb", color: "#374151", border: "none", borderRadius: 5, cursor: "pointer", fontSize: 12 }}>✕</button>
+              </span>
+            ) : (
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={styles.value}>${(project.active_worth || 0).toFixed(2)}</span>
+                <button onClick={() => { setActiveWorthInput((project.active_worth || 0).toFixed(2)); setEditingActiveWorth(true); }} title="Edit contract value" style={{ padding: "2px 6px", background: "none", border: "1px solid #d1d5db", borderRadius: 4, cursor: "pointer", fontSize: 11, color: "#6b7280" }}>✏️</button>
+              </span>
+            )}
           </div>
 
           <div style={styles.row}>
             <span style={styles.label}>Project Budget (Cost)</span>
-            <span style={styles.value}>${budget.toFixed(2)}</span>
+            {editingBudget ? (
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={budgetInput}
+                  onChange={e => setBudgetInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") saveBudgetField("budget", budgetInput); if (e.key === "Escape") setEditingBudget(false); }}
+                  autoFocus
+                  style={{ width: 110, padding: "3px 6px", border: "2px solid #0b3ea8", borderRadius: 6, fontSize: 14, fontWeight: 700 }}
+                />
+                <button onClick={() => saveBudgetField("budget", budgetInput)} disabled={savingBudget} style={{ padding: "3px 8px", background: "#10b981", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>✓</button>
+                <button onClick={() => setEditingBudget(false)} style={{ padding: "3px 6px", background: "#e5e7eb", color: "#374151", border: "none", borderRadius: 5, cursor: "pointer", fontSize: 12 }}>✕</button>
+              </span>
+            ) : (
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={styles.value}>${budget.toFixed(2)}</span>
+                <button onClick={() => { setBudgetInput(budget.toFixed(2)); setEditingBudget(true); }} title="Edit budget" style={{ padding: "2px 6px", background: "none", border: "1px solid #d1d5db", borderRadius: 4, cursor: "pointer", fontSize: 11, color: "#6b7280" }}>✏️</button>
+              </span>
+            )}
           </div>
 
           <div style={styles.row}>
@@ -1154,10 +1666,56 @@ async function handleAddContractor() {
               ${remainingToBill.toFixed(2)}
             </span>
           </div>
+
+          <div style={styles.divider} />
+
+          {/* Payment Progress */}
+          <div style={styles.progressSection}>
+            {(() => {
+              const totalAmountPaid = invoices.reduce((sum, inv) => sum + (inv.amount_paid || 0) + (inv.deposit_received || 0), 0);
+              const aw = project.active_worth || 0;
+              const materialCredits = invoiceAllocatedMaterials; // only actual material credits from progress billing
+              const paidPct = aw > 0 ? Math.min((totalAmountPaid / aw) * 100, 100) : 0;
+              const creditsPct = aw > 0 ? Math.min((materialCredits / aw) * 100, 100 - paidPct) : 0;
+              return (
+                <>
+                  <div style={styles.progressHeader}>
+                    <span style={styles.label}>Payment Collected</span>
+                    <span style={styles.value}>
+                      ${totalAmountPaid.toFixed(2)} / ${aw.toFixed(2)}
+                    </span>
+                  </div>
+                  <div style={{...styles.progressBar, display: 'flex', overflow: 'hidden'}}>
+                    {paidPct > 0 && (
+                      <div style={{width: `${paidPct}%`, height: '100%', backgroundColor: '#10b981', transition: 'width 0.3s ease'}} />
+                    )}
+                    {creditsPct > 0 && (
+                      <div style={{width: `${creditsPct}%`, height: '100%', backgroundColor: '#8b5cf6', transition: 'width 0.3s ease'}} />
+                    )}
+                  </div>
+                  <div style={{display: 'flex', gap: 16, marginTop: 6, flexWrap: 'wrap'}}>
+                    <div style={{display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#555'}}>
+                      <span style={{width: 12, height: 12, borderRadius: 2, backgroundColor: '#10b981', display: 'inline-block'}} />
+                      Cash Collected: ${totalAmountPaid.toFixed(2)}
+                    </div>
+                    {materialCredits > 0 && (
+                      <div style={{display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#555'}}>
+                        <span style={{width: 12, height: 12, borderRadius: 2, backgroundColor: '#8b5cf6', display: 'inline-block'}} />
+                        Material Credits: ${materialCredits.toFixed(2)}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{fontSize: 12, color: '#666', marginTop: 6}}>
+                    Remaining to Bill: <strong>${Math.max(0, aw - billedAmount).toFixed(2)}</strong>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
         </div>
 
         {/* Cost Tracking Card */}
-        <div style={styles.card}>
+        <div style={{...styles.card, order: -1}}>
           <h2 style={styles.cardTitle}>Cost Tracking</h2>
           
           <div style={styles.row}>
@@ -1166,14 +1724,28 @@ async function handleAddContractor() {
           </div>
 
           <div style={styles.row}>
-            <span style={styles.label}>Labor Cost (@${laborRate}/hr)</span>
+            <span style={styles.label}>Labor Cost (burdened @ 1.4×)</span>
             <span style={styles.value}>${laborCost.toFixed(2)}</span>
+          </div>
+          <div style={{...styles.row, paddingLeft: 12, opacity: 0.8}}>
+            <span style={{...styles.label, fontSize: 13}}>Avg effective rate</span>
+            <span style={{...styles.value, fontSize: 13}}>${laborRate.toFixed(2)}/hr</span>
           </div>
 
           <div style={styles.row}>
             <span style={styles.label}>Materials & Expenses</span>
-            <span style={styles.value}>${materialCost.toFixed(2)}</span>
+            <span style={styles.value}>${expensesCost.toFixed(2)}</span>
           </div>
+          {invoiceAllocatedMaterials > 0 && (
+            <div style={{...styles.row, paddingLeft: 12, opacity: 0.85}}>
+              <span style={{...styles.label, fontSize: 13}}>
+                📋 Materials via Invoice Credits
+              </span>
+              <span style={{...styles.value, fontSize: 14, color: '#f97316'}}>
+                +${invoiceAllocatedMaterials.toFixed(2)}
+              </span>
+            </div>
+          )}
 
           <div style={styles.divider} />
 
@@ -1210,10 +1782,45 @@ async function handleAddContractor() {
               ${remaining.toFixed(2)}
             </span>
           </div>
+
+          {/* $/sq ft calculations */}
+          {project.sq_ft && (project.active_worth > 0 || totalCost > 0) && (
+            <>
+              <div style={styles.divider} />
+              {project.active_worth > 0 && (
+                <>
+                  <div style={styles.row}>
+                    <span style={styles.label}>Contract $/total sq ft</span>
+                    <span style={styles.value}>${(project.active_worth / project.sq_ft).toFixed(2)}</span>
+                  </div>
+                  {project.sq_ft_living && (
+                    <div style={styles.row}>
+                      <span style={styles.label}>Contract $/living sq ft</span>
+                      <span style={styles.value}>${(project.active_worth / project.sq_ft_living).toFixed(2)}</span>
+                    </div>
+                  )}
+                </>
+              )}
+              {totalCost > 0 && (
+                <>
+                  <div style={styles.row}>
+                    <span style={styles.label}>Cost $/total sq ft</span>
+                    <span style={styles.value}>${(totalCost / project.sq_ft).toFixed(2)}</span>
+                  </div>
+                  {project.sq_ft_living && (
+                    <div style={styles.row}>
+                      <span style={styles.label}>Cost $/living sq ft</span>
+                      <span style={styles.value}>${(totalCost / project.sq_ft_living).toFixed(2)}</span>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
         </div>
 
         {/* Project Info Card */}
-        <div style={styles.card}>
+        <div style={{...styles.card, order: -3}}>
           <h2 style={styles.cardTitle}>Project Details</h2>
           
           <div style={styles.row}>
@@ -1289,11 +1896,24 @@ async function handleAddContractor() {
               <option value="pending">Pending Bid Sent</option>
               <option value="approved">Bid Approved</option>
               <option value="active">Active</option>
+              <option value="completed">Complete</option>
+              <option value="bid_lost">Bid Lost</option>
               <option value="canceled">Canceled</option>
               <option value="postponed">Postponed</option>
-              <option value="completed">Complete</option>
             </select>
           </div>
+
+          {project.project_type && (() => {
+            const pt = PROJECT_TYPES.find(t => t.value === project.project_type);
+            return pt ? (
+              <div style={styles.row}>
+                <span style={styles.label}>Project Type</span>
+                <span style={{fontSize: 14, fontWeight: '700', color: pt.color, backgroundColor: pt.color + '18', borderRadius: 6, padding: '4px 10px'}}>
+                  {pt.icon} {pt.label}
+                </span>
+              </div>
+            ) : null;
+          })()}
 
           {project.start_date && (
             <div style={styles.row}>
@@ -1313,30 +1933,47 @@ async function handleAddContractor() {
             </div>
           )}
 
-          <div style={styles.divider} />
-
-          {/* Payment Progress */}
-          <div style={styles.progressSection}>
-            <div style={styles.progressHeader}>
-              <span style={styles.label}>Payment Collected</span>
-              <span style={styles.value}>
-                ${invoices.reduce((sum, inv) => sum + (inv.amount_paid || 0), 0).toFixed(2)} / 
-                ${(project.active_worth || 0).toFixed(2)}
-              </span>
-            </div>
-            <div style={styles.progressBar}>
-              <div
-                style={{
-                  ...styles.progressFill,
-                  width: `${project.active_worth > 0 ? (invoices.reduce((sum, inv) => sum + (inv.amount_paid || 0), 0) / project.active_worth * 100) : 0}%`,
-                  backgroundColor: "#10b981",
-                }}
-              />
-            </div>
-            <div style={{fontSize: 12, color: '#666', marginTop: 4}}>
-              Remaining: ${((project.active_worth || 0) - invoices.reduce((sum, inv) => sum + (inv.amount_paid || 0), 0)).toFixed(2)}
-            </div>
-          </div>
+          {(project.sq_ft || project.sq_ft_living) && (
+            <>
+              <div style={styles.divider} />
+              {/* Living Sq Ft row */}
+              <div style={styles.row}>
+                <span style={styles.label}>🏠 Living Sq Ft</span>
+                {editingSqFtLiving ? (
+                  <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <input type="number" step="1" value={sqFtLivingInput} onChange={e => setSqFtLivingInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") saveSqFtField("sq_ft_living", sqFtLivingInput); if (e.key === "Escape") setEditingSqFtLiving(false); }}
+                      autoFocus style={{ width: 90, padding: "3px 6px", border: "2px solid #0b3ea8", borderRadius: 6, fontSize: 14, fontWeight: 700 }} />
+                    <button onClick={() => saveSqFtField("sq_ft_living", sqFtLivingInput)} disabled={savingBudget} style={{ padding: "3px 8px", background: "#10b981", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>✓</button>
+                    <button onClick={() => setEditingSqFtLiving(false)} style={{ padding: "3px 6px", background: "#e5e7eb", color: "#374151", border: "none", borderRadius: 5, cursor: "pointer", fontSize: 12 }}>✕</button>
+                  </span>
+                ) : (
+                  <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={styles.value}>{project.sq_ft_living ? Number(project.sq_ft_living).toLocaleString() + " sq ft" : "—"}</span>
+                    <button onClick={() => { setSqFtLivingInput((project.sq_ft_living || '').toString()); setEditingSqFtLiving(true); }} title="Edit living sq ft" style={{ padding: "2px 6px", background: "none", border: "1px solid #d1d5db", borderRadius: 4, cursor: "pointer", fontSize: 11, color: "#6b7280" }}>✏️</button>
+                  </span>
+                )}
+              </div>
+              {/* Total Sq Ft row */}
+              <div style={styles.row}>
+                <span style={styles.label}>📐 Total Sq Ft</span>
+                {editingSqFt ? (
+                  <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <input type="number" step="1" value={sqFtInput} onChange={e => setSqFtInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") saveSqFtField("sq_ft", sqFtInput); if (e.key === "Escape") setEditingSqFt(false); }}
+                      autoFocus style={{ width: 90, padding: "3px 6px", border: "2px solid #0b3ea8", borderRadius: 6, fontSize: 14, fontWeight: 700 }} />
+                    <button onClick={() => saveSqFtField("sq_ft", sqFtInput)} disabled={savingBudget} style={{ padding: "3px 8px", background: "#10b981", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>✓</button>
+                    <button onClick={() => setEditingSqFt(false)} style={{ padding: "3px 6px", background: "#e5e7eb", color: "#374151", border: "none", borderRadius: 5, cursor: "pointer", fontSize: 12 }}>✕</button>
+                  </span>
+                ) : (
+                  <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={styles.value}>{project.sq_ft ? Number(project.sq_ft).toLocaleString() + " sq ft" : "—"}</span>
+                    <button onClick={() => { setSqFtInput((project.sq_ft || '').toString()); setEditingSqFt(true); }} title="Edit total sq ft" style={{ padding: "2px 6px", background: "none", border: "1px solid #d1d5db", borderRadius: 4, cursor: "pointer", fontSize: 11, color: "#6b7280" }}>✏️</button>
+                  </span>
+                )}
+              </div>
+            </>
+          )}
 
           {project.description && (
             <>
@@ -1349,8 +1986,34 @@ async function handleAddContractor() {
           )}
         </div>
 
-        {/* Contractors Card */}
-        <div style={styles.card}>
+        {/* Quick Actions Toolbar — full width, horizontal */}
+        <div style={{...styles.card, gridColumn: '1 / -1', padding: '16px 24px', order: 0}}>
+          <div style={{display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap'}}>
+            <span style={{fontSize: 14, fontWeight: '700', color: '#555', marginRight: 4, whiteSpace: 'nowrap'}}>⚡ Quick Actions:</span>
+
+            {["residential-contractor", "commercial-private", "residential-owner"].includes(project.project_type) && (<>
+              <button onClick={() => navigate(`/project/${id}/reports-photos`)} style={qaBtn('#3b82f6')}>📸 Reports & Photos</button>
+              <button onClick={() => navigate(`/project/${id}/material-list`)} style={qaBtn('#f97316')}>📋 Material Lists</button>
+              <button onClick={() => navigate(`/project/${id}/info-sheet`)} style={qaBtn('#8b5cf6')}>📄 Info Sheet</button>
+            </>)}
+
+            {!["residential-contractor", "commercial-private", "residential-owner"].includes(project.project_type) && (<>
+              <button onClick={() => navigate(`/project/${id}/plans`)} style={qaBtn('#8b5cf6')}>📐 Plans & Takeoffs</button>
+              <button onClick={() => navigate(`/project/${id}/reports-photos`)} style={qaBtn('#6366f1')}>📸 Reports & Photos</button>
+              <button onClick={() => navigate(`/project/${id}/material-list`)} style={qaBtn('#f59e0b')}>📋 Material Lists</button>
+              <button onClick={() => navigate(`/project/${id}/info-sheet`)} style={qaBtn('#8b5cf6')}>📄 Info Sheet</button>
+            </>)}
+
+            <div style={{width: 1, height: 32, backgroundColor: '#e5e7eb', margin: '0 4px'}} />
+
+            <button onClick={() => setShowChangeOrderModal(true)} style={qaBtn('#f97316')}>🔄 Add Change Order</button>
+            <button onClick={() => setShowAddDepositModal(true)} style={qaBtn('#10b981')}>💰 Add Deposit</button>
+          </div>
+        </div>
+
+        {/* Contractors Card - hidden for residential-contractor type */}
+        {!["residential-contractor", "commercial-private", "residential-owner"].includes(project.project_type) && (
+        <div style={{...styles.card, order: 1}}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
             <h2 style={{ ...styles.cardTitle, marginBottom: 0 }}>Proposal Contractors</h2>
             <button 
@@ -1408,138 +2071,162 @@ async function handleAddContractor() {
             </div>
           )}
         </div>
+        )}
 
-        {/* Time Entries Card */}
-        <div style={styles.card}>
-          <h2 style={styles.cardTitle}>Recent Time Entries ({timeEntries.length})</h2>
-          
+        {/* Time Entries Card — full-width table */}
+        <div style={{...styles.card, gridColumn: '1 / -1', order: 6}}>
+          <div
+            onClick={() => timeEntries.length > 0 && setTimeEntriesExpanded(e => !e)}
+            style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 20, cursor: timeEntries.length > 0 ? 'pointer' : 'default', userSelect:'none'}}
+            title={timeEntries.length > 0 ? (timeEntriesExpanded ? 'Collapse list' : 'Expand to see all entries') : ''}
+          >
+            <h2 style={{...styles.cardTitle, marginBottom: 0}}>
+              Time Entries
+              <span style={{marginLeft: 10, fontSize: 14, fontWeight: '500', color: '#666'}}>
+                ({timeEntries.length} entries · {laborHours.toFixed(2)} hrs · ${laborCost.toFixed(2)})
+              </span>
+            </h2>
+            {timeEntries.length > 0 && (
+              <span style={{fontSize: 18, color: '#9ca3af', marginLeft: 12, transition: 'transform 0.2s', display:'inline-block', transform: timeEntriesExpanded ? 'rotate(180deg)' : 'rotate(0deg)'}}>▼</span>
+            )}
+          </div>
+
           {timeEntries.length === 0 ? (
-            <p style={styles.emptyText}>No time entries yet</p>
+            <p style={styles.emptyText}>No time entries yet for this project.</p>
           ) : (
-            <div style={styles.table}>
-              <div style={styles.tableHeader}>
-                <div style={styles.th}>Employee</div>
-                <div style={styles.th}>Date</div>
-                <div style={styles.th}>Clock In</div>
-                <div style={styles.th}>Clock Out</div>
-                <div style={styles.th}>Hours</div>
-              </div>
-              <div style={{maxHeight: 280, overflowY: 'auto'}}>
-              {timeEntries.map((entry) => {
-                const clockIn = new Date(entry.clock_in);
-                const clockOut = entry.clock_out ? new Date(entry.clock_out) : null;
-                let rawHours = clockOut
-                  ? (clockOut.getTime() - clockIn.getTime()) / (1000 * 60 * 60)
-                  : 0;
-                if (entry.is_lunch && rawHours > 0) rawHours = Math.max(0, rawHours - 0.5);
-                const hours = clockOut ? rawHours.toFixed(2) : "In Progress";
-
-                return (
-                  <div key={entry.id} style={styles.tableRow}>
-                    <div style={styles.td}>
-                      {entry.employees 
-                        ? `${entry.employees.first_name} ${entry.employees.last_name}` 
-                        : "Unknown"}
-                    </div>
-                    <div style={styles.td}>{clockIn.toLocaleDateString()}</div>
-                    <div style={styles.td}>
-                      {clockIn.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                    </div>
-                    <div style={styles.td}>
-                      {clockOut
-                        ? clockOut.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-                        : "—"}
-                    </div>
-                    <div style={styles.td}>{hours}</div>
-                  </div>
-                );
-              })}
-              </div>
+            <div style={{overflowX: 'auto', maxHeight: timeEntriesExpanded ? 'none' : 210, overflowY: timeEntriesExpanded ? 'visible' : 'auto', border: '1px solid #e5e7eb', borderRadius: 8}}>
+              <table style={{width:'100%', borderCollapse:'collapse', fontSize: 14}}>
+                <thead>
+                  <tr style={{backgroundColor:'#f3f4f6', position:'sticky', top:0, zIndex:1}}>
+                    {['Employee','Date','Day','Clock In','Clock Out','Hrs','Lunch','Rate (burdened)','Cost'].map(h => (
+                      <th key={h} style={{padding:'10px 12px', textAlign:'left', fontSize:12, fontWeight:'700', color:'#555', textTransform:'uppercase', borderBottom:'2px solid #e5e7eb', whiteSpace:'nowrap', backgroundColor:'#f3f4f6'}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {timeEntries.map((entry, idx) => {
+                    const ci = new Date(entry.clock_in);
+                    const co = entry.clock_out ? new Date(entry.clock_out) : null;
+                    let hrs = co ? (co - ci) / (1000*60*60) : 0;
+                    if (entry.is_lunch && hrs > 0) hrs = Math.max(0, hrs - 0.5);
+                    const empRate = entry.employees?.hourly_rate;
+                    const costRate = empRate > 0 ? empRate * 1.4 : fallbackRate;
+                    const cost = hrs * costRate;
+                    const empName = entry.employees ? `${entry.employees.first_name} ${entry.employees.last_name}` : 'Unknown';
+                    const dayName = ci.toLocaleDateString([], {weekday:'short'});
+                    const rowBg = idx % 2 === 0 ? '#fff' : '#f9fafb';
+                    return (
+                      <tr key={entry.id} style={{backgroundColor: rowBg, borderBottom:'1px solid #e5e7eb'}}>
+                        <td style={{padding:'10px 12px', fontWeight:'600', color:'#111'}}>{empName}</td>
+                        <td style={{padding:'10px 12px', color:'#444'}}>{ci.toLocaleDateString()}</td>
+                        <td style={{padding:'10px 12px', color:'#666'}}>{dayName}</td>
+                        <td style={{padding:'10px 12px', color:'#444'}}>{ci.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</td>
+                        <td style={{padding:'10px 12px', color:'#444'}}>{co ? co.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : <span style={{color:'#f59e0b',fontWeight:'600'}}>In Progress</span>}</td>
+                        <td style={{padding:'10px 12px', fontWeight:'700', color: co ? '#111' : '#999'}}>{co ? hrs.toFixed(2) : '—'}</td>
+                        <td style={{padding:'10px 12px', textAlign:'center'}}>{entry.is_lunch ? <span style={{color:'#10b981',fontWeight:'700'}}>-0.5h</span> : <span style={{color:'#d1d5db'}}>—</span>}</td>
+                        <td style={{padding:'10px 12px', color:'#666'}}>${costRate.toFixed(2)}/hr{empRate > 0 ? '' : <span style={{fontSize:11, color:'#f59e0b'}}> (default)</span>}</td>
+                        <td style={{padding:'10px 12px', fontWeight:'700', color: BRAND.accent}}>{co ? `$${cost.toFixed(2)}` : '—'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr style={{backgroundColor:'#0b3ea8'}}>
+                    <td colSpan={5} style={{padding:'12px', color:'#fff', fontWeight:'700', fontSize:14}}>TOTALS</td>
+                    <td style={{padding:'12px', color:'#fff', fontWeight:'700', fontSize:14}}>{laborHours.toFixed(2)} hrs</td>
+                    <td style={{padding:'12px'}}></td>
+                    <td style={{padding:'12px', color:'#fff', fontSize:13}}>avg ${laborRate.toFixed(2)}/hr</td>
+                    <td style={{padding:'12px', color:'#f97316', fontWeight:'700', fontSize:15}}>${laborCost.toFixed(2)}</td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
           )}
         </div>
 
-        {/* Materials & Expenses Card */}
-        <div style={styles.card}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-            <h2 style={{ ...styles.cardTitle, marginBottom: 0 }}>Materials & Expenses</h2>
-            <button 
-              onClick={handleAddExpense} 
-              style={styles.addEstimateButton}
+        {/* Materials & Expenses Card — full-width table */}
+        <div style={{...styles.card, gridColumn: '1 / -1', order: 7}}>
+          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 20}}>
+            <h2
+              onClick={() => projectExpenses.length > 0 && setExpensesExpanded(e => !e)}
+              style={{...styles.cardTitle, marginBottom: 0, cursor: projectExpenses.length > 0 ? 'pointer' : 'default', userSelect:'none', display:'flex', alignItems:'center', gap: 8}}
+              title={projectExpenses.length > 0 ? (expensesExpanded ? 'Collapse list' : 'Expand to see all expenses') : ''}
             >
-              + Add Expense
-            </button>
-          </div>
-          
-          {/* Total Display */}
-          {projectExpenses.length > 0 && (
-            <div style={{marginBottom: 16, padding: 12, backgroundColor: '#f0f9ff', borderRadius: 6}}>
-              <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                <span style={{fontSize: 14, color: '#666'}}>Total Expenses:</span>
-                <span style={{fontSize: 18, fontWeight: 'bold', color: BRAND.accent}}>
-                  ${projectExpenses.reduce((sum, exp) => sum + (exp.amount || 0), 0).toFixed(2)}
+              Materials & Expenses
+              {projectExpenses.length > 0 && (
+                <span style={{fontSize: 14, fontWeight: '500', color: '#666'}}>
+                  ({projectExpenses.length} items · ${expensesCost.toFixed(2)})
                 </span>
-              </div>
-            </div>
-          )}
-          
+              )}
+              {projectExpenses.length > 0 && (
+                <span style={{fontSize: 16, color: '#9ca3af', transition: 'transform 0.2s', display:'inline-block', transform: expensesExpanded ? 'rotate(180deg)' : 'rotate(0deg)'}}>▼</span>
+              )}
+            </h2>
+            <button onClick={handleAddExpense} style={styles.addEstimateButton}>+ Add Expense</button>
+          </div>
+
           {projectExpenses.length === 0 ? (
             <p style={styles.emptyText}>No expenses yet. Click "+ Add Expense" to track materials and costs!</p>
           ) : (
-            <div style={{...styles.contractorCompactList, maxHeight: 300, overflowY: 'auto'}}>
-              {projectExpenses.map((expense) => (
-                <div key={expense.id} style={styles.expenseRow}>
-                  <div style={{flex: 1}}>
-                    <div style={{fontSize: 14, fontWeight: '500', color: '#111'}}>{expense.description}</div>
-                    <div style={{fontSize: 12, color: '#666'}}>
-                      {formatDate(expense.expense_date)} • {expense.vendor || 'No vendor'}
-                    </div>
-                  </div>
-                  <div style={{display: 'flex', alignItems: 'center', gap: 12}}>
-                    <span style={{fontSize: 14, fontWeight: '600', color: '#111'}}>
-                      ${(expense.amount || 0).toFixed(2)}
-                    </span>
-                    <button
-                      onClick={async () => {
-                        if (confirm(`Delete expense ${expense.description}?`)) {
-                          try {
-                            // Try deleting from project_expenses first
-                            let { error } = await supabase
-                              .from("project_expenses")
-                              .delete()
-                              .eq("id", expense.id);
-                            
-                            // If not found there, try expenses table
-                            if (error || !error) {
-                              const { error: error2 } = await supabase
-                                .from("expenses")
-                                .delete()
-                                .eq("id", expense.id);
-                              
-                              if (error2 && error) {
-                                throw error2;
+            <div style={{overflowX: 'auto', maxHeight: expensesExpanded ? 'none' : 172, overflowY: expensesExpanded ? 'visible' : 'auto', border: '1px solid #e5e7eb', borderRadius: 8}}>
+              <table style={{width:'100%', borderCollapse:'collapse', fontSize: 14}}>
+                <thead>
+                  <tr style={{backgroundColor:'#f3f4f6', position:'sticky', top:0, zIndex:1}}>
+                    {['Date','Description','Vendor','Category','Amount',''].map((h,i) => (
+                      <th key={i} style={{padding:'10px 12px', textAlign: h === 'Amount' ? 'right' : 'left', fontSize:12, fontWeight:'700', color:'#555', textTransform:'uppercase', borderBottom:'2px solid #e5e7eb', whiteSpace:'nowrap', backgroundColor:'#f3f4f6'}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {projectExpenses.map((expense, idx) => (
+                    <tr key={expense.id} style={{backgroundColor: idx % 2 === 0 ? '#fff' : '#f9fafb', borderBottom:'1px solid #e5e7eb'}}>
+                      <td style={{padding:'4px 10px', color:'#555', whiteSpace:'nowrap', fontSize:13}}>{formatDate(expense.expense_date) || '—'}</td>
+                      <td style={{padding:'4px 10px', fontWeight:'600', color:'#111', maxWidth: 320, fontSize:13}}>{expense.description}</td>
+                      <td style={{padding:'4px 10px', color:'#555', fontSize:13}}>{expense.vendor || <span style={{color:'#ccc'}}>—</span>}</td>
+                      <td style={{padding:'4px 10px'}}>
+                        {expense.category ? (
+                          <span style={{backgroundColor:'#e0f2fe', color:'#0369a1', borderRadius: 20, padding:'2px 8px', fontSize:11, fontWeight:'600', textTransform:'capitalize'}}>
+                            {expense.category}
+                          </span>
+                        ) : <span style={{color:'#ccc'}}>—</span>}
+                      </td>
+                      <td style={{padding:'4px 10px', fontWeight:'700', color: BRAND.accent, textAlign:'right', whiteSpace:'nowrap', fontSize:13}}>${(expense.amount || 0).toFixed(2)}</td>
+                      <td style={{padding:'4px 6px', textAlign:'center'}}>
+                        <button
+                          onClick={async () => {
+                            if (confirm(`Delete expense "${expense.description}"?`)) {
+                              try {
+                                let { error } = await supabase.from("project_expenses").delete().eq("id", expense.id);
+                                if (error || !error) {
+                                  const { error: error2 } = await supabase.from("expenses").delete().eq("id", expense.id);
+                                  if (error2 && error) throw error2;
+                                }
+                                loadProjectData();
+                              } catch (err) {
+                                console.error("Error deleting expense:", err);
+                                alert("Failed to delete expense");
                               }
                             }
-                            
-                            loadProjectData();
-                          } catch (err) {
-                            console.error("Error deleting expense:", err);
-                            alert("Failed to delete expense");
-                          }
-                        }
-                      }}
-                      style={styles.contractorDeleteButton}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              ))}
+                          }}
+                          style={styles.contractorDeleteButton}
+                        >✕</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{backgroundColor:'#0b3ea8'}}>
+                    <td colSpan={4} style={{padding:'12px', color:'#fff', fontWeight:'700', fontSize:14}}>TOTAL ({projectExpenses.length} items)</td>
+                    <td style={{padding:'12px', color:'#f97316', fontWeight:'700', fontSize:15, textAlign:'right'}}>${expensesCost.toFixed(2)}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
           )}
         </div>
         {/* Estimates Card */}
-        <div style={{...styles.card, gridColumn: "1 / -1"}}>
+        <div style={{...styles.card, gridColumn: "1 / -1", order: 2}}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
             <h2 style={{ ...styles.cardTitle, marginBottom: 0 }}>Project Bids</h2>
             <div style={{ display: "flex", gap: 12 }}>
@@ -1738,8 +2425,8 @@ async function handleAddContractor() {
           )}
         </div>
 
-        {/* Change Orders Card */}
-        <div style={{...styles.card, gridColumn: "1 / -1"}}>
+        {/* Change Orders Card — only shown when there are change orders */}
+        {changeOrders.length > 0 && <div style={{...styles.card, gridColumn: "1 / -1", order: 4}}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
             <h2 style={{ ...styles.cardTitle, marginBottom: 0 }}>Change Orders</h2>
             <div style={{ display: "flex", gap: 12 }}>
@@ -1959,10 +2646,10 @@ async function handleAddContractor() {
               ))}
             </div>
           )}
-        </div>
+        </div>}
 
-        {/* Deposits Card */}
-        <div style={{...styles.card, gridColumn: "1 / -1"}}>
+        {/* Deposits Card — only shown when there are deposits */}
+        {deposits.length > 0 && <div style={{...styles.card, gridColumn: "1 / -1", order: 5}}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
             <h2 style={{ ...styles.cardTitle, marginBottom: 0 }}>💰 Project Deposits</h2>
             <button onClick={() => setShowAddDepositModal(true)} style={styles.addEstimateButton}>
@@ -2025,11 +2712,10 @@ async function handleAddContractor() {
               ))}
             </div>
           )}
-        </div>
-
+        </div>}
 
         {/* Invoices Card */}
-        <div style={{...styles.card, gridColumn: "1 / -1"}}>
+        <div style={{...styles.card, gridColumn: "1 / -1", order: 3}}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
             <h2 style={{ ...styles.cardTitle, marginBottom: 0 }}>Project Invoices</h2>
             <button 
@@ -2108,14 +2794,17 @@ async function handleAddContractor() {
                       >
                         👁️ View
                       </button>
-                      {invoice.status !== 'paid' && (
-                        <button
-                          onClick={() => navigate(`/invoice?invoiceId=${invoice.id}`)}
-                          style={{...styles.estimateButton, backgroundColor: "#10b981"}}
-                        >
-                          💰 Pay
-                        </button>
-                      )}
+                      {(() => {
+                        const trueBalance = Math.max(0, (invoice.total || 0) - (invoice.amount_paid || 0) - (invoice.deposit_received || 0));
+                        return trueBalance > 0 ? (
+                          <button
+                            onClick={() => openInvoicePaymentModal(invoice)}
+                            style={{...styles.estimateButton, backgroundColor: "#10b981"}}
+                          >
+                            💰 Pay
+                          </button>
+                        ) : null;
+                      })()}
                       {invoice.status === 'paid' && (
                         <button
                           onClick={() => navigate(`/invoice?invoiceId=${invoice.id}`)}
@@ -2344,7 +3033,8 @@ async function handleAddContractor() {
                 >
                   <div 
                     onClick={() => {
-                      navigate(`/project/${id}/proposal?estimateId=${proposal.base_estimate_id}&proposalId=${proposal.id}&type=commercial-public`);
+                      const projType = project?.project_type || 'commercial-public';
+                      navigate(`/project/${id}/proposal?estimateId=${proposal.base_estimate_id}&proposalId=${proposal.id}&type=${projType}`);
                     }}
                     style={{
                       flex: 1,
@@ -2749,8 +3439,8 @@ async function handleAddContractor() {
 
       {/* Edit Project Modal */}
       {showEditProjectModal && (
-        <div style={styles.modalOverlay} onClick={() => setShowEditProjectModal(false)}>
-          <div style={{...styles.modal, maxWidth: 600}} onClick={(e) => e.stopPropagation()}>
+        <div style={{...styles.modalOverlay, alignItems: 'flex-start', overflowY: 'auto', padding: '40px 0'}} onClick={() => setShowEditProjectModal(false)}>
+          <div style={{...styles.modal, maxWidth: 600, margin: '0 auto', maxHeight: 'none'}} onClick={(e) => e.stopPropagation()}>
             <h2 style={styles.modalTitle}>✏️ Edit Project Details</h2>
             
             <div style={styles.field}>
@@ -2859,18 +3549,63 @@ async function handleAddContractor() {
 
             <div style={styles.field}>
               <label style={styles.modalLabel}>Project Type</label>
-              <select
-                value={editProjectForm.project_type}
-                onChange={(e) => setEditProjectForm({...editProjectForm, project_type: e.target.value})}
-                style={{...styles.select, padding: '10px'}}
-              >
-                <option value="commercial-public">Commercial Public</option>
-                <option value="commercial-private">Commercial Private</option>
-                <option value="residential-contractor">Residential Contractor</option>
-                <option value="residential-owner">Residential Owner</option>
-              </select>
-              <div style={{fontSize: 11, color: '#666', marginTop: 6}}>
+              <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 4}}>
+                {PROJECT_TYPES.map((type) => {
+                  const isSelected = editProjectForm.project_type === type.value;
+                  return (
+                    <div
+                      key={type.value}
+                      onClick={() => setEditProjectForm({...editProjectForm, project_type: type.value})}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        padding: '12px 14px',
+                        border: isSelected ? `2px solid ${type.color}` : '2px solid #e5e7eb',
+                        borderRadius: 10,
+                        cursor: 'pointer',
+                        backgroundColor: isSelected ? type.color + '12' : '#fafafa',
+                        transition: 'all 0.15s',
+                        boxShadow: isSelected ? `0 0 0 3px ${type.color}22` : 'none',
+                      }}
+                    >
+                      <span style={{fontSize: 26, lineHeight: 1, flexShrink: 0}}>{type.icon}</span>
+                      <div>
+                        <div style={{
+                          fontSize: 13,
+                          fontWeight: '700',
+                          color: isSelected ? type.color : '#374151',
+                          lineHeight: 1.2,
+                        }}>
+                          {type.label}
+                        </div>
+                        {isSelected && (
+                          <div style={{fontSize: 11, color: type.color, fontWeight: '600', marginTop: 2}}>
+                            ✓ Selected
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{fontSize: 11, color: '#888', marginTop: 8}}>
                 This type will be used for all estimates, proposals, and invoices for this project
+              </div>
+            </div>
+
+            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16}}>
+              <div style={styles.field}>
+                <label style={styles.modalLabel}>🏠 Living Sq Ft</label>
+                <input type="number" value={editProjectForm.sq_ft_living}
+                  onChange={(e) => setEditProjectForm({...editProjectForm, sq_ft_living: e.target.value})}
+                  style={{...styles.select, padding: '10px'}} placeholder="e.g., 1800" min="0" step="1" />
+              </div>
+              <div style={styles.field}>
+                <label style={styles.modalLabel}>📐 Total Sq Ft</label>
+                <input type="number" value={editProjectForm.sq_ft}
+                  onChange={(e) => setEditProjectForm({...editProjectForm, sq_ft: e.target.value})}
+                  style={{...styles.select, padding: '10px'}} placeholder="e.g., 2500" min="0" step="1" />
               </div>
             </div>
 
@@ -3206,6 +3941,87 @@ async function handleAddContractor() {
         </div>
       )}
 
+      {/* Reports Modal */}
+      {showReportsModal && (
+        <div style={styles.modalOverlay} onClick={() => setShowReportsModal(false)}>
+          <div style={{...styles.modal, maxWidth: 520}} onClick={(e) => e.stopPropagation()}>
+            <h2 style={styles.modalTitle}>📊 Project Reports</h2>
+            <p style={{fontSize: 14, color: '#666', marginBottom: 20}}>Choose a report to view or download.</p>
+            <div style={{display: 'flex', flexDirection: 'column', gap: 12}}>
+
+              <button
+                onClick={() => { setShowReportsModal(false); navigate(`/project/${id}/statement`); }}
+                style={styles.toolButton}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#fff7ed'; e.currentTarget.style.borderColor = '#f97316'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#f9fafb'; e.currentTarget.style.borderColor = '#e5e7eb'; }}>
+                <span style={styles.toolButtonIcon}>📑</span>
+                <div>
+                  <div style={styles.toolButtonTitle}>Account Statement</div>
+                  <div style={styles.toolButtonDesc}>Full project account statement with all invoices and payments</div>
+                </div>
+                <span style={styles.toolButtonArrow}>→</span>
+              </button>
+
+              <button
+                onClick={() => { setShowReportsModal(false); generateCostReport(); }}
+                style={styles.toolButton}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#fff7ed'; e.currentTarget.style.borderColor = '#f97316'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#f9fafb'; e.currentTarget.style.borderColor = '#e5e7eb'; }}>
+                <span style={styles.toolButtonIcon}>💰</span>
+                <div>
+                  <div style={styles.toolButtonTitle}>Cost Report</div>
+                  <div style={styles.toolButtonDesc}>Labor + material breakdown, budget vs actual</div>
+                </div>
+                <span style={styles.toolButtonArrow}>↓ PDF</span>
+              </button>
+
+              <button
+                onClick={() => { setShowReportsModal(false); generateCostVsPriceReport(); }}
+                style={styles.toolButton}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f0fdf4'; e.currentTarget.style.borderColor = '#10b981'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#f9fafb'; e.currentTarget.style.borderColor = '#e5e7eb'; }}>
+                <span style={styles.toolButtonIcon}>📊</span>
+                <div>
+                  <div style={styles.toolButtonTitle}>Cost vs. Price Report</div>
+                  <div style={styles.toolButtonDesc}>Profit margin, markup, billing progress</div>
+                </div>
+                <span style={styles.toolButtonArrow}>↓ PDF</span>
+              </button>
+
+              <button
+                onClick={() => { setShowReportsModal(false); generateLaborReport(); }}
+                style={styles.toolButton}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#eff6ff'; e.currentTarget.style.borderColor = '#3b82f6'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#f9fafb'; e.currentTarget.style.borderColor = '#e5e7eb'; }}>
+                <span style={styles.toolButtonIcon}>👷</span>
+                <div>
+                  <div style={styles.toolButtonTitle}>Labor Report</div>
+                  <div style={styles.toolButtonDesc}>All time entries by employee with hours & cost</div>
+                </div>
+                <span style={styles.toolButtonArrow}>↓ PDF</span>
+              </button>
+
+              <button
+                onClick={() => { setShowReportsModal(false); generateMaterialReport(); }}
+                style={styles.toolButton}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f5f3ff'; e.currentTarget.style.borderColor = '#8b5cf6'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#f9fafb'; e.currentTarget.style.borderColor = '#e5e7eb'; }}>
+                <span style={styles.toolButtonIcon}>📦</span>
+                <div>
+                  <div style={styles.toolButtonTitle}>Material Report</div>
+                  <div style={styles.toolButtonDesc}>All expenses & materials with vendor & date</div>
+                </div>
+                <span style={styles.toolButtonArrow}>↓ PDF</span>
+              </button>
+
+            </div>
+            <div style={{...styles.modalActions, marginTop: 20}}>
+              <button onClick={() => setShowReportsModal(false)} style={styles.cancelButton}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Add Report Modal */}
       {showAddReportModal && (
         <div style={styles.modalOverlay} onClick={() => { setShowAddReportModal(false); setReportPhotos([]); }}>
@@ -3479,6 +4295,120 @@ async function handleAddContractor() {
 
             <div style={{...styles.modalActions, marginTop: 24}}>
               <button onClick={() => setShowAlternateTypeModal(false)} style={styles.cancelButton}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Invoice Payment Modal ────────────────────────────────────────── */}
+      {showInvoicePayModal && payingInvoice && (
+        <div style={styles.modalOverlay} onClick={() => setShowInvoicePayModal(false)}>
+          <div style={{...styles.modal, maxWidth: 560}} onClick={(e) => e.stopPropagation()}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 20}}>
+              <h2 style={{...styles.modalTitle, marginBottom: 0}}>💰 Record Payment</h2>
+              <button onClick={() => setShowInvoicePayModal(false)} style={{background:'none', border:'none', fontSize:22, cursor:'pointer', color:'#666'}}>×</button>
+            </div>
+
+            {/* Invoice summary */}
+            <div style={{display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:20}}>
+              {[
+                ['Invoice', `#${payingInvoice.invoice_number}`, '#111'],
+                ['Total', `$${(payingInvoice.total||0).toFixed(2)}`, '#111'],
+                ['Balance Due', `$${Math.max(0,(payingInvoice.total||0)-(payingInvoice.amount_paid||0)-(payingInvoice.deposit_received||0)).toFixed(2)}`, '#ef4444'],
+              ].map(([lbl, val, color]) => (
+                <div key={lbl} style={{backgroundColor:'#f9fafb', borderRadius:8, padding:'10px 14px', textAlign:'center'}}>
+                  <div style={{fontSize:11, color:'#666', fontWeight:600, textTransform:'uppercase', marginBottom:4}}>{lbl}</div>
+                  <div style={{fontSize:16, fontWeight:700, color}}>{val}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.modalLabel}>Payment Amount *</label>
+              <input type="number" value={pdPaymentForm.amount}
+                onChange={(e) => setPdPaymentForm({...pdPaymentForm, amount: e.target.value})}
+                style={{...styles.select, padding:'10px'}} placeholder="0.00" min="0" step="0.01" autoFocus />
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.modalLabel}>Payment Date *</label>
+              <input type="date" value={pdPaymentForm.date}
+                onChange={(e) => setPdPaymentForm({...pdPaymentForm, date: e.target.value})}
+                style={{...styles.select, padding:'10px'}} />
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.modalLabel}>Payment Method *</label>
+              <select value={pdPaymentForm.method}
+                onChange={(e) => setPdPaymentForm({...pdPaymentForm, method: e.target.value})}
+                style={{...styles.select, padding:'10px'}}>
+                <option value="check">Check</option>
+                <option value="cash">Cash</option>
+                <option value="venmo">Venmo</option>
+                <option value="paypal">PayPal</option>
+                <option value="credit_card">Credit Card</option>
+                <option value="ach">ACH/Bank Transfer</option>
+                <option value="wire">Wire Transfer</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.modalLabel}>Processing Fee (Optional)</label>
+              <input type="number" value={pdPaymentForm.processing_fee}
+                onChange={(e) => setPdPaymentForm({...pdPaymentForm, processing_fee: e.target.value})}
+                style={{...styles.select, padding:'10px'}} placeholder="0.00" min="0" step="0.01" />
+              {pdPaymentForm.processing_fee && pdPaymentForm.amount && (
+                <div style={{marginTop:6, padding:'8px 12px', backgroundColor:'#f0f9ff', borderRadius:6, fontSize:13, color:'#0369a1', fontWeight:600}}>
+                  💰 Net Deposit: ${(parseFloat(pdPaymentForm.amount||0) - parseFloat(pdPaymentForm.processing_fee||0)).toFixed(2)}
+                </div>
+              )}
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.modalLabel}>Deposit To</label>
+              <div style={{display:'flex', gap:20, marginBottom:10}}>
+                {[['bank','Bank Account'],['holding_account','Holding Account']].map(([val,lbl]) => (
+                  <label key={val} style={{display:'flex', alignItems:'center', gap:8, cursor:'pointer', fontWeight:600, color:'#111'}}>
+                    <input type="radio" name="pd_deposit_type" value={val}
+                      checked={pdPaymentForm.deposit_type === val}
+                      onChange={() => setPdPaymentForm({...pdPaymentForm, deposit_type: val})} />
+                    {lbl}
+                  </label>
+                ))}
+              </div>
+              {pdPaymentForm.deposit_type === 'bank' ? (
+                <select value={pdPaymentForm.bank_account_id}
+                  onChange={(e) => setPdPaymentForm({...pdPaymentForm, bank_account_id: e.target.value})}
+                  style={{...styles.select, padding:'10px'}}>
+                  <option value="">Select Bank Account…</option>
+                  {pdCashAccounts.map(a => (
+                    <option key={a.id} value={a.id}>{a.account_name}{a.bank_name ? ` (${a.bank_name})` : ''}</option>
+                  ))}
+                </select>
+              ) : (
+                <select value={pdPaymentForm.holding_account_id}
+                  onChange={(e) => setPdPaymentForm({...pdPaymentForm, holding_account_id: e.target.value})}
+                  style={{...styles.select, padding:'10px'}}>
+                  <option value="">Select Holding Account…</option>
+                  {pdHoldingAccounts.map(a => (
+                    <option key={a.id} value={a.id}>{a.account_name}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.modalLabel}>Notes</label>
+              <textarea value={pdPaymentForm.notes}
+                onChange={(e) => setPdPaymentForm({...pdPaymentForm, notes: e.target.value})}
+                style={{...styles.select, padding:'10px', minHeight:70, resize:'vertical'}}
+                placeholder="Any notes about this payment…" />
+            </div>
+
+            <div style={styles.modalActions}>
+              <button onClick={() => setShowInvoicePayModal(false)} style={styles.cancelButton}>Cancel</button>
+              <button onClick={handleInvoicePayment} style={styles.submitButton}>💰 Record Payment</button>
             </div>
           </div>
         </div>
@@ -3911,5 +4841,40 @@ statusSelect: {
   fontWeight: "600",
   cursor: "pointer",
   outline: "none",
+},
+toolButton: {
+  display: "flex",
+  alignItems: "center",
+  gap: 14,
+  padding: "16px 18px",
+  backgroundColor: "#f9fafb",
+  border: "2px solid #e5e7eb",
+  borderRadius: 12,
+  cursor: "pointer",
+  textAlign: "left",
+  width: "100%",
+  transition: "background-color 0.2s, border-color 0.2s",
+},
+toolButtonIcon: {
+  fontSize: 32,
+  lineHeight: 1,
+  flexShrink: 0,
+},
+toolButtonTitle: {
+  fontSize: 15,
+  fontWeight: "700",
+  color: "#111",
+  marginBottom: 3,
+},
+toolButtonDesc: {
+  fontSize: 12,
+  color: "#666",
+  lineHeight: 1.4,
+},
+toolButtonArrow: {
+  fontSize: 18,
+  color: "#9ca3af",
+  marginLeft: "auto",
+  flexShrink: 0,
 },
 };

@@ -23,7 +23,7 @@
     "pdfjs-dist": "^3.11.174",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-leaflet": "^5.0.0",
+    "react-leaflet": "^4.2.1",
     "react-native": "0.81.5",
     "react-pdf": "^10.3.0",
     "react-router-dom": "^7.10.1",

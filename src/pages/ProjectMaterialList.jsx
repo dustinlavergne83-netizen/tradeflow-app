@@ -43,6 +43,18 @@ export default function ProjectMaterialList() {
   const [uploading, setUploading] = useState(false);
   const [attachments, setAttachments] = useState({});
   const [itemListRefreshKey, setItemListRefreshKey] = useState({});
+  const [showSendModal, setShowSendModal] = useState(false);
+  const [sendingList, setSendingList] = useState(null);
+  const [sendForm, setSendForm] = useState({ email: '', phone: '' });
+  const [sending, setSending] = useState(false);
+  const [allVendors, setAllVendors] = useState([]);
+  const [vendorSearch, setVendorSearch] = useState('');
+  const [vendorDropdownOpen, setVendorDropdownOpen] = useState(false);
+  const [selectedVendor, setSelectedVendor] = useState(null);
+  const [sendMethod, setSendMethod] = useState('email'); // 'email' | 'text' | 'both'
+  const [vendorContactsList, setVendorContactsList] = useState([]);
+  const [loadingContacts, setLoadingContacts] = useState(false);
+  const [selectedContact, setSelectedContact] = useState(null);
   
   const [listForm, setListForm] = useState({
     title: 'Material List',
@@ -189,7 +201,6 @@ export default function ProjectMaterialList() {
 
   async function exportMaterialListCSV(list) {
     try {
-      // Load items for this list
       const { data: items, error } = await supabase
         .from("material_list_items")
         .select("*")
@@ -197,21 +208,9 @@ export default function ProjectMaterialList() {
         .order("sort_order", { ascending: true });
 
       if (error) throw error;
+      if (!items || items.length === 0) { alert("No items to export in this list"); return; }
 
-      if (!items || items.length === 0) {
-        alert("No items to export in this list");
-        return;
-      }
-
-      // Create CSV content with simplified columns
-      const headers = [
-        "Qty",
-        "Unit", 
-        "Description",
-        "Cost",
-        "Ext Cost"
-      ];
-
+      const headers = ["Qty", "Unit", "Description", "Cost", "Ext Cost"];
       const csvRows = [
         headers.join(","),
         ...items.map(item => [
@@ -223,10 +222,10 @@ export default function ProjectMaterialList() {
         ].join(","))
       ];
 
-      // Add project and list info at the top
       const projectInfo = [
         `"Project: ${project.name}"`,
         `"Material List: ${list.title}"`,
+        ...(list.description ? [`"${list.description.replace(/"/g, '""')}"`, ""] : [""]),
         `"Created: ${formatDate(list.created_at)}"`,
         `"Total Items: ${items.length}"`,
         `"Total Cost: $${items.reduce((sum, item) => sum + (item.total_cost || 0), 0).toFixed(2)}"`,
@@ -235,8 +234,6 @@ export default function ProjectMaterialList() {
       ];
 
       const fullCSV = [...projectInfo, ...csvRows].join("\n");
-
-      // Download CSV
       const blob = new Blob([fullCSV], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement("a");
       const url = URL.createObjectURL(blob);
@@ -247,10 +244,197 @@ export default function ProjectMaterialList() {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-
     } catch (err) {
       console.error("Error exporting CSV:", err);
       alert("Failed to export material list: " + err.message);
+    }
+  }
+
+  async function printMaterialListPDF(list) {
+    try {
+      const { data: items, error } = await supabase
+        .from("material_list_items")
+        .select("*")
+        .eq("material_list_id", list.id)
+        .order("sort_order", { ascending: true });
+
+      if (error) throw error;
+      if (!items || items.length === 0) { alert("No items to print in this list"); return; }
+
+      const totalCost = items.reduce((sum, i) => sum + (i.total_cost || 0), 0);
+
+      const rows = items.map(item => `
+        <tr>
+          <td style="padding:5px 8px;border-bottom:1px solid #e5e7eb;text-align:center;">${item.quantity || ''}</td>
+          <td style="padding:5px 8px;border-bottom:1px solid #e5e7eb;text-align:center;">${item.unit || 'ea'}</td>
+          <td style="padding:5px 8px;border-bottom:1px solid #e5e7eb;">${item.description || ''}</td>
+        </tr>
+      `).join('');
+
+      // Build plain-text body for email/text — embedded in the popup so buttons work standalone
+      const separator = '─'.repeat(50);
+      const plainTextBody =
+        `${project.name}\n${separator}\n${list.title}\n` +
+        (list.description ? `${list.description}\n` : '') +
+        `${separator}\n\n` +
+        items.map(i => `  • ${i.quantity} ${i.unit || 'ea'}   ${i.description}`).join('\n') +
+        `\n\n${separator}\nTotal items: ${items.length}`;
+
+      const emailSubject = encodeURIComponent(`Material List – ${list.title} | ${project.name}`);
+      const emailBody = encodeURIComponent(plainTextBody);
+      // Escape for embedding in HTML JS string
+      const jsBody = plainTextBody.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
+
+      const html = `<!DOCTYPE html><html><head><title>${list.title}</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 20mm; font-size: 11pt; color: #111; }
+          h1 { font-size: 16pt; margin: 0 0 4px 0; }
+          h2 { font-size: 13pt; margin: 0 0 4px 0; color: #333; }
+          .desc { font-size: 11pt; color: #555; margin: 0 0 16px 0; }
+          .meta { font-size: 10pt; color: #666; margin-bottom: 20px; }
+          table { width: 100%; border-collapse: collapse; }
+          th { background: #1e3a5f; color: #fff; padding: 8px; text-align: left; font-size: 11pt; }
+          th.center { text-align: center; }
+          tr:nth-child(even) td { background: #f5f7fa; }
+          .total-row td { font-weight: bold; border-top: 2px solid #1e3a5f; padding: 8px; font-size: 12pt; }
+          .toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:20px; }
+          .btn { padding:10px 18px; border:none; border-radius:7px; font-size:14px; font-weight:700; cursor:pointer; }
+          .toast { display:none; position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+            background:#0b3ea8; color:#fff; padding:14px 24px; border-radius:10px; font-size:14px;
+            font-weight:700; border:2px solid #fc6b04; box-shadow:0 4px 20px rgba(0,0,0,0.3);
+            z-index:9999; max-width:480px; text-align:center; }
+          @media print { .no-print { display: none; } }
+        </style>
+        <script>
+          function sendEmail() {
+            window.location.href = 'mailto:?subject=${emailSubject}&body=${emailBody}';
+          }
+          async function sendText() {
+            try {
+              await navigator.clipboard.writeText(\`${jsBody}\`);
+            } catch(e) {}
+            window.location.href = 'ms-phone-link:';
+            var t = document.getElementById('toast');
+            t.style.display = 'block';
+            setTimeout(function(){ t.style.display = 'none'; }, 12000);
+          }
+        <\/script>
+        </head><body>
+        <div class="no-print toolbar">
+          <button class="btn" onclick="window.print()" style="background:#0b3ea8;color:#fff;">🖨️ Print / Save PDF</button>
+          <button class="btn" onclick="sendEmail()" style="background:#059669;color:#fff;">📧 Send Email</button>
+          <button class="btn" onclick="sendText()" style="background:#7c3aed;color:#fff;">📱 Send Text</button>
+          <button class="btn" onclick="window.close()" style="background:#666;color:#fff;">Close</button>
+        </div>
+        <div id="toast" class="toast no-print">
+          📋 <strong>Copied to clipboard!</strong><br>
+          In Phone Link click <strong>✏️ compose</strong>, pick a contact, then press <strong>Ctrl+V</strong>
+        </div>
+        <h1>${project.name}</h1>
+        <h2>${list.title}</h2>
+        ${list.description ? `<p class="desc">${list.description}</p>` : ''}
+        <p class="meta">Created: ${formatDate(list.created_at)} &nbsp;|&nbsp; Items: ${items.length} &nbsp;|&nbsp; Status: ${list.status}</p>
+        <table>
+          <thead>
+            <tr>
+              <th class="center" style="width:60px">Qty</th>
+              <th class="center" style="width:60px">Unit</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </body></html>`;
+
+      const w = window.open('', '_blank', 'width=800,height=900');
+      w.document.write(html);
+      w.document.close();
+    } catch (err) {
+      console.error("Error printing material list:", err);
+      alert("Failed to generate print view: " + err.message);
+    }
+  }
+
+  async function sendMaterialList(list, toSend) {
+    const emailAddr = (toSend?.email || '').trim();
+    const isText = toSend?.isText === true;
+
+    if (!emailAddr && !isText) {
+      alert('Please enter an email address or choose Text');
+      return;
+    }
+    setSending(true);
+    try {
+      const { data: items, error } = await supabase
+        .from("material_list_items")
+        .select("*")
+        .eq("material_list_id", list.id)
+        .order("sort_order", { ascending: true });
+
+      if (error) throw error;
+      if (!items || items.length === 0) { alert("No items to send in this list"); return; }
+
+      const subject = `Material List – ${list.title} | ${project.name}`;
+
+      // Formatted plain-text body (goes directly into Outlook / Phone Link)
+      const maxWidth = 60;
+      const separator = '─'.repeat(maxWidth);
+      const lineItems = items.map(i =>
+        `  • ${i.quantity} ${i.unit || 'ea'}   ${i.description}`
+      ).join('\n');
+
+      const body =
+        `${project.name}\n` +
+        `${separator}\n` +
+        `${list.title}\n` +
+        (list.description ? `${list.description}\n` : '') +
+        `${separator}\n\n` +
+        lineItems +
+        `\n\n${separator}\n` +
+        `Total items: ${items.length}`;
+
+      // EMAIL → open Outlook directly, full list in body, no attachment needed
+      if (emailAddr) {
+        const mailtoUri = `mailto:${encodeURIComponent(emailAddr)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        window.location.href = mailtoUri;
+      }
+
+      // TEXT → copy to clipboard + open Phone Link + show paste instruction
+      if (isText) {
+        const smsBody = body.length > 1600 ? body.substring(0, 1597) + '...' : body;
+        try { await navigator.clipboard.writeText(smsBody); } catch (_) {}
+        // Open Phone Link
+        setTimeout(() => { window.location.href = 'ms-phone-link:'; }, emailAddr ? 800 : 0);
+        // Show a floating instruction banner
+        const banner = document.createElement('div');
+        banner.id = 'phone-link-toast';
+        banner.style.cssText = `
+          position:fixed; bottom:32px; left:50%; transform:translateX(-50%);
+          background:#0b3ea8; color:#fff; padding:16px 28px; border-radius:12px;
+          font-size:16px; font-weight:700; z-index:99999; box-shadow:0 4px 24px rgba(0,0,0,0.4);
+          display:flex; align-items:center; gap:12px; max-width:520px; text-align:center;
+          border:2px solid #fc6b04;
+        `;
+        banner.innerHTML = `
+          <span style="font-size:26px">📋</span>
+          <span>Message <strong>copied to clipboard!</strong><br>
+          In Phone Link, click the <strong>✏️ compose button</strong> (top right of Messages), pick a contact, then press <strong>Ctrl+V</strong> to paste.</span>
+          <button onclick="document.getElementById('phone-link-toast').remove()" style="background:none;border:none;color:#fff;font-size:22px;cursor:pointer;padding:0 4px;line-height:1;flex-shrink:0">×</button>
+        `;
+        document.body.appendChild(banner);
+        setTimeout(() => banner?.remove(), 15000);
+      }
+
+      setShowSendModal(false);
+      setSendForm({ email: '' });
+      setSelectedContact(null);
+      setSelectedVendor(null);
+      setVendorSearch('');
+    } catch (err) {
+      console.error("Error preparing send:", err);
+      alert("Failed to prepare send: " + err.message);
+    } finally {
+      setSending(false);
     }
   }
 
@@ -330,6 +514,12 @@ export default function ProjectMaterialList() {
                         style={styles.actionButton}
                       >
                         + Add Items
+                      </button>
+                      <button
+                        onClick={() => printMaterialListPDF(list)}
+                        style={{...styles.actionButton, backgroundColor: '#7c3aed'}}
+                      >
+                        🖨️ Print / PDF
                       </button>
                       <button
                         onClick={() => exportMaterialListCSV(list)}
@@ -454,50 +644,41 @@ export default function ProjectMaterialList() {
               Enter items in the spreadsheet below. Leave description blank to skip a row.
             </p>
 
-            {/* Spreadsheet Header */}
+            {/* Spreadsheet Header — Qty | Unit | Description */}
             <div style={styles.spreadsheetContainer}>
               <div style={styles.spreadsheetHeader}>
-                <div style={styles.spreadsheetCell}>Qty</div>
-                <div style={{...styles.spreadsheetCell, flex: 3}}>Item Description</div>
-                <div style={styles.spreadsheetCell}>Unit</div>
-                <div style={styles.spreadsheetCell}>Unit Cost</div>
-                <div style={{...styles.spreadsheetCell, flex: 2}}>Vendor</div>
-                <div style={{...styles.spreadsheetCell, flex: 2}}>Category</div>
-                <div style={styles.spreadsheetCell}>Total</div>
+                <div style={{...styles.spreadsheetCell, flex: '0 0 70px'}}>Qty</div>
+                <div style={{...styles.spreadsheetCell, flex: '0 0 90px'}}>Unit</div>
+                <div style={{...styles.spreadsheetCell, flex: 1}}>Description</div>
               </div>
 
               {/* Spreadsheet Rows */}
               <div style={styles.spreadsheetBody}>
                 {editingItems.map((item, index) => (
                   <div key={index} style={styles.spreadsheetRow}>
-                    <div style={styles.spreadsheetCell}>
+                    {/* Qty */}
+                    <div style={{...styles.spreadsheetCell, flex: '0 0 70px'}}>
                       <input
-                        type="number"
+                        id={`mat-qty-${index}`}
+                        type="text"
+                        inputMode="decimal"
                         value={item.quantity}
                         onChange={(e) => {
+                          const updated = [...editingItems];
+                          updated[index].quantity = e.target.value;
+                          setEditingItems(updated);
+                        }}
+                        onBlur={(e) => {
                           const updated = [...editingItems];
                           updated[index].quantity = parseFloat(e.target.value) || 0;
                           setEditingItems(updated);
                         }}
+                        onFocus={(e) => e.target.select()}
                         style={styles.spreadsheetInput}
-                        min="0"
-                        step="0.01"
                       />
                     </div>
-                    <div style={{...styles.spreadsheetCell, flex: 3}}>
-                      <input
-                        type="text"
-                        value={item.description}
-                        onChange={(e) => {
-                          const updated = [...editingItems];
-                          updated[index].description = e.target.value;
-                          setEditingItems(updated);
-                        }}
-                        style={styles.spreadsheetInput}
-                        placeholder="e.g., 12 AWG THHN Wire"
-                      />
-                    </div>
-                    <div style={styles.spreadsheetCell}>
+                    {/* Unit */}
+                    <div style={{...styles.spreadsheetCell, flex: '0 0 90px'}}>
                       <select
                         value={item.unit}
                         onChange={(e) => {
@@ -518,53 +699,41 @@ export default function ProjectMaterialList() {
                         <option value="set">set</option>
                       </select>
                     </div>
-                    <div style={styles.spreadsheetCell}>
+                    {/* Description — Enter moves to next row */}
+                    <div style={{...styles.spreadsheetCell, flex: 1}}>
                       <input
-                        type="number"
-                        value={item.unit_cost}
-                        onChange={(e) => {
-                          const updated = [...editingItems];
-                          updated[index].unit_cost = parseFloat(e.target.value) || 0;
-                          setEditingItems(updated);
-                        }}
-                        style={styles.spreadsheetInput}
-                        min="0"
-                        step="0.01"
-                        placeholder="0.00"
-                      />
-                    </div>
-                    <div style={{...styles.spreadsheetCell, flex: 2}}>
-                      <input
+                        id={`mat-desc-${index}`}
                         type="text"
-                        value={item.vendor}
+                        value={item.description}
                         onChange={(e) => {
                           const updated = [...editingItems];
-                          updated[index].vendor = e.target.value;
+                          updated[index].description = e.target.value;
                           setEditingItems(updated);
                         }}
-                        style={styles.spreadsheetInput}
-                        placeholder="Home Depot, Lowes..."
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            const nextIndex = index + 1;
+                            if (nextIndex < editingItems.length) {
+                              // Jump to Qty of the next row
+                              document.getElementById(`mat-qty-${nextIndex}`)?.focus();
+                            } else {
+                              // At last row — add 5 more rows then jump to next Qty
+                              const newRows = Array(5).fill(null).map(() => ({
+                                description: '', quantity: 1, unit: 'ea', unit_cost: 0, vendor: '', category: 'Wire & Cable'
+                              }));
+                              setEditingItems(prev => {
+                                const updated = [...prev, ...newRows];
+                                setTimeout(() => document.getElementById(`mat-qty-${nextIndex}`)?.focus(), 50);
+                                return updated;
+                              });
+                            }
+                          }
+                        }}
+                        style={{...styles.spreadsheetInput, width: '100%'}}
+                        placeholder="e.g., 12 AWG THHN Wire"
+                        autoComplete="off"
                       />
-                    </div>
-                    <div style={{...styles.spreadsheetCell, flex: 2}}>
-                      <select
-                        value={item.category}
-                        onChange={(e) => {
-                          const updated = [...editingItems];
-                          updated[index].category = e.target.value;
-                          setEditingItems(updated);
-                        }}
-                        style={styles.spreadsheetSelect}
-                      >
-                        {MATERIAL_CATEGORIES.map(cat => (
-                          <option key={cat} value={cat}>{cat}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div style={styles.spreadsheetCell}>
-                      <span style={styles.totalDisplay}>
-                        ${((item.quantity || 0) * (item.unit_cost || 0)).toFixed(2)}
-                      </span>
                     </div>
                   </div>
                 ))}
@@ -733,6 +902,236 @@ export default function ProjectMaterialList() {
           uploading={uploading}
           setUploading={setUploading}
         />
+      )}
+
+      {/* Send Email / Text Modal — Vendor Picker */}
+      {showSendModal && sendingList && (
+        <div style={styles.modal}>
+          <div style={{...styles.modalContent, maxWidth: 520}}>
+            <h2 style={styles.modalTitle}>📧 Send Material List</h2>
+            <p style={{fontSize: 14, color: '#555', marginBottom: 20}}>
+              <strong>{sendingList.title}</strong> — {project.name}
+            </p>
+
+            {/* Step 1: Vendor Search */}
+            <div style={styles.field}>
+              <label style={styles.label}>🏪 Search Vendor</label>
+              <div style={{position: 'relative'}}>
+                <input
+                  type="text"
+                  value={vendorSearch}
+                  onChange={(e) => {
+                    setVendorSearch(e.target.value);
+                    setSelectedVendor(null);
+                    setSendForm({ email: '', phone: '' });
+                    setVendorDropdownOpen(true);
+                  }}
+                  onFocus={() => setVendorDropdownOpen(true)}
+                  style={{...styles.input, paddingRight: vendorSearch ? 36 : 12}}
+                  placeholder="Type vendor name..."
+                  autoFocus
+                  autoComplete="off"
+                />
+                {vendorSearch && (
+                  <button
+                    onClick={() => { setVendorSearch(''); setSelectedVendor(null); setSendForm({ email: '', phone: '' }); }}
+                    style={{position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#999'}}
+                  >×</button>
+                )}
+                {/* Dropdown */}
+                {vendorDropdownOpen && vendorSearch.length > 0 && (() => {
+                  const filtered = allVendors.filter(v =>
+                    v.vendor_name?.toLowerCase().includes(vendorSearch.toLowerCase()) ||
+                    v.contact_person?.toLowerCase().includes(vendorSearch.toLowerCase())
+                  ).slice(0, 8);
+                  return filtered.length > 0 ? (
+                    <div style={{
+                      position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 3000,
+                      backgroundColor: '#fff', border: '2px solid #d1d5db', borderRadius: 8,
+                      boxShadow: '0 4px 20px rgba(0,0,0,0.15)', maxHeight: 240, overflowY: 'auto'
+                    }}>
+                      {filtered.map(v => (
+                        <div
+                          key={v.id}
+                          onClick={async () => {
+                            setSelectedVendor(v);
+                            setVendorSearch(v.vendor_name);
+                            setVendorDropdownOpen(false);
+                            setSelectedContact(null);
+                            // Load contacts for this vendor
+                            setLoadingContacts(true);
+                            const { data: contacts } = await supabase
+                              .from('vendor_contacts')
+                              .select('*')
+                              .eq('vendor_id', v.id)
+                              .order('is_primary', { ascending: false })
+                              .order('created_at', { ascending: true });
+                            setVendorContactsList(contacts || []);
+                            setLoadingContacts(false);
+                            // Default to vendor's primary email/phone
+                            setSendForm({ email: v.email || '', phone: v.phone || '' });
+                          }}
+                          style={{
+                            padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6',
+                            transition: 'background 0.1s'
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.backgroundColor = '#f0f9ff'}
+                          onMouseLeave={e => e.currentTarget.style.backgroundColor = '#fff'}
+                        >
+                          <div style={{fontWeight: 700, fontSize: 14, color: '#111'}}>{v.vendor_name}</div>
+                          {v.contact_person && <div style={{fontSize: 13, color: '#555'}}>👤 {v.contact_person}</div>}
+                          <div style={{fontSize: 12, color: '#888', display: 'flex', gap: 12, marginTop: 2}}>
+                            {v.email && <span>✉ {v.email}</span>}
+                            {v.phone && <span>📱 {v.phone}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{
+                      position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 3000,
+                      backgroundColor: '#fff', border: '2px solid #d1d5db', borderRadius: 8,
+                      padding: '12px 14px', color: '#888', fontSize: 14
+                    }}>No vendors found</div>
+                  );
+                })()}
+              </div>
+            </div>
+
+            {/* Step 2: Pick a Contact */}
+            {selectedVendor && (
+              <div style={{marginBottom: 20}}>
+                <label style={{...styles.label, marginBottom: 10}}>👤 Pick a Contact</label>
+
+                {loadingContacts ? (
+                  <p style={{fontSize: 13, color: '#888'}}>Loading contacts...</p>
+                ) : (
+                  <div style={{display: 'flex', flexDirection: 'column', gap: 8}}>
+                    {/* Primary vendor contact (from vendor record itself) */}
+                    {(selectedVendor.contact_person || selectedVendor.email || selectedVendor.phone) && (
+                      <div
+                        onClick={() => {
+                          setSelectedContact({ id: '_primary', name: selectedVendor.contact_person || selectedVendor.vendor_name, email: selectedVendor.email || '', phone: selectedVendor.phone || '' });
+                          setSendForm({ email: selectedVendor.email || '', phone: selectedVendor.phone || '' });
+                        }}
+                        style={{
+                          padding: '10px 14px', borderRadius: 8, cursor: 'pointer',
+                          border: selectedContact?.id === '_primary' ? '2px solid #0891b2' : '1px solid #d1d5db',
+                          backgroundColor: selectedContact?.id === '_primary' ? '#e0f2fe' : '#f9fafb',
+                        }}
+                      >
+                        <div style={{fontWeight: 700, fontSize: 14, color: '#111'}}>{selectedVendor.contact_person || selectedVendor.vendor_name} <span style={{fontSize: 11, color: '#888', fontWeight: 400}}>(primary)</span></div>
+                        <div style={{fontSize: 12, color: '#555', display: 'flex', gap: 16, marginTop: 2}}>
+                          {selectedVendor.email && <span>✉ {selectedVendor.email}</span>}
+                          {selectedVendor.phone && <span>📱 {selectedVendor.phone}</span>}
+                        </div>
+                      </div>
+                    )}
+                    {/* Additional contacts from vendor_contacts table */}
+                    {vendorContactsList.map(contact => (
+                      <div
+                        key={contact.id}
+                        onClick={() => {
+                          setSelectedContact(contact);
+                          setSendForm({ email: contact.email || '', phone: contact.phone || '' });
+                        }}
+                        style={{
+                          padding: '10px 14px', borderRadius: 8, cursor: 'pointer',
+                          border: selectedContact?.id === contact.id ? '2px solid #0891b2' : '1px solid #d1d5db',
+                          backgroundColor: selectedContact?.id === contact.id ? '#e0f2fe' : '#f9fafb',
+                        }}
+                      >
+                        <div style={{fontWeight: 700, fontSize: 14, color: '#111'}}>
+                          {contact.name}
+                          {contact.title && <span style={{fontSize: 12, color: '#f97316', fontWeight: 400, marginLeft: 8}}>{contact.title}</span>}
+                        </div>
+                        <div style={{fontSize: 12, color: '#555', display: 'flex', gap: 16, marginTop: 2}}>
+                          {contact.email && <span>✉ {contact.email}</span>}
+                          {contact.phone && <span>📱 {contact.phone}</span>}
+                        </div>
+                      </div>
+                    ))}
+                    {vendorContactsList.length === 0 && !selectedVendor.email && !selectedVendor.phone && (
+                      <p style={{fontSize: 13, color: '#888', margin: 0}}>No contacts on file for this vendor. Add them on the Vendors page.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Step 3: Send method buttons */}
+            <div style={styles.field}>
+              <label style={styles.label}>Send As</label>
+              <div style={{display: 'flex', gap: 8}}>
+                {[
+                  { key: 'email', label: '📧 Email' },
+                  { key: 'text', label: '📱 Text' },
+                  { key: 'both', label: '📧📱 Both' },
+                ].map(opt => (
+                  <button
+                    key={opt.key}
+                    onClick={() => setSendMethod(opt.key)}
+                    style={{
+                      flex: 1, padding: '10px 8px', border: '2px solid',
+                      borderColor: sendMethod === opt.key ? '#0891b2' : '#d1d5db',
+                      backgroundColor: sendMethod === opt.key ? '#e0f2fe' : '#fff',
+                      color: sendMethod === opt.key ? '#0369a1' : '#374151',
+                      borderRadius: 8, cursor: 'pointer', fontSize: 14, fontWeight: 700
+                    }}
+                  >{opt.label}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Email field (email / both mode) */}
+            {(sendMethod === 'email' || sendMethod === 'both') && (
+              <div style={styles.field}>
+                <label style={styles.label}>Email Address</label>
+                <input
+                  type="email"
+                  value={sendForm.email}
+                  onChange={(e) => setSendForm({...sendForm, email: e.target.value})}
+                  style={styles.input}
+                  placeholder="supplier@example.com"
+                />
+              </div>
+            )}
+
+            {/* Text info (text / both mode) — no number needed, Phone Link picks contact */}
+            {(sendMethod === 'text' || sendMethod === 'both') && (
+              <div style={{backgroundColor: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: '12px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10}}>
+                <span style={{fontSize: 22}}>📱</span>
+                <div>
+                  <div style={{fontWeight: 700, fontSize: 14, color: '#0369a1'}}>Opens Phone Link</div>
+                  <div style={{fontSize: 13, color: '#0369a1'}}>You'll pick the contact directly from your phone — no number needed here</div>
+                </div>
+              </div>
+            )}
+
+            <div style={styles.modalActions}>
+              <button
+                onClick={() => { setShowSendModal(false); setSendingList(null); setVendorDropdownOpen(false); }}
+                style={styles.cancelButton}
+                disabled={sending}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const toSend = {
+                    email: (sendMethod === 'email' || sendMethod === 'both') ? sendForm.email : '',
+                    isText: sendMethod === 'text' || sendMethod === 'both',
+                  };
+                  sendMaterialList(sendingList, toSend);
+                }}
+                style={{...styles.primaryButton, opacity: sending ? 0.6 : 1, backgroundColor: '#0891b2'}}
+                disabled={sending}
+              >
+                {sending ? '⏳ Opening...' : '📤 Send'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1577,32 +1976,34 @@ const styles = {
   },
   spreadsheetCell: {
     flex: 1,
-    padding: "8px",
+    padding: "2px 6px",
     borderRight: "1px solid #e5e7eb",
     display: "flex",
     alignItems: "center",
-    minHeight: 40,
+    minHeight: 28,
   },
   spreadsheetInput: {
     width: "100%",
-    padding: "6px 8px",
-    fontSize: 14,
+    padding: "2px 6px",
+    fontSize: 13,
     border: "1px solid transparent",
-    borderRadius: 4,
+    borderRadius: 3,
     outline: "none",
     backgroundColor: "transparent",
     color: "#111",
+    lineHeight: "1.4",
   },
   spreadsheetSelect: {
     width: "100%",
-    padding: "6px 8px",
-    fontSize: 14,
+    padding: "2px 4px",
+    fontSize: 13,
     border: "1px solid transparent",
-    borderRadius: 4,
+    borderRadius: 3,
     outline: "none",
     backgroundColor: "transparent",
     color: "#111",
     cursor: "pointer",
+    lineHeight: "1.4",
   },
   totalDisplay: {
     fontSize: 14,

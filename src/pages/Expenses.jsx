@@ -2,27 +2,22 @@ import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { createExpenseJournalEntry } from "../utils/accountingJournals";
-
-// Helper function to get today's date in local timezone (YYYY-MM-DD format)
-function getTodayLocalDate() {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, '0');
-  const day = String(today.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
+import { getTodayLocalDate, toLocalDateString } from "../utils/dateUtils";
 
 export default function Expenses() {
   const { user } = useAuth();
   const [expenses, setExpenses] = useState([]);
+  const [clearedBankExpenses, setClearedBankExpenses] = useState([]);
   const [projects, setProjects] = useState([]);
   const [bankAccounts, setBankAccounts] = useState([]);
   const [expenseAccounts, setExpenseAccounts] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [bankTransactions, setBankTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [thisMonthTotal, setThisMonthTotal] = useState(null); // server-side this-month total
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState("all"); // 'all' | 'manual' | 'bank'
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [editingExpense, setEditingExpense] = useState(null);
   const [expenseForm, setExpenseForm] = useState({
@@ -47,6 +42,8 @@ export default function Expenses() {
     loadExpenseAccounts();
     loadVendors();
     loadBankTransactions();
+    loadClearedBankExpenses();
+    loadThisMonthTotal();
   }, [user]);
 
   // Listen for custom event from BankTransactions when expense is created
@@ -55,6 +52,7 @@ export default function Expenses() {
       console.log('📢 Received expenseCreated event - reloading expenses...');
       loadExpenses();
       loadBankTransactions();
+      loadClearedBankExpenses();
     };
 
     // Listen for custom event from BankTransactions
@@ -129,11 +127,33 @@ export default function Expenses() {
         .select("id, account_number, account_name, account_type")
         .eq("company_id", user.id)
         .eq("account_type", "Income")
+        .eq("is_active", true)
         .order("account_name");
 
       if (incomeError) throw incomeError;
 
-      // Merge bank accounts with income accounts, converting income accounts to a compatible format
+      // Also load Asset accounts from Chart of Accounts (e.g. Green Dot prepaid, petty cash)
+      // that are NOT already represented as bank accounts (to avoid duplicates)
+      const linkedChartAccountIds = (bankData || [])
+        .map(ba => ba.chart_account_id)
+        .filter(Boolean);
+
+      const { data: assetAccounts, error: assetError } = await supabase
+        .from("accounts")
+        .select("id, account_number, account_name, account_type")
+        .eq("company_id", user.id)
+        .eq("account_type", "Asset")
+        .eq("is_active", true)
+        .order("account_name");
+
+      if (assetError) throw assetError;
+
+      // Filter out asset accounts that are already linked to a bank account (avoid duplicates)
+      const unlinkedAssetAccounts = (assetAccounts || []).filter(
+        acc => !linkedChartAccountIds.includes(acc.id)
+      );
+
+      // Merge bank accounts + income accounts + unlinked asset accounts
       const mergedAccounts = [
         ...(bankData || []),
         ...(incomeAccounts || []).map(acc => ({
@@ -141,6 +161,13 @@ export default function Expenses() {
           account_name: acc.account_name,
           account_type: acc.account_type,
           bank_name: `(Income Account)`,
+          is_active: true
+        })),
+        ...unlinkedAssetAccounts.map(acc => ({
+          id: acc.id,
+          account_name: acc.account_name,
+          account_type: acc.account_type,
+          bank_name: `(Asset Account)`,
           is_active: true
         }))
       ];
@@ -198,6 +225,148 @@ export default function Expenses() {
     }
   }
 
+  async function loadClearedBankExpenses() {
+    try {
+      // Fetch bank account names for display (does NOT gate the transaction query —
+      // we let Supabase RLS scope bank_transactions to this company, the same way
+      // the Dashboard does. Using a bank_account_id list was causing an empty-return
+      // if the lookup itself returned no rows.)
+      const { data: userBankAccounts } = await supabase
+        .from("bank_accounts")
+        .select("id, account_name")
+        .eq("company_id", user.id);
+
+      // Build a quick lookup: bank_account_id → account_name (for display only)
+      const accountNameById = {};
+      (userBankAccounts || []).forEach(ba => { accountNameById[ba.id] = ba.account_name; });
+
+      console.log("🏦 Bank accounts available for name lookup:", Object.keys(accountNameById).length);
+
+      // Fetch cleared/reconciled bank transactions that represent expenses.
+      // RLS on bank_transactions already restricts rows to this company's accounts,
+      // so we do NOT need an explicit bank_account_id filter here.
+      // Conditions:
+      //   • is_cleared OR is_reconciled = true
+      //     (BankTransactions toggle → is_cleared; linking an expense → is_reconciled;
+      //      BankReconciliation sets both)
+      //   • amount < 0  (withdrawals / payments going out)
+      //   • linked_expense_id IS NULL  (avoid double-counting manual expenses)
+      const { data, error } = await supabase
+        .from("bank_transactions")
+        .select("*")
+        .or("is_cleared.eq.true,is_reconciled.eq.true")
+        .lt("amount", 0)
+        .is("linked_expense_id", null)
+        .order("transaction_date", { ascending: false });
+
+      if (error) {
+        console.error("❌ Error loading cleared bank expenses:", error);
+        setClearedBankExpenses([]);
+        return;
+      }
+
+      console.log(`✅ Cleared/reconciled bank expense transactions found: ${(data || []).length}`);
+
+      // Map to expense-like objects that match the shape of the expenses table rows
+      const mapped = (data || []).map(bt => ({
+        id: `bank_${bt.id}`,
+        _isBankTransaction: true,
+        bank_transaction_id: bt.id,
+        expense_date: bt.transaction_date,
+        vendor: bt.payee || bt.description || 'Bank Withdrawal',
+        category: bt.category || 'Bank Transaction',
+        amount: Math.abs(bt.amount),
+        description: bt.description || '',
+        project_id: bt.project_id,
+        project_name: null,
+        bank_account_name: accountNameById[bt.bank_account_id] || null,
+        payment_method: bt.transaction_type || 'bank',
+        tax_deductible: true,
+        is_cleared: bt.is_cleared,
+        is_reconciled: bt.is_reconciled,
+      }));
+
+      setClearedBankExpenses(mapped);
+    } catch (err) {
+      console.error("❌ Error in loadClearedBankExpenses:", err);
+      setClearedBankExpenses([]);
+    }
+  }
+
+  // ── Server-side "This Month" total — mirrors the Dashboard 3-step calculation ──
+  // Step 1: posted JE lines for expense accounts
+  // Step 2: expenses table rows with journal_entry_id = null (not yet journalised)
+  // Step 3: cleared bank withdrawals whose bank_transaction_id is NOT already in a JE
+  async function loadThisMonthTotal() {
+    try {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const startDate = `${year}-${month}-01`;
+      const lastDay = new Date(year, now.getMonth() + 1, 0).getDate();
+      const endDate   = `${year}-${month}-${String(lastDay).padStart(2, '0')}`;
+
+      // ── Step 1: posted journal entry lines for expense accounts ──────────────
+      const { data: linesData } = await supabase
+        .from("journal_entry_lines")
+        .select(`
+          debit, credit,
+          accounts!inner(account_type),
+          journal_entries!inner(entry_date, is_posted, reference_type, reference_id)
+        `)
+        .eq("journal_entries.is_posted", true)
+        .gte("journal_entries.entry_date", startDate)
+        .lte("journal_entries.entry_date", endDate);
+
+      let total = 0;
+      const bankTxIdsInJE = new Set();
+
+      (linesData || []).forEach(line => {
+        // Track bank_transaction IDs already covered by a JE (for step 3 dedup)
+        if (line.journal_entries?.reference_type === 'bank_transaction' && line.journal_entries?.reference_id) {
+          bankTxIdsInJE.add(line.journal_entries.reference_id);
+        }
+        if (line.accounts?.account_type === 'Expense') {
+          total += (line.debit || 0) - (line.credit || 0);
+        }
+      });
+
+      // ── Step 2: expenses table rows that have NO journal entry yet ────────────
+      const { data: directExpenses } = await supabase
+        .from("expenses")
+        .select("amount")
+        .gte("expense_date", startDate)
+        .lte("expense_date", endDate)
+        .is("journal_entry_id", null);
+
+      (directExpenses || []).forEach(exp => {
+        const amt = parseFloat(exp.amount) || 0;
+        if (amt > 0) total += amt;
+      });
+
+      // ── Step 3: cleared bank withdrawals NOT already counted via a JE ────────
+      const { data: btData } = await supabase
+        .from("bank_transactions")
+        .select("id, amount")
+        .eq("is_cleared", true)
+        .is("linked_expense_id", null)
+        .lt("amount", 0)
+        .gte("transaction_date", startDate)
+        .lte("transaction_date", endDate);
+
+      (btData || []).forEach(tx => {
+        if (bankTxIdsInJE.has(tx.id)) return; // already counted in step 1
+        total += Math.abs(parseFloat(tx.amount) || 0);
+      });
+
+      console.log(`📅 This Month server-side total (3-step): $${total.toFixed(2)}`);
+      setThisMonthTotal(total);
+    } catch (err) {
+      console.error("Error loading this month total:", err);
+      setThisMonthTotal(null);
+    }
+  }
+
   // Check if expense is linked to a bank transaction
   function isExpenseLinked(expenseId) {
     return bankTransactions.some(t => t.linked_expense_id === expenseId);
@@ -206,7 +375,7 @@ export default function Expenses() {
   function openAddExpenseModal() {
     setEditingExpense(null);
     setExpenseForm({
-      expense_date: new Date().toISOString().split('T')[0],
+      expense_date: getTodayLocalDate(),
       amount: '',
       category: 'materials',
       vendor: '',
@@ -260,18 +429,22 @@ export default function Expenses() {
     }
 
     try {
-      // Determine if selected account is a bank account or income account
+      // Determine if selected account is a real bank account (from bank_accounts table)
+      // OR a Chart of Accounts entry (Income or Asset account - stored in income_account_id)
       const selectedAccount = bankAccounts.find(acc => acc.id === expenseForm.bank_account_id);
-      const isBankAccount = selectedAccount && selectedAccount.account_type !== 'Income';
-      const isIncomeAccount = selectedAccount && selectedAccount.account_type === 'Income';
+      const isChartAccount = selectedAccount && (
+        selectedAccount.account_type === 'Income' || selectedAccount.account_type === 'Asset'
+      );
+      const isBankAccount = selectedAccount && !isChartAccount;
 
       const expenseData = {
         ...expenseForm,
         created_by: user.id,
         amount: parseFloat(expenseForm.amount),
-        // Only store bank_account_id if it's a bank account, not an income account
+        // Only store bank_account_id if it's a real bank account (from bank_accounts table)
+        // Asset/Income accounts from Chart of Accounts go in income_account_id
         bank_account_id: isBankAccount ? expenseForm.bank_account_id : null,
-        income_account_id: isIncomeAccount ? expenseForm.bank_account_id : null
+        income_account_id: isChartAccount ? expenseForm.bank_account_id : null
       };
 
       // Convert empty strings to null for UUID fields
@@ -371,7 +544,17 @@ export default function Expenses() {
     }
   }
 
-  const filteredExpenses = expenses.filter(expense => {
+  // Combine manually-entered expenses + cleared bank transactions, sorted by date descending
+  const allExpenses = [
+    ...expenses.map(e => ({ ...e, _isBankTransaction: false })),
+    ...clearedBankExpenses
+  ].sort((a, b) => {
+    const dateA = new Date(a.expense_date || 0);
+    const dateB = new Date(b.expense_date || 0);
+    return dateB - dateA;
+  });
+
+  const filteredExpenses = allExpenses.filter(expense => {
     const searchLower = searchTerm.toLowerCase();
     const matchesSearch = (
       expense.vendor?.toLowerCase().includes(searchLower) ||
@@ -382,29 +565,38 @@ export default function Expenses() {
 
     const matchesCategory = categoryFilter === "all" || expense.category === categoryFilter;
 
-    return matchesSearch && matchesCategory;
+    const matchesSource =
+      sourceFilter === "all" ||
+      (sourceFilter === "manual" && !expense._isBankTransaction) ||
+      (sourceFilter === "bank" && expense._isBankTransaction);
+
+    return matchesSearch && matchesCategory && matchesSource;
   });
 
-  // Calculate summary statistics
+  // Calculate summary statistics using combined list
   const stats = {
-    total: expenses.length,
-    totalAmount: expenses.reduce((sum, e) => sum + (e.amount || 0), 0),
-    byCategory: expenses.reduce((acc, e) => {
+    total: allExpenses.length,
+    totalAmount: allExpenses.reduce((sum, e) => sum + (e.amount || 0), 0),
+    byCategory: allExpenses.reduce((acc, e) => {
       acc[e.category] = (acc[e.category] || 0) + e.amount;
       return acc;
     }, {}),
-    taxDeductible: expenses.filter(e => e.tax_deductible).reduce((sum, e) => sum + e.amount, 0),
-    thisMonth: expenses.filter(e => {
-      const expenseDate = new Date(e.expense_date);
+    taxDeductible: allExpenses.filter(e => e.tax_deductible).reduce((sum, e) => sum + e.amount, 0),
+    thisMonth: allExpenses.filter(e => {
+      // Use string comparison (YYYY-MM) to avoid UTC timezone shift:
+      // new Date("2026-04-01") parses as midnight UTC = March 31 in CST,
+      // which would wrongly count April 1 expenses as March.
+      if (!e.expense_date) return false;
+      const yearMonth = String(e.expense_date).substring(0, 7); // "YYYY-MM"
       const now = new Date();
-      return expenseDate.getMonth() === now.getMonth() && 
-             expenseDate.getFullYear() === now.getFullYear();
+      const currentYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      return yearMonth === currentYearMonth;
     }).reduce((sum, e) => sum + e.amount, 0)
   };
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
-    const date = new Date(dateString);
+    const date = new Date(dateString.includes('T') ? dateString : dateString + 'T00:00:00');
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     const year = date.getFullYear();
@@ -466,7 +658,9 @@ export default function Expenses() {
           <div style={styles.statLabel}>Total Spent</div>
         </div>
         <div style={styles.statCard}>
-          <div style={{...styles.statValue, color: '#f59e0b'}}>{formatCurrency(stats.thisMonth)}</div>
+          <div style={{...styles.statValue, color: '#f59e0b'}}>
+            {thisMonthTotal === null ? formatCurrency(stats.thisMonth) : formatCurrency(thisMonthTotal)}
+          </div>
           <div style={styles.statLabel}>This Month</div>
         </div>
         <div style={styles.statCard}>
@@ -504,12 +698,33 @@ export default function Expenses() {
           <option value="subcontractor">Subcontractor</option>
           <option value="other">Other</option>
         </select>
+        <select
+          value={sourceFilter}
+          onChange={(e) => setSourceFilter(e.target.value)}
+          style={styles.filterSelect}
+        >
+          <option value="all">All Sources</option>
+          <option value="manual">Manual Entries</option>
+          <option value="bank">Cleared Bank Transactions</option>
+        </select>
+      </div>
+
+      {/* Legend */}
+      <div style={{display: 'flex', gap: 16, marginBottom: 12, alignItems: 'center'}}>
+        <span style={{fontSize: 13, color: '#aaa'}}>
+          <span style={{background: '#fff', border: '1px solid #e5e7eb', borderRadius: 4, padding: '2px 8px', marginRight: 6, fontSize: 12}}>✏️ Manual</span>
+          Manually entered expense
+        </span>
+        <span style={{fontSize: 13, color: '#aaa'}}>
+          <span style={{background: '#dbeafe', border: '1px solid #93c5fd', borderRadius: 4, padding: '2px 8px', marginRight: 6, fontSize: 12}}>🏦 Bank</span>
+          Cleared bank transaction
+        </span>
       </div>
 
       {filteredExpenses.length === 0 ? (
         <div style={styles.empty}>
           <p style={styles.emptyText}>
-            {searchTerm || categoryFilter !== "all" 
+            {searchTerm || categoryFilter !== "all" || sourceFilter !== "all"
               ? "No expenses found matching your filters." 
               : "No expenses yet. Click 'Add Expense' to track your first expense!"}
           </p>
@@ -519,10 +734,11 @@ export default function Expenses() {
           <table style={styles.table}>
             <thead>
               <tr style={styles.tableHeaderRow}>
-                <th style={{...styles.th, textAlign: 'left', width: '12%'}}>Date</th>
-                <th style={{...styles.th, textAlign: 'left', width: '15%'}}>Vendor</th>
-                <th style={{...styles.th, textAlign: 'center', width: '20%'}}>Category</th>
-                <th style={{...styles.th, textAlign: 'center', width: '23%'}}>Project</th>
+                <th style={{...styles.th, textAlign: 'left', width: '10%'}}>Date</th>
+                <th style={{...styles.th, textAlign: 'left', width: '8%'}}>Source</th>
+                <th style={{...styles.th, textAlign: 'left', width: '15%'}}>Vendor / Payee</th>
+                <th style={{...styles.th, textAlign: 'center', width: '20%'}}>Category / Account</th>
+                <th style={{...styles.th, textAlign: 'center', width: '20%'}}>Project</th>
                 <th style={{...styles.th, textAlign: 'right', width: '10%'}}>Amount</th>
                 <th style={{...styles.th, textAlign: 'center', width: '10%'}}>Actions</th>
               </tr>
@@ -531,16 +747,48 @@ export default function Expenses() {
               {filteredExpenses.map(expense => (
                 <tr 
                   key={expense.id} 
-                  style={styles.tableRow}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f9fafb'}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                  style={{
+                    ...styles.tableRow,
+                    backgroundColor: expense._isBankTransaction ? '#f0f7ff' : 'transparent'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = expense._isBankTransaction ? '#dbeafe' : '#f9fafb'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = expense._isBankTransaction ? '#f0f7ff' : 'transparent'}
                 >
-                  <td style={{...styles.td, width: '12%'}}>
+                  <td style={{...styles.td, width: '10%'}}>
                     {formatDate(expense.expense_date)}
+                  </td>
+                  <td style={{...styles.td, width: '8%'}}>
+                    {expense._isBankTransaction ? (
+                      <span style={{
+                        background: '#dbeafe',
+                        border: '1px solid #93c5fd',
+                        borderRadius: 4,
+                        padding: '2px 8px',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: '#1d4ed8',
+                        whiteSpace: 'nowrap'
+                      }} title="Cleared from bank account">
+                        🏦 Bank
+                      </span>
+                    ) : (
+                      <span style={{
+                        background: '#fff',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: 4,
+                        padding: '2px 8px',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: '#555',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        ✏️ Manual
+                      </span>
+                    )}
                   </td>
                   <td style={{...styles.td, width: '15%'}}>
                     <div style={{display: 'flex', alignItems: 'center', gap: 6}}>
-                      {isExpenseLinked(expense.id) && (
+                      {!expense._isBankTransaction && isExpenseLinked(expense.id) && (
                         <span style={{fontSize: 16}} title="Linked to bank transaction">🔗</span>
                       )}
                       <span>{expense.vendor || 'N/A'}</span>
@@ -549,29 +797,35 @@ export default function Expenses() {
                   <td style={{...styles.td, width: '20%', textAlign: 'center'}}>
                     {expense.category || 'N/A'}
                   </td>
-                  <td style={{...styles.td, width: '23%', textAlign: 'center'}}>
+                  <td style={{...styles.td, width: '20%', textAlign: 'center'}}>
                     {expense.project_name || '-'}
                   </td>
                   <td style={{...styles.td, textAlign: 'right', width: '10%'}}>
                     <span style={styles.amount}>{formatCurrency(expense.amount)}</span>
                   </td>
                   <td style={{...styles.td, textAlign: 'center', width: '10%'}}>
-                    <div style={styles.actions}>
-                      <button
-                        onClick={() => openEditExpenseModal(expense)}
-                        style={{...styles.actionButton, ...styles.editButton}}
-                        title="Edit"
-                      >
-                        ✏️
-                      </button>
-                      <button
-                        onClick={() => handleDelete(expense)}
-                        style={{...styles.actionButton, ...styles.deleteButton}}
-                        title="Delete"
-                      >
-                        🗑️
-                      </button>
-                    </div>
+                    {expense._isBankTransaction ? (
+                      <div style={{fontSize: 11, color: '#6b7280', textAlign: 'center'}}>
+                        <em>Manage in<br/>Bank Transactions</em>
+                      </div>
+                    ) : (
+                      <div style={styles.actions}>
+                        <button
+                          onClick={() => openEditExpenseModal(expense)}
+                          style={{...styles.actionButton, ...styles.editButton}}
+                          title="Edit"
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          onClick={() => handleDelete(expense)}
+                          style={{...styles.actionButton, ...styles.deleteButton}}
+                          title="Delete"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -582,7 +836,8 @@ export default function Expenses() {
 
       <div style={styles.footer}>
         <p style={styles.footerText}>
-          Showing {filteredExpenses.length} of {expenses.length} expense{expenses.length !== 1 ? 's' : ''}
+          Showing {filteredExpenses.length} of {allExpenses.length} expense{allExpenses.length !== 1 ? 's' : ''}
+          {' '}({expenses.length} manual + {clearedBankExpenses.length} cleared bank transactions)
         </p>
       </div>
 

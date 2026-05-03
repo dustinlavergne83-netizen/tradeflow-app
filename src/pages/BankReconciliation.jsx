@@ -13,9 +13,16 @@ export default function BankReconciliation() {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [reconciling, setReconciling] = useState(false);
-  
+
+  // Default period = previous calendar month
+  const _prevMonth = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d; })();
+  const _defaultStart = new Date(_prevMonth.getFullYear(), _prevMonth.getMonth(), 1).toISOString().split('T')[0];
+  const _defaultEnd   = new Date(_prevMonth.getFullYear(), _prevMonth.getMonth() + 1, 0).toISOString().split('T')[0];
+
   // Reconciliation state
-  const [statementDate, setStatementDate] = useState(new Date().toISOString().split('T')[0]);
+  const [periodStartDate, setPeriodStartDate] = useState(_defaultStart);
+  const [periodEndDate, setPeriodEndDate] = useState(_defaultEnd);
+  const [statementDate, setStatementDate] = useState(_defaultEnd);
   const [statementEndingBalance, setStatementEndingBalance] = useState('');
   const [selectedTransactions, setSelectedTransactions] = useState(new Set());
   const [startingBalance, setStartingBalance] = useState(0);
@@ -28,7 +35,7 @@ export default function BankReconciliation() {
     if (selectedAccountId) {
       loadAccountData();
     }
-  }, [selectedAccountId]);
+  }, [selectedAccountId, periodStartDate, periodEndDate]);
 
   async function loadBankAccounts() {
     try {
@@ -64,28 +71,39 @@ export default function BankReconciliation() {
       if (accountError) throw accountError;
       setSelectedAccount(accountData);
       
-      // Calculate starting balance (last reconciled balance or opening balance)
-      const startBal = accountData.last_reconciled_balance !== null 
-        ? accountData.last_reconciled_balance 
-        : accountData.opening_balance || 0;
-      setStartingBalance(startBal);
-
-      // Load unreconciled transactions
-      const { data: transData, error: transError } = await supabase
+      // Load ALL transactions in the statement period (both reconciled and unreconciled)
+      // Removing the is_reconciled=false filter so previously-reconciled transactions
+      // (e.g. January entries) are no longer hidden when the user comes back to review them.
+      let query = supabase
         .from("bank_transactions")
         .select("*")
         .eq("bank_account_id", selectedAccountId)
-        .eq("is_reconciled", false)
         .order("transaction_date", { ascending: true });
 
+      if (periodStartDate) query = query.gte("transaction_date", periodStartDate);
+      if (periodEndDate)   query = query.lte("transaction_date", periodEndDate);
+
+      const { data: transData, error: transError } = await query;
       if (transError) throw transError;
       setTransactions(transData || []);
-      
-      // Pre-select cleared transactions
-      const clearedIds = new Set(
-        transData.filter(t => t.is_cleared).map(t => t.id)
+
+      // Compute starting balance = opening balance + sum of ALL cleared transactions
+      // that fall BEFORE the period start date
+      const { data: priorTxns } = await supabase
+        .from("bank_transactions")
+        .select("amount")
+        .eq("bank_account_id", selectedAccountId)
+        .eq("is_cleared", true)
+        .lt("transaction_date", periodStartDate || "2000-01-01");
+
+      const priorSum = (priorTxns || []).reduce((s, t) => s + t.amount, 0);
+      setStartingBalance((accountData.opening_balance || 0) + priorSum);
+
+      // Pre-select cleared + already-reconciled transactions
+      const preSelected = new Set(
+        (transData || []).filter(t => t.is_cleared || t.is_reconciled).map(t => t.id)
       );
-      setSelectedTransactions(clearedIds);
+      setSelectedTransactions(preSelected);
     } catch (err) {
       console.error("Error loading account data:", err);
       alert("Failed to load account data");
@@ -191,7 +209,7 @@ export default function BankReconciliation() {
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
-    const date = new Date(dateString);
+    const date = new Date(dateString.includes('T') ? dateString : dateString + 'T00:00:00');
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
@@ -285,7 +303,25 @@ export default function BankReconciliation() {
           {/* Statement Info */}
           <div style={styles.statementSection}>
             <h3 style={styles.sectionTitle}>Bank Statement Information</h3>
-            <div style={styles.formRow}>
+            <div style={{...styles.formRow, gridTemplateColumns: '1fr 1fr 1fr 1fr', marginBottom: 16}}>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>📅 Period Start</label>
+                <input
+                  type="date"
+                  value={periodStartDate}
+                  onChange={(e) => setPeriodStartDate(e.target.value)}
+                  style={styles.input}
+                />
+              </div>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>📅 Period End</label>
+                <input
+                  type="date"
+                  value={periodEndDate}
+                  onChange={(e) => setPeriodEndDate(e.target.value)}
+                  style={styles.input}
+                />
+              </div>
               <div style={styles.formGroup}>
                 <label style={styles.label}>Statement Date *</label>
                 <input
@@ -307,6 +343,10 @@ export default function BankReconciliation() {
                 />
               </div>
             </div>
+            <p style={{margin: 0, fontSize: 13, color: '#6b7280'}}>
+              💡 Showing <strong>all transactions</strong> (cleared, uncleared, and previously reconciled) within the period above. 
+              Adjust Period Start / End to change which transactions appear.
+            </p>
           </div>
 
           {/* Reconciliation Summary */}
@@ -361,9 +401,9 @@ export default function BankReconciliation() {
           {/* Transactions List */}
           <div style={styles.transactionsSection}>
             <h3 style={styles.sectionTitle}>
-              Unreconciled Transactions ({transactions.length})
+              Transactions in Period ({transactions.length})
               <span style={styles.selectedCount}>
-                {selectedTransactions.size} selected
+                {selectedTransactions.size} checked
               </span>
             </h3>
             
@@ -431,7 +471,9 @@ export default function BankReconciliation() {
                           {transaction.amount > 0 ? formatCurrency(transaction.amount) : '-'}
                         </td>
                         <td style={styles.td}>
-                          {transaction.is_cleared ? (
+                          {transaction.is_reconciled ? (
+                            <span style={{...styles.clearedBadge, backgroundColor: '#dbeafe', color: '#1e40af'}}>Reconciled</span>
+                          ) : transaction.is_cleared ? (
                             <span style={styles.clearedBadge}>Cleared</span>
                           ) : (
                             <span style={styles.unclearedBadge}>Uncleared</span>

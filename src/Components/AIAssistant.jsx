@@ -27,6 +27,7 @@ export default function AIAssistant() {
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const durationTimerRef = useRef(null);
+  const recordingDurationRef = useRef(0); // ref so onstop closure always has latest value
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -61,7 +62,8 @@ export default function AIAssistant() {
       mediaRecorder.onstop = async () => {
         stream.getTracks().forEach((track) => track.stop());
 
-        if (recordingDuration < 1) {
+        // Use ref (not state) — state would be stale inside this closure
+        if (recordingDurationRef.current < 1) {
           setIsLoading(false);
           return; // Too short
         }
@@ -75,15 +77,20 @@ export default function AIAssistant() {
       mediaRecorderRef.current = mediaRecorder;
       setIsRecording(true);
       setRecordingDuration(0);
+      recordingDurationRef.current = 0;
 
       durationTimerRef.current = setInterval(() => {
-        setRecordingDuration((d) => d + 1);
+        setRecordingDuration((d) => {
+          const next = d + 1;
+          recordingDurationRef.current = next; // keep ref in sync
+          return next;
+        });
       }, 1000);
     } catch (err) {
       console.error("Mic error:", err);
       alert("Microphone access denied. Please allow microphone permissions.");
     }
-  }, [recordingDuration]);
+  }, []); // no deps needed — all state accessed via refs
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && isRecording) {

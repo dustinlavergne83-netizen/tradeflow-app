@@ -249,7 +249,8 @@ Deno.serve(async (req) => {
         'Authorization': `Bearer ${RESEND_API_KEY}`,
       },
       body: JSON.stringify({
-        from: 'estimates@dmlelectrical.com',
+        from: 'DML Electrical Service <onboarding@resend.dev>',
+        reply_to: 'dustin@dmlelectrical.com',
         to: emailAddresses,
         bcc: ['dustin@dmlelectrical.com'],
         subject: `Estimate #${estimateNumber}${projectName && projectName !== 'Quick Estimate' ? ` - ${projectName}` : ''} - $${fmtMoney(total)}`,

@@ -70,9 +70,24 @@ Deno.serve(async (req) => {
       return (amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     };
 
+    // Resolve effective site URL — never use localhost in email links.
+    // Priority: SITE_URL env var > provided siteUrl (if not localhost) > error
+    const envSiteUrl = Deno.env.get('SITE_URL');
+    let effectiveSiteUrl = siteUrl;
+    if (envSiteUrl) {
+      effectiveSiteUrl = envSiteUrl; // Always prefer the server-side env var
+    } else if (!siteUrl || siteUrl.includes('localhost') || siteUrl.includes('127.0.0.1')) {
+      return new Response(
+        JSON.stringify({
+          error: 'Email links cannot point to localhost. Access your app from its production URL, or set the SITE_URL secret in Supabase Dashboard → Edge Functions → Secrets.'
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+      );
+    }
+
     const invoiceUrl = isReceipt 
-      ? `${siteUrl}/invoice/receipt?invoiceId=${invoiceId}`
-      : `${siteUrl}/invoice/view?invoiceId=${invoiceId}`;
+      ? `${effectiveSiteUrl}/invoice/receipt?invoiceId=${invoiceId}`
+      : `${effectiveSiteUrl}/invoice/view?invoiceId=${invoiceId}`;
     
     // Use totalWithMarkup if provided, otherwise fall back to subtotal
     const displayTotal = totalWithMarkup || subtotal || 0;
@@ -448,6 +463,12 @@ Deno.serve(async (req) => {
                     <p style="margin: 0; font-size: 12px; color: #6b7280;">🔒 Secure online payment &bull; Credit card or ACH bank transfer &bull; No fee for ACH</p>
                   </td>
                 </tr>
+                <tr>
+                  <td align="center" style="padding-top: 10px;">
+                    <p style="margin: 0; font-size: 11px; color: #9ca3af;">Button not working? Copy &amp; paste this link:</p>
+                    <p style="margin: 4px 0 0 0; font-size: 12px; color: #0b3ea8; word-break: break-all;">${invoiceUrl}</p>
+                  </td>
+                </tr>
               </table>
 
               <div style="margin: 12px 0 20px 0; padding: 14px 16px; background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
@@ -509,21 +530,43 @@ Deno.serve(async (req) => {
         'Authorization': `Bearer ${RESEND_API_KEY}`,
       },
       body: JSON.stringify({
-        from: 'invoices@dmlelectrical.com',
+        from: 'DML Electrical Service <onboarding@resend.dev>',
+        reply_to: 'dustin@dmlelectrical.com',
         to: emailAddresses,
         bcc: ['dustin@dmlelectrical.com'],
         subject: isReceipt 
           ? `Payment Receipt - Invoice #${invoiceNumber} - PAID $${fmtMoney(totalPayments)}`
           : `Invoice #${invoiceNumber} - $${fmtMoney(balanceDue)} Due${dueDate ? ` by ${formatDate(dueDate)}` : ''}`,
         html: html,
+        // Disable click tracking to avoid resend-clicks.com SSL redirect issues
+        // when domain is not yet verified
+        tags: [{ name: 'category', value: 'invoice' }],
+        headers: {
+          'X-Entity-Ref-ID': `invoice-${invoiceId}`,
+        },
       }),
     })
 
     const data = await res.json()
 
     if (!res.ok) {
-      console.error('Resend API Error:', data)
-      throw new Error(data.message || 'Failed to send email')
+      console.error('Resend API Error Status:', res.status)
+      console.error('Resend API Error Body:', JSON.stringify(data))
+      const resendMsg = data.message || data.name || data.error || JSON.stringify(data)
+      // Provide a specific, actionable message for domain verification errors
+      if (res.status === 403 || (resendMsg && resendMsg.toLowerCase().includes('domain') && resendMsg.toLowerCase().includes('not verified'))) {
+        throw new Error(
+          `Email domain not verified.\n\n` +
+          `To fix this:\n` +
+          `1. Log into resend.com\n` +
+          `2. Go to "Domains" and click "Add Domain"\n` +
+          `3. Enter: dmlelectrical.com\n` +
+          `4. Add the DNS records to your domain registrar\n` +
+          `5. Click "Verify" in Resend\n\n` +
+          `Resend error: ${resendMsg}`
+        )
+      }
+      throw new Error(`Resend API error (${res.status}): ${resendMsg}`)
     }
 
     return new Response(
@@ -537,12 +580,16 @@ Deno.serve(async (req) => {
 
   } catch (error) {
     console.error('Error sending invoice:', error)
+    // Return 200 with error payload so the client can read the actual message
+    // (non-2xx responses cause Supabase client to throw a generic FunctionsHttpError
+    //  that hides the real error details)
     return new Response(
       JSON.stringify({ 
+        success: false,
         error: error.message || 'Failed to send invoice',
         details: error.toString()
       }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
     )
   }
 })

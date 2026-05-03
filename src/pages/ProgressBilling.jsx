@@ -42,6 +42,19 @@ export default function ProgressBilling() {
   const [deposits, setDeposits] = useState([]);
   const [selectedDeposits, setSelectedDeposits] = useState(new Set());
 
+  // Extra line items (don't affect contract %)
+  const [extraLineItems, setExtraLineItems] = useState([]);
+
+  function addExtraLineItem() {
+    setExtraLineItems(prev => [...prev, { id: Date.now(), description: '', amount: '' }]);
+  }
+  function updateExtraLineItem(id, field, value) {
+    setExtraLineItems(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
+  }
+  function removeExtraLineItem(id) {
+    setExtraLineItems(prev => prev.filter(item => item.id !== id));
+  }
+
   useEffect(() => {
     if (proposalId) {
       loadProposalData();
@@ -158,23 +171,46 @@ export default function ProgressBilling() {
         setDeposits(depositsData || []);
       }
 
-      // Total contract value = project's active_worth (includes approved COs)
-      // Fall back to proposal total if active_worth not set
-      const contractValue = (projectData?.active_worth && projectData.active_worth > 0) 
-        ? projectData.active_worth 
-        : (proposalData.total_amount || 0);
+      // Total contract value = THIS proposal's own amount only.
+      // Change orders are separate and each get their own billing scope.
+      const contractValue = proposalData.total_amount || 0;
       setTotalContractValue(contractValue);
 
-      // Load previous progress billing invoices for this project
+      // Load previous progress billing for THIS proposal only.
+      // We tag each invoice note with [PROPOSAL:<id>] so we can query back precisely.
+      // Also parse "This draw: $X" from notes to avoid counting extra line items.
       const projectName = baseEstimate?.project_name || "";
       if (projectName) {
-        const { data: prevInvoices } = await supabase
+        // Primary: match by proposal ID tag (invoices created after this fix)
+        const { data: taggedInvoices } = await supabase
           .from("invoices")
-          .select("total")
+          .select("notes, total")
           .eq("project_name", projectName)
-          .like("notes", "%Progress billing%");
+          .like("notes", `%[PROPOSAL:${proposalId}]%`);
 
-        const prevBilled = (prevInvoices || []).reduce((sum, inv) => sum + (inv.total || 0), 0);
+        let prevBilled = 0;
+        if (taggedInvoices && taggedInvoices.length > 0) {
+          // Parse the "This draw: $X" from each invoice's notes for accuracy
+          for (const inv of taggedInvoices) {
+            const match = (inv.notes || "").match(/This draw: \$([0-9.]+)/);
+            prevBilled += match ? parseFloat(match[1]) : (inv.total || 0);
+          }
+        } else if (baseEstimate?.estimate_number) {
+          // Fallback for invoices created before the tag was added.
+          // IMPORTANT: use " | " after the estimate number so "estimate 1010 |" does NOT
+          // accidentally match the CO invoice "estimate 1010-CO1 |".
+          const { data: legacyInvoices } = await supabase
+            .from("invoices")
+            .select("notes, total")
+            .eq("project_name", projectName)
+            .like("notes", `%Progress billing from estimate ${baseEstimate.estimate_number} |%`)
+            .not("notes", "like", "%[PROPOSAL:%"); // exclude invoices already tagged to a different proposal
+
+          for (const inv of legacyInvoices || []) {
+            const match = (inv.notes || "").match(/This draw: \$([0-9.]+)/);
+            prevBilled += match ? parseFloat(match[1]) : (inv.total || 0);
+          }
+        }
         setPreviouslyBilled(prevBilled);
       }
 
@@ -249,12 +285,14 @@ export default function ProgressBilling() {
     ? Math.min(parseFloat(billingAmount) || 0, remainingToBill)
     : Math.min((remainingToBill * (parseFloat(billingPercentage) || 0)) / 100, remainingToBill);
 
+  const extraItemsTotal = extraLineItems.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+
   const totalDepositsSelected = Array.from(selectedDeposits).reduce((sum, depId) => {
     const dep = deposits.find(d => d.id === depId);
     return sum + (dep?.deposit_amount || 0);
   }, 0);
 
-  const balanceDue = Math.max(0, currentBillingAmount - totalDepositsSelected);
+  const balanceDue = Math.max(0, currentBillingAmount + extraItemsTotal - totalDepositsSelected);
 
   function calculateDueDate(term) {
     const dateObj = new Date(invoiceDate);
@@ -370,12 +408,21 @@ export default function ProgressBilling() {
       const lineDescription = invoiceDescription.trim() || 
         `Progress billing - ${percentOfTotal}% of contract value $${totalContractValue.toFixed(2)}`;
 
+      // Include a structured source tag so "previously billed" queries can identify
+      // exactly which invoices belong to this proposal/CO (avoids cross-contamination).
+      const sourceTag = proposalId ? `[PROPOSAL:${proposalId}]`
+        : coId ? `[CO:${coId}]`
+        : `[ESTIMATE:${estimateId || ''}]`;
+
       const notesText = `Progress billing from estimate ${estimate.estimate_number}` +
         ` | This draw: $${currentBillingAmount.toFixed(2)} (${percentOfTotal}% of $${totalContractValue.toFixed(2)})` +
         ` | Previously billed: $${previouslyBilled.toFixed(2)}` +
         ` | Remaining after this: $${(remainingToBill - currentBillingAmount).toFixed(2)}` +
         (totalDepositsSelected > 0 ? ` | Applied Deposits: $${totalDepositsSelected.toFixed(2)}` : '') +
-        ` | Payment Terms: ${paymentTerm.replace('_', ' ')}`;
+        ` | Payment Terms: ${paymentTerm.replace('_', ' ')}` +
+        ` | ${sourceTag}`;
+
+      const invoiceTotal = currentBillingAmount + extraItemsTotal;
 
       // Create invoice
       const { data: newInvoice, error: invoiceError } = await supabase
@@ -386,8 +433,8 @@ export default function ProgressBilling() {
           customer_name: customerName,
           invoice_date: invoiceDate,
           due_date: calculatedDueDate,
-          subtotal: currentBillingAmount,
-          total: currentBillingAmount,
+          subtotal: invoiceTotal,
+          total: invoiceTotal,
           balance_due: balanceDue,
           deposit_received: totalDepositsSelected || 0,
           status: 'draft',
@@ -399,7 +446,7 @@ export default function ProgressBilling() {
 
       if (invoiceError) throw invoiceError;
 
-      // Create single invoice line item
+      // Create the main progress draw line item
       const { error: itemError } = await supabase
         .from('invoice_items')
         .insert([{
@@ -411,6 +458,36 @@ export default function ProgressBilling() {
         }]);
 
       if (itemError) throw itemError;
+
+      // Save extra line items one-by-one
+      // NOTE: We do NOT use .select().single() here — it can fail in Supabase when
+      // the INSERT RLS policy uses a complex EXISTS subquery and the RETURNING clause
+      // evaluates the SELECT policy separately, causing a false "no rows" error even
+      // though the INSERT succeeded. Match the same pattern as the main draw item.
+      const validExtras = extraLineItems.filter(
+        item => (item.description || '').trim() !== '' && item.amount !== '' && parseFloat(item.amount) !== 0
+      );
+      console.log('💡 Extra line items to save:', validExtras.length, validExtras);
+
+      for (const item of validExtras) {
+        const amt = parseFloat(item.amount);
+        console.log('➕ Inserting extra item:', item.description, '$' + amt);
+        const { error: extraErr } = await supabase
+          .from('invoice_items')
+          .insert([{
+            invoice_id: newInvoice.id,
+            description: item.description.trim(),
+            quantity: 1,
+            unit_price: amt,
+            total: amt
+          }]);
+        if (extraErr) {
+          console.error('❌ Failed to insert extra item:', extraErr);
+          throw new Error(`Failed to save line item "${item.description}": ${extraErr.message}`);
+        } else {
+          console.log('✅ Extra item saved:', item.description, '$' + amt);
+        }
+      }
 
       // Apply selected deposits
       if (selectedDeposits.size > 0) {
@@ -498,11 +575,18 @@ export default function ProgressBilling() {
       <div style={styles.content}>
         {/* Contract Summary */}
         <div style={styles.card}>
-          <h2 style={styles.cardTitle}>Contract Summary</h2>
+          <h2 style={styles.cardTitle}>
+            {proposalId ? 'Proposal Billing Scope' : coId ? 'Change Order Billing Scope' : 'Contract Summary'}
+          </h2>
+          {proposalId && (
+            <div style={{marginBottom: 16, padding: '10px 14px', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, fontSize: 13, color: '#1e40af'}}>
+              ℹ️ <strong>Billing against this proposal only.</strong> Change orders are separate — bill them individually from their own Progress Invoice.
+            </div>
+          )}
 
           <div style={styles.summaryGrid}>
             <div style={styles.summaryBox}>
-              <div style={styles.summaryBoxLabel}>Total Contract Value</div>
+              <div style={styles.summaryBoxLabel}>{proposalId ? 'This Proposal Value' : coId ? 'Change Order Value' : 'Total Contract Value'}</div>
               <div style={styles.summaryBoxValue}>${totalContractValue.toFixed(2)}</div>
             </div>
             <div style={styles.summaryBox}>
@@ -757,16 +841,107 @@ export default function ProgressBilling() {
           </div>
         )}
 
+        {/* Extra Line Items */}
+        <div style={styles.card}>
+          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12}}>
+            <div>
+              <h2 style={{...styles.cardTitle, marginBottom: 4}}>➕ Extra Line Items</h2>
+              <p style={{fontSize: 13, color: '#666', margin: 0}}>
+                Add items that bill separately — they won't affect contract progress %.
+              </p>
+            </div>
+            <button
+              onClick={addExtraLineItem}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: '#8b5cf6',
+                border: 'none',
+                color: '#fff',
+                borderRadius: 8,
+                cursor: 'pointer',
+                fontSize: 14,
+                fontWeight: '600',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              + Add Item
+            </button>
+          </div>
+
+          {extraLineItems.length === 0 ? (
+            <div style={{padding: 20, border: '2px dashed #e5e7eb', borderRadius: 8, textAlign: 'center', color: '#999', fontSize: 14}}>
+              No extra items. Click "+ Add Item" to add charges like per diem, equipment rental, storage fees, etc.
+            </div>
+          ) : (
+            <div style={{display: 'flex', flexDirection: 'column', gap: 10}}>
+              {extraLineItems.map((item, idx) => (
+                <div key={item.id} style={{display: 'flex', gap: 12, alignItems: 'center'}}>
+                  <span style={{fontSize: 13, color: '#999', minWidth: 20}}>{idx + 1}.</span>
+                  <input
+                    type="text"
+                    value={item.description}
+                    onChange={(e) => updateExtraLineItem(item.id, 'description', e.target.value)}
+                    style={{...styles.input, flex: 2}}
+                    placeholder="Description (e.g., Per diem, Equipment rental)"
+                  />
+                  <div style={{position: 'relative', flex: 1}}>
+                    <span style={{position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#666', fontWeight: 'bold'}}>$</span>
+                    <input
+                      type="number"
+                      value={item.amount}
+                      onChange={(e) => updateExtraLineItem(item.id, 'amount', e.target.value)}
+                      style={{...styles.input, paddingLeft: 28, textAlign: 'right'}}
+                      placeholder="0.00"
+                      min="0"
+                      step="0.01"
+                    />
+                  </div>
+                  <button
+                    onClick={() => removeExtraLineItem(item.id)}
+                    style={{padding: '8px 12px', backgroundColor: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 18, fontWeight: 'bold'}}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              {extraItemsTotal > 0 && (
+                <div style={{display: 'flex', justifyContent: 'flex-end', marginTop: 4, paddingTop: 10, borderTop: '1px solid #e5e7eb'}}>
+                  <span style={{fontSize: 14, color: '#666', marginRight: 12}}>Extra Items Total:</span>
+                  <span style={{fontSize: 16, fontWeight: 'bold', color: '#8b5cf6'}}>${extraItemsTotal.toFixed(2)}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Final Summary & Create Button */}
         <div style={{...styles.card, border: '3px solid ' + BRAND.accent}}>
           <h2 style={{...styles.cardTitle, color: BRAND.accent}}>Invoice Summary</h2>
 
           <div style={styles.summaryRow}>
-            <span style={styles.summaryLabel}>This Draw Amount:</span>
-            <span style={{...styles.summaryValue, fontSize: 22, color: BRAND.accent}}>
+            <span style={styles.summaryLabel}>Progress Draw:</span>
+            <span style={{...styles.summaryValue, color: BRAND.accent}}>
               ${currentBillingAmount.toFixed(2)}
             </span>
           </div>
+
+          {extraItemsTotal > 0 && (
+            <div style={styles.summaryRow}>
+              <span style={styles.summaryLabel}>Extra Line Items ({extraLineItems.filter(i => parseFloat(i.amount) > 0).length}):</span>
+              <span style={{...styles.summaryValue, color: '#8b5cf6'}}>
+                +${extraItemsTotal.toFixed(2)}
+              </span>
+            </div>
+          )}
+
+          {(extraItemsTotal > 0 || currentBillingAmount > 0) && (
+            <div style={styles.summaryRow}>
+              <span style={styles.summaryLabel}>Invoice Subtotal:</span>
+              <span style={{...styles.summaryValue, fontSize: 20, color: BRAND.accent}}>
+                ${(currentBillingAmount + extraItemsTotal).toFixed(2)}
+              </span>
+            </div>
+          )}
 
           {totalDepositsSelected > 0 && (
             <div style={styles.summaryRow}>
@@ -790,7 +965,8 @@ export default function ProgressBilling() {
           </div>
 
           <div style={{marginTop: 8, fontSize: 13, color: '#666'}}>
-            After this invoice: ${(remainingToBill - currentBillingAmount).toFixed(2)} remaining of ${totalContractValue.toFixed(2)} contract
+            Contract progress: ${(remainingToBill - currentBillingAmount).toFixed(2)} remaining of ${totalContractValue.toFixed(2)}
+            {extraItemsTotal > 0 && <span style={{color: '#8b5cf6'}}> (extra items don't count toward contract %)</span>}
           </div>
 
           <button
@@ -804,7 +980,7 @@ export default function ProgressBilling() {
               cursor: currentBillingAmount <= 0 ? 'not-allowed' : 'pointer',
             }}
           >
-            ✅ Create Progress Invoice — ${currentBillingAmount.toFixed(2)}
+            ✅ Create Invoice — ${(currentBillingAmount + extraItemsTotal).toFixed(2)}
           </button>
         </div>
       </div>

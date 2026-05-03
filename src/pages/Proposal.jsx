@@ -13,17 +13,15 @@ export default function Proposal() {
       return <ProposalCommercialPublic />;
     
     case 'commercial-private':
-      // For now, use the same template - can be customized later
-      return <ProposalCommercialPublic />;
+      return <ProposalResidentialContractor />;
     
     case 'residential-contractor':
       return <ProposalResidentialContractor />;
     
     case 'residential-owner':
-      // For now, use the same template - can be customized later
-      return <ProposalCommercialPublic />;
+      return <ProposalResidentialContractor />;
     
     default:
-      return <ProposalCommercialPublic />;
+      return <ProposalResidentialContractor />;
   }
 }

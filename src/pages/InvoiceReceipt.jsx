@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { getSiteUrl } from "../lib/siteUrl";
 import logoImage from "../assets/LOGOD.jpg";
 
 const BRAND = {
@@ -154,7 +155,7 @@ export default function InvoiceReceipt() {
             supabase.functions.invoke('send-invoice', {
               body: {
                 invoiceId: invoiceId,
-                siteUrl: window.location.origin,
+                siteUrl: getSiteUrl(),
                 to: invoice.customer_email,
                 customerName: invoice.customer_name,
                 invoiceNumber: invoice.invoice_number,

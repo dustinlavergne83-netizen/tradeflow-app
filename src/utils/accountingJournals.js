@@ -315,17 +315,19 @@ export async function createExpenseJournalEntry(expense, userId, companyId, bank
       creditAccountId = cashAccount.id;
       creditAccountName = cashAccount.account_name;
     } else if (bankAccountId) {
-      // First check if this is an income account (from accounts table)
-      const { data: incomeAccount, error: incomeError } = await supabase
+      // First check if this is a Chart of Accounts entry (Income or Asset account)
+      // These are passed directly as account IDs from the accounts table
+      const { data: chartAccount, error: chartError } = await supabase
         .from("accounts")
         .select("id, account_name, account_type")
         .eq("id", bankAccountId)
         .single();
       
-      if (incomeAccount && incomeAccount.account_type === 'Income') {
-        // It's an income account, use it directly
-        creditAccountId = incomeAccount.id;
-        creditAccountName = incomeAccount.account_name;
+      if (chartAccount && (chartAccount.account_type === 'Income' || chartAccount.account_type === 'Asset')) {
+        // It's a direct Chart of Accounts entry (Income or Asset like Green Dot prepaid)
+        // Use it directly as the credit account for the expense
+        creditAccountId = chartAccount.id;
+        creditAccountName = chartAccount.account_name;
       } else {
         // For bank payments, use the selected bank account's linked chart account
         const { data: bankAccount, error: bankError } = await supabase

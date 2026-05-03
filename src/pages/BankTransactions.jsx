@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import BankStatementUpload from "../Components/BankStatementUpload";
 import { createBankTransactionJournalEntry, getNextJournalEntryNumber } from "../utils/accountingJournals";
+import { getTodayLocalDate } from "../utils/dateUtils";
 
 export default function BankTransactions() {
   const navigate = useNavigate();
@@ -33,9 +34,10 @@ export default function BankTransactions() {
   const [isClearing, setIsClearing] = useState(false);
   const [selectedClearedTransactions, setSelectedClearedTransactions] = useState(new Set());
   const [isUnclearing, setIsUnclearing] = useState(false);
+  const [bulkStatusMsg, setBulkStatusMsg] = useState('');
   
   const [transactionForm, setTransactionForm] = useState({
-    transaction_date: new Date().toISOString().split('T')[0],
+    transaction_date: getTodayLocalDate(),
     description: '',
     reference_number: '',
     amount: '',
@@ -491,7 +493,7 @@ export default function BankTransactions() {
   function openAddModal() {
     setEditingTransaction(null);
     setTransactionForm({
-      transaction_date: new Date().toISOString().split('T')[0],
+      transaction_date: getTodayLocalDate(),
       description: '',
       reference_number: '',
       amount: '',
@@ -507,7 +509,7 @@ export default function BankTransactions() {
   function openEditModal(transaction) {
     setEditingTransaction(transaction);
     setTransactionForm({
-      transaction_date: transaction.transaction_date || new Date().toISOString().split('T')[0],
+      transaction_date: transaction.transaction_date || getTodayLocalDate(),
       description: transaction.description || '',
       reference_number: transaction.reference_number || '',
       amount: Math.abs(transaction.amount).toString(),
@@ -578,7 +580,7 @@ export default function BankTransactions() {
     }
   }
 
-  async function handleToggleCleared(transaction) {
+  async function handleToggleCleared(transaction, bulkMode = false) {
     try {
       const newClearedStatus = !transaction.is_cleared;
       
@@ -628,8 +630,8 @@ export default function BankTransactions() {
         
         console.log('✅ Linked invoice marked as paid - no duplicate journal entry created');
         
-        // RELOAD DATA - this is critical to show the updated transaction in the list
-        await loadData();
+        // RELOAD DATA - skip in bulk mode, caller reloads once at the end
+        if (!bulkMode) await loadData();
         return;
       }
 
@@ -656,7 +658,7 @@ export default function BankTransactions() {
         await deleteJournalEntryForTransaction(transaction.id);
         
         // Remind user to refresh Chart of Accounts
-        alert('✅ Transaction uncleared! \n\n⚠️ IMPORTANT: Please go to Chart of Accounts > "Refresh Balances" to update the book values.');
+        if (!bulkMode) alert('✅ Transaction uncleared! \n\n⚠️ IMPORTANT: Please go to Chart of Accounts > "Refresh Balances" to update the book values.');
       }
 
         // IMPORTANT: Always create a journal entry for CLEARED transactions
@@ -716,8 +718,8 @@ export default function BankTransactions() {
 
             if (updateError) {
               console.error('Error assigning Owner Draws account:', updateError);
-              alert('⚠️ Failed to assign Owner Draws account');
-              await loadData();
+              if (!bulkMode) alert('⚠️ Failed to assign Owner Draws account');
+              if (!bulkMode) await loadData();
               return;
             }
 
@@ -743,9 +745,12 @@ export default function BankTransactions() {
               .update({ is_cleared: false })
               .eq('id', transaction.id);
             
-            alert('⚠️ Please select a Category (Chart of Accounts) before clearing this transaction.\n\nThis ensures the transaction is properly recorded in both your Bank Account and the Chart of Accounts.');
-            await loadData();
-            return;
+            if (!bulkMode) {
+              alert('⚠️ Please select a Category (Chart of Accounts) before clearing this transaction.\n\nThis ensures the transaction is properly recorded in both your Bank Account and the Chart of Accounts.');
+              await loadData();
+              return;
+            }
+            throw new Error('No category assigned — skipped');
           }
         }
         
@@ -1039,34 +1044,7 @@ export default function BankTransactions() {
                 return;
               }
 
-              // Post the journal entry - try the RPC, but if it fails, just mark it as posted manually
-              console.log('Attempting to post journal entry with RPC...');
-              const { error: postError } = await supabase
-                .rpc('post_journal_entry', {
-                  p_entry_id: newEntry.id,
-                  p_user_id: user.id
-                });
-
-              if (postError) {
-                console.error('RPC post_journal_entry failed:', postError);
-                console.log('Attempting manual post by updating entry status...');
-                
-                // If RPC fails, try updating the entry directly with posted status
-                const { error: updateError } = await supabase
-                  .from('journal_entries')
-                  .update({ 
-                    is_posted: true,
-                    posted_date: new Date().toISOString()
-                  })
-                  .eq('id', newEntry.id);
-                
-                if (updateError) {
-                  console.error('Failed to manually post entry:', updateError);
-                  alert(`⚠️ Journal entry created but posting failed: ${postError.message || updateError.message}`);
-                  return;
-                }
-              }
-              
+              // Entry was already inserted with is_posted: true — no separate RPC needed
               console.log('✅ Journal entry created and posted for transaction:', transaction.id);
               console.log('Transaction', transaction.amount > 0 ? 'deposit' : 'withdrawal', 'recorded to both Bank Account and Chart of Accounts');
             }
@@ -1077,57 +1055,31 @@ export default function BankTransactions() {
         }
       }
 
-      // IMPORTANT: After ANY change to cleared status, recalculate the bank account balance 
-      // by QUERYING THE DATABASE for all cleared transactions fresh (not from in-memory state)
-      // This ensures the balance is always accurate after clearing/unclearing/deleting journal entries
-      try {
-        // Fetch fresh list of all cleared transactions from the database
-        const { data: clearedTransactions, error: clearedError } = await supabase
-          .from('bank_transactions')
-          .select('amount')
-          .eq('bank_account_id', accountId)
-          .eq('is_cleared', true);
-
-        if (clearedError) {
-          console.error('Error fetching cleared transactions for balance recalc:', clearedError);
-        } else {
-          // Calculate fresh cleared balance from database
-          const freshClearedSum = (clearedTransactions || []).reduce((sum, t) => sum + t.amount, 0);
-          const freshClearedBalance = (bankAccount?.opening_balance || 0) + freshClearedSum;
-          
-          console.log('📊 Recalculated bank balance from database:');
-          console.log('Opening balance:', bankAccount?.opening_balance);
-          console.log('Sum of cleared transactions:', freshClearedSum);
-          console.log('New cleared balance:', freshClearedBalance);
-          
-          // Update bank account in state AND database with the fresh calculation
-          setBankAccount(prev => prev ? {...prev, current_balance: freshClearedBalance} : prev);
-          
-          // Sync to database
-          const { error: syncError } = await supabase
-            .from('bank_accounts')
-            .update({ current_balance: freshClearedBalance })
-            .eq('id', accountId);
-          
-          if (syncError) {
-            console.error('Failed to sync balance to database:', syncError);
-          } else {
-            console.log('✅ Balance synced to database:', freshClearedBalance);
+      // Balance recalculation — skip in bulk mode, caller does it once at the end
+      if (!bulkMode) {
+        try {
+          const { data: clearedTransactions, error: clearedError } = await supabase
+            .from('bank_transactions').select('amount')
+            .eq('bank_account_id', accountId).eq('is_cleared', true);
+          if (!clearedError) {
+            const freshClearedSum = (clearedTransactions || []).reduce((sum, t) => sum + t.amount, 0);
+            const freshClearedBalance = (bankAccount?.opening_balance || 0) + freshClearedSum;
+            setBankAccount(prev => prev ? {...prev, current_balance: freshClearedBalance} : prev);
+            await supabase.from('bank_accounts').update({ current_balance: freshClearedBalance }).eq('id', accountId);
           }
+        } catch (err) {
+          console.error('Error recalculating bank balance:', err);
         }
-      } catch (err) {
-        console.error('Error recalculating bank balance:', err);
+        await loadData();
       }
-
-      // CRITICAL: Always reload from database after ANY change to is_cleared
-      // This ensures local state stays in sync and prevents transactions from disappearing
-      console.log('✅ Reloading all transactions from database to ensure sync...');
-      await loadData();
     } catch (err) {
       console.error('Error toggling cleared status:', err);
-      alert(`Failed to update: ${err.message}`);
-      // Reload if there's an error so state stays in sync
-      await loadData();
+      if (!bulkMode) {
+        alert(`Failed to update: ${err.message}`);
+        await loadData();
+      } else {
+        throw err; // re-throw so bulk caller counts it as a failure
+      }
     }
   }
 
@@ -1204,6 +1156,7 @@ export default function BankTransactions() {
     if (selectedTransactions.size === 0) return;
 
     setIsClearing(true);
+    setBulkStatusMsg(`⏳ Clearing ${selectedTransactions.size} transactions…`);
     const transactionIds = Array.from(selectedTransactions);
     let successCount = 0;
     let errorCount = 0;
@@ -1213,7 +1166,7 @@ export default function BankTransactions() {
         const transaction = transactions.find(t => t.id === transId);
         if (transaction) {
           try {
-            await handleToggleCleared(transaction);
+            await handleToggleCleared(transaction, true); // bulkMode: no alerts, no per-transaction reload
             successCount++;
           } catch (err) {
             console.error(`Error clearing transaction ${transId}:`, err);
@@ -1223,11 +1176,28 @@ export default function BankTransactions() {
       }
 
       setSelectedTransactions(new Set());
+
       if (successCount > 0) {
-        loadData();
+        // Recalculate balance once for all cleared transactions
+        try {
+          const { data: clearedTxns } = await supabase
+            .from('bank_transactions').select('amount')
+            .eq('bank_account_id', accountId).eq('is_cleared', true);
+          const freshSum = (clearedTxns || []).reduce((sum, t) => sum + t.amount, 0);
+          const freshBalance = (bankAccount?.opening_balance || 0) + freshSum;
+          setBankAccount(prev => prev ? {...prev, current_balance: freshBalance} : prev);
+          await supabase.from('bank_accounts').update({ current_balance: freshBalance }).eq('id', accountId);
+        } catch (e) { console.error('Balance recalc error:', e); }
+        await loadData();
       }
+
+      const msg = `✅ ${successCount} transaction${successCount !== 1 ? 's' : ''} cleared${errorCount > 0 ? ` · ${errorCount} skipped (no category)` : ''}`;
+      setBulkStatusMsg(msg);
+      setTimeout(() => setBulkStatusMsg(''), 6000);
     } catch (err) {
       console.error('Error clearing selected transactions:', err);
+      setBulkStatusMsg('❌ Error clearing transactions');
+      setTimeout(() => setBulkStatusMsg(''), 6000);
     } finally {
       setIsClearing(false);
     }
@@ -1237,28 +1207,48 @@ export default function BankTransactions() {
     if (selectedClearedTransactions.size === 0) return;
 
     setIsUnclearing(true);
+    setBulkStatusMsg(`⏳ Unclearing ${selectedClearedTransactions.size} transactions…`);
     const transactionIds = Array.from(selectedClearedTransactions);
     let successCount = 0;
+    let errorCount = 0;
 
     try {
       for (const transId of transactionIds) {
         const transaction = transactions.find(t => t.id === transId);
         if (transaction) {
           try {
-            await handleToggleCleared(transaction);
+            await handleToggleCleared(transaction, true); // bulkMode: no alerts, no per-transaction reload
             successCount++;
           } catch (err) {
             console.error(`Error unclearing transaction ${transId}:`, err);
+            errorCount++;
           }
         }
       }
 
       setSelectedClearedTransactions(new Set());
+
       if (successCount > 0) {
-        loadData();
+        // Recalculate balance once after all are uncleared
+        try {
+          const { data: clearedTxns } = await supabase
+            .from('bank_transactions').select('amount')
+            .eq('bank_account_id', accountId).eq('is_cleared', true);
+          const freshSum = (clearedTxns || []).reduce((sum, t) => sum + t.amount, 0);
+          const freshBalance = (bankAccount?.opening_balance || 0) + freshSum;
+          setBankAccount(prev => prev ? {...prev, current_balance: freshBalance} : prev);
+          await supabase.from('bank_accounts').update({ current_balance: freshBalance }).eq('id', accountId);
+        } catch (e) { console.error('Balance recalc error:', e); }
+        await loadData();
       }
+
+      const msg = `✅ ${successCount} transaction${successCount !== 1 ? 's' : ''} uncleared${errorCount > 0 ? ` · ${errorCount} failed` : ''}`;
+      setBulkStatusMsg(msg);
+      setTimeout(() => setBulkStatusMsg(''), 6000);
     } catch (err) {
       console.error('Error unclearing selected transactions:', err);
+      setBulkStatusMsg('❌ Error unclearing transactions');
+      setTimeout(() => setBulkStatusMsg(''), 6000);
     } finally {
       setIsUnclearing(false);
     }
@@ -1274,7 +1264,8 @@ export default function BankTransactions() {
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
-    const date = new Date(dateString);
+    // Append T00:00:00 so date-only strings are parsed as LOCAL time, not UTC midnight
+    const date = new Date(dateString.includes('T') ? dateString : dateString + 'T00:00:00');
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
@@ -1313,6 +1304,18 @@ export default function BankTransactions() {
 
   return (
     <div style={styles.container}>
+      {/* Bulk operation toast */}
+      {bulkStatusMsg && (
+        <div style={{
+          position: 'fixed', bottom: 28, right: 28, zIndex: 9999,
+          backgroundColor: bulkStatusMsg.startsWith('❌') ? '#ef4444' : '#111',
+          color: '#fff', padding: '14px 22px', borderRadius: 10,
+          fontSize: 15, fontWeight: 600, boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+          display: 'flex', alignItems: 'center', gap: 10, maxWidth: 380,
+        }}>
+          {bulkStatusMsg}
+        </div>
+      )}
       <div style={styles.header}>
         <div>
           <button onClick={() => navigate('/accounting/bank-accounts')} style={styles.backButton}>

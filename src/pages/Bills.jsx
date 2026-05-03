@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { createBillJournalEntry, createBillPaymentJournalEntry } from "../utils/accountingJournals";
+import { getTodayLocalDate } from "../utils/dateUtils";
 
 export default function Bills() {
   const navigate = useNavigate();
@@ -19,7 +20,7 @@ export default function Bills() {
   const [billForm, setBillForm] = useState({
     vendor_name: '',
     bill_number: '',
-    bill_date: new Date().toISOString().split('T')[0],
+    bill_date: getTodayLocalDate(),
     due_date: '',
     amount: '',
     description: '',
@@ -82,7 +83,7 @@ export default function Bills() {
     setBillForm({
       vendor_name: '',
       bill_number: '',
-      bill_date: new Date().toISOString().split('T')[0],
+      bill_date: getTodayLocalDate(),
       due_date: '',
       amount: '',
       description: '',
@@ -97,7 +98,7 @@ export default function Bills() {
     setBillForm({
       vendor_name: bill.vendor_name || '',
       bill_number: bill.bill_number || '',
-      bill_date: bill.bill_date || new Date().toISOString().split('T')[0],
+      bill_date: bill.bill_date || getTodayLocalDate(),
       due_date: bill.due_date || '',
       amount: bill.amount?.toString() || '',
       description: bill.description || '',
@@ -270,7 +271,7 @@ export default function Bills() {
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
-    const date = new Date(dateString);
+    const date = new Date(dateString.includes('T') ? dateString : dateString + 'T00:00:00');
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 

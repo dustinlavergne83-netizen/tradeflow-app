@@ -9,6 +9,37 @@ const BRAND = {
   primary: "#2563eb",
 };
 
+const PROJECT_TYPES = [
+  {
+    value: "commercial-public",
+    icon: "🏢",
+    label: "Commercial Public",
+    desc: "Government, schools, public works, municipalities",
+    color: "#1d4ed8",
+  },
+  {
+    value: "commercial-private",
+    icon: "🏗️",
+    label: "Commercial Private",
+    desc: "Private businesses, retail, industrial, offices",
+    color: "#7c3aed",
+  },
+  {
+    value: "residential-contractor",
+    icon: "👷",
+    label: "Residential Contractor",
+    desc: "Working through a general contractor on residential work",
+    color: "#d97706",
+  },
+  {
+    value: "residential-owner",
+    icon: "🏡",
+    label: "Residential Owner",
+    desc: "Working directly with the homeowner",
+    color: "#059669",
+  },
+];
+
 export default function ProjectsList() {
   const navigate = useNavigate();
   const [projects, setProjects] = useState([]);
@@ -17,6 +48,7 @@ export default function ProjectsList() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState("created_at");
   const [activeCosts, setActiveCosts] = useState({ labor: 0, expenses: 0, total: 0 });
+  const [showTypeModal, setShowTypeModal] = useState(false);
 
   useEffect(() => {
     loadProjects();
@@ -213,7 +245,7 @@ export default function ProjectsList() {
         <div style={styles.empty}>
           <p>No projects yet</p>
           <button
-            onClick={() => navigate("/project/new")}
+            onClick={() => setShowTypeModal(true)}
             style={styles.emptyButton}
           >
             Create Your First Project
@@ -266,6 +298,7 @@ export default function ProjectsList() {
                 <option value="approved">Approved</option>
                 <option value="active">Active</option>
                 <option value="completed">Completed</option>
+                <option value="bid_lost">Bid Lost</option>
                 <option value="canceled">Canceled</option>
                 <option value="postponed">Postponed</option>
               </select>
@@ -282,7 +315,7 @@ export default function ProjectsList() {
               </select>
             </div>
             <button
-              onClick={() => navigate("/project/new")}
+              onClick={() => setShowTypeModal(true)}
               style={styles.newButton}
             >
               ➕ New Project
@@ -337,30 +370,58 @@ export default function ProjectsList() {
                         <div style={{fontSize: 13, color: '#444'}}>🔨 {project.contractor}</div>
                       )}
                     </div>
-                    <div style={{...styles.td, flex: 1}}>
-                      <span
+                    <div style={{...styles.td, flex: 1}} onClick={(e) => e.stopPropagation()}>
+                      <select
+                        value={project.status || "bidding"}
+                        onChange={async (e) => {
+                          e.stopPropagation();
+                          const newStatus = e.target.value;
+                          try {
+                            const { error } = await supabase
+                              .from("projects")
+                              .update({ status: newStatus })
+                              .eq("id", project.id);
+                            if (error) throw error;
+                            setProjects(prev => prev.map(p =>
+                              p.id === project.id ? { ...p, status: newStatus } : p
+                            ));
+                          } catch (err) {
+                            console.error("Error updating status:", err);
+                            alert("Failed to update status");
+                          }
+                        }}
                         style={{
-                          display: "inline-block",
-                          padding: "4px 10px",
+                          padding: "4px 8px",
                           borderRadius: 6,
-                          fontSize: 11,
+                          fontSize: 12,
                           fontWeight: "bold",
-                          textTransform: "uppercase",
+                          border: "2px solid transparent",
+                          cursor: "pointer",
+                          outline: "none",
                           backgroundColor:
                             project.status === "bidding" ? "#fef3c7" :
                             project.status === "pending" ? "#dbeafe" :
                             project.status === "approved" ? "#d1fae5" :
                             project.status === "active" ? "#10b981" :
+                            project.status === "bid_lost" ? "#fce7f3" :
                             project.status === "canceled" ? "#fee2e2" :
                             project.status === "postponed" ? "#e5e7eb" :
                             project.status === "completed" ? "#6b7280" : "#f59e0b",
                           color:
                             project.status === "active" ? "#fff" :
+                            project.status === "bid_lost" ? "#9d174d" :
                             project.status === "completed" ? "#fff" : "#111",
                         }}
                       >
-                        {project.status || "—"}
-                      </span>
+                        <option value="bidding">Bidding</option>
+                        <option value="pending">Pending</option>
+                        <option value="approved">Approved</option>
+                        <option value="active">Active</option>
+                        <option value="completed">Completed</option>
+                        <option value="bid_lost">Bid Lost</option>
+                        <option value="canceled">Canceled</option>
+                        <option value="postponed">Postponed</option>
+                      </select>
                     </div>
                     <div style={{...styles.td, flex: 1, textAlign: 'right', fontWeight: '600', fontSize: 14, color: '#111'}}>
                       {project.active_worth > 0 ? `$${project.active_worth.toLocaleString()}` : "—"}
@@ -385,6 +446,52 @@ export default function ProjectsList() {
             </div>
           )}
         </>
+      )}
+
+      {/* Project Type Selection Modal */}
+      {showTypeModal && (
+        <div style={styles.typeModalOverlay} onClick={() => setShowTypeModal(false)}>
+          <div style={styles.typeModal} onClick={(e) => e.stopPropagation()}>
+            <h2 style={styles.typeModalTitle}>What type of project is this?</h2>
+            <p style={styles.typeModalSubtitle}>
+              The project type determines which forms, proposals, and workflows are used.
+            </p>
+            <div style={styles.typeGrid}>
+              {PROJECT_TYPES.map((type) => (
+                <div
+                  key={type.value}
+                  style={styles.typeCard}
+                  onClick={() => {
+                    setShowTypeModal(false);
+                    navigate(`/project/new?type=${type.value}`);
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = type.color;
+                    e.currentTarget.style.backgroundColor = type.color + "0d";
+                    e.currentTarget.style.transform = "translateY(-4px)";
+                    e.currentTarget.style.boxShadow = `0 8px 24px ${type.color}33`;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = "#e5e7eb";
+                    e.currentTarget.style.backgroundColor = "#fff";
+                    e.currentTarget.style.transform = "translateY(0)";
+                    e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.06)";
+                  }}
+                >
+                  <div style={{ fontSize: 52, marginBottom: 14, lineHeight: 1 }}>{type.icon}</div>
+                  <div style={{ ...styles.typeCardTitle, color: type.color }}>{type.label}</div>
+                  <div style={styles.typeCardDesc}>{type.desc}</div>
+                  <div style={{ ...styles.typeCardBadge, backgroundColor: type.color }}>
+                    Select this type →
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button onClick={() => setShowTypeModal(false)} style={styles.typeModalCancel}>
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -665,5 +772,84 @@ const styles = {
   td: {
     fontSize: 14,
     color: "#111",
+  },
+  typeModalOverlay: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.75)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 3000,
+  },
+  typeModal: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: "44px 40px 36px",
+    maxWidth: 720,
+    width: "95%",
+    textAlign: "center",
+    boxShadow: "0 24px 80px rgba(0,0,0,0.3)",
+  },
+  typeModalTitle: {
+    fontSize: 28,
+    fontWeight: "bold",
+    color: "#111",
+    margin: "0 0 10px 0",
+  },
+  typeModalSubtitle: {
+    fontSize: 15,
+    color: "#666",
+    margin: "0 0 32px 0",
+    lineHeight: 1.5,
+  },
+  typeGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 16,
+    marginBottom: 28,
+  },
+  typeCard: {
+    border: "2px solid #e5e7eb",
+    borderRadius: 14,
+    padding: "28px 20px 20px",
+    cursor: "pointer",
+    transition: "border-color 0.2s, background-color 0.2s, transform 0.2s, box-shadow 0.2s",
+    backgroundColor: "#fff",
+    textAlign: "center",
+    boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+  },
+  typeCardTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 8,
+  },
+  typeCardDesc: {
+    fontSize: 13,
+    color: "#666",
+    marginBottom: 18,
+    lineHeight: 1.5,
+  },
+  typeCardBadge: {
+    display: "inline-block",
+    padding: "7px 18px",
+    borderRadius: 20,
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+  },
+  typeModalCancel: {
+    padding: "11px 28px",
+    backgroundColor: "transparent",
+    border: "2px solid #d1d5db",
+    color: "#374151",
+    borderRadius: 8,
+    cursor: "pointer",
+    fontSize: 15,
+    fontWeight: "600",
   },
 };

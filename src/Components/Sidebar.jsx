@@ -51,6 +51,12 @@ export default function Sidebar({ onNavigate }) {
       <NavLink to="/timeclock" style={linkStyle} onClick={() => onNavigate?.()}>
         Time Clock
       </NavLink>
+      <NavLink to="/company-locations" style={linkStyle} onClick={() => onNavigate?.()}>
+        🏢 Company Locations
+      </NavLink>
+      <NavLink to="/scheduled-notifications" style={linkStyle} onClick={() => onNavigate?.()}>
+        ⏰ Scheduled Alerts
+      </NavLink>
 
       {/* Communications — visible to admin and supervisors */}
       {isSupervisor && (

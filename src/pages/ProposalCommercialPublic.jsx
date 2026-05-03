@@ -100,6 +100,29 @@ export default function ProposalCommercialPublic() {
       if (proposalData.price_adjustment && proposalData.price_adjustment !== 0) {
         setPriceAdjustment(proposalData.price_adjustment.toString());
       }
+
+      // Load contractor email from project_contractors table using contractor_name
+      if (proposalData.project_id && proposalData.contractor_name) {
+        const { data: contractorData } = await supabase
+          .from("project_contractors")
+          .select("*")
+          .eq("project_id", proposalData.project_id)
+          .eq("contractor_name", proposalData.contractor_name)
+          .maybeSingle();
+
+        if (contractorData?.email) {
+          setContractorEmail(contractorData.email);
+          setSelectedContractor(contractorData);
+        }
+        
+        // Also load all contractors for this project so the email form works
+        const { data: allContractors } = await supabase
+          .from("project_contractors")
+          .select("*")
+          .eq("project_id", proposalData.project_id)
+          .order("contractor_name");
+        setContractors(allContractors || []);
+      }
       
       setIsEditing(false);
     } catch (err) {
@@ -327,7 +350,14 @@ export default function ProposalCommercialPublic() {
           },
         });
 
-        if (error) throw error;
+        if (error) {
+          console.error('Supabase invoke error:', error);
+          throw new Error(error.message || JSON.stringify(error));
+        }
+        if (data?.error) {
+          console.error('Edge function error:', data);
+          throw new Error(data.error + (data.details ? '\n\nDetails: ' + data.details : ''));
+        }
       }
 
       alert(`Proposal sent successfully to ${emails.length} recipient${emails.length > 1 ? 's' : ''}!`);
@@ -526,24 +556,25 @@ export default function ProposalCommercialPublic() {
         ) : (
           <>
             {user && (
-              <>
-                <button onClick={() => navigate(-1)} style={{...styles.button, background: "#666"}}>
-                  ← Back
-                </button>
-                <button 
-                  onClick={() => window.open(`/proposal/commercial-public?proposalId=${proposalId}`, '_blank')}
-                  style={{...styles.button, background: "#3b82f6"}}
-                >
-                  👁️ View
-                </button>
-                <button 
-                  onClick={handleSendEmail}
-                  style={{...styles.button, background: "#10b981"}}
-                  disabled={isSendingEmail}
-                >
-                  {isSendingEmail ? "Sending..." : "📧 Email"}
-                </button>
-              </>
+          <>
+            <button onClick={() => navigate(-1)} style={{...styles.button, background: "#666"}}>
+              ← Back
+            </button>
+            <input
+              type="text"
+              value={contractorEmail}
+              onChange={(e) => setContractorEmail(e.target.value)}
+              placeholder="Contractor email"
+              style={{padding: "10px 14px", fontSize: 14, border: "2px solid #e5e7eb", borderRadius: 8, minWidth: 220}}
+            />
+            <button 
+              onClick={handleSendEmail}
+              style={{...styles.button, background: "#10b981"}}
+              disabled={isSendingEmail}
+            >
+              {isSendingEmail ? "Sending..." : "📧 Email"}
+            </button>
+          </>
             )}
             <button
               onClick={async () => {

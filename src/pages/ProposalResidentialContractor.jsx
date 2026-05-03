@@ -56,6 +56,62 @@ export default function ProposalResidentialContractor() {
 
   const [alternates, setAlternates] = useState([]);
 
+  // Open a dedicated print window containing ONLY the proposal HTML
+  // This avoids the blank-page issue caused by the app layout's min-height:100vh
+  const handlePrint = () => {
+    const el = document.querySelector(".proposal-container");
+    if (!el) { window.print(); return; }
+
+    const printStyles = `
+      @page { margin: 10mm 12mm; size: letter portrait; }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: white; overflow: hidden; }
+      /* Remove card shadow/border that bleeds at page edge */
+      .proposal-container { box-shadow: none !important; border-radius: 0 !important; padding: 0 12px !important; }
+      .proposal-container > div { box-shadow: none !important; border-radius: 0 !important; }
+
+      /* Fix absolute-centered logo to flex-center in the print window */
+      .proposal-top-header {
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        margin-bottom: 4px !important;
+      }
+      .logo-section {
+        position: static !important;
+        transform: none !important;
+        flex: 1 !important;
+        text-align: center !important;
+      }
+      .logo-section img { max-width: 260px !important; height: auto !important; }
+
+      /* Compress spacing */
+      hr { margin: 8px 0 !important; }
+      .proposal-title-section { margin-bottom: 10px !important; }
+      .proposal-title-section h1 { font-size: 22px !important; margin-bottom: 8px !important; }
+      .proposal-title-section .small-label { margin: 4px 0 2px 0 !important; font-size: 10px !important; }
+      .proposal-title-section .big-value { font-size: 16px !important; margin-bottom: 4px !important; }
+      .proposal-table-section { margin-bottom: 10px !important; }
+      .proposal-table-section .table-header { padding: 6px 10px !important; font-size: 11px !important; }
+      .proposal-table-row { padding: 8px 10px !important; }
+      .proposal-table-row td { font-size: 12px !important; }
+      .proposal-info-boxes { gap: 10px !important; margin-bottom: 10px !important; }
+      .proposal-info-box { padding: 8px 12px !important; }
+      .proposal-info-box span { font-size: 11px !important; }
+      .proposal-scope-box { padding: 10px 14px !important; margin-bottom: 10px !important; }
+      .proposal-scope-box p { font-size: 10px !important; line-height: 1.4 !important; margin-bottom: 4px !important; }
+      .proposal-signature-section { margin-top: 12px !important; }
+      .proposal-signature-line { height: 30px !important; margin-top: 6px !important; }
+      .proposal-signature-label { font-size: 10px !important; margin-bottom: 4px !important; }
+      .print-no-break { page-break-inside: avoid; break-inside: avoid; }
+    `;
+
+    const pw = window.open("", "_blank", "width=900,height=700");
+    pw.document.write(`<!DOCTYPE html><html><head><title>Proposal</title><style>${printStyles}</style></head><body>${el.outerHTML}</body></html>`);
+    pw.document.close();
+    pw.onload = () => { pw.focus(); pw.print(); };
+  };
+
   useEffect(() => {
     loadData();
   }, [proposalId, estimateId, coId, projectId]);
@@ -206,6 +262,18 @@ export default function ProposalResidentialContractor() {
             // Auto-select first contractor if available
             console.log("Auto-selecting contractor:", contractorsData[0]);
             setSelectedContractor(contractorsData[0]);
+          } else if (projectData.contractor) {
+            // Fallback: use the contractor text field from the project
+            const syntheticContractor = {
+              id: "project-contractor",
+              contractor_name: projectData.contractor,
+              company_name: projectData.contractor,
+              email: null,
+              phone: null,
+            };
+            setContractors([syntheticContractor]);
+            setSelectedContractor(syntheticContractor);
+            console.log("Auto-selecting from project.contractor:", projectData.contractor);
           }
         }
 
@@ -272,6 +340,18 @@ export default function ProposalResidentialContractor() {
           if (contractorsData && contractorsData.length > 0) {
             setContractors(contractorsData);
             setSelectedContractor(contractorsData[0]);
+          } else if (projectData.contractor) {
+            // Fallback: use the contractor text field from the project
+            const syntheticContractor = {
+              id: "project-contractor",
+              contractor_name: projectData.contractor,
+              company_name: projectData.contractor,
+              email: null,
+              phone: null,
+            };
+            setContractors([syntheticContractor]);
+            setSelectedContractor(syntheticContractor);
+            console.log("Auto-selecting from project.contractor (CO):", projectData.contractor);
           }
         } else {
           // Fallback: use minimal project object so the page still renders
@@ -349,14 +429,11 @@ export default function ProposalResidentialContractor() {
 
       if (!sendEmailAfter) {
         alert("Proposal saved successfully!");
-        setIsEditing(false);
-
-        if (!proposalId) {
-          navigate(
-            `/proposal/residential-contractor?proposalId=${savedProposalId}`,
-            { replace: true }
-          );
-          window.location.reload();
+        // Navigate back to the project page
+        if (projectId) {
+          navigate(`/project/${projectId}`, { replace: true });
+        } else {
+          navigate("/projects", { replace: true });
         }
       }
 
@@ -378,7 +455,7 @@ export default function ProposalResidentialContractor() {
   }
 
   return (
-    <div style={styles.container}>
+    <div className="proposal-page-wrapper" style={styles.container}>
       <div style={styles.header}>
         <h1 style={styles.title}>{baseEstimate.description || project?.name || `Estimate #${baseEstimate.estimate_number}`}</h1>
         <div style={styles.buttons}>
@@ -393,7 +470,7 @@ export default function ProposalResidentialContractor() {
             </>
           ) : (
             <>
-              <button onClick={() => window.print()} style={styles.button}>
+              <button onClick={handlePrint} style={styles.button}>
                 🖨️ Print
               </button>
               <button onClick={() => setIsEditing(true)} style={styles.button}>
@@ -536,7 +613,7 @@ export default function ProposalResidentialContractor() {
         <div className="proposal-container" style={styles.proposalDocument}>
           <div style={styles.proposal}>
             {/* Header - Logo and Date - Same as Commercial Proposal */}
-            <div style={styles.topHeader}>
+            <div className="proposal-top-header print-no-break" style={styles.topHeader}>
               <div style={styles.dateSection}>
                 <p style={styles.dateText}>
                   Date: {formatDate(proposalDate)}
@@ -547,7 +624,7 @@ export default function ProposalResidentialContractor() {
                   </p>
                 )}
               </div>
-              <div style={styles.logoSection}>
+              <div className="logo-section" style={styles.logoSection}>
                 <img src={logoImage} alt="Company Logo" style={styles.logo} />
                 <p style={styles.contactInfo}>
                   Phone: (337)288-0395 | Email: info@dmlelectrical.com | License #: 63147
@@ -563,33 +640,33 @@ export default function ProposalResidentialContractor() {
             <hr style={styles.divider} />
 
             {/* Title Section with Customer & Project */}
-            <div style={styles.titleSection}>
+            <div className="proposal-title-section" style={styles.titleSection}>
               <h1 style={styles.proposalTitle}>{"PROJECT PROPOSAL"}</h1>
 
               {selectedContractor && (
                 <>
-                  <div style={styles.proposalSmallLabel}>For:</div>
-                  <div style={styles.proposalBigValue}>{selectedContractor.contractor_name}</div>
+                  <div className="small-label" style={styles.proposalSmallLabel}>For:</div>
+                  <div className="big-value" style={styles.proposalBigValue}>{selectedContractor.contractor_name}</div>
                 </>
               )}
 
               {project?.name && (
                 <>
-                  <div style={styles.proposalSmallLabel}>Project:</div>
-                  <div style={styles.proposalBigValue}>{project.name}</div>
+                  <div className="small-label" style={styles.proposalSmallLabel}>Project:</div>
+                  <div className="big-value" style={styles.proposalBigValue}>{project.name}</div>
                 </>
               )}
             </div>
 
             {/* Proposal Summary Table */}
-            <div style={styles.proposalTable}>
-              <div style={styles.tableTitle}>PROPOSAL SUMMARY</div>
+            <div className="proposal-table-section" style={styles.proposalTable}>
+              <div className="table-header" style={styles.tableTitle}>PROPOSAL SUMMARY</div>
               <table style={styles.table}>
                 <tbody>
                   {includeBaseBid && estimateItems.length > 0 && (
                     <>
                       {estimateItems.map((item, idx) => (
-                        <tr key={item.id} style={styles.tableRow}>
+                        <tr key={item.id} className="proposal-table-row" style={styles.tableRow}>
                           <td style={styles.td}>{item.description}</td>
                           <td style={{...styles.td, textAlign: "right", fontWeight: "600"}}>
                             ${(item.line_total || 0).toFixed(2)}
@@ -633,19 +710,19 @@ export default function ProposalResidentialContractor() {
             </div>
 
             {/* Warranty and Payment Terms */}
-            <div style={styles.infoBoxes}>
-              <div style={styles.infoBox}>
+            <div className="print-no-break proposal-info-boxes" style={styles.infoBoxes}>
+              <div className="proposal-info-box" style={styles.infoBox}>
                 <span style={styles.infoLabel}>Warranty:</span>
                 <span style={styles.infoValue}>{warranty}</span>
               </div>
-              <div style={styles.infoBox}>
+              <div className="proposal-info-box" style={styles.infoBox}>
                 <span style={styles.infoLabel}>Payment Terms:</span>
                 <span style={styles.infoValue}>{paymentTerms}</span>
               </div>
             </div>
 
             {/* Standard Scope Text */}
-            <div style={styles.scopeBox}>
+            <div className="proposal-scope-box" style={styles.scopeBox}>
               <p style={styles.scopeText}>
                 This proposal includes all work specified above using quality materials and professional installation. 
                 All work will be performed by licensed, experienced technicians in compliance with applicable local codes, 
@@ -664,15 +741,15 @@ export default function ProposalResidentialContractor() {
             </div>
 
             {/* Signature Lines */}
-            <div style={styles.signatureSection}>
+            <div className="proposal-signature-section" style={styles.signatureSection}>
               <div style={styles.signatureRow}>
                 <div>
-                  <p style={styles.signatureLabel}>Contractor Signature</p>
-                  <div style={styles.signatureLine}></div>
+                  <p className="proposal-signature-label" style={styles.signatureLabel}>Contractor Signature</p>
+                  <div className="proposal-signature-line" style={styles.signatureLine}></div>
                 </div>
                 <div>
-                  <p style={styles.signatureLabel}>Date</p>
-                  <div style={styles.signatureLine}></div>
+                  <p className="proposal-signature-label" style={styles.signatureLabel}>Date</p>
+                  <div className="proposal-signature-line" style={styles.signatureLine}></div>
                 </div>
               </div>
             </div>
@@ -870,12 +947,14 @@ const styles = {
   },
   titleSection: {
     marginBottom: 40,
+    textAlign: "center",
   },
   proposalTitle: {
     fontSize: 32,
     fontWeight: "bold",
     margin: "0 0 24px 0",
     color: "#111",
+    textAlign: "center",
   },
   proposalSmallLabel: {
     fontSize: 12,
@@ -883,12 +962,14 @@ const styles = {
     color: "#666",
     textTransform: "uppercase",
     margin: "12px 0 4px 0",
+    textAlign: "center",
   },
   proposalBigValue: {
     fontSize: 22,
     fontWeight: "bold",
     color: "#111",
     marginBottom: 16,
+    textAlign: "center",
   },
   proposalTable: {
     marginBottom: 40,

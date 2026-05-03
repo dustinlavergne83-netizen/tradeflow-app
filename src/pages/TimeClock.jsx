@@ -25,6 +25,9 @@ export default function TimeClock() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [uploadingPhotoFor, setUploadingPhotoFor] = useState(null);
   const [showSectionModal, setShowSectionModal] = useState(null); // {employeeId, projectName, files}
+  const [copiedTime, setCopiedTime] = useState(null); // {fromEmployee, startTime, endTime, hasLunch, project, day, rawStart, rawEnd}
+  const [pasteModal, setPasteModal] = useState(null); // {targetEmpName}
+  const [pasteSaving, setPasteSaving] = useState(false);
   const nav = useNavigate();
 
   // Job sections for photo organization (same as in Reports & Photos)
@@ -260,11 +263,23 @@ export default function TimeClock() {
     });
   }
 
+  function roundTimeStrTo15(timeStr) {
+    if (!timeStr) return timeStr;
+    const [h, m] = timeStr.split(':').map(Number);
+    const totalMins = h * 60 + m;
+    const rounded = Math.round(totalMins / 15) * 15;
+    const rh = Math.floor(rounded / 60) % 24;
+    const rm = rounded % 60;
+    return `${String(rh).padStart(2,'0')}:${String(rm).padStart(2,'0')}`;
+  }
+
   async function saveSegmentEdit() {
     if (!editModal) return;
     setEditSaving(true);
     try {
-      const { firstSegId, lastSegId, allDaySegIds, startDate, endDate, startTime, endTime, hasLunch } = editModal;
+      const { firstSegId, lastSegId, allDaySegIds, startDate, endDate, hasLunch } = editModal;
+      const startTime = roundTimeStrTo15(editModal.startTime);
+      const endTime = roundTimeStrTo15(editModal.endTime);
 
       // Build start ISO in local timezone
       const [sh, sm] = startTime.split(':').map(Number);
@@ -611,6 +626,62 @@ export default function TimeClock() {
     }
   }
 
+  async function pasteTimeToEmployee() {
+    if (!pasteModal || !copiedTime) return;
+    setPasteSaving(true);
+    try {
+      const targetEmpRow = weeklyTimesheet.find(r => r.employeeName === pasteModal.targetEmpName);
+      if (!targetEmpRow || !targetEmpRow.userId) {
+        alert("Could not find this employee's user ID. They must have signed into the app at least once.");
+        setPasteSaving(false);
+        return;
+      }
+      const targetUserId = targetEmpRow.userId;
+
+      // Find existing shift for target employee on this day
+      const { data: existingShifts } = await supabase
+        .from("shifts")
+        .select("id")
+        .eq("user_id", targetUserId)
+        .gte("clock_in", copiedTime.day + 'T00:00:00')
+        .lte("clock_in", copiedTime.day + 'T23:59:59')
+        .limit(1);
+
+      let shiftId;
+      if (existingShifts && existingShifts.length > 0) {
+        shiftId = existingShifts[0].id;
+      } else {
+        const { data: newShift, error: shiftErr } = await supabase
+          .from("shifts")
+          .insert({ user_id: targetUserId, clock_in: copiedTime.rawStart, clock_out: copiedTime.rawEnd || null })
+          .select()
+          .single();
+        if (shiftErr) throw shiftErr;
+        shiftId = newShift.id;
+      }
+
+      const { error: segErr } = await supabase
+        .from("shift_segments")
+        .insert({
+          shift_id: shiftId,
+          user_id: targetUserId,
+          start_at: copiedTime.rawStart,
+          end_at: copiedTime.rawEnd || null,
+          project_task: copiedTime.project !== 'No Project' ? copiedTime.project : null,
+          is_lunch: copiedTime.hasLunch,
+        });
+      if (segErr) throw segErr;
+
+      setPasteModal(null);
+      await loadDetailedBreakdown();
+      await loadCurrentWeekTimesheet();
+    } catch (err) {
+      alert("Paste failed: " + err.message);
+    } finally {
+      setPasteSaving(false);
+    }
+  }
+
   const clockedInCount = employeeStatuses.filter(e => e.isClockedIn).length;
   const clockedOutCount = employeeStatuses.length - clockedInCount;
   
@@ -674,22 +745,6 @@ export default function TimeClock() {
               }}
             >
               📊 View Timesheets
-            </button>
-
-            <button
-              onClick={() => nav("/reports/weekly-timesheet")}
-              style={{
-                backgroundColor: "#8b5cf6",
-                color: "#fff",
-                border: "none",
-                padding: "10px 20px",
-                borderRadius: 8,
-                fontSize: 14,
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-            >
-              📅 All Employees
             </button>
 
             <button
@@ -1000,6 +1055,16 @@ export default function TimeClock() {
               <p style={{ fontSize: 14, color: "#6b7280", margin: "4px 0 0 0" }}>
                 All shift segments by day - Projects and lunch breaks
               </p>
+              {copiedTime && (
+                <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", backgroundColor: "#fffbeb", border: "2px solid #f59e0b", borderRadius: 8 }}>
+                  <span style={{ fontSize: 18 }}>📋</span>
+                  <div style={{ flex: 1, fontSize: 13 }}>
+                    <strong>Copied:</strong> {copiedTime.fromEmployee} — {copiedTime.project} on {new Date(copiedTime.day + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} ({copiedTime.startTime} – {copiedTime.endTime}{copiedTime.hasLunch ? ", 🍽️ lunch" : ""})
+                    <span style={{ marginLeft: 8, fontSize: 12, color: "#92400e" }}>← Click 📋 Paste on any empty cell below</span>
+                  </div>
+                  <button onClick={() => setCopiedTime(null)} style={{ border: "none", background: "#fde68a", color: "#92400e", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontWeight: 700, fontSize: 13 }}>✕ Clear</button>
+                </div>
+              )}
             </div>
 
             <div style={{ overflowX: "auto" }}>
@@ -1206,7 +1271,7 @@ export default function TimeClock() {
                                 {empData ? empData.endTime : ""}
                               </td>
                               <td style={{
-                                padding: "8px 8px",
+                                padding: "4px 6px",
                                 textAlign: "center",
                                 borderBottom: "1px solid #e5e7eb",
                                 borderLeft: "1px solid #e5e7eb",
@@ -1214,7 +1279,58 @@ export default function TimeClock() {
                                 fontWeight: 600,
                                 color: "#111",
                               }}>
-                                {empData ? empData.hours.toFixed(1) : ""}
+                                {empData ? (
+                                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                                    <span>{empData.hours.toFixed(1)}</span>
+                                    <button
+                                      title={`Copy ${empName}'s time`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setCopiedTime({
+                                          fromEmployee: empName,
+                                          startTime: empData.startTime,
+                                          endTime: empData.endTime,
+                                          hasLunch: empData.hasLunch,
+                                          project: row.project,
+                                          day: row.day,
+                                          rawStart: empData.rawStart,
+                                          rawEnd: empData.rawEnd,
+                                        });
+                                      }}
+                                      style={{
+                                        border: "none",
+                                        background: copiedTime?.fromEmployee === empName && copiedTime?.day === row.day ? "#10b981" : "#e5e7eb",
+                                        color: copiedTime?.fromEmployee === empName && copiedTime?.day === row.day ? "#fff" : "#374151",
+                                        borderRadius: 4,
+                                        fontSize: 11,
+                                        padding: "2px 5px",
+                                        cursor: "pointer",
+                                        lineHeight: 1.2,
+                                      }}
+                                    >
+                                      📋
+                                    </button>
+                                  </div>
+                                ) : (
+                                  copiedTime && copiedTime.day === row.day ? (
+                                    <button
+                                      title={`Paste ${copiedTime.fromEmployee}'s time to ${empName}`}
+                                      onClick={() => setPasteModal({ targetEmpName: empName })}
+                                      style={{
+                                        border: "2px solid #3b82f6",
+                                        background: "#eff6ff",
+                                        color: "#2563eb",
+                                        borderRadius: 6,
+                                        fontSize: 11,
+                                        padding: "3px 7px",
+                                        cursor: "pointer",
+                                        fontWeight: 700,
+                                      }}
+                                    >
+                                      📋 Paste
+                                    </button>
+                                  ) : ""
+                                )}
                               </td>
                             </React.Fragment>
                           );
@@ -1236,6 +1352,65 @@ export default function TimeClock() {
                   })}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {/* Paste Confirmation Modal */}
+        {pasteModal && copiedTime && (
+          <div
+            style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000, padding: 20 }}
+            onClick={() => setPasteModal(null)}
+          >
+            <div
+              style={{ backgroundColor: "#fff", borderRadius: 12, maxWidth: 460, width: "100%", padding: 28, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+                <h3 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: "#111" }}>📋 Paste Time Entry</h3>
+                <button onClick={() => setPasteModal(null)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#6b7280" }}>✕</button>
+              </div>
+
+              <div style={{ backgroundColor: "#f0fdf4", border: "1px solid #86efac", borderRadius: 8, padding: 14, marginBottom: 16, fontSize: 13 }}>
+                <div style={{ fontWeight: 700, color: "#166534", marginBottom: 6 }}>Copying from: {copiedTime.fromEmployee}</div>
+                <div style={{ color: "#374151" }}>📁 Project: <strong>{copiedTime.project}</strong></div>
+                <div style={{ color: "#374151" }}>📅 Date: <strong>{new Date(copiedTime.day + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</strong></div>
+                <div style={{ color: "#374151" }}>🕐 Start: <strong>{copiedTime.startTime}</strong></div>
+                <div style={{ color: "#374151" }}>🕔 End: <strong>{copiedTime.endTime}</strong></div>
+                <div style={{ color: "#374151" }}>🍽️ Lunch: <strong>{copiedTime.hasLunch ? "Yes (−30 min)" : "No"}</strong></div>
+              </div>
+
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ fontSize: 13, fontWeight: 700, color: "#374151", display: "block", marginBottom: 6 }}>Paste to employee:</label>
+                <select
+                  value={pasteModal.targetEmpName}
+                  onChange={e => setPasteModal(p => ({ ...p, targetEmpName: e.target.value }))}
+                  style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "2px solid #d1d5db", fontSize: 14, backgroundColor: "#fff" }}
+                >
+                  {weeklyTimesheet
+                    .filter(r => r.employeeName !== copiedTime.fromEmployee)
+                    .map(r => (
+                      <option key={r.employeeId} value={r.employeeName}>{r.employeeName}</option>
+                    ))}
+                </select>
+              </div>
+
+              <div style={{ display: "flex", gap: 10 }}>
+                <button
+                  onClick={pasteTimeToEmployee}
+                  disabled={pasteSaving}
+                  style={{ flex: 1, backgroundColor: "#0b3ea8", color: "#fff", border: "none", borderRadius: 8, padding: "12px 16px", fontSize: 15, fontWeight: 700, cursor: pasteSaving ? "not-allowed" : "pointer", opacity: pasteSaving ? 0.7 : 1 }}
+                >
+                  {pasteSaving ? "Pasting…" : "✅ Confirm Paste"}
+                </button>
+                <button
+                  onClick={() => setPasteModal(null)}
+                  disabled={pasteSaving}
+                  style={{ flex: 1, backgroundColor: "#f3f4f6", color: "#374151", border: "1px solid #d1d5db", borderRadius: 8, padding: "12px 16px", fontSize: 15, fontWeight: 700, cursor: "pointer" }}
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -1272,8 +1447,10 @@ export default function TimeClock() {
                   <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginBottom: 4 }}>Start Time</label>
                   <input
                     type="time"
+                    step="900"
                     value={editModal.startTime}
                     onChange={e => setEditModal(m => ({ ...m, startTime: e.target.value }))}
+                    onBlur={e => setEditModal(m => ({ ...m, startTime: roundTimeStrTo15(e.target.value) }))}
                     style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #d1d5db", fontSize: 14, boxSizing: "border-box" }}
                   />
                 </div>
@@ -1293,8 +1470,10 @@ export default function TimeClock() {
                   <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginBottom: 4 }}>End Time</label>
                   <input
                     type="time"
+                    step="900"
                     value={editModal.endTime}
                     onChange={e => setEditModal(m => ({ ...m, endTime: e.target.value }))}
+                    onBlur={e => setEditModal(m => ({ ...m, endTime: roundTimeStrTo15(e.target.value) }))}
                     style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #d1d5db", fontSize: 14, boxSizing: "border-box" }}
                   />
                 </div>

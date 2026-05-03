@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { getSiteUrl } from "../lib/siteUrl";
 import logoImage from "../assets/LOGOD.jpg";
 
 const ACCENT = "#fc6b04";
@@ -9,6 +10,7 @@ const GREEN = "#16a34a";
 export default function InvoiceView() {
   const [searchParams] = useSearchParams();
   const invoiceId = searchParams.get("invoiceId");
+  const autoPrint = searchParams.get("print") === "1";
 
   const [invoice, setInvoice] = useState(null);
   const [items, setItems] = useState([]);
@@ -20,6 +22,13 @@ export default function InvoiceView() {
   useEffect(() => {
     if (invoiceId) loadInvoice();
   }, [invoiceId]);
+
+  // Auto-trigger print dialog if ?print=1 is in URL
+  useEffect(() => {
+    if (autoPrint && !loading && invoice) {
+      setTimeout(() => window.print(), 600);
+    }
+  }, [autoPrint, loading, invoice]);
 
   async function loadInvoice() {
     try {
@@ -117,7 +126,55 @@ export default function InvoiceView() {
 
   return (
     <div style={pg}>
-      <div style={card}>
+
+      {/* Print CSS - hides UI chrome when printing */}
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          body { background: white !important; margin: 0; padding: 0; }
+          .print-page {
+            box-shadow: none !important;
+            border-radius: 0 !important;
+            margin: 0 !important;
+            max-width: 100% !important;
+            padding: 16px !important;
+          }
+          .print-wrapper {
+            background: white !important;
+            padding: 0 !important;
+            min-height: auto !important;
+          }
+        }
+      `}</style>
+
+      {/* Print / Download PDF button - hidden when printing */}
+      <div className="no-print" style={{
+        maxWidth: 620,
+        margin: "0 auto 10px",
+        display: "flex",
+        gap: 10,
+        justifyContent: "flex-end",
+        padding: "0 4px",
+      }}>
+        <button
+          onClick={() => window.print()}
+          style={{
+            padding: "10px 22px",
+            background: "#0b3ea8",
+            color: "#fff",
+            border: "none",
+            borderRadius: 8,
+            fontSize: 15,
+            fontWeight: "bold",
+            cursor: "pointer",
+            boxShadow: "0 2px 6px rgba(11,62,168,0.3)",
+          }}
+        >
+          🖨️ Print / Save as PDF
+        </button>
+      </div>
+
+      <div style={card} className="print-page">
 
         {/* Logo */}
         <div style={{textAlign:"center", marginBottom:16}}>
@@ -224,12 +281,12 @@ export default function InvoiceView() {
           </span>
         </div>
 
-        {/* Pay Now — payment method selector */}
+        {/* Pay Now — payment method selector (hidden when printing) */}
         {payableAmount > 0 && invoice?.status !== "paid" && (() => {
           const ccFee = Math.round(payableAmount * 0.03 * 100) / 100;
           const totalWithFee = payableAmount + ccFee;
           return (
-            <div style={{marginTop:16, marginBottom:8}}>
+            <div className="no-print" style={{marginTop:16, marginBottom:8}}>
               {!paymentMethod ? (
                 <>
                   <p style={{fontSize:14, fontWeight:"bold", color:"#111", textAlign:"center", marginBottom:12}}>

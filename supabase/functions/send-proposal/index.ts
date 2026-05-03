@@ -32,6 +32,9 @@ Deno.serve(async (req) => {
       )
     }
 
+    const fmtMoney = (val: number) =>
+      (val || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
     // Generate view link
     const viewLink = proposalId ? 
       `${Deno.env.get('SITE_URL') || 'http://localhost:5173'}/proposal/view?proposalId=${proposalId}` :
@@ -101,16 +104,16 @@ Deno.serve(async (req) => {
                     <strong>Base Bid:</strong>
                   </td>
                   <td style="padding: 15px; border-bottom: 1px solid #e5e7eb; text-align: right; color: #111; font-weight: 600;">
-                    $${baseBidAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    $${fmtMoney(baseBidAmount)}
                   </td>
                 </tr>
-                ${alternates && alternates.length > 0 ? alternates.slice(0, 3).map(alt => `
+                ${alternates && alternates.length > 0 ? alternates.slice(0, 3).map((alt: any) => `
                 <tr>
                   <td style="padding: 15px; border-bottom: 1px solid #e5e7eb; color: #666;">
                     <strong>Alt ${alt.number}:</strong> ${alt.title}
                   </td>
                   <td style="padding: 15px; border-bottom: 1px solid #e5e7eb; text-align: right; color: #111; font-weight: 600;">
-                    $${alt.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    $${fmtMoney(alt.amount)}
                   </td>
                 </tr>
                 `).join('') : ''}
@@ -126,7 +129,7 @@ Deno.serve(async (req) => {
                     <strong style="font-size: 18px;">TOTAL INVESTMENT:</strong>
                   </td>
                   <td style="padding: 15px; text-align: right; color: #fc6b04ff; font-weight: bold; font-size: 22px;">
-                    $${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    $${fmtMoney(totalAmount)}
                   </td>
                 </tr>
               </table>
@@ -137,7 +140,7 @@ Deno.serve(async (req) => {
                 <tr>
                   <td align="center">
                     <a href="${viewLink}" style="display: inline-block; padding: 16px 40px; background-color: #fc6b04; color: #ffffff; text-decoration: none; border-radius: 8px; font-size: 18px; font-weight: bold; box-shadow: 0 2px 4px rgba(252, 107, 4, 0.3);">
-                      📄 View & Print Proposal
+                      📄 View &amp; Print Proposal
                     </a>
                   </td>
                 </tr>
@@ -163,7 +166,7 @@ Deno.serve(async (req) => {
             <td style="background-color: #f9fafb; padding: 20px 30px; text-align: center; border-top: 1px solid #e5e7eb;">
               <p style="margin: 0; font-size: 12px; color: #666;">
                 ${companyName}<br>
-                Phone: (337)288-0395 • Email: info@dmlelectrical.com
+                Phone: (337)288-0395 &bull; Email: info@dmlelectrical.com
               </p>
             </td>
           </tr>
@@ -176,7 +179,7 @@ Deno.serve(async (req) => {
     `
 
     // Handle multiple email addresses (comma or semicolon separated)
-    const emailAddresses = to.split(/[,;]/).map(email => email.trim()).filter(email => email.length > 0);
+    const emailAddresses = to.split(/[,;]/).map((email: string) => email.trim()).filter((email: string) => email.length > 0);
     
     // Send email via Resend
     const res = await fetch('https://api.resend.com/emails', {
@@ -186,19 +189,38 @@ Deno.serve(async (req) => {
         'Authorization': `Bearer ${RESEND_API_KEY}`,
       },
       body: JSON.stringify({
-        from: 'proposals@dmlelectrical.com',
+        from: 'DML Electrical Service <onboarding@resend.dev>',
+        reply_to: 'dustin@dmlelectrical.com',
         to: emailAddresses,
         bcc: ['dustin@dmlelectrical.com'],
         subject: `Project Proposal #${estimateNumber}${projectName ? ` - ${projectName}` : ''}`,
         html: html,
+        tags: [{ name: 'category', value: 'proposal' }],
+        headers: {
+          'X-Entity-Ref-ID': `proposal-${proposalId || estimateNumber}`,
+        },
       }),
     })
 
     const data = await res.json()
 
     if (!res.ok) {
-      console.error('Resend API Error:', data)
-      throw new Error(data.message || 'Failed to send email')
+      console.error('Resend API Error Status:', res.status)
+      console.error('Resend API Error Body:', JSON.stringify(data))
+      const resendMsg = data.message || data.name || data.error || JSON.stringify(data)
+      if (res.status === 403 || (resendMsg && resendMsg.toLowerCase().includes('domain') && resendMsg.toLowerCase().includes('not verified'))) {
+        throw new Error(
+          `Email domain not verified.\n\n` +
+          `To fix:\n` +
+          `1. Log into resend.com\n` +
+          `2. Go to "Domains" → "Add Domain"\n` +
+          `3. Enter: dmlelectrical.com\n` +
+          `4. Add the DNS records to your domain registrar\n` +
+          `5. Click "Verify" in Resend\n\n` +
+          `Resend error: ${resendMsg}`
+        )
+      }
+      throw new Error(`Resend API error (${res.status}): ${resendMsg}`)
     }
 
     return new Response(
@@ -212,12 +234,15 @@ Deno.serve(async (req) => {
 
   } catch (error) {
     console.error('Error sending proposal:', error)
+    // Return 200 so Supabase client can read the actual error message
+    // (non-2xx causes a generic FunctionsHttpError that hides the real details)
     return new Response(
       JSON.stringify({ 
+        success: false,
         error: error.message || 'Failed to send proposal',
         details: error.toString()
       }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
     )
   }
 })
