@@ -119,7 +119,7 @@ export default function EmployeeTimesheets() {
       const [{ data: emps }, { data: segs }, { data: open }, { data: projs }] = await Promise.all([
         supabase.from("employees").select("user_id, first_name, last_name").order("first_name"),
         supabase.from("shift_segments")
-          .select("id, user_id, start_at, end_at, is_lunch, project_task")
+          .select("id, user_id, start_at, end_at, is_lunch, project_task, project_id")
           .gte("start_at", weekDays[0] + "T00:00:00")
           .lte("start_at", weekEnd + "T23:59:59")
           .order("start_at", { ascending: true }),
@@ -675,6 +675,7 @@ export default function EmployeeTimesheets() {
           start_at: sourceSeg.start_at,
           end_at: sourceSeg.end_at || null,
           project_task: sourceSeg.project_task || null,
+          project_id: sourceSeg.project_id || null,
           is_lunch: sourceSeg.is_lunch || false,
         });
         if (segErr) throw segErr;
