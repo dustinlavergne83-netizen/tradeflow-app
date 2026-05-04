@@ -16,6 +16,7 @@ export default function ProjectStatement() {
   const [payments, setPayments] = useState([]); // individual invoice_payments records
   const [deposits, setDeposits] = useState([]); // project_deposits records
   const [loading, setLoading] = useState(true);
+  const [viewMode, setViewMode] = useState("ledger"); // "ledger" | "byInvoice"
 
   useEffect(() => {
     if (projectId) loadData();
@@ -165,9 +166,11 @@ export default function ProjectStatement() {
   const totalDepositsAmt = deposits
     .filter(d => d.status !== "cancelled")
     .reduce((s, d) => s + (d.deposit_amount || 0), 0);
-  const totalPaymentsAmt = payments.length > 0
-    ? payments.reduce((s, p) => s + (p.amount || 0), 0)
-    : invoices.reduce((s, i) => s + (i.amount_paid || 0), 0);
+  // Sum payment credits directly from allRows so fallback payments (inv.amount_paid)
+  // are included — not just the invoice_payments table records.
+  const totalPaymentsAmt = allRows
+    .filter(r => r.type === "payment")
+    .reduce((s, r) => s + (r.credit || 0), 0);
   const totalBalance = runningBalance; // final running balance
 
   const statusBadge = (status) => {
@@ -217,13 +220,37 @@ export default function ProjectStatement() {
       `}</style>
 
       {/* Buttons */}
-      <div className="no-print" style={{ maxWidth: 900, margin: "0 auto 12px", display: "flex", gap: 10, padding: "0 4px" }}>
+      <div className="no-print" style={{ maxWidth: 900, margin: "0 auto 12px", display: "flex", gap: 10, padding: "0 4px", flexWrap: "wrap", alignItems: "center" }}>
         <button onClick={() => navigate(`/project/${projectId}`)} style={styles.btnOutline}>
           ← Back to Project
         </button>
         <button onClick={() => window.print()} style={styles.btnPrint}>
           🖨️ Print / Save as PDF
         </button>
+        {/* View toggle */}
+        <div style={{ marginLeft: "auto", display: "flex", border: "2px solid #d1d5db", borderRadius: 8, overflow: "hidden" }}>
+          <button
+            onClick={() => setViewMode("ledger")}
+            style={{
+              padding: "8px 16px", fontSize: 13, fontWeight: "600", cursor: "pointer", border: "none",
+              background: viewMode === "ledger" ? BLUE : "#fff",
+              color: viewMode === "ledger" ? "#fff" : "#374151",
+            }}
+          >
+            📋 Ledger View
+          </button>
+          <button
+            onClick={() => setViewMode("byInvoice")}
+            style={{
+              padding: "8px 16px", fontSize: 13, fontWeight: "600", cursor: "pointer", border: "none",
+              borderLeft: "2px solid #d1d5db",
+              background: viewMode === "byInvoice" ? BLUE : "#fff",
+              color: viewMode === "byInvoice" ? "#fff" : "#374151",
+            }}
+          >
+            📄 By Invoice
+          </button>
+        </div>
       </div>
 
       <div className="statement-card" style={styles.card}>
@@ -279,132 +306,211 @@ export default function ProjectStatement() {
           ))}
         </div>
 
-        {/* Transaction Table */}
-        {rows.length === 0 ? (
-          <p style={{ textAlign: "center", color: "#888", padding: "40px 0" }}>No invoices found for this project.</p>
-        ) : (
-          <table style={styles.table}>
-            <thead>
-              <tr style={{ background: BLUE }}>
-                <th style={{ ...styles.th, textAlign: "left",  width: 100 }}>Date</th>
-                <th style={{ ...styles.th, textAlign: "left"             }}>Description</th>
-                <th style={{ ...styles.th, textAlign: "right", width: 110 }}>Charges</th>
-                <th style={{ ...styles.th, textAlign: "right", width: 110 }}>Credits</th>
-                <th style={{ ...styles.th, textAlign: "right", width: 120 }}>Balance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, i) => (
-                <tr key={i} style={{
-                  backgroundColor:
-                    row.type === "invoice" ? "#fff" :
-                    row.type === "deposit" ? "#f0fdf4" : "#f0f9ff",
-                  borderBottom: "1px solid #e5e7eb",
-                }}>
-                  <td style={{ ...styles.td, color: "#555", whiteSpace: "nowrap" }}>
-                    {fmtDate(row.date)}
+        {/* ── LEDGER VIEW ── */}
+        {viewMode === "ledger" && (
+          rows.length === 0 ? (
+            <p style={{ textAlign: "center", color: "#888", padding: "40px 0" }}>No invoices found for this project.</p>
+          ) : (
+            <table style={styles.table}>
+              <thead>
+                <tr style={{ background: BLUE }}>
+                  <th style={{ ...styles.th, textAlign: "left",  width: 100 }}>Date</th>
+                  <th style={{ ...styles.th, textAlign: "left"             }}>Description</th>
+                  <th style={{ ...styles.th, textAlign: "right", width: 110 }}>Charges</th>
+                  <th style={{ ...styles.th, textAlign: "right", width: 110 }}>Credits</th>
+                  <th style={{ ...styles.th, textAlign: "right", width: 120 }}>Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, i) => (
+                  <tr key={i} style={{
+                    backgroundColor:
+                      row.type === "invoice" ? "#fff" :
+                      row.type === "deposit" ? "#f0fdf4" : "#f0f9ff",
+                    borderBottom: "1px solid #e5e7eb",
+                  }}>
+                    <td style={{ ...styles.td, color: "#555", whiteSpace: "nowrap" }}>
+                      {fmtDate(row.date)}
+                    </td>
+                    <td style={{ ...styles.td }}>
+                      <span style={{
+                        fontWeight: row.type === "invoice" ? "600" : "normal",
+                        color:
+                          row.type === "invoice" ? "#111" :
+                          row.type === "deposit"  ? "#166534" : "#1d4ed8",
+                      }}>
+                        {row.type === "deposit" ? "💰 " : row.type === "payment" ? "✅ " : "📄 "}
+                        {row.ref}
+                      </span>
+                      {row.status && <span style={{ marginLeft: 8 }}>{statusBadge(row.status)}</span>}
+                    </td>
+                    <td style={{ ...styles.td, textAlign: "right", fontWeight: "600", color: "#111" }}>
+                      {row.charge > 0 ? fmtMoney(row.charge) : "—"}
+                    </td>
+                    <td style={{ ...styles.td, textAlign: "right", fontWeight: "600", color: GREEN }}>
+                      {row.credit > 0 ? fmtMoney(row.credit) : "—"}
+                    </td>
+                    <td style={{ ...styles.td, textAlign: "right", fontWeight: "bold",
+                      color: row.balance > 0.005 ? "#ef4444" : GREEN }}>
+                      {fmtMoney(row.balance)}
+                    </td>
+                  </tr>
+                ))}
+                {/* Totals row */}
+                <tr style={{ background: "#f3f4f6", borderTop: "3px solid #e5e7eb" }}>
+                  <td colSpan={2} style={{ ...styles.td, fontWeight: "bold", fontSize: 15, color: "#111" }}>TOTALS</td>
+                  <td style={{ ...styles.td, textAlign: "right", fontWeight: "bold", fontSize: 15, color: "#111" }}>
+                    {fmtMoney(totalInvoiced)}
                   </td>
-                  <td style={{ ...styles.td }}>
-                    <span style={{
-                      fontWeight: row.type === "invoice" ? "600" : "normal",
-                      color:
-                        row.type === "invoice" ? "#111" :
-                        row.type === "deposit"  ? "#166534" : "#1d4ed8",
-                    }}>
-                      {row.type === "deposit" ? "💰 " : row.type === "payment" ? "✅ " : "📄 "}
-                      {row.ref}
-                    </span>
-                    {row.status && <span style={{ marginLeft: 8 }}>{statusBadge(row.status)}</span>}
+                  <td style={{ ...styles.td, textAlign: "right", fontWeight: "bold", fontSize: 15, color: GREEN }}>
+                    {fmtMoney(totalDepositsAmt + totalPaymentsAmt)}
                   </td>
-                  <td style={{ ...styles.td, textAlign: "right", fontWeight: "600", color: "#111" }}>
-                    {row.charge > 0 ? fmtMoney(row.charge) : "—"}
-                  </td>
-                  <td style={{ ...styles.td, textAlign: "right", fontWeight: "600", color: GREEN }}>
-                    {row.credit > 0 ? fmtMoney(row.credit) : "—"}
-                  </td>
-                  <td style={{ ...styles.td, textAlign: "right", fontWeight: "bold",
-                    color: row.balance > 0.005 ? "#ef4444" : GREEN }}>
-                    {fmtMoney(row.balance)}
+                  <td style={{ ...styles.td, textAlign: "right", fontWeight: "bold", fontSize: 18,
+                    color: totalBalance > 0.005 ? "#ef4444" : GREEN }}>
+                    {fmtMoney(totalBalance)}
                   </td>
                 </tr>
-              ))}
-
-              {/* Totals row */}
-              <tr style={{ background: "#f3f4f6", borderTop: "3px solid #e5e7eb" }}>
-                <td colSpan={2} style={{ ...styles.td, fontWeight: "bold", fontSize: 15, color: "#111" }}>TOTALS</td>
-                <td style={{ ...styles.td, textAlign: "right", fontWeight: "bold", fontSize: 15, color: "#111" }}>
-                  {fmtMoney(totalInvoiced)}
-                </td>
-                <td style={{ ...styles.td, textAlign: "right", fontWeight: "bold", fontSize: 15, color: GREEN }}>
-                  {fmtMoney(totalDepositsAmt + totalPaymentsAmt)}
-                </td>
-                <td style={{ ...styles.td, textAlign: "right", fontWeight: "bold", fontSize: 18,
-                  color: totalBalance > 0.005 ? "#ef4444" : GREEN }}>
-                  {fmtMoney(totalBalance)}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+              </tbody>
+            </table>
+          )
         )}
 
-        {/* Per-Invoice Detail */}
-        {invoices.length > 0 && (
-          <div style={{ marginTop: 32 }}>
-            <h3 style={{ fontSize: 15, fontWeight: "bold", color: BLUE, borderBottom: `2px solid ${ACCENT}`, paddingBottom: 8, marginBottom: 16 }}>
-              Invoice Detail
-            </h3>
-            {invoices.map((inv) => {
-              const invoiceAmt = inv.total || inv.subtotal || 0;
-              const invDeposits = deposits.filter(d => d.invoice_id === inv.id);
-              const invPayments = payments.filter(p => p.invoice_id === inv.id);
-              const totalDepositAmt = invDeposits.reduce((s, d) => s + (d.deposit_amount || 0), 0);
-              const totalPayAmt = invPayments.length > 0
-                ? invPayments.reduce((s, p) => s + (p.amount || 0), 0)
-                : (inv.amount_paid || 0);
-              const balance = inv.balance_due ?? (invoiceAmt - totalDepositAmt - totalPayAmt);
+        {/* ── BY INVOICE VIEW ── */}
+        {viewMode === "byInvoice" && (
+          invoices.length === 0 ? (
+            <p style={{ textAlign: "center", color: "#888", padding: "40px 0" }}>No invoices found for this project.</p>
+          ) : (
+            <div>
+              {invoices.map((inv) => {
+                const invoiceAmt = inv.total || inv.subtotal || 0;
+                const invDeposits = deposits.filter(d => d.invoice_id === inv.id);
+                const invPayments = payments.filter(p => p.invoice_id === inv.id);
+                const totalDepositAmt = invDeposits.reduce((s, d) => s + (d.deposit_amount || 0), 0);
+                const totalPayAmt = invPayments.length > 0
+                  ? invPayments.reduce((s, p) => s + (p.amount || 0), 0)
+                  : (inv.amount_paid || 0);
+                const balance = inv.balance_due ?? (invoiceAmt - totalDepositAmt - totalPayAmt);
 
-              return (
-                <div key={inv.id} style={{ marginBottom: 16, border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden" }}>
-                  {/* Invoice header */}
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
-                    <span style={{ fontWeight: "bold", fontSize: 15, color: "#111" }}>Invoice #{inv.invoice_number}</span>
-                    <span style={{ fontSize: 13, color: "#666" }}>
-                      {fmtDate(inv.invoice_date)}
-                      {inv.due_date && ` · Due ${fmtDate(inv.due_date)}`}
-                    </span>
-                    {statusBadge(inv.status)}
-                  </div>
+                // Use fallback row if no invoice_payments records
+                const payRows = invPayments.length > 0
+                  ? invPayments.map(pmt => ({
+                      date: pmt.payment_date,
+                      label: `Payment${pmt.payment_method ? ` (${pmt.payment_method})` : ""}${pmt.notes ? ` · ${pmt.notes}` : ""}`,
+                      amount: pmt.amount || 0,
+                      type: "payment",
+                    }))
+                  : (inv.amount_paid > 0 ? [{
+                      date: inv.invoice_date,
+                      label: "Payment",
+                      amount: inv.amount_paid,
+                      type: "payment",
+                    }] : []);
 
-                  {/* Summary line */}
-                  <div style={{ display: "flex", padding: "10px 16px", gap: 24, flexWrap: "wrap", borderBottom: "1px solid #f0f0f0" }}>
-                    <div style={styles.dc}>
-                      <span style={styles.dlabel}>Invoice Total</span>
-                      <span style={styles.dval}>{fmtMoney(invoiceAmt)}</span>
+                const depRows = invDeposits.map(dep => ({
+                  date: dep.deposit_date,
+                  label: `Deposit${dep.reference_notes ? ` (${dep.reference_notes})` : ""}`,
+                  amount: dep.deposit_amount || 0,
+                  type: "deposit",
+                }));
+
+                const creditRows = [...depRows, ...payRows].sort(
+                  (a, b) => new Date(a.date || "1900-01-01") - new Date(b.date || "1900-01-01")
+                );
+
+                return (
+                  <div key={inv.id} style={{ marginBottom: 20, border: "1px solid #d1d5db", borderRadius: 10, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                    {/* Invoice header bar */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 18px", background: BLUE }}>
+                      <span style={{ fontWeight: "bold", fontSize: 16, color: "#fff" }}>
+                        📄 Invoice #{inv.invoice_number}
+                      </span>
+                      <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                        <span style={{ fontSize: 13, color: "rgba(255,255,255,0.8)" }}>
+                          {fmtDate(inv.invoice_date)}
+                          {inv.due_date ? ` · Due ${fmtDate(inv.due_date)}` : ""}
+                        </span>
+                        {statusBadge(inv.status)}
+                      </div>
                     </div>
-                    {totalDepositAmt > 0 && (
-                      <div style={styles.dc}>
-                        <span style={styles.dlabel}>Deposits</span>
-                        <span style={{ ...styles.dval, color: GREEN }}>−{fmtMoney(totalDepositAmt)}</span>
+
+                    {/* Invoice amount row */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 18px", background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
+                      <span style={{ fontSize: 13, color: "#555", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.4px" }}>Invoice Total</span>
+                      <span style={{ fontSize: 16, fontWeight: "bold", color: "#111" }}>{fmtMoney(invoiceAmt)}</span>
+                    </div>
+
+                    {/* Credit rows (deposits + payments) */}
+                    {creditRows.length > 0 ? (
+                      creditRows.map((cr, ci) => (
+                        <div key={ci} style={{
+                          display: "flex", justifyContent: "space-between", alignItems: "center",
+                          padding: "9px 18px 9px 32px",
+                          background: cr.type === "deposit" ? "#f0fdf4" : "#f0f9ff",
+                          borderBottom: "1px solid #e5e7eb",
+                        }}>
+                          <span style={{ fontSize: 13, color: cr.type === "deposit" ? "#166534" : "#1d4ed8" }}>
+                            {cr.type === "deposit" ? "💰" : "✅"} {fmtDate(cr.date)} — {cr.label}
+                          </span>
+                          <span style={{ fontSize: 14, fontWeight: "600", color: GREEN }}>
+                            −{fmtMoney(cr.amount)}
+                          </span>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ padding: "9px 18px 9px 32px", background: "#fffbeb", borderBottom: "1px solid #e5e7eb" }}>
+                        <span style={{ fontSize: 13, color: "#92400e" }}>⏳ No payments recorded yet</span>
                       </div>
                     )}
-                    {totalPayAmt > 0 && (
-                      <div style={styles.dc}>
-                        <span style={styles.dlabel}>Payments</span>
-                        <span style={{ ...styles.dval, color: GREEN }}>−{fmtMoney(totalPayAmt)}</span>
-                      </div>
-                    )}
-                    <div style={styles.dc}>
-                      <span style={styles.dlabel}>Balance Due</span>
-                      <span style={{ ...styles.dval, fontWeight: "bold", fontSize: 18, color: balance > 0.005 ? "#ef4444" : GREEN }}>
+
+                    {/* Balance due footer */}
+                    <div style={{
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                      padding: "10px 18px",
+                      background: balance > 0.005 ? "#fef2f2" : "#f0fdf4",
+                      borderTop: "2px solid " + (balance > 0.005 ? "#fecaca" : "#bbf7d0"),
+                    }}>
+                      <span style={{ fontSize: 13, fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.4px", color: balance > 0.005 ? "#b91c1c" : "#15803d" }}>
+                        Balance Due
+                      </span>
+                      <span style={{ fontSize: 18, fontWeight: "bold", color: balance > 0.005 ? "#ef4444" : GREEN }}>
                         {fmtMoney(balance)}
                       </span>
                     </div>
                   </div>
+                );
+              })}
 
+              {/* Grand totals row for By Invoice view */}
+              <div style={{ marginTop: 8, border: "2px solid #e5e7eb", borderRadius: 10, overflow: "hidden" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 18px", background: "#f3f4f6", borderBottom: "1px solid #e5e7eb" }}>
+                  <span style={{ fontWeight: "bold", fontSize: 15, color: "#111" }}>TOTALS</span>
+                  <span style={{ fontSize: 15, fontWeight: "bold", color: "#111" }}>{fmtMoney(totalInvoiced)}</span>
                 </div>
-              );
-            })}
-          </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 18px 10px 32px", background: "#f0f9ff", borderBottom: "1px solid #e5e7eb" }}>
+                  <span style={{ fontSize: 13, color: "#1d4ed8" }}>✅ Total Payments Received</span>
+                  <span style={{ fontSize: 14, fontWeight: "600", color: GREEN }}>−{fmtMoney(totalPaymentsAmt)}</span>
+                </div>
+                {totalDepositsAmt > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 18px 10px 32px", background: "#f0fdf4", borderBottom: "1px solid #e5e7eb" }}>
+                    <span style={{ fontSize: 13, color: "#166534" }}>💰 Total Deposits Applied</span>
+                    <span style={{ fontSize: 14, fontWeight: "600", color: GREEN }}>−{fmtMoney(totalDepositsAmt)}</span>
+                  </div>
+                )}
+                <div style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  padding: "12px 18px",
+                  background: totalBalance > 0.005 ? "#fef2f2" : "#f0fdf4",
+                }}>
+                  <span style={{ fontSize: 14, fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", color: totalBalance > 0.005 ? "#b91c1c" : "#15803d" }}>
+                    Total Balance Owed
+                  </span>
+                  <span style={{ fontSize: 20, fontWeight: "bold", color: totalBalance > 0.005 ? "#ef4444" : GREEN }}>
+                    {fmtMoney(totalBalance)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )
         )}
 
         {/* Footer */}
