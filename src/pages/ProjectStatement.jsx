@@ -64,12 +64,22 @@ export default function ProjectStatement() {
         .order("deposit_date", { ascending: true });
       setDeposits(depData || []);
 
-      // 5. Load change orders for this project (to get titles)
-      const { data: coData } = await supabase
-        .from("change_orders")
-        .select("id, change_order_number, title")
-        .eq("project_name", proj.name);
-      setChangeOrders(coData || []);
+      // 5. Load change orders by their IDs from invoice.change_order_id (reliable direct link)
+      const coIds = [...new Set((invData || []).map(i => i.change_order_id).filter(Boolean))];
+      if (coIds.length > 0) {
+        const { data: coData } = await supabase
+          .from("change_orders")
+          .select("id, change_order_number, title")
+          .in("id", coIds);
+        setChangeOrders(coData || []);
+      } else {
+        // Fallback: try by project_name
+        const { data: coData } = await supabase
+          .from("change_orders")
+          .select("id, change_order_number, title")
+          .eq("project_name", proj.name);
+        setChangeOrders(coData || []);
+      }
 
     } catch (err) {
       console.error("Error loading statement:", err);

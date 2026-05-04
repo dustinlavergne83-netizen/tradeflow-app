@@ -2580,15 +2580,12 @@ async function handleAddContractor() {
                         if (totalCoTableItems > 0) {
                           // Items in change_order_items = created with full Estimate page
                           navigate(`/project/${id}/estimate?type=changeorder&coId=${changeOrder.id}&coNumber=${changeOrder.change_order_number}`);
-                        } else if (totalEstTableItems > 0 && totalEstTableItems <= 2) {
-                          // Simple CO from QuickEstimate (1-2 items in estimate_items)
+                        } else if (totalEstTableItems > 0) {
+                          // Items in estimate_items = created with Quick Change Order (any number of items)
                           navigate(`/estimate/quick?coId=${changeOrder.id}&type=changeorder&projectId=${id}`);
-                        } else if (totalEstTableItems > 2) {
-                          // Complex CO in estimate_items - use full editor
-                          navigate(`/project/${id}/estimate?type=changeorder&coId=${changeOrder.id}&coNumber=${changeOrder.change_order_number}`);
                         } else {
-                          // No items found in either table - use full editor (preserves CO context)
-                          navigate(`/project/${id}/estimate?type=changeorder&coId=${changeOrder.id}&coNumber=${changeOrder.change_order_number}`);
+                          // No items found in either table - default to Quick editor
+                          navigate(`/estimate/quick?coId=${changeOrder.id}&type=changeorder&projectId=${id}`);
                         }
                       }}
                       style={styles.estimateButton}
