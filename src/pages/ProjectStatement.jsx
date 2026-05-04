@@ -15,6 +15,7 @@ export default function ProjectStatement() {
   const [invoices, setInvoices] = useState([]);
   const [payments, setPayments] = useState([]); // individual invoice_payments records
   const [deposits, setDeposits] = useState([]); // project_deposits records
+  const [changeOrders, setChangeOrders] = useState([]); // change_orders records (for titles)
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState("ledger"); // "ledger" | "byInvoice"
 
@@ -62,6 +63,13 @@ export default function ProjectStatement() {
         .eq("project_id", projectId)
         .order("deposit_date", { ascending: true });
       setDeposits(depData || []);
+
+      // 5. Load change orders for this project (to get titles)
+      const { data: coData } = await supabase
+        .from("change_orders")
+        .select("id, change_order_number, title")
+        .eq("project_name", proj.name);
+      setChangeOrders(coData || []);
 
     } catch (err) {
       console.error("Error loading statement:", err);
@@ -516,13 +524,31 @@ export default function ProjectStatement() {
                   }, 0);
                   const grpBalance = grpTotal - grpPaid - grpDep;
                   const isBase = key === "base";
-                  const groupLabel = isBase ? "📋 Base Contract" : `🔧 Change Order #${key.replace(/^CO/i, "")}`;
+                  const coNum = key.replace(/^CO/i, "");
+                  // Look up the change order title from the loaded changeOrders array
+                  const coRecord = !isBase
+                    ? changeOrders.find(co => {
+                        const m = String(co.change_order_number || "").match(/CO(\d+)$/i);
+                        return m && m[1] === coNum;
+                      })
+                    : null;
+                  const coTitle = coRecord?.title || null;
+                  const groupLabel = isBase
+                    ? "📋 Base Contract"
+                    : `🔧 Change Order #${coNum}`;
 
                   return (
                     <div key={key} style={{ marginBottom: 24, border: "2px solid " + (isBase ? BLUE : "#7c3aed"), borderRadius: 10, overflow: "hidden", boxShadow: "0 2px 6px rgba(0,0,0,0.07)" }}>
                       {/* Group header */}
                       <div style={{ padding: "12px 18px", background: isBase ? BLUE : "#7c3aed", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontWeight: "bold", fontSize: 16, color: "#fff" }}>{groupLabel}</span>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                          <span style={{ fontWeight: "bold", fontSize: 16, color: "#fff" }}>{groupLabel}</span>
+                          {coTitle && (
+                            <span style={{ fontSize: 13, color: "rgba(255,255,255,0.85)", fontStyle: "italic" }}>
+                              {coTitle}
+                            </span>
+                          )}
+                        </div>
                         <span style={{ fontSize: 13, color: "rgba(255,255,255,0.85)", fontWeight: "600" }}>
                           {grpInvoices.length} invoice{grpInvoices.length !== 1 ? "s" : ""}
                         </span>

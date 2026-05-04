@@ -407,7 +407,7 @@ export default function QuickEstimate() {
           const changeOrderData = {
             project_name: projectName || "Quick Change Order",
             change_order_number: coNumber,
-            title: `Quick Change Order ${nextCONum}`,
+            title: description?.trim() || `Quick Change Order ${nextCONum}`,
             description: description || null,
             change_order_date: estimateDate,
             total: total,
