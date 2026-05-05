@@ -55,6 +55,10 @@ export default function Invoice() {
   // Progress billing state
   const [selectedItems, setSelectedItems] = useState(new Set());
   const [itemBillingAmounts, setItemBillingAmounts] = useState({});
+  const [editingDraw, setEditingDraw] = useState(false);
+  const [editDrawAmount, setEditDrawAmount] = useState("");
+  const [editDrawPercent, setEditDrawPercent] = useState("");
+  const [savingDraw, setSavingDraw] = useState(false);
   
   // Change Order state
   const [changeOrder, setChangeOrder] = useState(null);
@@ -735,6 +739,56 @@ export default function Invoice() {
     } catch (err) {
       console.error("Error applying deposits:", err);
       alert("Failed to apply deposits: " + err.message);
+    }
+  }
+
+  async function handleSaveDrawAmount(contractTotal, prevBilled, drawItem, extraItems) {
+    if (savingDraw) return;
+    setSavingDraw(true);
+    try {
+      const newAmount = parseFloat(editDrawAmount) || 0;
+      const newPercent = contractTotal > 0 ? ((newAmount + prevBilled) / contractTotal * 100) : 0;
+      const newRemaining = contractTotal - prevBilled - newAmount;
+      const drawPercent = contractTotal > 0 ? (newAmount / contractTotal * 100) : 0;
+
+      // Update the invoice_item total
+      await supabase
+        .from("invoice_items")
+        .update({ total: newAmount, unit_price: newAmount, quantity: 1 })
+        .eq("id", drawItem.id);
+
+      // Update the notes with new values
+      const extraTotal = extraItems.reduce((s, i) => s + (i.total || 0), 0);
+      const newSubtotal = newAmount + extraTotal;
+      const proposalTag = notes.match(/\[PROPOSAL:[^\]]+\]/)?.[0] || "";
+      const paymentTerms = notes.match(/Payment Terms: [^|[\]]+/)?.[0] || "";
+      const estNum = notes.match(/estimate (\d+)/)?.[1] || "";
+      let newNotes = `Progress billing from estimate ${estNum} | This draw: $${newAmount.toFixed(2)} (${drawPercent.toFixed(1)}% of $${contractTotal.toFixed(2)}) | Previously billed: $${prevBilled.toFixed(2)} | Remaining after this: $${newRemaining.toFixed(2)}`;
+      if (paymentTerms) newNotes += ` | ${paymentTerms}`;
+      if (proposalTag) newNotes += ` | ${proposalTag}`;
+      setNotes(newNotes);
+
+      // Update invoice totals
+      const totalDeductions = depositReceived + amountPaid;
+      const balanceDue = newSubtotal - totalDeductions;
+      await supabase
+        .from("invoices")
+        .update({
+          notes: newNotes,
+          subtotal: newSubtotal,
+          total: newSubtotal,
+          balance_due: balanceDue,
+        })
+        .eq("id", invoiceId);
+
+      setEditingDraw(false);
+      alert("✅ Draw amount updated successfully!");
+      loadInvoice();
+    } catch (err) {
+      console.error("Error saving draw amount:", err);
+      alert("Failed to save: " + (err.message || err));
+    } finally {
+      setSavingDraw(false);
     }
   }
 
@@ -1723,20 +1777,112 @@ export default function Invoice() {
                           </tr>
                         );
                       }
+                      const isNotPaid = status !== 'paid';
+                      const currentDrawAmt = editingDraw ? parseFloat(editDrawAmount) || 0 : (item.total || 0);
+                      const currentDrawPct = contractTotal > 0 ? (currentDrawAmt / contractTotal * 100) : 0;
+                      const currentRemaining = contractTotal - prevBilled - currentDrawAmt;
                       return (
                         <tr key={item.id} style={styles.summaryRow}>
                           <td style={{...styles.summaryTd, textAlign: 'left', fontWeight: '600'}}>{itemName}</td>
                           <td style={styles.summaryTd}>${contractTotal > 0 ? contractTotal.toFixed(2) : (item.total || 0).toFixed(2)}</td>
-                          <td style={{...styles.summaryTd, color: BRAND.accent, fontWeight: '600'}}>${(item.total || 0).toFixed(2)}</td>
-                          <td style={styles.summaryTd}>{drawPercent > 0 ? drawPercent.toFixed(1) : '0.0'}%</td>
+                          <td style={{...styles.summaryTd, color: BRAND.accent, fontWeight: '600'}}>
+                            {editingDraw ? (
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={editDrawAmount}
+                                onChange={(e) => {
+                                  setEditDrawAmount(e.target.value);
+                                  if (contractTotal > 0) {
+                                    setEditDrawPercent(((parseFloat(e.target.value) || 0) / contractTotal * 100).toFixed(1));
+                                  }
+                                }}
+                                style={{width: 110, padding: '6px 8px', fontSize: 14, border: '2px solid #3b82f6', borderRadius: 6, textAlign: 'right', fontWeight: '600', color: BRAND.accent}}
+                                autoFocus
+                              />
+                            ) : (
+                              <span
+                                onClick={() => {
+                                  if (isNotPaid) {
+                                    setEditingDraw(true);
+                                    setEditDrawAmount((item.total || 0).toFixed(2));
+                                    setEditDrawPercent(drawPercent > 0 ? drawPercent.toFixed(1) : '0.0');
+                                  }
+                                }}
+                                style={{cursor: isNotPaid ? 'pointer' : 'default', borderBottom: isNotPaid ? '2px dashed #3b82f6' : 'none', paddingBottom: 2}}
+                                title={isNotPaid ? 'Click to edit draw amount' : ''}
+                              >
+                                ${(item.total || 0).toFixed(2)}
+                              </span>
+                            )}
+                          </td>
+                          <td style={styles.summaryTd}>
+                            {editingDraw ? (
+                              <div style={{display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2}}>
+                                <input
+                                  type="number"
+                                  step="0.1"
+                                  value={editDrawPercent}
+                                  onChange={(e) => {
+                                    setEditDrawPercent(e.target.value);
+                                    if (contractTotal > 0) {
+                                      setEditDrawAmount(((parseFloat(e.target.value) || 0) / 100 * contractTotal).toFixed(2));
+                                    }
+                                  }}
+                                  style={{width: 70, padding: '6px 8px', fontSize: 14, border: '2px solid #3b82f6', borderRadius: 6, textAlign: 'right'}}
+                                />
+                                <span>%</span>
+                              </div>
+                            ) : (
+                              <span
+                                onClick={() => {
+                                  if (isNotPaid) {
+                                    setEditingDraw(true);
+                                    setEditDrawAmount((item.total || 0).toFixed(2));
+                                    setEditDrawPercent(drawPercent > 0 ? drawPercent.toFixed(1) : '0.0');
+                                  }
+                                }}
+                                style={{cursor: isNotPaid ? 'pointer' : 'default', borderBottom: isNotPaid ? '2px dashed #3b82f6' : 'none', paddingBottom: 2}}
+                                title={isNotPaid ? 'Click to edit percentage' : ''}
+                              >
+                                {drawPercent > 0 ? drawPercent.toFixed(1) : '0.0'}%
+                              </span>
+                            )}
+                          </td>
                           <td style={styles.summaryTd}>${prevBilled.toFixed(2)}</td>
-                          <td style={styles.summaryTd}>${remainAfter.toFixed(2)}</td>
+                          <td style={styles.summaryTd}>${editingDraw ? currentRemaining.toFixed(2) : remainAfter.toFixed(2)}</td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
               </div>
+
+              {/* Save/Cancel buttons when editing draw */}
+              {editingDraw && (
+                <div style={{display: 'flex', gap: 10, marginTop: 12, justifyContent: 'flex-end'}}>
+                  <button
+                    onClick={() => setEditingDraw(false)}
+                    style={{padding: '8px 20px', border: '2px solid #d1d5db', background: '#fff', color: '#666', borderRadius: 8, cursor: 'pointer', fontSize: 14, fontWeight: '600'}}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => handleSaveDrawAmount(contractTotal, prevBilled, drawItems[0], extraItems)}
+                    disabled={savingDraw}
+                    style={{padding: '8px 20px', border: 'none', background: '#3b82f6', color: '#fff', borderRadius: 8, cursor: 'pointer', fontSize: 14, fontWeight: '600', opacity: savingDraw ? 0.6 : 1}}
+                  >
+                    {savingDraw ? '💾 Saving...' : '💾 Save Draw Amount'}
+                  </button>
+                </div>
+              )}
+
+              {/* Hint text for non-paid invoices */}
+              {status !== 'paid' && !editingDraw && (
+                <p style={{fontSize: 12, color: '#3b82f6', marginTop: 8, fontStyle: 'italic'}}>
+                  💡 Click the <strong>This Draw</strong> amount or <strong>% of Contract</strong> to edit the billing amount.
+                </p>
+              )}
 
               {/* Extra line items — always shown for progress billing so items can be added/managed */}
               <div style={{marginTop: 20}}>

@@ -16,6 +16,8 @@ export default function ProjectStatement() {
   const [payments, setPayments] = useState([]); // individual invoice_payments records
   const [deposits, setDeposits] = useState([]); // project_deposits records
   const [changeOrders, setChangeOrders] = useState([]); // change_orders records (for titles)
+  const [proposals, setProposals] = useState([]);
+  const [baseContractAmount, setBaseContractAmount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState("ledger"); // "ledger" | "byInvoice"
 
@@ -64,22 +66,81 @@ export default function ProjectStatement() {
         .order("deposit_date", { ascending: true });
       setDeposits(depData || []);
 
-      // 5. Load change orders by their IDs from invoice.change_order_id (reliable direct link)
+      // 5. Load ALL change orders for this project (by project_name + invoice-linked)
+      const { data: coByName } = await supabase
+        .from("change_orders")
+        .select("id, change_order_number, title, description, total")
+        .eq("project_name", proj.name);
+      let coData = coByName || [];
+      // Also grab any COs linked via invoice change_order_id that might not match project_name
       const coIds = [...new Set((invData || []).map(i => i.change_order_id).filter(Boolean))];
       if (coIds.length > 0) {
-        const { data: coData } = await supabase
-          .from("change_orders")
-          .select("id, change_order_number, title, total")
-          .in("id", coIds);
-        setChangeOrders(coData || []);
-      } else {
-        // Fallback: try by project_name
-        const { data: coData } = await supabase
-          .from("change_orders")
-          .select("id, change_order_number, title, total")
-          .eq("project_name", proj.name);
-        setChangeOrders(coData || []);
+        const existingCoIds = new Set(coData.map(c => c.id));
+        const missingCoIds = coIds.filter(id => !existingCoIds.has(id));
+        if (missingCoIds.length > 0) {
+          const { data: extraCOs } = await supabase
+            .from("change_orders")
+            .select("id, change_order_number, title, description, total")
+            .in("id", missingCoIds);
+          coData = [...coData, ...(extraCOs || [])];
+        }
       }
+
+      // For COs that have no title AND no description, use the first estimate_item description
+      // QuickEstimate COs: items stored with change_order_id = co.id
+      // Full Proposal COs: items stored with estimate_id = co.id (CO id used as estimate_id)
+      const cosNeedingFallback = coData.filter(co => !co.title && !co.description);
+      if (cosNeedingFallback.length > 0) {
+        const coIdList = cosNeedingFallback.map(co => co.id);
+        // Try change_order_id column (QuickEstimate flow)
+        const { data: itemsByCoId } = await supabase
+          .from("estimate_items")
+          .select("change_order_id, estimate_id, description, sequence")
+          .in("change_order_id", coIdList)
+          .order("sequence", { ascending: true });
+        // Also try estimate_id column (full proposal flow stores CO id as estimate_id)
+        const { data: itemsByEstId } = await supabase
+          .from("estimate_items")
+          .select("change_order_id, estimate_id, description, sequence")
+          .in("estimate_id", coIdList)
+          .order("sequence", { ascending: true });
+        const allItems = [...(itemsByCoId || []), ...(itemsByEstId || [])];
+        if (allItems.length > 0) {
+          const firstItem = {};
+          allItems.forEach(item => {
+            const coId = item.change_order_id || item.estimate_id;
+            if (coId && !firstItem[coId]) firstItem[coId] = item.description;
+          });
+          coData = coData.map(co => firstItem[co.id] ? { ...co, description: firstItem[co.id] } : co);
+        }
+      }
+      setChangeOrders(coData);
+
+      // 6. Load ALL proposals for this project by project_id (base + change orders)
+      const { data: allProposals } = await supabase
+        .from("proposals")
+        .select("id, total_amount, base_estimate_id, change_order_id, created_at")
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: true });
+      setProposals(allProposals || []);
+      // Find the base proposal that the progress invoices are actually tied to
+      // Invoices store a [PROPOSAL:proposalId] tag in their notes field
+      const baseProps = (allProposals || []).filter(p => !p.change_order_id);
+      let linkedBaseProp = null;
+      // Check base invoices (non-CO) for a [PROPOSAL:xxx] tag
+      const baseInvoices = (invList || []).filter(inv => !String(inv.invoice_number || "").match(/CO\d+/i));
+      for (const inv of baseInvoices) {
+        const tagMatch = String(inv.notes || "").match(/\[PROPOSAL:([^\]]+)\]/);
+        if (tagMatch) {
+          linkedBaseProp = (allProposals || []).find(p => p.id === tagMatch[1]);
+          if (linkedBaseProp) break;
+        }
+      }
+      // Fallback: use the latest base proposal if no tag found
+      if (!linkedBaseProp) {
+        linkedBaseProp = baseProps.length > 0 ? baseProps[baseProps.length - 1] : null;
+      }
+      setBaseContractAmount(linkedBaseProp?.total_amount || 0);
 
     } catch (err) {
       console.error("Error loading statement:", err);
@@ -233,6 +294,13 @@ export default function ProjectStatement() {
           /* Make sure tables don't break awkwardly */
           table { page-break-inside: auto; }
           tr { page-break-inside: avoid; }
+          /* Keep invoice cards and group sections together */
+          .invoice-card { page-break-inside: avoid; break-inside: avoid; }
+          .group-section { page-break-inside: avoid; break-inside: avoid; }
+          .group-subtotal { page-break-inside: avoid; break-inside: avoid; }
+          .contract-breakdown { page-break-inside: avoid; break-inside: avoid; }
+          .summary-boxes { page-break-inside: avoid; break-inside: avoid; }
+          .grand-totals { page-break-inside: avoid; break-inside: avoid; }
         }
         @media screen { .statement-card { max-width: 900px; } }
       `}</style>
@@ -277,7 +345,7 @@ export default function ProjectStatement() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
           <img src={logoImage} alt="DML Electrical" style={{ maxWidth: 180, height: "auto" }} />
           <div style={{ textAlign: "right" }}>
-            <h1 style={{ fontSize: 26, fontWeight: "bold", color: BLUE, margin: "0 0 4px" }}>ACCOUNT STATEMENT</h1>
+            <h1 style={{ fontSize: 26, fontWeight: "bold", color: BLUE, margin: "0 0 4px" }}>PROJECT STATEMENT</h1>
             <p style={{ fontSize: 12, color: "#888", margin: 0 }}>
               Printed: {new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
             </p>
@@ -307,11 +375,28 @@ export default function ProjectStatement() {
         </div>
 
         {/* Summary boxes */}
-        <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+        <div className="summary-boxes" style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
           {[
+            { label: "Contract Total",      value: fmtMoney((() => {
+              // Quick inline compute for contract total
+              const getGK2 = (num) => { const m = String(num || "").match(/CO(\d+)/i); return m ? `CO${m[1]}` : "base"; };
+              const gO = []; const gM = {};
+              invoices.forEach(inv => { const k = getGK2(inv.invoice_number); if (!gM[k]) { gM[k] = []; gO.push(k); } gM[k].push(inv); });
+              const usd = new Set();
+              let ct = baseContractAmount;
+              gO.filter(k => k !== "base").forEach(key => {
+                let cp = null;
+                for (const inv of gM[key]) { const tm = String(inv.notes || "").match(/\[PROPOSAL:([^\]]+)\]/); if (tm) { cp = proposals.find(p => p.id === tm[1]); if (cp) break; } }
+                if (!cp) { const ids = [...new Set(gM[key].map(i => i.change_order_id).filter(Boolean))]; if (ids.length > 0) cp = proposals.find(p => ids.includes(p.change_order_id)); }
+                if (cp) { usd.add(cp.id); ct += cp.total_amount || 0; }
+                else { ct += gM[key].reduce((s, i) => s + (i.total || i.subtotal || 0), 0); }
+              });
+              const um = proposals.filter(p => p.change_order_id && !usd.has(p.id));
+              gO.filter(k => k !== "base").forEach(key => { if (um.length > 0 && !usd.has(key)) { const a = um.shift(); if (a) { ct = ct - gM[key].reduce((s, i) => s + (i.total || i.subtotal || 0), 0) + (a.total_amount || 0); } } });
+              return ct;
+            })()),       color: BLUE },
             { label: "Total Invoiced",      value: fmtMoney(totalInvoiced),       color: "#111" },
-            { label: "Deposits Applied",    value: fmtMoney(totalDepositsAmt),    color: GREEN  },
-            { label: "Payments Received",   value: fmtMoney(totalPaymentsAmt),    color: GREEN  },
+            { label: "Payments Received",   value: fmtMoney(totalPaymentsAmt + totalDepositsAmt),    color: GREEN  },
             { label: "Balance Owed",        value: fmtMoney(totalBalance),        color: totalBalance > 0.005 ? "#ef4444" : GREEN },
           ].map(box => (
             <div key={box.label} style={{
@@ -326,6 +411,7 @@ export default function ProjectStatement() {
 
         {/* ── Contract Value Breakdown ── */}
         {invoices.length > 0 && (() => {
+          // Group invoices by base / CO pattern from invoice numbers (reliable extraction)
           const getGK = (num) => { const m = String(num || "").match(/CO(\d+)/i); return m ? `CO${m[1]}` : "base"; };
           const grpOrder = []; const grpMap = {};
           invoices.forEach(inv => {
@@ -333,28 +419,84 @@ export default function ProjectStatement() {
             if (!grpMap[k]) { grpMap[k] = []; grpOrder.push(k); }
             grpMap[k].push(inv);
           });
-          const rows = grpOrder.map(key => {
+
+          // CO proposals (proposals with change_order_id set)
+          const coProposals = proposals.filter(p => p.change_order_id);
+          const usedProposalIds = new Set();
+
+          const contractRows = grpOrder.map(key => {
             const isBase = key === "base";
             const coNum = key.replace(/^CO/i, "");
             const coRecord = !isBase ? changeOrders.find(co => { const m = String(co.change_order_number || "").match(/CO(\d+)$/i); return m && m[1] === coNum; }) : null;
-            const label = isBase ? "📋 Base Contract" : `🔧 Change Order #${coNum}${coRecord?.title ? " — " + coRecord.title : ""}`;
-            const grpTotal = grpMap[key].reduce((s, i) => s + (i.total || i.subtotal || 0), 0);
-            return { key, label, grpTotal, isBase };
+            const coDisplayTitle = coRecord
+              ? ((coRecord.title && !/^Quick Change Order/i.test(coRecord.title)) ? coRecord.title : (coRecord.description || null))
+              : null;
+            const label = isBase ? "📋 Base Contract" : `🔧 Change Order #${coNum}${coDisplayTitle ? " — " + coDisplayTitle : ""}`;
+
+            let contractAmt;
+            if (isBase) {
+              contractAmt = baseContractAmount > 0 ? baseContractAmount : grpMap[key].reduce((s, i) => s + (i.total || i.subtotal || 0), 0);
+            } else {
+              // Try to find matching proposal for this CO group:
+              // 1. Via [PROPOSAL:xxx] tag in invoice notes
+              // 2. Via coRecord (change_orders table match)
+              // 3. Via invoice change_order_id (direct link from invoice)
+              let coProposal = null;
+              // Check invoice notes for [PROPOSAL:xxx] tag first
+              for (const inv of grpMap[key]) {
+                const tagMatch = String(inv.notes || "").match(/\[PROPOSAL:([^\]]+)\]/);
+                if (tagMatch) {
+                  coProposal = proposals.find(p => p.id === tagMatch[1]);
+                  if (coProposal) break;
+                }
+              }
+              if (!coProposal && coRecord) {
+                coProposal = proposals.find(p => p.change_order_id === coRecord.id);
+              }
+              if (!coProposal) {
+                const grpCoIds = [...new Set(grpMap[key].map(i => i.change_order_id).filter(Boolean))];
+                if (grpCoIds.length > 0) {
+                  coProposal = proposals.find(p => grpCoIds.includes(p.change_order_id));
+                }
+              }
+              if (coProposal) usedProposalIds.add(coProposal.id);
+              contractAmt = coProposal?.total_amount > 0
+                ? coProposal.total_amount
+                : (coRecord?.total > 0 ? coRecord.total : grpMap[key].reduce((s, i) => s + (i.total || i.subtotal || 0), 0));
+            }
+            return { key, label, contractAmt, isBase, _proposalMatched: !isBase && usedProposalIds.size > 0 && !!proposals.find(p => usedProposalIds.has(p.id) && p.change_order_id) };
           });
+
+          // Second pass: match remaining unmatched CO proposals to CO groups that had no proposal match
+          const unmatchedCoProposals = coProposals.filter(p => !usedProposalIds.has(p.id));
+          const coGroupKeys = grpOrder.filter(k => k !== "base");
+          coGroupKeys.forEach(key => {
+            const row = contractRows.find(r => r.key === key);
+            // If this row wasn't matched to a proposal in the first pass
+            if (row && !row._proposalMatched && unmatchedCoProposals.length > 0) {
+              const availableProposal = unmatchedCoProposals.shift();
+              if (availableProposal && availableProposal.total_amount > 0) {
+                row.contractAmt = availableProposal.total_amount;
+                usedProposalIds.add(availableProposal.id);
+              }
+            }
+          });
+
+          const totalContractValue = contractRows.reduce((s, r) => s + r.contractAmt, 0);
           return (
             <div style={{ marginBottom: 24, border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden" }}>
               <div style={{ padding: "8px 16px", background: BLUE }}>
                 <span style={{ fontSize: 12, fontWeight: "700", color: "#fff", textTransform: "uppercase", letterSpacing: "0.5px" }}>Contract Value Breakdown</span>
               </div>
-              {rows.map((r, i) => (
-                <div key={r.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 16px", background: i % 2 === 0 ? "#f9fafb" : "#fff", borderBottom: i < rows.length - 1 ? "1px solid #e5e7eb" : "2px solid #d1d5db" }}>
+              {contractRows.map((r, i) => (
+                <div key={r.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 16px", background: i % 2 === 0 ? "#f9fafb" : "#fff", borderBottom: i < contractRows.length - 1 ? "1px solid #e5e7eb" : "2px solid #d1d5db" }}>
                   <span style={{ fontSize: 13, fontWeight: r.isBase ? "600" : "500", color: r.isBase ? "#111" : "#374151" }}>{r.label}</span>
-                  <span style={{ fontSize: 13, fontWeight: "700", color: "#111" }}>{fmtMoney(r.grpTotal)}</span>
+                  <span style={{ fontSize: 13, fontWeight: "700", color: "#111" }}>{fmtMoney(r.contractAmt)}</span>
                 </div>
               ))}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", background: "#f3f4f6" }}>
                 <span style={{ fontSize: 13, fontWeight: "700", color: "#111", textTransform: "uppercase", letterSpacing: "0.3px" }}>Total Contract Value</span>
-                <span style={{ fontSize: 16, fontWeight: "800", color: BLUE }}>{fmtMoney(totalInvoiced)}</span>
+                <span style={{ fontSize: 16, fontWeight: "800", color: BLUE }}>{fmtMoney(totalContractValue)}</span>
               </div>
             </div>
           );
@@ -495,7 +637,7 @@ export default function ProjectStatement() {
               const creditRows = buildCreditRows(inv);
 
               return (
-                <div style={{ borderBottom: isLast ? "none" : "2px dashed #d1d5db" }}>
+                <div className="invoice-card" style={{ borderBottom: isLast ? "none" : "2px dashed #d1d5db" }}>
                   {/* Invoice header row */}
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 18px", background: "#eef2ff", borderBottom: "1px solid #c7d2fe" }}>
                     <span style={{ fontWeight: "700", fontSize: 14, color: BLUE }}>
@@ -578,13 +720,16 @@ export default function ProjectStatement() {
                         return m && m[1] === coNum;
                       })
                     : null;
-                  const coTitle = coRecord?.title || null;
+                  // Use title if set and not a generic placeholder; otherwise fall back to description
+                  const coTitle = coRecord
+                    ? ((coRecord.title && !/^Quick Change Order/i.test(coRecord.title)) ? coRecord.title : (coRecord.description || null))
+                    : null;
                   const groupLabel = isBase
                     ? "📋 Base Contract"
                     : `🔧 Change Order #${coNum}`;
 
                   return (
-                    <div key={key} style={{ marginBottom: 24, border: "2px solid " + (isBase ? BLUE : "#7c3aed"), borderRadius: 10, overflow: "hidden", boxShadow: "0 2px 6px rgba(0,0,0,0.07)" }}>
+                    <div key={key} className="group-section" style={{ marginBottom: 24, border: "2px solid " + (isBase ? BLUE : "#7c3aed"), borderRadius: 10, overflow: "hidden", boxShadow: "0 2px 6px rgba(0,0,0,0.07)" }}>
                       {/* Group header */}
                       <div style={{ padding: "12px 18px", background: isBase ? BLUE : "#7c3aed", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -625,7 +770,7 @@ export default function ProjectStatement() {
                 })}
 
                 {/* Grand totals */}
-                <div style={{ border: "2px solid #e5e7eb", borderRadius: 10, overflow: "hidden" }}>
+                <div className="grand-totals" style={{ border: "2px solid #e5e7eb", borderRadius: 10, overflow: "hidden" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 18px", background: "#f3f4f6", borderBottom: "1px solid #e5e7eb" }}>
                     <span style={{ fontWeight: "bold", fontSize: 15, color: "#111" }}>PROJECT TOTALS</span>
                     <span style={{ fontSize: 15, fontWeight: "bold", color: "#111" }}>{fmtMoney(totalInvoiced)}</span>
