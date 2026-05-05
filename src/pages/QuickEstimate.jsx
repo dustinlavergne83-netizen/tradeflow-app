@@ -311,6 +311,7 @@ export default function QuickEstimate() {
             .from("change_orders")
             .update({
               project_name: projectName || "Quick Change Order",
+              title: description?.trim() || undefined,
               description: description || null,
               total: total,
               change_order_date: estimateDate

@@ -69,14 +69,14 @@ export default function ProjectStatement() {
       if (coIds.length > 0) {
         const { data: coData } = await supabase
           .from("change_orders")
-          .select("id, change_order_number, title")
+          .select("id, change_order_number, title, total")
           .in("id", coIds);
         setChangeOrders(coData || []);
       } else {
         // Fallback: try by project_name
         const { data: coData } = await supabase
           .from("change_orders")
-          .select("id, change_order_number, title")
+          .select("id, change_order_number, title, total")
           .eq("project_name", proj.name);
         setChangeOrders(coData || []);
       }
@@ -307,7 +307,7 @@ export default function ProjectStatement() {
         </div>
 
         {/* Summary boxes */}
-        <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
           {[
             { label: "Total Invoiced",      value: fmtMoney(totalInvoiced),       color: "#111" },
             { label: "Deposits Applied",    value: fmtMoney(totalDepositsAmt),    color: GREEN  },
@@ -323,6 +323,42 @@ export default function ProjectStatement() {
             </div>
           ))}
         </div>
+
+        {/* ── Contract Value Breakdown ── */}
+        {invoices.length > 0 && (() => {
+          const getGK = (num) => { const m = String(num || "").match(/CO(\d+)/i); return m ? `CO${m[1]}` : "base"; };
+          const grpOrder = []; const grpMap = {};
+          invoices.forEach(inv => {
+            const k = getGK(inv.invoice_number);
+            if (!grpMap[k]) { grpMap[k] = []; grpOrder.push(k); }
+            grpMap[k].push(inv);
+          });
+          const rows = grpOrder.map(key => {
+            const isBase = key === "base";
+            const coNum = key.replace(/^CO/i, "");
+            const coRecord = !isBase ? changeOrders.find(co => { const m = String(co.change_order_number || "").match(/CO(\d+)$/i); return m && m[1] === coNum; }) : null;
+            const label = isBase ? "📋 Base Contract" : `🔧 Change Order #${coNum}${coRecord?.title ? " — " + coRecord.title : ""}`;
+            const grpTotal = grpMap[key].reduce((s, i) => s + (i.total || i.subtotal || 0), 0);
+            return { key, label, grpTotal, isBase };
+          });
+          return (
+            <div style={{ marginBottom: 24, border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden" }}>
+              <div style={{ padding: "8px 16px", background: BLUE }}>
+                <span style={{ fontSize: 12, fontWeight: "700", color: "#fff", textTransform: "uppercase", letterSpacing: "0.5px" }}>Contract Value Breakdown</span>
+              </div>
+              {rows.map((r, i) => (
+                <div key={r.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 16px", background: i % 2 === 0 ? "#f9fafb" : "#fff", borderBottom: i < rows.length - 1 ? "1px solid #e5e7eb" : "2px solid #d1d5db" }}>
+                  <span style={{ fontSize: 13, fontWeight: r.isBase ? "600" : "500", color: r.isBase ? "#111" : "#374151" }}>{r.label}</span>
+                  <span style={{ fontSize: 13, fontWeight: "700", color: "#111" }}>{fmtMoney(r.grpTotal)}</span>
+                </div>
+              ))}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", background: "#f3f4f6" }}>
+                <span style={{ fontSize: 13, fontWeight: "700", color: "#111", textTransform: "uppercase", letterSpacing: "0.3px" }}>Total Contract Value</span>
+                <span style={{ fontSize: 16, fontWeight: "800", color: BLUE }}>{fmtMoney(totalInvoiced)}</span>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── LEDGER VIEW ── */}
         {viewMode === "ledger" && (
