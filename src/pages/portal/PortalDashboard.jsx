@@ -328,39 +328,73 @@ function TimesheetsTab({ accent }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      // Query shift_segments directly — they store user_id and start_at (same as EmployeeTimesheets.jsx)
-      let segQuery = supabase
-        .from("shift_segments")
-        .select("id, user_id, project_task, start_at, end_at, is_lunch")
-        .gte("start_at", startDate + "T00:00:00")
-        .lte("start_at", endDate + "T23:59:59")
-        .order("start_at", { ascending: false });
+      // 1. Load shifts in date range (these represent actual work days)
+      let shiftQuery = supabase
+        .from("shifts")
+        .select("id, user_id, clock_in, clock_out")
+        .gte("clock_in", startDate + "T00:00:00")
+        .lte("clock_in", endDate + "T23:59:59")
+        .order("clock_in", { ascending: false });
 
       if (empFilter !== "all") {
         const emp = employees.find(e => e.id === empFilter);
-        if (emp?.user_id) segQuery = segQuery.eq("user_id", emp.user_id);
+        if (emp?.user_id) shiftQuery = shiftQuery.eq("user_id", emp.user_id);
       }
 
-      const { data: segs } = await segQuery;
+      const { data: shifts } = await shiftQuery;
+      if (!shifts?.length) { setSegments([]); setLoading(false); return; }
 
-      // Build name map from employees (user_id → full name)
+      // 2. Load all segments for those shifts
+      const { data: segs } = await supabase
+        .from("shift_segments")
+        .select("id, shift_id, user_id, project_task, start_at, end_at, is_lunch")
+        .in("shift_id", shifts.map(s => s.id))
+        .order("start_at", { ascending: false });
+
+      // 3. Build name map
       const nameMap = {};
       for (const e of employees) if (e.user_id) nameMap[e.user_id] = `${e.first_name} ${e.last_name}`.trim();
 
-      setSegments((segs || []).map(seg => ({
-        ...seg,
-        empName: nameMap[seg.user_id] || (seg.user_id ? "Unknown" : "—"),
-      })));
+      // 4. Group segments by shift
+      const segsByShift = {};
+      for (const seg of (segs || [])) {
+        if (!segsByShift[seg.shift_id]) segsByShift[seg.shift_id] = { work: [], lunch: [] };
+        if (seg.is_lunch) segsByShift[seg.shift_id].lunch.push(seg);
+        else segsByShift[seg.shift_id].work.push(seg);
+      }
+
+      // 5. Build display rows
+      const rows = [];
+      for (const shift of shifts) {
+        const { work = [], lunch = [] } = segsByShift[shift.id] || {};
+        const hadLunch = lunch.length > 0;
+        const empName = nameMap[shift.user_id] || "Unknown";
+
+        if (work.length > 0) {
+          // Show each work segment as a separate row
+          for (const seg of work) {
+            const hrs = seg.end_at
+              ? ((new Date(seg.end_at) - new Date(seg.start_at)) / 3600000).toFixed(2)
+              : null;
+            rows.push({ id: seg.id, empName, start_at: seg.start_at, end_at: seg.end_at, project_task: seg.project_task, hrs, hadLunch });
+          }
+        } else {
+          // No work segments — use shift clock_in/clock_out directly
+          const hrs = shift.clock_out
+            ? ((new Date(shift.clock_out) - new Date(shift.clock_in)) / 3600000).toFixed(2)
+            : null;
+          rows.push({ id: shift.id + "_s", empName, start_at: shift.clock_in, end_at: shift.clock_out, project_task: null, hrs, hadLunch });
+        }
+      }
+
+      setSegments(rows);
     } finally { setLoading(false); }
   }, [startDate, endDate, empFilter, employees]);
 
   // Load timesheets on mount and whenever filters change (don't require employees to be loaded first)
   useEffect(() => { load(); }, [load]);
 
-  const totalHours = segments.reduce((s, r) => {
-    if (!r.end_at || r.is_lunch) return s;
-    return s + (new Date(r.end_at) - new Date(r.start_at)) / 3600000;
-  }, 0);
+  const totalHours = segments.reduce((sum, r) => sum + (parseFloat(r.hrs) || 0), 0);
 
   const inputStyle = { padding: "8px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 14 };
 
@@ -390,7 +424,7 @@ function TimesheetsTab({ accent }) {
 
       <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: "10px 16px", marginBottom: 16, display: "inline-block" }}>
         <span style={{ fontWeight: 900, color: "#0b3ea8", fontSize: 15 }}>
-          {segments.filter(s => !s.is_lunch).length} entries · {totalHours.toFixed(2)} hrs total
+          {segments.length} entries · {totalHours.toFixed(2)} hrs total
         </span>
       </div>
 
@@ -406,44 +440,26 @@ function TimesheetsTab({ accent }) {
             </tr>
           </thead>
           <tbody>
-            {(() => {
-              // Build a set of "user_date" keys that had a lunch break
-              const lunchKeys = new Set(
-                segments
-                  .filter(s => s.is_lunch)
-                  .map(s => `${s.user_id}_${toYMD(new Date(s.start_at))}`)
-              );
-              // Only show non-lunch rows
-              const workRows = segments.filter(s => !s.is_lunch);
-
-              if (!loading && workRows.length === 0) {
-                return <tr><td colSpan={7} style={{ padding: 20, textAlign: "center", color: "#94a3b8" }}>No entries found</td></tr>;
-              }
-
-              return workRows.map((s, i) => {
-                const hrs = s.end_at
-                  ? ((new Date(s.end_at) - new Date(s.start_at)) / 3600000).toFixed(2)
-                  : null;
-                const hadLunch = lunchKeys.has(`${s.user_id}_${toYMD(new Date(s.start_at))}`);
-                return (
-                  <tr key={s.id} style={{ background: i % 2 === 0 ? "#fff" : "#f8fafc", borderBottom: "1px solid #f1f5f9", color: "#111" }}>
-                    <td style={{ padding: "10px 12px", fontWeight: 700, color: "#111" }}>{s.empName}</td>
-                    <td style={{ padding: "10px 12px", color: "#64748b" }}>{fmtDate(s.start_at)}</td>
-                    <td style={{ padding: "10px 12px", color: "#374151" }}>{s.project_task || "—"}</td>
-                    <td style={{ padding: "10px 12px", color: "#374151" }}>{fmt12(s.start_at)}</td>
-                    <td style={{ padding: "10px 12px", color: s.end_at ? "#111" : "#f59e0b" }}>
-                      {s.end_at ? fmt12(s.end_at) : "⏳ Open"}
-                    </td>
-                    <td style={{ padding: "10px 12px", fontWeight: 800, color: "#0b3ea8" }}>
-                      {hrs || "—"}
-                    </td>
-                    <td style={{ padding: "10px 12px", color: hadLunch ? "#16a34a" : "#94a3b8", fontWeight: 700 }}>
-                      {hadLunch ? "✓ Yes" : "No"}
-                    </td>
-                  </tr>
-                );
-              });
-            })()}
+            {!loading && segments.length === 0 && (
+              <tr><td colSpan={7} style={{ padding: 20, textAlign: "center", color: "#94a3b8" }}>No entries found</td></tr>
+            )}
+            {segments.map((s, i) => (
+              <tr key={s.id} style={{ background: i % 2 === 0 ? "#fff" : "#f8fafc", borderBottom: "1px solid #f1f5f9", color: "#111" }}>
+                <td style={{ padding: "10px 12px", fontWeight: 700, color: "#111" }}>{s.empName}</td>
+                <td style={{ padding: "10px 12px", color: "#64748b" }}>{fmtDate(s.start_at)}</td>
+                <td style={{ padding: "10px 12px", color: "#374151" }}>{s.project_task || "—"}</td>
+                <td style={{ padding: "10px 12px", color: "#374151" }}>{fmt12(s.start_at)}</td>
+                <td style={{ padding: "10px 12px", color: s.end_at ? "#111" : "#f59e0b" }}>
+                  {s.end_at ? fmt12(s.end_at) : "⏳ Open"}
+                </td>
+                <td style={{ padding: "10px 12px", fontWeight: 800, color: "#0b3ea8" }}>
+                  {s.hrs || "—"}
+                </td>
+                <td style={{ padding: "10px 12px", color: s.hadLunch ? "#16a34a" : "#94a3b8", fontWeight: 700 }}>
+                  {s.hadLunch ? "✓ Yes" : "No"}
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
