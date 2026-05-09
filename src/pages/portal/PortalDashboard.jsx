@@ -372,7 +372,8 @@ function TimesheetsTab({ accent }) {
     } finally { setLoading(false); }
   }, [startDate, endDate, empFilter, employees]);
 
-  useEffect(() => { if (employees.length) load(); }, [load, employees]);
+  // Load timesheets on mount and whenever filters change (don't require employees to be loaded first)
+  useEffect(() => { load(); }, [load]);
 
   const totalHours = segments.reduce((s, r) => {
     if (!r.end_at || r.is_lunch) return s;
