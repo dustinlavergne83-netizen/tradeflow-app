@@ -342,16 +342,20 @@ function TimesheetsTab({ accent }) {
       const { data: shifts } = await shiftQuery;
       if (!shifts?.length) { setSegments([]); setLoading(false); return; }
 
-      // 2. Build user_id map from shifts
+      // 2. Build user_id and clock_in maps from shifts
       const shiftUserMap = {};
-      for (const s of shifts) shiftUserMap[s.id] = s.user_id;
+      const shiftClockInMap = {};
+      for (const s of shifts) {
+        shiftUserMap[s.id] = s.user_id;
+        shiftClockInMap[s.id] = s.clock_in;
+      }
 
       // 3. Load segments for those shifts
       const { data: segs } = await supabase
         .from("shift_segments")
         .select("id, shift_id, project_task, start_at, end_at, is_lunch")
         .in("shift_id", shifts.map(s => s.id))
-        .order("start_at", { ascending: false });
+        .order("end_at", { ascending: false });
 
       // 4. Build name map
       const nameMap = {};
@@ -359,7 +363,9 @@ function TimesheetsTab({ accent }) {
 
       const rows = (segs || []).map(seg => {
         const userId = shiftUserMap[seg.shift_id];
-        return { ...seg, user_id: userId, empName: nameMap[userId] || "Unknown" };
+        // start_at may be null on the first segment — fall back to shift clock_in
+        const startAt = seg.start_at || shiftClockInMap[seg.shift_id];
+        return { ...seg, start_at: startAt, user_id: userId, empName: nameMap[userId] || "Unknown" };
       });
 
       setSegments(rows);
