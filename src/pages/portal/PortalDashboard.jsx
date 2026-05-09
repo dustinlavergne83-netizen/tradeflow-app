@@ -1,3 +1,4 @@
+
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
@@ -329,7 +330,7 @@ function TimesheetsTab({ accent, companyId }) {
 
   // Add punch modal
   const [showAdd, setShowAdd] = useState(false);
-  const [addForm, setAddForm] = useState({ empId: "", date: today, inTime: "07:00", outTime: "15:30", project: "" });
+  const [addForm, setAddForm] = useState({ empId: "", date: today, inTime: "07:00", outTime: "15:30", project: "", hadLunch: false });
   const [addSaving, setAddSaving] = useState(false);
 
   useEffect(() => {
@@ -403,7 +404,7 @@ function TimesheetsTab({ accent, companyId }) {
 
   function startEdit(s) {
     setEditRow(s.id);
-    setEditForm({ date: toYMD(new Date(s.start_at)), inTime: fmt24(s.start_at), outTime: s.end_at ? fmt24(s.end_at) : "", project: s.project_task || "" });
+    setEditForm({ date: toYMD(new Date(s.start_at)), inTime: fmt24(s.start_at), outTime: s.end_at ? fmt24(s.end_at) : "", project: s.project_task || "", hadLunch: s.hadLunch, origHadLunch: s.hadLunch });
   }
 
   async function saveEdit(s) {
@@ -417,6 +418,14 @@ function TimesheetsTab({ accent, companyId }) {
         await supabase.from("shifts").update({ clock_in: startISO, clock_out: endISO }).eq("id", s.shiftId);
       } else {
         await supabase.from("shift_segments").update({ project_task: editForm.project || null, start_at: startISO, end_at: endISO }).eq("id", s.id);
+      }
+      // Toggle lunch segment if changed
+      if (editForm.hadLunch !== editForm.origHadLunch) {
+        if (editForm.hadLunch) {
+          await supabase.from("shift_segments").insert([{ user_id: s.userId, shift_id: s.shiftId, company_id: companyId, project_task: editForm.project || null, start_at: d + "T12:00:00", end_at: d + "T12:30:00", is_lunch: true }]);
+        } else {
+          await supabase.from("shift_segments").delete().eq("shift_id", s.shiftId).eq("is_lunch", true);
+        }
       }
       setEditRow(null);
       load();
@@ -447,8 +456,11 @@ function TimesheetsTab({ accent, companyId }) {
         shiftId = ns.id;
       }
       await supabase.from("shift_segments").insert([{ user_id: emp.user_id, shift_id: shiftId, company_id: companyId, project_task: addForm.project || null, start_at: startISO, end_at: endISO, is_lunch: false }]);
+      if (addForm.hadLunch) {
+        await supabase.from("shift_segments").insert([{ user_id: emp.user_id, shift_id: shiftId, company_id: companyId, project_task: addForm.project || null, start_at: addForm.date + "T12:00:00", end_at: addForm.date + "T12:30:00", is_lunch: true }]);
+      }
       setShowAdd(false);
-      setAddForm({ empId: "", date: today, inTime: "07:00", outTime: "15:30", project: "" });
+      setAddForm({ empId: "", date: today, inTime: "07:00", outTime: "15:30", project: "", hadLunch: false });
       load();
     } finally { setAddSaving(false); }
   }
@@ -512,7 +524,13 @@ function TimesheetsTab({ accent, companyId }) {
                   </td>
                   <td style={{ padding: "8px 6px" }}><input type="time" value={editForm.inTime} onChange={e => setEditForm(f => ({ ...f, inTime: e.target.value }))} style={tinyIn} /></td>
                   <td style={{ padding: "8px 6px" }}><input type="time" value={editForm.outTime} onChange={e => setEditForm(f => ({ ...f, outTime: e.target.value }))} style={tinyIn} /></td>
-                  <td style={{ padding: "8px 6px", color: "#94a3b8", fontSize: 12 }} colSpan={2}>auto</td>
+                  <td style={{ padding: "8px 6px", color: "#94a3b8", fontSize: 12 }}>auto</td>
+                  <td style={{ padding: "8px 6px" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+                      <input type="checkbox" checked={editForm.hadLunch || false} onChange={e => setEditForm(f => ({ ...f, hadLunch: e.target.checked }))} style={{ width: 15, height: 15, accentColor: "#16a34a" }} />
+                      <span style={{ fontSize: 12 }}>Lunch</span>
+                    </label>
+                  </td>
                   <td style={{ padding: "8px 6px", whiteSpace: "nowrap" }}>
                     <button onClick={() => saveEdit(s)} disabled={editSaving} style={{ background: "#0b3ea8", color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontWeight: 700, cursor: "pointer", marginRight: 4 }}>{editSaving ? "…" : "Save"}</button>
                     <button onClick={() => setEditRow(null)} style={{ background: "#64748b", color: "#fff", border: "none", borderRadius: 6, padding: "5px 10px", fontWeight: 700, cursor: "pointer" }}>✕</button>
@@ -562,6 +580,14 @@ function TimesheetsTab({ accent, companyId }) {
                 {ctrl}
               </div>
             ))}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "10px 14px", background: addForm.hadLunch ? "#f0fdf4" : "#f8fafc", borderRadius: 10, border: `1px solid ${addForm.hadLunch ? "#86efac" : "#e2e8f0"}` }}>
+                <input type="checkbox" checked={addForm.hadLunch} onChange={e => setAddForm(f => ({ ...f, hadLunch: e.target.checked }))} style={{ width: 18, height: 18, accentColor: "#16a34a", cursor: "pointer" }} />
+                <span style={{ fontWeight: 700, fontSize: 14, color: addForm.hadLunch ? "#16a34a" : "#64748b" }}>
+                  🍽️ Employee took a lunch break
+                </span>
+              </label>
+            </div>
             <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
               <button onClick={addPunch} disabled={addSaving}
                 style={{ flex: 1, background: addSaving ? "#94a3b8" : "#0b3ea8", color: "#fff", border: "none", borderRadius: 10, padding: 12, fontWeight: 800, cursor: addSaving ? "default" : "pointer", fontSize: 15 }}>
