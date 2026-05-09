@@ -6,12 +6,14 @@ import logoImage from "../assets/LOGOD.jpg";
 const ACCENT = "#fc6b04";
 
 export default function QuickEstimateView() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const estimateId = searchParams.get("estimateId");
+  const initialMode = searchParams.get("mode") || "itemized"; // "summary" or "itemized"
 
   const [estimate, setEstimate] = useState(null);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [viewMode, setViewMode] = useState(initialMode);
 
   useEffect(() => {
     if (estimateId) loadEstimate();
@@ -54,6 +56,8 @@ export default function QuickEstimateView() {
 
   return (
     <div style={pg}>
+      {/* Print CSS to hide toggle buttons */}
+      <style>{`@media print { .no-print { display: none !important; } }`}</style>
       <div style={card}>
 
         {/* Logo */}
@@ -97,38 +101,100 @@ export default function QuickEstimateView() {
           )}
         </div>
 
-        {/* Line Items Header */}
-        <div style={{
-          display:"flex", justifyContent:"space-between",
-          padding:"6px 0", borderBottom:`2px solid ${ACCENT}`,
-          marginBottom:4
+        {/* View Mode Toggle - hidden when printing */}
+        <div className="no-print" style={{
+          display:"flex", justifyContent:"center", gap:8, marginBottom:16,
+          padding:"8px", backgroundColor:"#f3f4f6", borderRadius:8
         }}>
-          <span style={{fontSize:11, fontWeight:"bold", color:"#888", textTransform:"uppercase"}}>Description</span>
-          <span style={{fontSize:11, fontWeight:"bold", color:"#888", textTransform:"uppercase"}}>Amount</span>
+          <button
+            onClick={() => setViewMode("summary")}
+            style={{
+              padding:"8px 20px", fontSize:13, fontWeight:"700", cursor:"pointer",
+              border: viewMode === "summary" ? `2px solid ${ACCENT}` : "2px solid transparent",
+              backgroundColor: viewMode === "summary" ? "#fff" : "transparent",
+              color: viewMode === "summary" ? ACCENT : "#666",
+              borderRadius:6, transition:"all 0.2s"
+            }}
+          >
+            📋 Summary Only
+          </button>
+          <button
+            onClick={() => setViewMode("itemized")}
+            style={{
+              padding:"8px 20px", fontSize:13, fontWeight:"700", cursor:"pointer",
+              border: viewMode === "itemized" ? `2px solid ${ACCENT}` : "2px solid transparent",
+              backgroundColor: viewMode === "itemized" ? "#fff" : "transparent",
+              color: viewMode === "itemized" ? ACCENT : "#666",
+              borderRadius:6, transition:"all 0.2s"
+            }}
+          >
+            📝 Itemized
+          </button>
         </div>
 
-        {/* Line Items */}
-        {items.map((item, i) => (
-          <div key={item.id} style={{
-            display:"flex", justifyContent:"space-between", alignItems:"flex-start",
-            padding:"10px 0",
-            borderBottom:"1px solid #f0f0f0",
-            backgroundColor: i % 2 === 0 ? "#fff" : "#fafafa"
-          }}>
-            <span style={{
-              fontSize:14, color:"#222", flex:1, paddingRight:12,
-              lineHeight:"1.4", wordBreak:"break-word"
+        {viewMode === "itemized" ? (
+          <>
+            {/* Line Items Header */}
+            <div style={{
+              display:"flex", justifyContent:"space-between",
+              padding:"6px 0", borderBottom:`2px solid ${ACCENT}`,
+              marginBottom:4
             }}>
-              {item.description}
-            </span>
-            <span style={{
-              fontSize:14, fontWeight:"bold", color:"#111",
-              whiteSpace:"nowrap", flexShrink:0
-            }}>
-              {fmtMoney(item.line_total || item.material_total)}
-            </span>
-          </div>
-        ))}
+              <span style={{fontSize:11, fontWeight:"bold", color:"#888", textTransform:"uppercase"}}>Description</span>
+              <span style={{fontSize:11, fontWeight:"bold", color:"#888", textTransform:"uppercase"}}>Amount</span>
+            </div>
+
+            {/* Line Items */}
+            {items.map((item, i) => (
+              <div key={item.id} style={{
+                display:"flex", justifyContent:"space-between", alignItems:"flex-start",
+                padding:"10px 0",
+                borderBottom:"1px solid #f0f0f0",
+                backgroundColor: i % 2 === 0 ? "#fff" : "#fafafa"
+              }}>
+                <span style={{
+                  fontSize:14, color:"#222", flex:1, paddingRight:12,
+                  lineHeight:"1.4", wordBreak:"break-word"
+                }}>
+                  {item.description}
+                </span>
+                <span style={{
+                  fontSize:14, fontWeight:"bold", color:"#111",
+                  whiteSpace:"nowrap", flexShrink:0
+                }}>
+                  {fmtMoney(item.line_total || item.material_total)}
+                </span>
+              </div>
+            ))}
+          </>
+        ) : (
+          <>
+            {/* Summary Mode - just scope of work description and total */}
+            <div style={{borderBottom:`2px solid ${ACCENT}`, paddingBottom:4, marginBottom:12}}>
+              <span style={{fontSize:11, fontWeight:"bold", color:"#888", textTransform:"uppercase"}}>Scope of Work</span>
+            </div>
+            
+            {/* Show notes/description as scope */}
+            {estimate.notes ? (
+              <div style={{padding:"12px 0", lineHeight:1.6, fontSize:14, color:"#222"}}>
+                <p style={{margin:0, whiteSpace:"pre-wrap"}}>{estimate.notes}</p>
+              </div>
+            ) : (
+              <div style={{padding:"12px 0", lineHeight:1.6, fontSize:14, color:"#222"}}>
+                <p style={{margin:"0 0 8px", fontWeight:"600"}}>
+                  {estimate.project_name && estimate.project_name !== "Quick Estimate"
+                    ? estimate.project_name
+                    : "Electrical Work"
+                  }
+                </p>
+                <p style={{margin:0, color:"#555"}}>
+                  Includes all labor, materials, and equipment necessary to complete the scope of work as discussed.
+                  {items.length > 0 && ` (${items.length} item${items.length !== 1 ? 's' : ''})`}
+                </p>
+              </div>
+            )}
+          </>
+        )}
 
         {/* Total */}
         <div style={{
@@ -140,8 +206,8 @@ export default function QuickEstimateView() {
           <span style={{fontSize:22, fontWeight:"bold", color: ACCENT}}>{fmtMoney(total)}</span>
         </div>
 
-        {/* Notes */}
-        {estimate.notes && (
+        {/* Notes - hide in summary mode since notes already shown as scope */}
+        {estimate.notes && viewMode === "itemized" && (
           <div style={{
             background:"#f9fafb", borderRadius:8, padding:12,
             marginTop:12, marginBottom:12

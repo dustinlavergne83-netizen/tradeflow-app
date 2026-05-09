@@ -55,6 +55,7 @@ export default function ProposalResidentialContractor() {
   const [termsText, setTermsText] = useState("WARRANTY PROVISIONS: This 1-year warranty covers all labor and materials provided and installed by DML Electrical Service, LLC. Warranty does NOT apply to materials supplied by the customer; customer-supplied materials carry no warranty from DML. Labor warranty covers defects in installation performed by DML. Labor is NOT warranted for customer-supplied materials unless the failure was directly caused by improper installation by DML. All warranty claims must be reported within 30 days of discovery. DML's liability under this warranty is limited to repair or replacement of defective work or materials.");
 
   const [alternates, setAlternates] = useState([]);
+  const [showLineItems, setShowLineItems] = useState(true); // false = summary only
 
   // Open a dedicated print window containing ONLY the proposal HTML
   // This avoids the blank-page issue caused by the app layout's min-height:100vh
@@ -201,6 +202,13 @@ export default function ProposalResidentialContractor() {
         }
 
         setIncludeBaseBid(proposalData.base_bid_amount > 0);
+        
+        // Restore summary/itemized toggle
+        if (proposalData.show_line_items === false) {
+          setShowLineItems(false);
+        } else {
+          setShowLineItems(true);
+        }
       }
     } catch (err) {
       console.error("Error loading proposal:", err);
@@ -274,7 +282,32 @@ export default function ProposalResidentialContractor() {
             setContractors([syntheticContractor]);
             setSelectedContractor(syntheticContractor);
             console.log("Auto-selecting from project.contractor:", projectData.contractor);
+          } else if (estimateData.customer_name) {
+            // Fallback: use customer_name from estimate (for residential-owner)
+            const syntheticCustomer = {
+              id: "estimate-customer",
+              contractor_name: estimateData.customer_name,
+              company_name: estimateData.customer_name,
+              email: null,
+              phone: null,
+            };
+            setContractors([syntheticCustomer]);
+            setSelectedContractor(syntheticCustomer);
+            console.log("Auto-selecting from estimate.customer_name:", estimateData.customer_name);
           }
+        } else if (estimateData.customer_name) {
+          // No project found at all - still auto-populate customer from estimate
+          setProject({ name: estimateData.project_name || 'Estimate' });
+          const syntheticCustomer = {
+            id: "estimate-customer",
+            contractor_name: estimateData.customer_name,
+            company_name: estimateData.customer_name,
+            email: null,
+            phone: null,
+          };
+          setContractors([syntheticCustomer]);
+          setSelectedContractor(syntheticCustomer);
+          console.log("No project found, using estimate.customer_name:", estimateData.customer_name);
         }
 
         // Load alternates
@@ -397,7 +430,8 @@ export default function ProposalResidentialContractor() {
         valid_until: new Date(Date.now() + validUntilDays * 24 * 60 * 60 * 1000)
           .toISOString()
           .split("T")[0],
-        status: sendEmailAfter ? "sent" : "draft"
+        status: sendEmailAfter ? "sent" : "draft",
+        show_line_items: showLineItems,
       };
 
       let savedProposalId;
@@ -580,6 +614,24 @@ export default function ProposalResidentialContractor() {
               </label>
             </div>
 
+            <div style={styles.checkboxGroup}>
+              <label style={styles.checkboxLabel}>
+                <input
+                  type="checkbox"
+                  checked={showLineItems}
+                  onChange={(e) => setShowLineItems(e.target.checked)}
+                />
+                <span style={styles.checkboxText}>
+                  Show individual line items on proposal
+                </span>
+              </label>
+              {!showLineItems && (
+                <p style={{fontSize: 12, color: '#666', marginTop: 4, marginLeft: 28}}>
+                  📋 Summary mode — only shows project description and total price
+                </p>
+              )}
+            </div>
+
             {alternates.map(alt => (
               <div key={alt.id} style={styles.checkboxGroup}>
                 <label style={styles.checkboxLabel}>
@@ -663,41 +715,60 @@ export default function ProposalResidentialContractor() {
               <div className="table-header" style={styles.tableTitle}>PROPOSAL SUMMARY</div>
               <table style={styles.table}>
                 <tbody>
-                  {includeBaseBid && estimateItems.length > 0 && (
+                  {showLineItems ? (
                     <>
-                      {estimateItems.map((item, idx) => (
-                        <tr key={item.id} className="proposal-table-row" style={styles.tableRow}>
-                          <td style={styles.td}>{item.description}</td>
+                      {includeBaseBid && estimateItems.length > 0 && (
+                        <>
+                          {estimateItems.map((item, idx) => (
+                            <tr key={item.id} className="proposal-table-row" style={styles.tableRow}>
+                              <td style={styles.td}>{item.description}</td>
+                              <td style={{...styles.td, textAlign: "right", fontWeight: "600"}}>
+                                ${(item.line_total || 0).toFixed(2)}
+                              </td>
+                            </tr>
+                          ))}
+                        </>
+                      )}
+
+                      {/* For change orders (no estimate items), show the description as a line item */}
+                      {includeBaseBid && estimateItems.length === 0 && baseEstimate.description && (
+                        <tr style={styles.tableRow}>
+                          <td style={styles.td}>{baseEstimate.description}</td>
                           <td style={{...styles.td, textAlign: "right", fontWeight: "600"}}>
-                            ${(item.line_total || 0).toFixed(2)}
+                            ${(baseEstimate.total || 0).toFixed(2)}
                           </td>
                         </tr>
-                      ))}
-                    </>
-                  )}
+                      )}
 
-                  {/* For change orders (no estimate items), show the description as a line item */}
-                  {includeBaseBid && estimateItems.length === 0 && baseEstimate.description && (
+                      {alternates
+                        .filter(alt => selectedAlternates.includes(alt.id))
+                        .map(alt => (
+                          <tr key={alt.id} style={styles.tableRow}>
+                            <td style={styles.td}>
+                              {alt.alternate_title || `Alternate ${alt.alternate_number}`}
+                            </td>
+                            <td style={{...styles.td, textAlign: "right", fontWeight: "600"}}>
+                              ${(alt.total || 0).toFixed(2)}
+                            </td>
+                          </tr>
+                        ))}
+                    </>
+                  ) : (
+                    /* Summary mode - just description and total */
                     <tr style={styles.tableRow}>
-                      <td style={styles.td}>{baseEstimate.description}</td>
-                      <td style={{...styles.td, textAlign: "right", fontWeight: "600"}}>
+                      <td style={{...styles.td, lineHeight: 1.6, padding: "16px 0"}}>
+                        <div style={{fontWeight: "600", marginBottom: 6}}>
+                          {baseEstimate.notes || baseEstimate.description || project?.name || "Electrical Work"}
+                        </div>
+                        <div style={{fontSize: 13, color: "#555"}}>
+                          Includes all labor, materials, and equipment necessary to complete the scope of work as discussed.
+                        </div>
+                      </td>
+                      <td style={{...styles.td, textAlign: "right", fontWeight: "600", verticalAlign: "top"}}>
                         ${(baseEstimate.total || 0).toFixed(2)}
                       </td>
                     </tr>
                   )}
-
-                  {alternates
-                    .filter(alt => selectedAlternates.includes(alt.id))
-                    .map(alt => (
-                      <tr key={alt.id} style={styles.tableRow}>
-                        <td style={styles.td}>
-                          {alt.alternate_title || `Alternate ${alt.alternate_number}`}
-                        </td>
-                        <td style={{...styles.td, textAlign: "right", fontWeight: "600"}}>
-                          ${(alt.total || 0).toFixed(2)}
-                        </td>
-                      </tr>
-                    ))}
 
                   <tr style={{...styles.tableRow, borderTop: "2px solid #333"}}>
                     <td style={{...styles.td, fontWeight: "bold"}}>TOTAL PROPOSAL</td>

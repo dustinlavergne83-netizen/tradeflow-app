@@ -71,6 +71,10 @@ import DesktopHeader from "./Components/DesktopHeader";
 import WebsiteManager from "./pages/WebsiteManager";
 import Communications from "./pages/Communications";
 import TwilioSettings from "./pages/TwilioSettings";
+import SuperAdmin from "./pages/SuperAdmin";
+import TimeclockAdmin from "./pages/TimeclockAdmin";
+import PortalLogin from "./pages/portal/PortalLogin";
+import PortalDashboard from "./pages/portal/PortalDashboard";
 
 // Portal pages
 import CustomerLogin from "./pages/customer/CustomerLogin";
@@ -98,6 +102,25 @@ const NO_HEADER_PATHS = new Set([
   "/employee/portal",
 ]);
 
+// Known first-level app paths that should NOT be treated as portal slugs
+const KNOWN_APP_PATHS = new Set([
+  "/signin", "/signup", "/dashboard", "/projects", "/estimates", "/invoices",
+  "/expenses", "/accounting", "/customers", "/vendors", "/employees", "/timeclock",
+  "/company-locations", "/scheduled-notifications", "/admin", "/assemblies",
+  "/base-materials", "/check-stubs", "/employee-locations", "/geofence-events",
+  "/communications", "/website-manager", "/twilio-settings", "/super-admin",
+  "/invoice", "/proposal", "/estimate", "/weekly", "/time-off", "/pending-jobs",
+  "/profile-setup", "/reports", "/welcome", "/project", "/timeclock-admin",
+]);
+
+function isPortalPath(path) {
+  const seg = path.split("/")[1] || "";
+  if (!seg || KNOWN_APP_PATHS.has("/" + seg)) return false;
+  // single segment (/:slug) or two segments (/:slug/dashboard)
+  const parts = path.split("/").filter(Boolean);
+  return parts.length === 1 || (parts.length === 2 && parts[1] === "dashboard");
+}
+
 function AppContent() {
   const location = useLocation();
   const path = location.pathname;
@@ -105,7 +128,8 @@ function AppContent() {
   const isNoHeader =
     NO_HEADER_PATHS.has(path) ||
     path.startsWith("/customer/") ||
-    path.startsWith("/employee/");
+    path.startsWith("/employee/") ||
+    isPortalPath(path);
 
   return (
     <>
@@ -630,6 +654,21 @@ function AppContent() {
               </ProtectedRoute>
             }
           />
+
+          {/* ── Super Admin (platform owner only) ────────────────────────── */}
+          <Route
+            path="/super-admin"
+            element={
+              <ProtectedRoute>
+                <SuperAdmin />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ── Timeclock Portal (/:slug and /:slug/dashboard) ───────────── */}
+          {/* These MUST be last so they don't shadow existing routes */}
+          <Route path="/:slug" element={<PortalLogin />} />
+          <Route path="/:slug/dashboard" element={<PortalDashboard />} />
 
           {/* ── Fallback ─────────────────────────────────────────────────── */}
           <Route path="*" element={<Navigate to="/" replace />} />

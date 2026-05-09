@@ -105,6 +105,28 @@ export default function Sidebar({ onNavigate }) {
           Admin
         </NavLink>
       )}
+
+      {/* Super Admin — platform owner only */}
+      {employee?.is_super_admin && (
+        <NavLink
+          to="/super-admin"
+          style={({ isActive }) => ({
+            display: "block",
+            padding: "12px 14px",
+            color: "white",
+            textDecoration: "none",
+            fontWeight: isActive ? 800 : 600,
+            background: isActive ? "rgba(139,92,246,0.35)" : "rgba(139,92,246,0.15)",
+            borderRadius: 10,
+            marginBottom: 6,
+            marginTop: 8,
+            border: "1px solid rgba(139,92,246,0.4)",
+          })}
+          onClick={() => onNavigate?.()}
+        >
+          🛡️ Super Admin
+        </NavLink>
+      )}
     </div>
   );
 }

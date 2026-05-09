@@ -41,8 +41,147 @@ export default function QuickEstimate() {
   const [adjustedTotal, setAdjustedTotal] = useState(0);
   const [hasAdjustment, setHasAdjustment] = useState(false);
 
+  // Markup state
+  const [materialMarkup, setMaterialMarkup] = useState(0); // percentage
+  const [laborMarkup, setLaborMarkup] = useState(0); // percentage
+
+  // Material database search state
+  const [materialsDB, setMaterialsDB] = useState([]);
+  const [activeMaterialDropdown, setActiveMaterialDropdown] = useState(null); // line item id
+  const [materialSearchResults, setMaterialSearchResults] = useState([]);
+
+  // Load materials from database for autocomplete
+  async function loadMaterials() {
+    try {
+      // Supabase defaults to 1000 rows - fetch in batches to get ALL materials
+      let allBaseMaterials = [];
+      let page = 0;
+      const pageSize = 1000;
+      while (true) {
+        const { data: batch, error } = await supabase
+          .from('base_materials')
+          .select('*')
+          .range(page * pageSize, (page + 1) * pageSize - 1)
+          .order('name', { ascending: true });
+        
+        if (error) { console.error('Error loading base materials:', error); break; }
+        if (!batch || batch.length === 0) break;
+        allBaseMaterials = [...allBaseMaterials, ...batch];
+        if (batch.length < pageSize) break; // Last page
+        page++;
+      }
+      const baseMaterials = allBaseMaterials;
+
+      const { data: customMaterials, error: customError } = await supabase
+        .from('custom_materials')
+        .select('*');
+
+      if (customError) console.error('Error loading custom materials:', customError);
+
+      const formattedBase = (baseMaterials || []).map(m => ({
+        id: m.id,
+        name: m.name,
+        category: m.category,
+        unit: m.unit || 'ea',
+        price: m.basecost || 0,
+        laborHours: m.laborhours || 0,
+      }));
+
+      const formattedCustom = (customMaterials || []).map(m => ({
+        id: 'custom-' + m.id,
+        name: m.name,
+        category: m.category || 'Custom',
+        unit: m.unit || 'ea',
+        price: m.price || 0,
+        laborHours: m.labor_hours || 0,
+      }));
+
+      const all = [...formattedBase, ...formattedCustom];
+      setMaterialsDB(all);
+      console.log(`✅ QuickEstimate: Loaded ${all.length} materials (${formattedBase.length} base + ${formattedCustom.length} custom)`);
+    } catch (err) {
+      console.error('Error loading materials:', err);
+    }
+  }
+
+  // Search materials by name (fuzzy - handles "pvc2" matching "PVC 2"")
+  function searchMaterials(query) {
+    if (!query || query.length < 2) return [];
+    const lower = query.toLowerCase().trim();
+    
+    // Split query into tokens: both by spaces AND by letter/number boundaries
+    // "pvc2" -> ["pvc", "2"], "pvc 2" -> ["pvc", "2"], "emt3/4" -> ["emt", "3", "4"]
+    const tokens = lower
+      .split(/[\s\/\-\",]+/) // split on spaces, slashes, dashes, quotes, commas
+      .flatMap(part => {
+        // Further split each part on letter/number boundaries: "pvc2" -> ["pvc","2"]
+        return part.match(/[a-z]+|[0-9]+(?:\.[0-9]+)?/g) || [part];
+      })
+      .filter(t => t.length > 0);
+    
+    if (tokens.length === 0) return [];
+    
+    return materialsDB
+      .filter(m => {
+        // Normalize name: remove special chars for matching
+        const name = (m.name || '').toLowerCase();
+        const nameNormalized = name.replace(/[\"\']/g, ''); // strip quotes
+        const category = (m.category || '').toLowerCase();
+        const combined = name + ' ' + nameNormalized + ' ' + category;
+        
+        // Every token must appear in the combined text
+        // For numeric tokens, use smart matching
+        return tokens.every(token => {
+          const isNumeric = /^[0-9]+(\.[0-9]+)?$/.test(token);
+          if (isNumeric) {
+            // First try: exact number match (not preceded by / or digit)
+            const numRegex = new RegExp(`(?<![\/\\d])${token}(?!\\d)`, 'i');
+            if (numRegex.test(combined)) return true;
+            
+            // Second try: interpret as fraction (e.g., "34" → "3/4", "12" → "1/2", "114" → "1-1/4" or "11/4")
+            if (token.length >= 2) {
+              for (let i = 1; i < token.length; i++) {
+                const fraction = token.slice(0, i) + '/' + token.slice(i);
+                if (combined.includes(fraction)) return true;
+                // Also try with dash prefix for mixed fractions: "114" → "1-1/4"
+                if (i >= 2) {
+                  for (let j = 1; j < i; j++) {
+                    const mixed = token.slice(0, j) + '-' + token.slice(j, i) + '/' + token.slice(i);
+                    if (combined.includes(mixed)) return true;
+                    const mixedSpace = token.slice(0, j) + ' ' + token.slice(j, i) + '/' + token.slice(i);
+                    if (combined.includes(mixedSpace)) return true;
+                  }
+                }
+              }
+            }
+            return false;
+          }
+          return combined.includes(token);
+        });
+      })
+      .slice(0, 50); // Limit to 50 results for broader search
+  }
+
+  // Handle selecting a material from the dropdown
+  function handleSelectMaterial(itemId, material) {
+    setLineItems(lineItems.map(item => {
+      if (item.id === itemId) {
+        return {
+          ...item,
+          description: material.name,
+          material: material.price || 0,
+          lbrHrs: material.laborHours || 0,
+        };
+      }
+      return item;
+    }));
+    setActiveMaterialDropdown(null);
+    setMaterialSearchResults([]);
+  }
+
   useEffect(() => {
     loadCustomers();
+    loadMaterials();
     
     // Check if we're coming from a project
     const projectIdParam = searchParams.get('projectId');
@@ -133,9 +272,17 @@ export default function QuickEstimate() {
       setProjectName(estimate.project_name || "");
       setDescription(estimate.notes || "");
 
-      // Get hourly rate from first item with labor
-      const firstItemWithLabor = items.find(item => item.labor_rate > 0);
-      setHourlyRate(firstItemWithLabor?.labor_rate || 0);
+      // Restore hourly rate from estimate-level field first, fallback to first item
+      if (estimate.default_labor_rate > 0) {
+        setHourlyRate(estimate.default_labor_rate);
+      } else {
+        const firstItemWithLabor = items.find(item => item.labor_rate > 0);
+        setHourlyRate(firstItemWithLabor?.labor_rate || 0);
+      }
+
+      // Restore markup percentages
+      setMaterialMarkup(estimate.overhead_percent || 0);
+      setLaborMarkup(estimate.profit_percent || 0);
 
       // Map items to line items
       if (items && items.length > 0) {
@@ -264,13 +411,29 @@ export default function QuickEstimate() {
     ));
   };
 
-  const calculateTotal = () => {
+  // Calculate subtotals for summary
+  const getTotalMaterialCost = () => {
     return lineItems.reduce((sum, item) => {
-      const extMat = Number(item.quantity) * Number(item.material);
-      const lbrExt = Number(item.quantity) * Number(item.lbrHrs);
-      const lbrCost = lbrExt * Number(hourlyRate);
-      return sum + extMat + lbrCost;
+      return sum + (Number(item.quantity) * Number(item.material));
     }, 0);
+  };
+
+  const getTotalLaborHours = () => {
+    return lineItems.reduce((sum, item) => {
+      return sum + (Number(item.quantity) * Number(item.lbrHrs));
+    }, 0);
+  };
+
+  const getTotalLaborCost = () => {
+    return getTotalLaborHours() * Number(hourlyRate);
+  };
+
+  const calculateTotal = () => {
+    const matCost = getTotalMaterialCost();
+    const lbrCost = getTotalLaborCost();
+    const matWithMarkup = matCost * (1 + Number(materialMarkup) / 100);
+    const lbrWithMarkup = lbrCost * (1 + Number(laborMarkup) / 100);
+    return matWithMarkup + lbrWithMarkup;
   };
 
   const handlePriceAdjustment = (newTotal, adjustmentDetails) => {
@@ -463,7 +626,10 @@ export default function QuickEstimate() {
             estimate_date: estimateDate,
             subtotal: total,
             total: total,
-            notes: description || null
+            notes: description || null,
+            default_labor_rate: Number(hourlyRate) || 0,
+            overhead_percent: Number(materialMarkup) || 0,
+            profit_percent: Number(laborMarkup) || 0,
           };
 
           const { error: updateError } = await supabase
@@ -559,7 +725,11 @@ export default function QuickEstimate() {
             subtotal: total,
             total: total,
             status: 'draft',
-            notes: description || null
+            notes: description || null,
+            estimate_type: 'quick',
+            default_labor_rate: Number(hourlyRate) || 0,
+            overhead_percent: Number(materialMarkup) || 0,
+            profit_percent: Number(laborMarkup) || 0,
           };
 
           const { data: estimate, error: estimateError } = await supabase
@@ -996,14 +1166,32 @@ export default function QuickEstimate() {
                             step="0.01"
                           />
                         </td>
-                        <td style={styles.td}>
+                        <td style={{...styles.td, position: 'relative'}}>
                           <textarea
                             value={item.description}
                             onChange={(e) => {
-                              updateLineItem(item.id, "description", e.target.value);
+                              const val = e.target.value;
+                              updateLineItem(item.id, "description", val);
                               e.target.style.height = "auto";
                               e.target.style.height = e.target.scrollHeight + "px";
+                              // Material search
+                              if (val.length >= 2 && materialsDB.length > 0) {
+                                const results = searchMaterials(val);
+                                setMaterialSearchResults(results);
+                                setActiveMaterialDropdown(results.length > 0 ? item.id : null);
+                              } else {
+                                setActiveMaterialDropdown(null);
+                                setMaterialSearchResults([]);
+                              }
                             }}
+                            onFocus={(e) => {
+                              if (item.description.length >= 2 && materialsDB.length > 0) {
+                                const results = searchMaterials(item.description);
+                                setMaterialSearchResults(results);
+                                setActiveMaterialDropdown(results.length > 0 ? item.id : null);
+                              }
+                            }}
+                            onBlur={() => setTimeout(() => { setActiveMaterialDropdown(null); setMaterialSearchResults([]); }, 200)}
                             onInput={(e) => {
                               e.target.style.height = "auto";
                               e.target.style.height = e.target.scrollHeight + "px";
@@ -1015,9 +1203,35 @@ export default function QuickEstimate() {
                               }
                             }}
                             style={{...styles.tableInput, resize: "none", overflow: "hidden", minHeight: 36, lineHeight: "1.4"}}
-                            placeholder="Item description"
+                            placeholder="Type to search materials..."
                             rows={1}
                           />
+                          {activeMaterialDropdown === item.id && materialSearchResults.length > 0 && (
+                            <div style={styles.materialDropdown}>
+                              <div style={{padding: '6px 10px', fontSize: 11, color: '#999', borderBottom: '1px solid #e5e7eb', backgroundColor: '#f9fafb'}}>
+                                📦 {materialSearchResults.length} material{materialSearchResults.length !== 1 ? 's' : ''} found
+                              </div>
+                              {materialSearchResults.map((mat) => (
+                                <div
+                                  key={mat.id}
+                                  style={styles.materialDropdownItem}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    handleSelectMaterial(item.id, mat);
+                                  }}
+                                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#eff6ff'}
+                                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}
+                                >
+                                  <div style={{fontWeight: '600', fontSize: 13, color: '#111'}}>{mat.name}</div>
+                                  <div style={{fontSize: 11, color: '#666', marginTop: 2}}>
+                                    {mat.category && <span style={{marginRight: 8}}>{mat.category}</span>}
+                                    <span style={{color: '#10b981', fontWeight: '600'}}>${(mat.price || 0).toFixed(2)}</span>
+                                    {mat.laborHours > 0 && <span style={{marginLeft: 8, color: '#3b82f6'}}>⏱ {mat.laborHours}h</span>}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </td>
                         <td style={styles.td}>
                           <input
@@ -1090,14 +1304,31 @@ export default function QuickEstimate() {
                     // In simple mode, use material field as total cost
                     return (
                       <tr key={item.id} style={styles.tableRow}>
-                        <td style={styles.td}>
+                        <td style={{...styles.td, position: 'relative'}}>
                           <textarea
                             value={item.description}
                             onChange={(e) => {
-                              updateLineItem(item.id, "description", e.target.value);
+                              const val = e.target.value;
+                              updateLineItem(item.id, "description", val);
                               e.target.style.height = "auto";
                               e.target.style.height = e.target.scrollHeight + "px";
+                              if (val.length >= 2 && materialsDB.length > 0) {
+                                const results = searchMaterials(val);
+                                setMaterialSearchResults(results);
+                                setActiveMaterialDropdown(results.length > 0 ? item.id : null);
+                              } else {
+                                setActiveMaterialDropdown(null);
+                                setMaterialSearchResults([]);
+                              }
                             }}
+                            onFocus={(e) => {
+                              if (item.description.length >= 2 && materialsDB.length > 0) {
+                                const results = searchMaterials(item.description);
+                                setMaterialSearchResults(results);
+                                setActiveMaterialDropdown(results.length > 0 ? item.id : null);
+                              }
+                            }}
+                            onBlur={() => setTimeout(() => { setActiveMaterialDropdown(null); setMaterialSearchResults([]); }, 200)}
                             onInput={(e) => {
                               e.target.style.height = "auto";
                               e.target.style.height = e.target.scrollHeight + "px";
@@ -1109,9 +1340,35 @@ export default function QuickEstimate() {
                               }
                             }}
                             style={{...styles.tableInput, resize: "none", overflow: "hidden", minHeight: 36, lineHeight: "1.4"}}
-                            placeholder="Item description"
+                            placeholder="Type to search materials..."
                             rows={1}
                           />
+                          {activeMaterialDropdown === item.id && materialSearchResults.length > 0 && (
+                            <div style={styles.materialDropdown}>
+                              <div style={{padding: '6px 10px', fontSize: 11, color: '#999', borderBottom: '1px solid #e5e7eb', backgroundColor: '#f9fafb'}}>
+                                📦 {materialSearchResults.length} material{materialSearchResults.length !== 1 ? 's' : ''} found
+                              </div>
+                              {materialSearchResults.map((mat) => (
+                                <div
+                                  key={mat.id}
+                                  style={styles.materialDropdownItem}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    handleSelectMaterial(item.id, mat);
+                                  }}
+                                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#eff6ff'}
+                                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}
+                                >
+                                  <div style={{fontWeight: '600', fontSize: 13, color: '#111'}}>{mat.name}</div>
+                                  <div style={{fontSize: 11, color: '#666', marginTop: 2}}>
+                                    {mat.category && <span style={{marginRight: 8}}>{mat.category}</span>}
+                                    <span style={{color: '#10b981', fontWeight: '600'}}>${(mat.price || 0).toFixed(2)}</span>
+                                    {mat.laborHours > 0 && <span style={{marginLeft: 8, color: '#3b82f6'}}>⏱ {mat.laborHours}h</span>}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </td>
                         <td style={styles.td}>
                           <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
@@ -1144,76 +1401,96 @@ export default function QuickEstimate() {
                 </tbody>
               </table>
             )}
+          <div style={{display: 'flex', justifyContent: 'center', marginTop: 16}}>
+            <button onClick={addLineItem} style={{...styles.addButton, padding: '10px 30px', fontSize: 15}}>
+              + Add Line
+            </button>
+          </div>
           </div>
         </div>
 
-        {/* Total */}
-        <div style={styles.totalSection}>
-          <div style={styles.totalRow}>
-            <span style={styles.totalLabel}>TOTAL:</span>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-              {hasAdjustment && (
-                <div style={{
-                  fontSize: 16,
-                  color: '#999',
-                  textDecoration: 'line-through',
-                  marginBottom: 4
-                }}>
-                  ${calculateTotal().toFixed(2)}
-                </div>
-              )}
-              <span style={styles.totalAmount}>${getFinalTotal().toFixed(2)}</span>
-              {hasAdjustment && (
-                <div style={{
-                  fontSize: 12,
-                  color: '#10b981',
-                  marginTop: 4
-                }}>
-                  Adjusted Total
-                </div>
-              )}
+        {/* Summary / Totals */}
+        <div style={{borderTop: '2px solid #e5e7eb', paddingTop: 24, marginTop: 8}}>
+          {/* Summary Grid */}
+          <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 20, marginBottom: 20}}>
+            {/* Material Cost */}
+            <div style={{backgroundColor: '#f0fdf4', borderRadius: 10, padding: 16, border: '1px solid #bbf7d0'}}>
+              <div style={{fontSize: 12, fontWeight: '700', color: '#16a34a', textTransform: 'uppercase', marginBottom: 8}}>Material Cost</div>
+              <div style={{fontSize: 24, fontWeight: '700', color: '#111'}}>${getTotalMaterialCost().toFixed(2)}</div>
+              <div style={{display: 'flex', alignItems: 'center', gap: 8, marginTop: 10}}>
+                <label style={{fontSize: 12, fontWeight: '600', color: '#666', whiteSpace: 'nowrap'}}>Markup %</label>
+                <input
+                  type="number"
+                  value={materialMarkup}
+                  onChange={(e) => setMaterialMarkup(e.target.value)}
+                  style={{width: 70, padding: '4px 8px', fontSize: 14, border: '1px solid #d1d5db', borderRadius: 4, textAlign: 'center'}}
+                  min="0"
+                  step="1"
+                />
+                {Number(materialMarkup) > 0 && (
+                  <span style={{fontSize: 12, color: '#16a34a', fontWeight: '600'}}>
+                    = ${(getTotalMaterialCost() * (1 + Number(materialMarkup) / 100)).toFixed(2)}
+                  </span>
+                )}
+              </div>
             </div>
-            <div style={{ display: 'flex', gap: 8, marginLeft: 20 }}>
-              <button
-                onClick={() => setShowPriceAdjustment(true)}
-                style={{
-                  padding: "8px 16px",
-                  backgroundColor: "#f59e0b",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 6,
-                  fontSize: 14,
-                  fontWeight: "600",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6
-                }}
-                title="Adjust price with percentage or rounding"
-              >
-                💰 Adjust Price
-              </button>
-              {hasAdjustment && (
+
+            {/* Labor */}
+            <div style={{backgroundColor: '#eff6ff', borderRadius: 10, padding: 16, border: '1px solid #bfdbfe'}}>
+              <div style={{fontSize: 12, fontWeight: '700', color: '#2563eb', textTransform: 'uppercase', marginBottom: 8}}>Labor</div>
+              <div style={{fontSize: 24, fontWeight: '700', color: '#111'}}>{getTotalLaborHours().toFixed(1)} hrs</div>
+              <div style={{fontSize: 13, color: '#666', marginTop: 4}}>Cost: ${getTotalLaborCost().toFixed(2)}</div>
+              <div style={{display: 'flex', alignItems: 'center', gap: 8, marginTop: 6}}>
+                <label style={{fontSize: 12, fontWeight: '600', color: '#666', whiteSpace: 'nowrap'}}>Markup %</label>
+                <input
+                  type="number"
+                  value={laborMarkup}
+                  onChange={(e) => setLaborMarkup(e.target.value)}
+                  style={{width: 70, padding: '4px 8px', fontSize: 14, border: '1px solid #d1d5db', borderRadius: 4, textAlign: 'center'}}
+                  min="0"
+                  step="1"
+                />
+                {Number(laborMarkup) > 0 && (
+                  <span style={{fontSize: 12, color: '#2563eb', fontWeight: '600'}}>
+                    = ${(getTotalLaborCost() * (1 + Number(laborMarkup) / 100)).toFixed(2)}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Grand Total */}
+            <div style={{backgroundColor: '#fff7ed', borderRadius: 10, padding: 16, border: '2px solid #fdba74'}}>
+              <div style={{fontSize: 12, fontWeight: '700', color: '#ea580c', textTransform: 'uppercase', marginBottom: 8}}>Total</div>
+              <div style={{display: 'flex', flexDirection: 'column'}}>
+                {hasAdjustment && (
+                  <div style={{fontSize: 16, color: '#999', textDecoration: 'line-through'}}>${calculateTotal().toFixed(2)}</div>
+                )}
+                <div style={{fontSize: 32, fontWeight: '800', color: '#fc6b04'}}>${getFinalTotal().toFixed(2)}</div>
+                {hasAdjustment && (
+                  <div style={{fontSize: 11, color: '#10b981', fontWeight: '600'}}>Adjusted Total</div>
+                )}
+                {(Number(materialMarkup) > 0 || Number(laborMarkup) > 0) && !hasAdjustment && (
+                  <div style={{fontSize: 11, color: '#666', marginTop: 2}}>
+                    (includes markup)
+                  </div>
+                )}
+              </div>
+              <div style={{display: 'flex', gap: 6, marginTop: 10}}>
                 <button
-                  onClick={resetPriceAdjustment}
-                  style={{
-                    padding: "8px 16px",
-                    backgroundColor: "#ef4444",
-                    color: "#fff",
-                    border: "none",
-                    borderRadius: 6,
-                    fontSize: 14,
-                    fontWeight: "600",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6
-                  }}
-                  title="Reset to original price"
+                  onClick={() => setShowPriceAdjustment(true)}
+                  style={{padding: '6px 12px', backgroundColor: '#f59e0b', color: '#fff', border: 'none', borderRadius: 5, fontSize: 12, fontWeight: '600', cursor: 'pointer'}}
                 >
-                  🔄 Reset
+                  💰 Adjust Price
                 </button>
-              )}
+                {hasAdjustment && (
+                  <button
+                    onClick={resetPriceAdjustment}
+                    style={{padding: '6px 12px', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: 5, fontSize: 12, fontWeight: '600', cursor: 'pointer'}}
+                  >
+                    🔄 Reset
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1332,7 +1609,8 @@ const styles = {
     cursor: "pointer",
   },
   tableContainer: {
-    overflowX: "auto",
+    overflowX: "visible",
+    overflowY: "visible",
   },
   table: {
     width: "100%",
@@ -1559,5 +1837,26 @@ const styles = {
     fontSize: 15,
     fontWeight: "600",
     cursor: "pointer",
+  },
+  materialDropdown: {
+    position: "absolute",
+    top: "100%",
+    left: 0,
+    right: 0,
+    backgroundColor: "#fff",
+    border: "2px solid #3b82f6",
+    borderTop: "none",
+    borderRadius: "0 0 8px 8px",
+    maxHeight: 240,
+    overflowY: "auto",
+    zIndex: 9999,
+    boxShadow: "0 8px 24px rgba(59,130,246,0.25)",
+  },
+  materialDropdownItem: {
+    padding: "8px 12px",
+    cursor: "pointer",
+    borderBottom: "1px solid #f3f4f6",
+    backgroundColor: "#fff",
+    transition: "background-color 0.15s",
   },
 };

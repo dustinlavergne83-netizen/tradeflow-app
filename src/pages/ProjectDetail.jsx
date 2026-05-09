@@ -2305,19 +2305,13 @@ async function handleAddContractor() {
                   {/* BUTTONS ROW BELOW ESTIMATE */}
                   <div style={{padding: "12px 16px", display: "flex", gap: 8, flexWrap: "wrap", borderBottom: "1px solid #e5e7eb"}}>
                     <button
-                      onClick={async () => {
-                        // Check if this is a simple quick estimate (single line item)
-                        const { data: items } = await supabase
-                          .from("estimate_items")
-                          .select("*")
-                          .eq("estimate_id", estimate.id);
-                        
-                        // If it's a simple estimate (1-2 items), use quick editor
-                        if (items && items.length <= 2) {
-                          navigate(`/estimate/quick?estimateId=${estimate.id}`);
-                        } else {
-                          // Use full editor for complex estimates
+                      onClick={() => {
+                        // Use estimate_type to determine which editor to open
+                        // 'full' → Full Estimate editor, 'quick' (or null for old estimates) → Quick Estimate editor
+                        if (estimate.estimate_type === 'full') {
                           navigate(`/project/${id}/estimate?estimateId=${estimate.id}`);
+                        } else {
+                          navigate(`/estimate/quick?estimateId=${estimate.id}`);
                         }
                       }}
                       style={styles.estimateButton}
@@ -2341,6 +2335,82 @@ async function handleAddContractor() {
                       style={{...styles.estimateButton, backgroundColor: "#ef4444"}}
                     >
                       Delete
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!confirm(`Copy estimate ${estimate.estimate_number}?`)) return;
+                        try {
+                          // Get next estimate number
+                          const { data: allEsts } = await supabase
+                            .from("estimates")
+                            .select("estimate_number")
+                            .eq("company_id", user.id)
+                            .not("estimate_number", "is", null);
+                          let maxNum = 1000;
+                          (allEsts || []).forEach(e => {
+                            const m = (e.estimate_number || '').match(/^(\d+)/);
+                            if (m && parseInt(m[1]) > maxNum) maxNum = parseInt(m[1]);
+                          });
+                          const newNumber = String(maxNum + 1);
+
+                          // Copy the estimate record
+                          const { data: newEst, error: estErr } = await supabase
+                            .from("estimates")
+                            .insert([{
+                              company_id: estimate.company_id || user.id,
+                              estimate_number: newNumber,
+                              project_name: estimate.project_name,
+                              customer_name: estimate.customer_name,
+                              estimate_date: new Date().toISOString().split('T')[0],
+                              subtotal: estimate.subtotal,
+                              total: estimate.total,
+                              status: 'draft',
+                              notes: estimate.notes ? `${estimate.notes} (Copy of #${estimate.estimate_number})` : `Copy of #${estimate.estimate_number}`,
+                              estimate_type: estimate.estimate_type,
+                              project_id: estimate.project_id,
+                            }])
+                            .select()
+                            .single();
+                          if (estErr) throw estErr;
+
+                          // Copy all line items
+                          const { data: items } = await supabase
+                            .from("estimate_items")
+                            .select("*")
+                            .eq("estimate_id", estimate.id)
+                            .order("sequence");
+
+                          if (items && items.length > 0) {
+                            const copiedItems = items.map(item => ({
+                              estimate_id: newEst.id,
+                              line_type: item.line_type,
+                              description: item.description,
+                              quantity: item.quantity,
+                              unit: item.unit,
+                              material_unit_cost: item.material_unit_cost,
+                              material_total: item.material_total,
+                              labor_hours: item.labor_hours,
+                              labor_rate: item.labor_rate,
+                              labor_total: item.labor_total,
+                              line_total: item.line_total,
+                              sequence: item.sequence,
+                            }));
+                            const { error: itemsErr } = await supabase
+                              .from("estimate_items")
+                              .insert(copiedItems);
+                            if (itemsErr) throw itemsErr;
+                          }
+
+                          alert(`Estimate copied as #${newNumber}`);
+                          loadProjectData();
+                        } catch (err) {
+                          console.error("Error copying estimate:", err);
+                          alert("Failed to copy estimate: " + err.message);
+                        }
+                      }}
+                      style={{...styles.estimateButton, backgroundColor: "#6366f1"}}
+                    >
+                      📋 Copy
                     </button>
                     <button
                       onClick={() => {
@@ -2389,7 +2459,13 @@ async function handleAddContractor() {
                           <span style={{ color: "#8b5cf6" }}>└─</span>
                           <span>{alternate.alternate_title || `Alt ${alternate.alternate_number}`}</span>
                           <button
-                            onClick={() => navigate(`/estimate/quick?estimateId=${alternate.id}`)}
+                            onClick={() => {
+                              if (alternate.estimate_type === 'full') {
+                                navigate(`/project/${id}/estimate?estimateId=${alternate.id}`);
+                              } else {
+                                navigate(`/estimate/quick?estimateId=${alternate.id}`);
+                              }
+                            }}
                             style={{...styles.estimateButton, fontSize: 11, padding: '4px 8px'}}
                           >
                             Edit

@@ -51,7 +51,7 @@ export function AuthProvider({ children }) {
       // ── 1. Check employees table first ──────────────────────────────────
       const { data: empData, error: empError } = await supabase
         .from("employees")
-        .select("id, email, first_name, last_name, role, is_active, phone, date_of_birth, user_id")
+        .select("id, email, first_name, last_name, role, is_active, phone, date_of_birth, user_id, is_super_admin")
         .ilike("email", cleanEmail)
         .maybeSingle();
 
@@ -107,6 +107,7 @@ export function AuthProvider({ children }) {
     employee,
     customer,
     isAdmin: employee?.role === "admin",
+    isSuperAdmin: !!employee?.is_super_admin,
     isEmployee: !!employee,
     isCustomer: !!customer,
     loading,

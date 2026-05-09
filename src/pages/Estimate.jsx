@@ -3002,6 +3002,7 @@ for (const row of validRows) {
             estimate_number: estimateNumber,
             estimate_date: estimateDate,
             status: 'draft',
+            estimate_type: 'full',
           }])
           .select()
           .single();
@@ -3172,6 +3173,7 @@ for (const row of validRows) {
         profit_amount: profitAmount,
         total: total,
         status: 'draft',
+        estimate_type: 'full',
       };
 
       const { data: estimate, error: estimateError } = await supabase
