@@ -409,8 +409,9 @@ function TimesheetsTab({ accent, companyId }) {
 
   async function saveEdit(s) {
     const d = editForm.date;
-    const startISO = d + "T" + editForm.inTime + ":00";
-    const endISO = editForm.outTime ? d + "T" + editForm.outTime + ":00" : null;
+    // Convert local-time strings to proper UTC ISO strings so Supabase stores them correctly
+    const startISO = new Date(d + "T" + editForm.inTime).toISOString();
+    const endISO = editForm.outTime ? new Date(d + "T" + editForm.outTime).toISOString() : null;
     setEditSaving(true);
     try {
       if (String(s.id).endsWith("_s")) {
@@ -422,7 +423,7 @@ function TimesheetsTab({ accent, companyId }) {
       // Toggle lunch segment if changed
       if (editForm.hadLunch !== editForm.origHadLunch) {
         if (editForm.hadLunch) {
-          await supabase.from("shift_segments").insert([{ user_id: s.userId, shift_id: s.shiftId, company_id: companyId, project_task: editForm.project || null, start_at: d + "T12:00:00", end_at: d + "T12:30:00", is_lunch: true }]);
+          await supabase.from("shift_segments").insert([{ user_id: s.userId, shift_id: s.shiftId, company_id: companyId, project_task: editForm.project || null, start_at: new Date(d + "T12:00").toISOString(), end_at: new Date(d + "T12:30").toISOString(), is_lunch: true }]);
         } else {
           await supabase.from("shift_segments").delete().eq("shift_id", s.shiftId).eq("is_lunch", true);
         }
@@ -442,11 +443,15 @@ function TimesheetsTab({ accent, companyId }) {
     if (!addForm.empId) { alert("Please select an employee"); return; }
     const emp = employees.find(e => e.id === addForm.empId);
     if (!emp?.user_id) return;
-    const startISO = addForm.date + "T" + addForm.inTime + ":00";
-    const endISO = addForm.outTime ? addForm.date + "T" + addForm.outTime + ":00" : null;
+    // Convert local time strings to proper UTC ISO strings so Supabase stores them correctly
+    const startISO = new Date(addForm.date + "T" + addForm.inTime).toISOString();
+    const endISO = addForm.outTime ? new Date(addForm.date + "T" + addForm.outTime).toISOString() : null;
+    // Use UTC midnight to find shifts for this date
+    const dayStart = new Date(addForm.date + "T00:00:00").toISOString();
+    const dayEnd = new Date(addForm.date + "T23:59:59").toISOString();
     setAddSaving(true);
     try {
-      const { data: existing } = await supabase.from("shifts").select("id").eq("user_id", emp.user_id).gte("clock_in", addForm.date + "T00:00:00").lte("clock_in", addForm.date + "T23:59:59").maybeSingle();
+      const { data: existing } = await supabase.from("shifts").select("id").eq("user_id", emp.user_id).gte("clock_in", dayStart).lte("clock_in", dayEnd).maybeSingle();
       let shiftId;
       if (existing) {
         shiftId = existing.id;
@@ -457,7 +462,7 @@ function TimesheetsTab({ accent, companyId }) {
       }
       await supabase.from("shift_segments").insert([{ user_id: emp.user_id, shift_id: shiftId, company_id: companyId, project_task: addForm.project || null, start_at: startISO, end_at: endISO, is_lunch: false }]);
       if (addForm.hadLunch) {
-        await supabase.from("shift_segments").insert([{ user_id: emp.user_id, shift_id: shiftId, company_id: companyId, project_task: addForm.project || null, start_at: addForm.date + "T12:00:00", end_at: addForm.date + "T12:30:00", is_lunch: true }]);
+        await supabase.from("shift_segments").insert([{ user_id: emp.user_id, shift_id: shiftId, company_id: companyId, project_task: addForm.project || null, start_at: new Date(addForm.date + "T12:00").toISOString(), end_at: new Date(addForm.date + "T12:30").toISOString(), is_lunch: true }]);
       }
       setShowAdd(false);
       setAddForm({ empId: "", date: today, inTime: "07:00", outTime: "15:30", project: "", hadLunch: false });
