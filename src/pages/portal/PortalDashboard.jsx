@@ -314,11 +314,11 @@ function TimesheetsTab({ accent }) {
   const [segments, setSegments] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  // Load employees (no is_active filter — matches EmployeeTimesheets.jsx which works)
   useEffect(() => {
     (async () => {
       const { data } = await supabase.from("employees")
         .select("id, user_id, first_name, last_name")
-        .neq("is_active", false)   // includes NULL and true
         .order("first_name");
       setEmployees(data || []);
     })();
@@ -327,48 +327,29 @@ function TimesheetsTab({ accent }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      // 1. Load shifts in date range
-      let shiftQuery = supabase
-        .from("shifts")
-        .select("id, user_id, clock_in")
-        .gte("clock_in", startDate + "T00:00:00")
-        .lte("clock_in", endDate + "T23:59:59");
+      // Query shift_segments directly — they store user_id and start_at (same as EmployeeTimesheets.jsx)
+      let segQuery = supabase
+        .from("shift_segments")
+        .select("id, user_id, project_task, start_at, end_at, is_lunch")
+        .gte("start_at", startDate + "T00:00:00")
+        .lte("start_at", endDate + "T23:59:59")
+        .order("start_at", { ascending: false });
 
       if (empFilter !== "all") {
         const emp = employees.find(e => e.id === empFilter);
-        if (emp?.user_id) shiftQuery = shiftQuery.eq("user_id", emp.user_id);
+        if (emp?.user_id) segQuery = segQuery.eq("user_id", emp.user_id);
       }
 
-      const { data: shifts } = await shiftQuery;
-      if (!shifts?.length) { setSegments([]); setLoading(false); return; }
+      const { data: segs } = await segQuery;
 
-      // 2. Build user_id and clock_in maps from shifts
-      const shiftUserMap = {};
-      const shiftClockInMap = {};
-      for (const s of shifts) {
-        shiftUserMap[s.id] = s.user_id;
-        shiftClockInMap[s.id] = s.clock_in;
-      }
-
-      // 3. Load segments for those shifts
-      const { data: segs } = await supabase
-        .from("shift_segments")
-        .select("id, shift_id, project_task, start_at, end_at, is_lunch")
-        .in("shift_id", shifts.map(s => s.id))
-        .order("end_at", { ascending: false });
-
-      // 4. Build name map
+      // Build name map from employees (user_id → full name)
       const nameMap = {};
       for (const e of employees) if (e.user_id) nameMap[e.user_id] = `${e.first_name} ${e.last_name}`.trim();
 
-      const rows = (segs || []).map(seg => {
-        const userId = shiftUserMap[seg.shift_id];
-        // start_at may be null on the first segment — fall back to shift clock_in
-        const startAt = seg.start_at || shiftClockInMap[seg.shift_id];
-        return { ...seg, start_at: startAt, user_id: userId, empName: nameMap[userId] || "Unknown" };
-      });
-
-      setSegments(rows);
+      setSegments((segs || []).map(seg => ({
+        ...seg,
+        empName: nameMap[seg.user_id] || (seg.user_id ? "Unknown" : "—"),
+      })));
     } finally { setLoading(false); }
   }, [startDate, endDate, empFilter, employees]);
 
