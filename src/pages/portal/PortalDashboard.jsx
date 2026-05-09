@@ -379,11 +379,12 @@ function TimesheetsTab({ accent }) {
             rows.push({ id: seg.id, empName, start_at: seg.start_at, end_at: seg.end_at, project_task: seg.project_task, hrs, hadLunch });
           }
         } else {
-          // No work segments — use shift clock_in/clock_out directly
+          // No work segments — use shift clock_in/clock_out; get project from lunch segment
+          const lunchProject = lunch.length > 0 ? lunch[0].project_task : null;
           const hrs = shift.clock_out
             ? ((new Date(shift.clock_out) - new Date(shift.clock_in)) / 3600000).toFixed(2)
             : null;
-          rows.push({ id: shift.id + "_s", empName, start_at: shift.clock_in, end_at: shift.clock_out, project_task: null, hrs, hadLunch });
+          rows.push({ id: shift.id + "_s", empName, start_at: shift.clock_in, end_at: shift.clock_out, project_task: lunchProject, hrs, hadLunch });
         }
       }
 
