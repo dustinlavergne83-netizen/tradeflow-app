@@ -28,6 +28,12 @@ function toYMD(date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+function fmt24(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 // ─── Tab Button ─────────────────────────────────────────────────────────────
 function TabBtn({ label, active, onClick, accent }) {
   return (
@@ -173,7 +179,7 @@ export default function PortalDashboard() {
           color: "#111",
         }}>
           {tab === "live"       && <LiveTab accent={accent} />}
-          {tab === "timesheets" && <TimesheetsTab accent={accent} />}
+          {tab === "timesheets" && <TimesheetsTab accent={accent} companyId={companyId} />}
           {tab === "jobs"       && <JobsTab companyId={companyId} accent={accent} />}
           {tab === "employees"  && <EmployeesTab accent={accent} />}
         </div>
@@ -304,7 +310,7 @@ function LiveTab({ accent }) {
 // ═══════════════════════════════════════════════════════════════════════════
 // TAB 2: TIMESHEETS
 // ═══════════════════════════════════════════════════════════════════════════
-function TimesheetsTab({ accent }) {
+function TimesheetsTab({ accent, companyId }) {
   const today = toYMD(new Date());
   const weekAgo = toYMD(new Date(Date.now() - 7 * 86400000));
 
@@ -312,23 +318,34 @@ function TimesheetsTab({ accent }) {
   const [endDate, setEndDate] = useState(today);
   const [empFilter, setEmpFilter] = useState("all");
   const [employees, setEmployees] = useState([]);
+  const [jobs, setJobs] = useState([]);
   const [segments, setSegments] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // Load employees (no is_active filter — matches EmployeeTimesheets.jsx which works)
+  // Edit state
+  const [editRow, setEditRow] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [editSaving, setEditSaving] = useState(false);
+
+  // Add punch modal
+  const [showAdd, setShowAdd] = useState(false);
+  const [addForm, setAddForm] = useState({ empId: "", date: today, inTime: "07:00", outTime: "15:30", project: "" });
+  const [addSaving, setAddSaving] = useState(false);
+
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from("employees")
-        .select("id, user_id, first_name, last_name")
-        .order("first_name");
-      setEmployees(data || []);
+      const [empRes, jobRes] = await Promise.all([
+        supabase.from("employees").select("id, user_id, first_name, last_name").order("first_name"),
+        supabase.from("projects").select("id, name").eq("status", "active").order("name"),
+      ]);
+      setEmployees(empRes.data || []);
+      setJobs(jobRes.data || []);
     })();
   }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      // 1. Load shifts in date range (these represent actual work days)
       let shiftQuery = supabase
         .from("shifts")
         .select("id, user_id, clock_in, clock_out")
@@ -344,18 +361,15 @@ function TimesheetsTab({ accent }) {
       const { data: shifts } = await shiftQuery;
       if (!shifts?.length) { setSegments([]); setLoading(false); return; }
 
-      // 2. Load all segments for those shifts
       const { data: segs } = await supabase
         .from("shift_segments")
         .select("id, shift_id, user_id, project_task, start_at, end_at, is_lunch")
         .in("shift_id", shifts.map(s => s.id))
         .order("start_at", { ascending: false });
 
-      // 3. Build name map
       const nameMap = {};
       for (const e of employees) if (e.user_id) nameMap[e.user_id] = `${e.first_name} ${e.last_name}`.trim();
 
-      // 4. Group segments by shift
       const segsByShift = {};
       for (const seg of (segs || [])) {
         if (!segsByShift[seg.shift_id]) segsByShift[seg.shift_id] = { work: [], lunch: [] };
@@ -363,41 +377,84 @@ function TimesheetsTab({ accent }) {
         else segsByShift[seg.shift_id].work.push(seg);
       }
 
-      // 5. Build display rows
       const rows = [];
       for (const shift of shifts) {
         const { work = [], lunch = [] } = segsByShift[shift.id] || {};
         const hadLunch = lunch.length > 0;
         const empName = nameMap[shift.user_id] || "Unknown";
-
         if (work.length > 0) {
-          // Show each work segment as a separate row
           for (const seg of work) {
-            const hrs = seg.end_at
-              ? ((new Date(seg.end_at) - new Date(seg.start_at)) / 3600000).toFixed(2)
-              : null;
-            rows.push({ id: seg.id, empName, start_at: seg.start_at, end_at: seg.end_at, project_task: seg.project_task, hrs, hadLunch });
+            const hrs = seg.end_at ? ((new Date(seg.end_at) - new Date(seg.start_at)) / 3600000).toFixed(2) : null;
+            rows.push({ id: seg.id, shiftId: seg.shift_id, userId: shift.user_id, empName, start_at: seg.start_at, end_at: seg.end_at, project_task: seg.project_task, hrs, hadLunch });
           }
         } else {
-          // No work segments — use shift clock_in/clock_out; get project from lunch segment
           const lunchProject = lunch.length > 0 ? lunch[0].project_task : null;
-          const hrs = shift.clock_out
-            ? ((new Date(shift.clock_out) - new Date(shift.clock_in)) / 3600000).toFixed(2)
-            : null;
-          rows.push({ id: shift.id + "_s", empName, start_at: shift.clock_in, end_at: shift.clock_out, project_task: lunchProject, hrs, hadLunch });
+          const hrs = shift.clock_out ? ((new Date(shift.clock_out) - new Date(shift.clock_in)) / 3600000).toFixed(2) : null;
+          rows.push({ id: shift.id + "_s", shiftId: shift.id, userId: shift.user_id, empName, start_at: shift.clock_in, end_at: shift.clock_out, project_task: lunchProject, hrs, hadLunch });
         }
       }
-
       setSegments(rows);
     } finally { setLoading(false); }
   }, [startDate, endDate, empFilter, employees]);
 
-  // Load timesheets on mount and whenever filters change (don't require employees to be loaded first)
   useEffect(() => { load(); }, [load]);
 
   const totalHours = segments.reduce((sum, r) => sum + (parseFloat(r.hrs) || 0), 0);
 
+  function startEdit(s) {
+    setEditRow(s.id);
+    setEditForm({ date: toYMD(new Date(s.start_at)), inTime: fmt24(s.start_at), outTime: s.end_at ? fmt24(s.end_at) : "", project: s.project_task || "" });
+  }
+
+  async function saveEdit(s) {
+    const d = editForm.date;
+    const startISO = d + "T" + editForm.inTime + ":00";
+    const endISO = editForm.outTime ? d + "T" + editForm.outTime + ":00" : null;
+    setEditSaving(true);
+    try {
+      if (String(s.id).endsWith("_s")) {
+        await supabase.from("shift_segments").insert([{ user_id: s.userId, shift_id: s.shiftId, company_id: companyId, project_task: editForm.project || null, start_at: startISO, end_at: endISO, is_lunch: false }]);
+        await supabase.from("shifts").update({ clock_in: startISO, clock_out: endISO }).eq("id", s.shiftId);
+      } else {
+        await supabase.from("shift_segments").update({ project_task: editForm.project || null, start_at: startISO, end_at: endISO }).eq("id", s.id);
+      }
+      setEditRow(null);
+      load();
+    } finally { setEditSaving(false); }
+  }
+
+  async function deleteRow(s) {
+    if (!window.confirm("Delete this punch?")) return;
+    if (!String(s.id).endsWith("_s")) await supabase.from("shift_segments").delete().eq("id", s.id);
+    load();
+  }
+
+  async function addPunch() {
+    if (!addForm.empId) { alert("Please select an employee"); return; }
+    const emp = employees.find(e => e.id === addForm.empId);
+    if (!emp?.user_id) return;
+    const startISO = addForm.date + "T" + addForm.inTime + ":00";
+    const endISO = addForm.outTime ? addForm.date + "T" + addForm.outTime + ":00" : null;
+    setAddSaving(true);
+    try {
+      const { data: existing } = await supabase.from("shifts").select("id").eq("user_id", emp.user_id).gte("clock_in", addForm.date + "T00:00:00").lte("clock_in", addForm.date + "T23:59:59").maybeSingle();
+      let shiftId;
+      if (existing) {
+        shiftId = existing.id;
+        if (endISO) await supabase.from("shifts").update({ clock_out: endISO }).eq("id", shiftId);
+      } else {
+        const { data: ns } = await supabase.from("shifts").insert([{ user_id: emp.user_id, company_id: companyId, clock_in: startISO, clock_out: endISO }]).select().single();
+        shiftId = ns.id;
+      }
+      await supabase.from("shift_segments").insert([{ user_id: emp.user_id, shift_id: shiftId, company_id: companyId, project_task: addForm.project || null, start_at: startISO, end_at: endISO, is_lunch: false }]);
+      setShowAdd(false);
+      setAddForm({ empId: "", date: today, inTime: "07:00", outTime: "15:30", project: "" });
+      load();
+    } finally { setAddSaving(false); }
+  }
+
   const inputStyle = { padding: "8px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 14 };
+  const tinyIn = { padding: "5px 8px", borderRadius: 6, border: "1px solid #bfdbfe", fontSize: 13, width: "100%", boxSizing: "border-box" };
 
   return (
     <div>
@@ -417,16 +474,12 @@ function TimesheetsTab({ accent }) {
             {employees.map(e => <option key={e.id} value={e.id}>{e.first_name} {e.last_name}</option>)}
           </select>
         </div>
-        <button onClick={load}
-          style={{ background: "#0b3ea8", color: "#fff", border: "none", borderRadius: 8, padding: "9px 20px", fontWeight: 700, cursor: "pointer" }}>
-          Load
-        </button>
+        <button onClick={load} style={{ background: "#0b3ea8", color: "#fff", border: "none", borderRadius: 8, padding: "9px 20px", fontWeight: 700, cursor: "pointer" }}>Load</button>
+        <button onClick={() => setShowAdd(true)} style={{ background: "#16a34a", color: "#fff", border: "none", borderRadius: 8, padding: "9px 20px", fontWeight: 700, cursor: "pointer" }}>+ Add Punch</button>
       </div>
 
       <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: "10px 16px", marginBottom: 16, display: "inline-block" }}>
-        <span style={{ fontWeight: 900, color: "#0b3ea8", fontSize: 15 }}>
-          {segments.length} entries · {totalHours.toFixed(2)} hrs total
-        </span>
+        <span style={{ fontWeight: 900, color: "#0b3ea8", fontSize: 15 }}>{segments.length} entries · {totalHours.toFixed(2)} hrs total</span>
       </div>
 
       {loading && <p style={{ color: "#94a3b8" }}>Loading…</p>}
@@ -435,35 +488,93 @@ function TimesheetsTab({ accent }) {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
           <thead>
             <tr style={{ background: "#f8fafc" }}>
-              {["Employee", "Date", "Project / Task", "In", "Out", "Hours", "Lunch"].map(h => (
+              {["Employee", "Date", "Project / Task", "In", "Out", "Hours", "Lunch", ""].map(h => (
                 <th key={h} style={{ padding: "10px 12px", textAlign: "left", fontWeight: 800, color: "#374151", borderBottom: "2px solid #e2e8f0" }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {!loading && segments.length === 0 && (
-              <tr><td colSpan={7} style={{ padding: 20, textAlign: "center", color: "#94a3b8" }}>No entries found</td></tr>
+              <tr><td colSpan={8} style={{ padding: 20, textAlign: "center", color: "#94a3b8" }}>No entries found</td></tr>
             )}
-            {segments.map((s, i) => (
-              <tr key={s.id} style={{ background: i % 2 === 0 ? "#fff" : "#f8fafc", borderBottom: "1px solid #f1f5f9", color: "#111" }}>
-                <td style={{ padding: "10px 12px", fontWeight: 700, color: "#111" }}>{s.empName}</td>
-                <td style={{ padding: "10px 12px", color: "#64748b" }}>{fmtDate(s.start_at)}</td>
-                <td style={{ padding: "10px 12px", color: "#374151" }}>{s.project_task || "—"}</td>
-                <td style={{ padding: "10px 12px", color: "#374151" }}>{fmt12(s.start_at)}</td>
-                <td style={{ padding: "10px 12px", color: s.end_at ? "#111" : "#f59e0b" }}>
-                  {s.end_at ? fmt12(s.end_at) : "⏳ Open"}
-                </td>
-                <td style={{ padding: "10px 12px", fontWeight: 800, color: "#0b3ea8" }}>
-                  {s.hrs || "—"}
-                </td>
-                <td style={{ padding: "10px 12px", color: s.hadLunch ? "#16a34a" : "#94a3b8", fontWeight: 700 }}>
-                  {s.hadLunch ? "✓ Yes" : "No"}
-                </td>
-              </tr>
-            ))}
+            {segments.map((s, i) => {
+              const isEditing = editRow === s.id;
+              if (isEditing) return (
+                <tr key={s.id} style={{ background: "#eff6ff", borderBottom: "1px solid #bfdbfe" }}>
+                  <td style={{ padding: "8px 10px", fontWeight: 700 }}>{s.empName}</td>
+                  <td style={{ padding: "8px 6px" }}><input type="date" value={editForm.date} onChange={e => setEditForm(f => ({ ...f, date: e.target.value }))} style={tinyIn} /></td>
+                  <td style={{ padding: "8px 6px" }}>
+                    <select value={editForm.project} onChange={e => setEditForm(f => ({ ...f, project: e.target.value }))} style={tinyIn}>
+                      <option value="">— No Project —</option>
+                      {jobs.map(j => <option key={j.id} value={j.name}>{j.name}</option>)}
+                      {editForm.project && !jobs.find(j => j.name === editForm.project) && <option value={editForm.project}>{editForm.project}</option>}
+                    </select>
+                  </td>
+                  <td style={{ padding: "8px 6px" }}><input type="time" value={editForm.inTime} onChange={e => setEditForm(f => ({ ...f, inTime: e.target.value }))} style={tinyIn} /></td>
+                  <td style={{ padding: "8px 6px" }}><input type="time" value={editForm.outTime} onChange={e => setEditForm(f => ({ ...f, outTime: e.target.value }))} style={tinyIn} /></td>
+                  <td style={{ padding: "8px 6px", color: "#94a3b8", fontSize: 12 }} colSpan={2}>auto</td>
+                  <td style={{ padding: "8px 6px", whiteSpace: "nowrap" }}>
+                    <button onClick={() => saveEdit(s)} disabled={editSaving} style={{ background: "#0b3ea8", color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontWeight: 700, cursor: "pointer", marginRight: 4 }}>{editSaving ? "…" : "Save"}</button>
+                    <button onClick={() => setEditRow(null)} style={{ background: "#64748b", color: "#fff", border: "none", borderRadius: 6, padding: "5px 10px", fontWeight: 700, cursor: "pointer" }}>✕</button>
+                  </td>
+                </tr>
+              );
+              return (
+                <tr key={s.id} style={{ background: i % 2 === 0 ? "#fff" : "#f8fafc", borderBottom: "1px solid #f1f5f9", color: "#111" }}>
+                  <td style={{ padding: "10px 12px", fontWeight: 700 }}>{s.empName}</td>
+                  <td style={{ padding: "10px 12px", color: "#64748b" }}>{fmtDate(s.start_at)}</td>
+                  <td style={{ padding: "10px 12px", color: "#374151" }}>{s.project_task || "—"}</td>
+                  <td style={{ padding: "10px 12px" }}>{fmt12(s.start_at)}</td>
+                  <td style={{ padding: "10px 12px", color: s.end_at ? "#111" : "#f59e0b" }}>{s.end_at ? fmt12(s.end_at) : "⏳ Open"}</td>
+                  <td style={{ padding: "10px 12px", fontWeight: 800, color: "#0b3ea8" }}>{s.hrs || "—"}</td>
+                  <td style={{ padding: "10px 12px", color: s.hadLunch ? "#16a34a" : "#94a3b8", fontWeight: 700 }}>{s.hadLunch ? "✓ Yes" : "No"}</td>
+                  <td style={{ padding: "10px 8px", whiteSpace: "nowrap" }}>
+                    <button onClick={() => startEdit(s)} style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12, marginRight: 4 }}>✏️</button>
+                    <button onClick={() => deleteRow(s)} style={{ background: "#fee2e2", border: "1px solid #fca5a5", color: "#ef4444", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12 }}>🗑️</button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
+
+      {/* ── Add Punch Modal ── */}
+      {showAdd && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#fff", borderRadius: 16, padding: 32, width: 440, maxWidth: "95vw", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+            <h3 style={{ margin: "0 0 20px", fontWeight: 900, color: "#0b3ea8", fontSize: 18 }}>+ Add Punch</h3>
+            {[
+              ["Employee", <select value={addForm.empId} onChange={e => setAddForm(f => ({ ...f, empId: e.target.value }))} style={{ ...inputStyle, width: "100%" }}>
+                <option value="">— Select Employee —</option>
+                {employees.map(e => <option key={e.id} value={e.id}>{e.first_name} {e.last_name}</option>)}
+              </select>],
+              ["Date", <input type="date" value={addForm.date} onChange={e => setAddForm(f => ({ ...f, date: e.target.value }))} style={{ ...inputStyle, width: "100%" }} />],
+              ["In Time", <input type="time" value={addForm.inTime} onChange={e => setAddForm(f => ({ ...f, inTime: e.target.value }))} style={{ ...inputStyle, width: "100%" }} />],
+              ["Out Time", <input type="time" value={addForm.outTime} onChange={e => setAddForm(f => ({ ...f, outTime: e.target.value }))} style={{ ...inputStyle, width: "100%" }} />],
+              ["Project / Task", <select value={addForm.project} onChange={e => setAddForm(f => ({ ...f, project: e.target.value }))} style={{ ...inputStyle, width: "100%" }}>
+                <option value="">— No Project —</option>
+                {jobs.map(j => <option key={j.id} value={j.name}>{j.name}</option>)}
+              </select>],
+            ].map(([lbl, ctrl]) => (
+              <div key={lbl} style={{ marginBottom: 14 }}>
+                <label style={{ display: "block", fontWeight: 700, fontSize: 12, color: "#64748b", marginBottom: 4 }}>{lbl}</label>
+                {ctrl}
+              </div>
+            ))}
+            <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+              <button onClick={addPunch} disabled={addSaving}
+                style={{ flex: 1, background: addSaving ? "#94a3b8" : "#0b3ea8", color: "#fff", border: "none", borderRadius: 10, padding: 12, fontWeight: 800, cursor: addSaving ? "default" : "pointer", fontSize: 15 }}>
+                {addSaving ? "Saving…" : "Save Punch"}
+              </button>
+              <button onClick={() => setShowAdd(false)}
+                style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 10, padding: "12px 20px", fontWeight: 700, cursor: "pointer" }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
