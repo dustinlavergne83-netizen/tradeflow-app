@@ -400,34 +400,50 @@ function TimesheetsTab({ accent }) {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
           <thead>
             <tr style={{ background: "#f8fafc" }}>
-              {["Employee", "Date", "Project / Task", "In", "Out", "Hours"].map(h => (
+              {["Employee", "Date", "Project / Task", "In", "Out", "Hours", "Lunch"].map(h => (
                 <th key={h} style={{ padding: "10px 12px", textAlign: "left", fontWeight: 800, color: "#374151", borderBottom: "2px solid #e2e8f0" }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {!loading && segments.length === 0 && (
-              <tr><td colSpan={6} style={{ padding: 20, textAlign: "center", color: "#94a3b8" }}>No entries found</td></tr>
-            )}
-            {segments.map((s, i) => {
-              const hrs = s.end_at && !s.is_lunch
-                ? ((new Date(s.end_at) - new Date(s.start_at)) / 3600000).toFixed(2)
-                : null;
-              return (
-              <tr key={s.id} style={{ background: i % 2 === 0 ? "#fff" : "#f8fafc", borderBottom: "1px solid #f1f5f9", color: "#111" }}>
-                  <td style={{ padding: "10px 12px", fontWeight: 700, color: "#111" }}>{s.empName}</td>
-                  <td style={{ padding: "10px 12px", color: "#64748b" }}>{fmtDate(s.start_at)}</td>
-                  <td style={{ padding: "10px 12px", color: "#374151" }}>{s.project_task || "—"}</td>
-                  <td style={{ padding: "10px 12px", color: "#374151" }}>{fmt12(s.start_at)}</td>
-                  <td style={{ padding: "10px 12px", color: s.end_at ? "#111" : "#f59e0b" }}>
-                    {s.end_at ? fmt12(s.end_at) : "⏳ Open"}
-                  </td>
-                  <td style={{ padding: "10px 12px", fontWeight: 800, color: s.is_lunch ? "#94a3b8" : "#0b3ea8" }}>
-                    {s.is_lunch ? "Lunch" : hrs ? hrs : "—"}
-                  </td>
-                </tr>
+            {(() => {
+              // Build a set of "user_date" keys that had a lunch break
+              const lunchKeys = new Set(
+                segments
+                  .filter(s => s.is_lunch)
+                  .map(s => `${s.user_id}_${toYMD(new Date(s.start_at))}`)
               );
-            })}
+              // Only show non-lunch rows
+              const workRows = segments.filter(s => !s.is_lunch);
+
+              if (!loading && workRows.length === 0) {
+                return <tr><td colSpan={7} style={{ padding: 20, textAlign: "center", color: "#94a3b8" }}>No entries found</td></tr>;
+              }
+
+              return workRows.map((s, i) => {
+                const hrs = s.end_at
+                  ? ((new Date(s.end_at) - new Date(s.start_at)) / 3600000).toFixed(2)
+                  : null;
+                const hadLunch = lunchKeys.has(`${s.user_id}_${toYMD(new Date(s.start_at))}`);
+                return (
+                  <tr key={s.id} style={{ background: i % 2 === 0 ? "#fff" : "#f8fafc", borderBottom: "1px solid #f1f5f9", color: "#111" }}>
+                    <td style={{ padding: "10px 12px", fontWeight: 700, color: "#111" }}>{s.empName}</td>
+                    <td style={{ padding: "10px 12px", color: "#64748b" }}>{fmtDate(s.start_at)}</td>
+                    <td style={{ padding: "10px 12px", color: "#374151" }}>{s.project_task || "—"}</td>
+                    <td style={{ padding: "10px 12px", color: "#374151" }}>{fmt12(s.start_at)}</td>
+                    <td style={{ padding: "10px 12px", color: s.end_at ? "#111" : "#f59e0b" }}>
+                      {s.end_at ? fmt12(s.end_at) : "⏳ Open"}
+                    </td>
+                    <td style={{ padding: "10px 12px", fontWeight: 800, color: "#0b3ea8" }}>
+                      {hrs || "—"}
+                    </td>
+                    <td style={{ padding: "10px 12px", color: hadLunch ? "#16a34a" : "#94a3b8", fontWeight: 700 }}>
+                      {hadLunch ? "✓ Yes" : "No"}
+                    </td>
+                  </tr>
+                );
+              });
+            })()}
           </tbody>
         </table>
       </div>
