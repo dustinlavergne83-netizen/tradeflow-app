@@ -170,6 +170,7 @@ export default function PortalDashboard() {
           borderRadius: "0 12px 12px 12px",
           boxShadow: "0 1px 6px rgba(0,0,0,0.08)",
           padding: 28,
+          color: "#111",
         }}>
           {tab === "live"       && <LiveTab accent={accent} />}
           {tab === "timesheets" && <TimesheetsTab accent={accent} />}
@@ -413,11 +414,11 @@ function TimesheetsTab({ accent }) {
                 ? ((new Date(s.end_at) - new Date(s.start_at)) / 3600000).toFixed(2)
                 : null;
               return (
-                <tr key={s.id} style={{ background: i % 2 === 0 ? "#fff" : "#f8fafc", borderBottom: "1px solid #f1f5f9" }}>
-                  <td style={{ padding: "10px 12px", fontWeight: 700 }}>{s.empName}</td>
+              <tr key={s.id} style={{ background: i % 2 === 0 ? "#fff" : "#f8fafc", borderBottom: "1px solid #f1f5f9", color: "#111" }}>
+                  <td style={{ padding: "10px 12px", fontWeight: 700, color: "#111" }}>{s.empName}</td>
                   <td style={{ padding: "10px 12px", color: "#64748b" }}>{fmtDate(s.start_at)}</td>
-                  <td style={{ padding: "10px 12px" }}>{s.project_task || "—"}</td>
-                  <td style={{ padding: "10px 12px" }}>{fmt12(s.start_at)}</td>
+                  <td style={{ padding: "10px 12px", color: "#374151" }}>{s.project_task || "—"}</td>
+                  <td style={{ padding: "10px 12px", color: "#374151" }}>{fmt12(s.start_at)}</td>
                   <td style={{ padding: "10px 12px", color: s.end_at ? "#111" : "#f59e0b" }}>
                     {s.end_at ? fmt12(s.end_at) : "⏳ Open"}
                   </td>
