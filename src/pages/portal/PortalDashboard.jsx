@@ -318,7 +318,8 @@ function TimesheetsTab({ accent }) {
     (async () => {
       const { data } = await supabase.from("employees")
         .select("id, user_id, first_name, last_name")
-        .eq("is_active", true).order("first_name");
+        .neq("is_active", false)   // includes NULL and true
+        .order("first_name");
       setEmployees(data || []);
     })();
   }, []);
@@ -326,22 +327,42 @@ function TimesheetsTab({ accent }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await supabase
-        .from("shift_segments")
-        .select("id, user_id, project_task, start_at, end_at, is_lunch")
-        .gte("start_at", startDate + "T00:00:00")
-        .lte("start_at", endDate + "T23:59:59")
-        .order("start_at", { ascending: false });
+      // 1. Load shifts in date range
+      let shiftQuery = supabase
+        .from("shifts")
+        .select("id, user_id, clock_in")
+        .gte("clock_in", startDate + "T00:00:00")
+        .lte("clock_in", endDate + "T23:59:59");
 
-      let rows = data || [];
       if (empFilter !== "all") {
         const emp = employees.find(e => e.id === empFilter);
-        if (emp?.user_id) rows = rows.filter(r => r.user_id === emp.user_id);
+        if (emp?.user_id) shiftQuery = shiftQuery.eq("user_id", emp.user_id);
       }
 
-      const map = {};
-      for (const e of employees) if (e.user_id) map[e.user_id] = `${e.first_name} ${e.last_name}`.trim();
-      setSegments(rows.map(r => ({ ...r, empName: map[r.user_id] || "Unknown" })));
+      const { data: shifts } = await shiftQuery;
+      if (!shifts?.length) { setSegments([]); setLoading(false); return; }
+
+      // 2. Build user_id map from shifts
+      const shiftUserMap = {};
+      for (const s of shifts) shiftUserMap[s.id] = s.user_id;
+
+      // 3. Load segments for those shifts
+      const { data: segs } = await supabase
+        .from("shift_segments")
+        .select("id, shift_id, project_task, start_at, end_at, is_lunch")
+        .in("shift_id", shifts.map(s => s.id))
+        .order("start_at", { ascending: false });
+
+      // 4. Build name map
+      const nameMap = {};
+      for (const e of employees) if (e.user_id) nameMap[e.user_id] = `${e.first_name} ${e.last_name}`.trim();
+
+      const rows = (segs || []).map(seg => {
+        const userId = shiftUserMap[seg.shift_id];
+        return { ...seg, user_id: userId, empName: nameMap[userId] || "Unknown" };
+      });
+
+      setSegments(rows);
     } finally { setLoading(false); }
   }, [startDate, endDate, empFilter, employees]);
 
