@@ -6,8 +6,9 @@ const BLUE = "#0b3ea8";
 const ORANGE = "#fc6b04";
 
 // ── AIAssistant Component ─────────────────────────────────────────────────────
-// Renders as a big button on the Home page that opens a chat modal
-export default function AIAssistant() {
+// floating=false → big banner on Home page
+// floating=true  → small fixed FAB button (bottom-right, all pages)
+export default function AIAssistant({ floating = false }) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState([
     {
@@ -702,27 +703,75 @@ export default function AIAssistant() {
     </div>
   );
 
+  const animations = `
+    @keyframes slideUp {
+      from { transform: translateY(30px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 0.2; transform: scale(0.8); }
+      50% { opacity: 1; transform: scale(1.2); }
+    }
+    @keyframes fabPulse {
+      0%, 100% { box-shadow: 0 4px 20px rgba(11,62,168,0.45); }
+      50% { box-shadow: 0 4px 28px rgba(11,62,168,0.7), 0 0 0 6px rgba(11,62,168,0.12); }
+    }
+  `;
+
+  // ── Floating FAB (global, all pages) ─────────────────────────────────────
+  if (floating) {
+    return (
+      <>
+        <style>{animations}</style>
+        <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 8999 }}>
+          <button
+            onClick={() => setIsOpen((v) => !v)}
+            title="AI Assistant"
+            style={{
+              width: 58,
+              height: 58,
+              borderRadius: "50%",
+              background: `linear-gradient(135deg, ${BLUE} 0%, #1a56d6 100%)`,
+              border: "none",
+              color: "#fff",
+              fontSize: 26,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxShadow: "0 4px 20px rgba(11,62,168,0.45)",
+              animation: isOpen ? "none" : "fabPulse 2.5s ease-in-out infinite",
+              transition: "transform 0.15s",
+              transform: isOpen ? "scale(0.9)" : "scale(1)",
+            }}
+          >
+            {isOpen ? "✕" : "🤖"}
+          </button>
+          {/* Badge label */}
+          {!isOpen && (
+            <div style={{
+              position: "absolute", bottom: -6, left: "50%", transform: "translateX(-50%)",
+              background: ORANGE, color: "#fff", fontSize: 9, fontWeight: 800,
+              borderRadius: 6, padding: "2px 6px", whiteSpace: "nowrap", letterSpacing: 0.5,
+            }}>
+              AI
+            </div>
+          )}
+        </div>
+        {isOpen && <ChatModal />}
+      </>
+    );
+  }
+
+  // ── Home page banner ──────────────────────────────────────────────────────
   return (
     <>
-      <style>{`
-        @keyframes slideUp {
-          from { transform: translateY(30px); opacity: 0; }
-          to { transform: translateY(0); opacity: 1; }
-        }
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.4; }
-        }
-        @keyframes blink {
-          0%, 100% { opacity: 0.2; transform: scale(0.8); }
-          50% { opacity: 1; transform: scale(1.2); }
-        }
-      `}</style>
-
-      {/* Home page AI button */}
+      <style>{animations}</style>
       <AIButton />
-
-      {/* Full chat modal */}
       {isOpen && <ChatModal />}
     </>
   );

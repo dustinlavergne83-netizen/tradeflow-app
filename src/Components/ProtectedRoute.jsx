@@ -1,6 +1,7 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import Sidebar from "./Sidebar.jsx";
+import AIAssistant from "./AIAssistant.jsx";
 
 export default function ProtectedRoute({ children }) {
   const { user, employee, customer, loading } = useAuth();
@@ -37,6 +38,8 @@ export default function ProtectedRoute({ children }) {
       <div className="main" style={{ padding: 24 }}>
         {children}
       </div>
+      {/* Global AI floating button — available on every page */}
+      <AIAssistant floating={true} />
     </div>
   );
 }
