@@ -1,89 +1,296 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+// twilio-voice-inbound — AI phone answering system for DML Electrical Service
+// Handles: known customer routing, emergency detection, AI screening, call logging
 
-// This handles the INITIAL inbound call from Twilio.
-// During business hours → forward to owner's cell.
-// After hours → route to AI agent (twilio-ai-voice).
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import OpenAI from "https://esm.sh/openai@4.20.1"
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+const TWILIO_NUMBER   = '+13377171182'   // AI answers on this number
+const BUSINESS_NUMBER = '+13372880395'   // Shows as caller ID on outbound/transfers
+const PERSONAL_CELL   = '+13377177234'   // Dustin's private cell — emergency forward
+const COMPANY_ID      = 'c8e7a2a2-f2c4-4bfe-b35b-d81d1a4e5f3b' // DML company id
+
+const BUSINESS_HOURS = "Monday through Friday, 7 AM to 5 PM Central time"
+const SERVICE_AREA   = "Jennings and surrounding south Louisiana areas including Jeff Davis Parish, Acadia Parish, and the Lake Charles area"
+const OWNER_NAME     = "Dustin"
+
+const EMERGENCY_KEYWORDS = [
+  'fire','smoke','burning','sparks','sparking','shocked','shock','electrocuted',
+  'outage','no power','power out','breaker won\'t reset','melting','explosion',
+  'exposed wire','wire down','pole down','emergency','urgent','dangerous'
+]
+
+function twiml(xml: string): Response {
+  return new Response(`<?xml version="1.0" encoding="UTF-8"?>\n<Response>${xml}</Response>`, {
+    headers: { 'Content-Type': 'text/xml' }
+  })
+}
 
 serve(async (req) => {
-  try {
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
+  if (req.method === 'OPTIONS') return new Response('ok')
 
-    const text = await req.text();
-    const params = new URLSearchParams(text);
-    const From     = params.get("From") || "";
-    const To       = params.get("To") || "";
-    const CallSid  = params.get("CallSid") || "";
+  const url = new URL(req.url)
+  const step = url.searchParams.get('step') || 'initial'
 
-    // Find company by Twilio number
-    const { data: config } = await supabase
-      .from("twilio_config")
-      .select("*")
-      .eq("phone_number", To)
-      .single();
-
-    if (!config) {
-      return new Response(
-        `<Response><Say>Thank you for calling. Goodbye.</Say></Response>`,
-        { headers: { "Content-Type": "text/xml" } }
-      );
-    }
-
-    // Check business hours
-    const now = new Date();
-    const tz = config.timezone || "America/Chicago";
-    const localTime = new Intl.DateTimeFormat("en-US", {
-      timeZone: tz, hour: "numeric", weekday: "short", hour12: false,
-    }).formatToParts(now);
-    const hour    = parseInt(localTime.find(p => p.type === "hour")?.value || "12");
-    const weekday = localTime.find(p => p.type === "weekday")?.value || "Mon";
-    const isBusinessDay  = (config.business_days || ["Mon","Tue","Wed","Thu","Fri"]).includes(weekday);
-    const isBusinessHour = hour >= (config.business_hours_start || 7) && hour < (config.business_hours_end || 18);
-    const isBusinessHours = isBusinessDay && isBusinessHour;
-
-    // Save the call log (status will update when call ends)
-    await supabase.from("communications").insert({
-      company_id:  config.company_id,
-      type:        isBusinessHours ? "call" : "ai_call",
-      direction:   "inbound",
-      from_number: From,
-      to_number:   To,
-      status:      "in_progress",
-      twilio_sid:  CallSid,
-    });
-
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const aiWebhookUrl = `${supabaseUrl}/functions/v1/twilio-ai-voice`;
-
-    if (isBusinessHours && config.forward_to_number) {
-      // Business hours: ring the owner's cell
-      const actionUrl = `${aiWebhookUrl}?fallback=true&amp;callSid=${CallSid}&amp;companyId=${config.company_id}`;
-      return new Response(
-        `<Response>
-          <Dial timeout="20" action="${actionUrl}">
-            <Number>${config.forward_to_number}</Number>
-          </Dial>
-        </Response>`,
-        { headers: { "Content-Type": "text/xml" } }
-      );
-    } else {
-      // After hours: go straight to AI
-      return new Response(
-        `<Response>
-          <Redirect method="POST">${aiWebhookUrl}?callSid=${CallSid}&companyId=${config.company_id}&fromNumber=${encodeURIComponent(From)}</Redirect>
-        </Response>`,
-        { headers: { "Content-Type": "text/xml" } }
-      );
-    }
-
-  } catch (err) {
-    console.error("twilio-voice-inbound error:", err);
-    return new Response(
-      `<Response><Say>We're sorry, we encountered an error. Please call back shortly.</Say></Response>`,
-      { headers: { "Content-Type": "text/xml" } }
-    );
+  // Parse Twilio form-encoded body
+  const body = await req.text()
+  const params: Record<string, string> = {}
+  for (const pair of body.split('&')) {
+    const [k, v] = pair.split('=')
+    if (k) params[decodeURIComponent(k)] = decodeURIComponent(v || '').replace(/\+/g, ' ')
   }
-});
+
+  const from   = params.From  || ''
+  const callSid = params.CallSid || ''
+
+  // Supabase service client
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+  )
+
+  // ── Handle call status callback (saves duration when call ends) ───────────
+  if (step === 'status') {
+    const status   = params.CallStatus || 'completed'
+    const duration = parseInt(params.CallDuration || '0')
+    await supabase.from('communications')
+      .update({ status, duration_seconds: duration })
+      .eq('call_sid', callSid)
+    return new Response('ok')
+  }
+
+  // ── Handle whisper (plays to Dustin when emergency connects) ─────────────
+  if (step === 'whisper') {
+    const callerNum = url.searchParams.get('from') || 'unknown'
+    return twiml(`<Say voice="alice">Emergency call from ${callerNum}. Connecting now.</Say>`)
+  }
+
+  // ── Step 1: Initial call ──────────────────────────────────────────────────
+  if (step === 'initial') {
+    // Check if caller is a known customer
+    const cleaned = from.replace(/\D/g, '').slice(-10)
+    const { data: knownCustomer } = await supabase
+      .from('communications')
+      .select('customer_name, from_number')
+      .ilike('from_number', `%${cleaned}`)
+      .not('customer_name', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    // Also check invoices for known customers
+    const { data: invoiceCustomer } = await supabase
+      .from('invoices')
+      .select('customer_name')
+      .ilike('customer_phone', `%${cleaned}`)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const customerName = knownCustomer?.customer_name || invoiceCustomer?.customer_name
+
+    // Log this call to communications table
+    await supabase.from('communications').insert({
+      company_id: COMPANY_ID,
+      type: 'ai_call',
+      direction: 'inbound',
+      from_number: from,
+      to_number: TWILIO_NUMBER,
+      customer_name: customerName || null,
+      status: 'ringing',
+      call_sid: callSid,
+    })
+
+    // Known customer → connect directly
+    if (customerName) {
+      const whisperUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/twilio-voice-inbound?step=whisper&from=${encodeURIComponent(customerName)}`
+      const actionUrl  = `${Deno.env.get('SUPABASE_URL')}/functions/v1/twilio-voice-inbound?step=status`
+      return twiml(`
+        <Say voice="alice">Please hold, connecting you to ${OWNER_NAME} now.</Say>
+        <Dial callerId="${BUSINESS_NUMBER}" action="${actionUrl}">
+          <Number url="${whisperUrl}">${PERSONAL_CELL}</Number>
+        </Dial>
+        <Say voice="alice">Sorry, ${OWNER_NAME} is unavailable right now. Please call back or leave a message after the tone.</Say>
+        <Record maxLength="60" action="${actionUrl}" />
+      `)
+    }
+
+    // Unknown caller → AI greeting + gather speech
+    const gatherUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/twilio-voice-inbound?step=analyze&from=${encodeURIComponent(from)}&sid=${encodeURIComponent(callSid)}`
+    return twiml(`
+      <Say voice="alice">Thank you for calling DML Electrical Service. I'm the automated assistant. Please briefly describe what you need and I'll make sure ${OWNER_NAME} gets back to you right away.</Say>
+      <Gather input="speech" action="${gatherUrl}" timeout="15" speechTimeout="auto" language="en-US">
+        <Say voice="alice">Go ahead after the tone.</Say>
+      </Gather>
+      <Say voice="alice">I didn't catch that. Let me take a quick message — please leave your name and number after the tone and ${OWNER_NAME} will call you back soon.</Say>
+      <Record maxLength="60" action="${Deno.env.get('SUPABASE_URL')}/functions/v1/twilio-voice-inbound?step=voicemail&from=${encodeURIComponent(from)}&sid=${encodeURIComponent(callSid)}" />
+    `)
+  }
+
+  // ── Step 2: Voicemail recording saved ────────────────────────────────────
+  if (step === 'voicemail') {
+    const recordingUrl = params.RecordingUrl || null
+    const fromNum = url.searchParams.get('from') || from
+    const sid = url.searchParams.get('sid') || callSid
+
+    await supabase.from('communications')
+      .update({ type: 'voicemail', recording_url: recordingUrl, status: 'voicemail' })
+      .eq('call_sid', sid)
+
+    // Send Twilio SMS to Dustin
+    try {
+      const sid_ = Deno.env.get('TWILIO_ACCOUNT_SID')
+      const auth = Deno.env.get('TWILIO_AUTH_TOKEN')
+      await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid_}/Messages.json`, {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Basic ' + btoa(`${sid_}:${auth}`),
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: new URLSearchParams({
+          From: TWILIO_NUMBER,
+          To: PERSONAL_CELL,
+          Body: `📞 Voicemail from ${fromNum.slice(-10)} — check DML Comms app to listen.`
+        })
+      })
+    } catch (_) {}
+
+    return twiml(`<Say voice="alice">Thank you. ${OWNER_NAME} will call you back soon. Goodbye!</Say><Hangup/>`)
+  }
+
+  // ── Step 3: Analyze speech with GPT-4o ───────────────────────────────────
+  if (step === 'analyze') {
+    const speech  = params.SpeechResult || ''
+    const fromNum = url.searchParams.get('from') || from
+    const sid     = url.searchParams.get('sid') || callSid
+    const statusUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/twilio-voice-inbound?step=status`
+
+    console.log('Speech from caller:', speech, 'From:', fromNum)
+
+    if (!speech.trim()) {
+      return twiml(`<Say voice="alice">I didn't catch that. ${OWNER_NAME} will call you back when he's available. Goodbye!</Say><Hangup/>`)
+    }
+
+    // Quick keyword check first (no API cost)
+    const lowerSpeech = speech.toLowerCase()
+    const isEmergency = EMERGENCY_KEYWORDS.some(kw => lowerSpeech.includes(kw))
+
+    if (isEmergency) {
+      // Save emergency flag
+      await supabase.from('communications')
+        .update({ ai_summary: `🚨 EMERGENCY: ${speech}`, status: 'emergency' })
+        .eq('call_sid', sid)
+
+      // Text Dustin immediately
+      try {
+        const sid_ = Deno.env.get('TWILIO_ACCOUNT_SID')
+        const auth = Deno.env.get('TWILIO_AUTH_TOKEN')
+        await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid_}/Messages.json`, {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Basic ' + btoa(`${sid_}:${auth}`),
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: new URLSearchParams({
+            From: TWILIO_NUMBER,
+            To: PERSONAL_CELL,
+            Body: `🚨 EMERGENCY CALL connecting from ${fromNum.slice(-10)}: "${speech}"`
+          })
+        })
+      } catch (_) {}
+
+      const whisperUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/twilio-voice-inbound?step=whisper&from=EMERGENCY`
+      return twiml(`
+        <Say voice="alice">This sounds like an emergency. Let me connect you to ${OWNER_NAME} right away. Please hold.</Say>
+        <Dial callerId="${BUSINESS_NUMBER}" action="${statusUrl}">
+          <Number url="${whisperUrl}">${PERSONAL_CELL}</Number>
+        </Dial>
+        <Say voice="alice">Sorry, ${OWNER_NAME} is not available. Please call 911 if this is a life-threatening emergency. Otherwise leave a message after the tone.</Say>
+        <Record maxLength="60" action="${statusUrl}" />
+      `)
+    }
+
+    // Use GPT-4o to extract caller name and summarize
+    let callerName = ''
+    let summary = speech
+    try {
+      const openai = new OpenAI({ apiKey: Deno.env.get('OPENAI_API_KEY') })
+      const resp = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [{
+          role: 'user',
+          content: `A customer called DML Electrical Service in Jennings, Louisiana. They said: "${speech}"
+          
+Extract in JSON format:
+- caller_name: their first name if they said it, otherwise null
+- summary: 1-sentence summary of why they called (start with what they need)
+- is_emergency: true only if life-threatening electrical hazard
+- response: a warm, professional 1-sentence response to say back to them confirming we got the message
+
+Return valid JSON only.`
+        }],
+        max_tokens: 200,
+        temperature: 0.3,
+      })
+
+      const parsed = JSON.parse(resp.choices[0].message.content || '{}')
+      callerName = parsed.caller_name || ''
+      summary = parsed.summary || speech
+      const aiResponse = parsed.response || `Got it. ${OWNER_NAME} will call you back soon.`
+
+      if (parsed.is_emergency) {
+        const whisperUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/twilio-voice-inbound?step=whisper&from=EMERGENCY`
+        await supabase.from('communications')
+          .update({ ai_summary: `🚨 ${summary}`, customer_name: callerName || null, status: 'emergency' })
+          .eq('call_sid', sid)
+        return twiml(`
+          <Say voice="alice">That sounds urgent — connecting you to ${OWNER_NAME} immediately.</Say>
+          <Dial callerId="${BUSINESS_NUMBER}" action="${statusUrl}">
+            <Number url="${whisperUrl}">${PERSONAL_CELL}</Number>
+          </Dial>
+          <Say voice="alice">Sorry, ${OWNER_NAME} is unavailable. Please leave a message after the tone.</Say>
+          <Record maxLength="60" action="${statusUrl}" />
+        `)
+      }
+
+      // Save summary to DB
+      await supabase.from('communications')
+        .update({ ai_summary: summary, customer_name: callerName || null, status: 'completed' })
+        .eq('call_sid', sid)
+
+      // Text Dustin with summary
+      const cleanNum = fromNum.replace(/\D/g, '').slice(-10)
+      const dispNum = `(${cleanNum.slice(0,3)}) ${cleanNum.slice(3,6)}-${cleanNum.slice(6)}`
+      try {
+        const twSid = Deno.env.get('TWILIO_ACCOUNT_SID')
+        const twAuth = Deno.env.get('TWILIO_AUTH_TOKEN')
+        await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twSid}/Messages.json`, {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Basic ' + btoa(`${twSid}:${twAuth}`),
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: new URLSearchParams({
+            From: TWILIO_NUMBER,
+            To: PERSONAL_CELL,
+            Body: `📞 New call${callerName ? ` from ${callerName}` : ''} (${dispNum}):\n"${summary}"\n\nCheck DML Comms app to call back.`
+          })
+        })
+      } catch (_) {}
+
+      return twiml(`<Say voice="alice">${aiResponse} Have a great day!</Say><Hangup/>`)
+
+    } catch (e) {
+      console.error('GPT error:', e)
+      // Fallback: save raw speech, text Dustin
+      await supabase.from('communications')
+        .update({ ai_summary: speech, status: 'completed' })
+        .eq('call_sid', sid)
+
+      return twiml(`<Say voice="alice">Got it, thank you. ${OWNER_NAME} will call you back shortly. Have a great day!</Say><Hangup/>`)
+    }
+  }
+
+  return twiml(`<Say voice="alice">Thank you for calling DML Electrical. Please try again shortly.</Say><Hangup/>`)
+})
