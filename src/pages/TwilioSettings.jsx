@@ -255,12 +255,25 @@ export default function TwilioSettings() {
     e.target.value = "";  // reset so same file can be picked again
   }
 
-  function addSelected() {
+  async function addSelected() {
     const toAdd = importList.filter((_, i) => selected.has(i));
-    setConfig(c => ({ ...c, vip_numbers: [...(c.vip_numbers || []), ...toAdd] }));
+    const newVips = [...(config.vip_numbers || []), ...toAdd];
+    setConfig(c => ({ ...c, vip_numbers: newVips }));
     setShowImport(false);
     setImportList([]);
     setSelected(new Set());
+
+    // Auto-save immediately so contacts aren't lost on refresh
+    if (companyId) {
+      try {
+        const payload = { ...config, vip_numbers: newVips, company_id: companyId, updated_at: new Date().toISOString() };
+        await supabase.from("twilio_config").upsert(payload, { onConflict: "company_id" });
+        setSaved(true);
+        setTimeout(() => setSaved(false), 3000);
+      } catch (err) {
+        console.error("Auto-save after import failed:", err);
+      }
+    }
   }
 
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
