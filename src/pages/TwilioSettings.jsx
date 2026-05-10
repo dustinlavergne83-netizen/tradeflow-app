@@ -11,6 +11,7 @@ function inp(overrides = {}) {
   return {
     width: "100%", padding: "10px 14px", border: "1px solid #d1d5db",
     borderRadius: 8, fontSize: 14, boxSizing: "border-box", outline: "none",
+    backgroundColor: "#fff", color: "#111",
     ...overrides,
   };
 }
@@ -133,7 +134,7 @@ export default function TwilioSettings() {
   if (loading) return <div style={{ padding: 40, textAlign: "center" }}>Loading...</div>;
 
   return (
-    <div style={{ maxWidth: 820, margin: "0 auto", padding: "24px 16px 100px" }}>
+    <div style={{ maxWidth: 820, margin: "0 auto", padding: "24px 16px 100px", color: "#111" }}>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 28 }}>
         <button onClick={() => navigate("/communications")} style={{ background: "none", border: "1px solid #d1d5db", borderRadius: 8, padding: "6px 14px", fontSize: 13, cursor: "pointer" }}>← Back</button>
@@ -400,7 +401,7 @@ export default function TwilioSettings() {
   );
 }
 
-const card      = { backgroundColor: "#fff", borderRadius: 12, padding: 24, border: "1px solid #e5e7eb", marginBottom: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" };
+const card      = { backgroundColor: "#fff", borderRadius: 12, padding: 24, border: "1px solid #e5e7eb", marginBottom: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.04)", color: "#111" };
 const cardTitle = { fontSize: 16, fontWeight: 800, color: BLUE, margin: "0 0 16px 0" };
 const lbl       = { display: "block", fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.4 };
 const hint      = { fontSize: 11, color: "#9ca3af", marginTop: 4 };
