@@ -206,7 +206,7 @@ Current User (the person talking to you): ${profile?.full_name || 'Dustin Laverg
 IMPORTANT: When the user says "clock me in", "clock me out", "I started at...", "my hours", etc. — they are referring to THEMSELVES (${profile?.full_name || 'Dustin Lavergne'}, user_id: ${user.id}). Always use their user_id directly for self-references.
 
 YOUR CAPABILITIES:
-- Set reminders (use set_reminder tool)
+- Set reminders that send an SMS text message to your AT&T phone when the time arrives (use set_reminder tool) — just say "remind me [what] at [time]" and you'll get a text
 - Parse & SAVE material lists directly to a project (use add_materials tool — saves to project_material_lists table)
 - Generate professional proposal/scope of work text (use generate_proposal tool)
 - Generate invoice descriptions (use generate_invoice_description tool)
@@ -516,7 +516,7 @@ GUIDELINES:
           })
           action = 'set_reminder'
           actionData = { message: toolArgs.message, remind_at: toolArgs.remind_at }
-          responseMessage = `✅ Reminder set!\n\n"${toolArgs.message}"\n\n📅 ${formattedDate}\n\nYou'll get a push notification at that time.`
+          responseMessage = `✅ Reminder set!\n\n"${toolArgs.message}"\n\n📅 ${formattedDate}\n\n📱 You'll get an SMS text to your phone at that time!`
         } else {
           console.error('Reminder insert error:', reminderError)
           responseMessage = `I tried to set a reminder but ran into an issue. Please try again.`
