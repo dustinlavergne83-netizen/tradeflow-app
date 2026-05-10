@@ -5,21 +5,34 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import OpenAI from "https://esm.sh/openai@4.20.1"
 
-// ── Constants ─────────────────────────────────────────────────────────────────
-const TWILIO_NUMBER   = '+13377171182'   // AI answers on this number
-const BUSINESS_NUMBER = '+13372880395'   // Shows as caller ID on outbound/transfers
-const PERSONAL_CELL   = '+13377177234'   // Dustin's private cell — emergency forward
-const COMPANY_ID      = 'c8e7a2a2-f2c4-4bfe-b35b-d81d1a4e5f3b' // DML company id
-
-const BUSINESS_HOURS = "Monday through Friday, 7 AM to 5 PM Central time"
-const SERVICE_AREA   = "Jennings and surrounding south Louisiana areas including Jeff Davis Parish, Acadia Parish, and the Lake Charles area"
-const OWNER_NAME     = "Dustin"
+// ── Hardcoded fallbacks (overridden by twilio_config DB row) ──────────────────
+const DEFAULT_COMPANY_ID      = 'c8e7a2a2-f2c4-4bfe-b35b-d81d1a4e5f3b'
+const DEFAULT_PERSONAL_CELL   = '+13377177234'
+const DEFAULT_BUSINESS_NUMBER = '+13372880395'
+const DEFAULT_TWILIO_NUMBER   = '+13377171182'
+const DEFAULT_OWNER_NAME      = 'Dustin'
+const DEFAULT_BUSINESS_NAME   = 'DML Electrical Service'
+const DEFAULT_SERVICE_AREA    = 'Jennings and surrounding south Louisiana areas'
 
 const EMERGENCY_KEYWORDS = [
   'fire','smoke','burning','sparks','sparking','shocked','shock','electrocuted',
   'outage','no power','power out','breaker won\'t reset','melting','explosion',
   'exposed wire','wire down','pole down','emergency','urgent','dangerous'
 ]
+
+// Load company settings from twilio_config table (keyed by phone number called)
+async function loadConfig(supabase: ReturnType<typeof createClient>, toNumber: string) {
+  try {
+    // Try to find by the Twilio number being called
+    const { data } = await supabase
+      .from('twilio_config')
+      .select('*')
+      .or(`phone_number.eq.${toNumber},company_id.eq.${DEFAULT_COMPANY_ID}`)
+      .limit(1)
+      .maybeSingle()
+    return data || {}
+  } catch (_) { return {} }
+}
 
 function twiml(xml: string): Response {
   return new Response(`<?xml version="1.0" encoding="UTF-8"?>\n<Response>${xml}</Response>`, {
@@ -41,14 +54,28 @@ serve(async (req) => {
     if (k) params[decodeURIComponent(k)] = decodeURIComponent(v || '').replace(/\+/g, ' ')
   }
 
-  const from   = params.From  || ''
+  const from    = params.From    || ''
   const callSid = params.CallSid || ''
+  const toNum   = params.To      || DEFAULT_TWILIO_NUMBER
 
   // Supabase service client
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
   )
+
+  // Load company settings from DB (used by all steps)
+  const cfg             = await loadConfig(supabase, toNum)
+  const COMPANY_ID      = cfg.company_id             || DEFAULT_COMPANY_ID
+  const PERSONAL_CELL   = cfg.forward_to_number      || DEFAULT_PERSONAL_CELL
+  const EMERG_CELL      = cfg.emergency_forward_number || PERSONAL_CELL
+  const BUSINESS_NUMBER = cfg.business_number        || DEFAULT_BUSINESS_NUMBER
+  const TWILIO_NUMBER   = cfg.phone_number           || toNum
+  const OWNER_NAME      = cfg.owner_name             || DEFAULT_OWNER_NAME
+  const BUSINESS_NAME   = cfg.business_name          || DEFAULT_BUSINESS_NAME
+  const customGreeting  = (cfg.ai_greeting || '').replace('{owner}', OWNER_NAME)
+  const vipNumbers: { number: string }[] = cfg.vip_numbers || []
+  const supaUrl         = Deno.env.get('SUPABASE_URL')!
 
   // ── Handle call status callback (saves duration when call ends) ───────────
   if (step === 'status') {
@@ -70,6 +97,10 @@ serve(async (req) => {
   if (step === 'initial') {
     // Check if caller is a known customer
     const cleaned = from.replace(/\D/g, '').slice(-10)
+
+    // Check VIP list first (always connects directly, no AI)
+    const isVip = vipNumbers.some(v => v.number.replace(/\D/g,'').slice(-10) === cleaned)
+
     const { data: knownCustomer } = await supabase
       .from('communications')
       .select('customer_name, from_number')
@@ -102,12 +133,14 @@ serve(async (req) => {
       call_sid: callSid,
     })
 
-    // Known customer → connect directly
-    if (customerName) {
-      const whisperUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/twilio-voice-inbound?step=whisper&from=${encodeURIComponent(customerName)}`
-      const actionUrl  = `${Deno.env.get('SUPABASE_URL')}/functions/v1/twilio-voice-inbound?step=status`
+    const whisperUrl = `${supaUrl}/functions/v1/twilio-voice-inbound?step=whisper&from=${encodeURIComponent(customerName || from)}`
+    const actionUrl  = `${supaUrl}/functions/v1/twilio-voice-inbound?step=status`
+
+    // VIP or known customer → connect directly
+    if (isVip || customerName) {
+      const greeting = customerName ? `Please hold, connecting you to ${OWNER_NAME} now.` : `One moment please, connecting you now.`
       return twiml(`
-        <Say voice="alice">Please hold, connecting you to ${OWNER_NAME} now.</Say>
+        <Say voice="alice">${greeting}</Say>
         <Dial callerId="${BUSINESS_NUMBER}" action="${actionUrl}">
           <Number url="${whisperUrl}">${PERSONAL_CELL}</Number>
         </Dial>
@@ -117,14 +150,15 @@ serve(async (req) => {
     }
 
     // Unknown caller → AI greeting + gather speech
-    const gatherUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/twilio-voice-inbound?step=analyze&from=${encodeURIComponent(from)}&sid=${encodeURIComponent(callSid)}`
+    const greeting = customGreeting || `Thank you for calling ${BUSINESS_NAME}. I'm the automated assistant. Please briefly describe what you need and I'll make sure ${OWNER_NAME} gets back to you right away.`
+    const gatherUrl = `${supaUrl}/functions/v1/twilio-voice-inbound?step=analyze&from=${encodeURIComponent(from)}&sid=${encodeURIComponent(callSid)}`
     return twiml(`
-      <Say voice="alice">Thank you for calling DML Electrical Service. I'm the automated assistant. Please briefly describe what you need and I'll make sure ${OWNER_NAME} gets back to you right away.</Say>
+      <Say voice="alice">${greeting}</Say>
       <Gather input="speech" action="${gatherUrl}" timeout="15" speechTimeout="auto" language="en-US">
         <Say voice="alice">Go ahead after the tone.</Say>
       </Gather>
       <Say voice="alice">I didn't catch that. Let me take a quick message — please leave your name and number after the tone and ${OWNER_NAME} will call you back soon.</Say>
-      <Record maxLength="60" action="${Deno.env.get('SUPABASE_URL')}/functions/v1/twilio-voice-inbound?step=voicemail&from=${encodeURIComponent(from)}&sid=${encodeURIComponent(callSid)}" />
+      <Record maxLength="60" action="${supaUrl}/functions/v1/twilio-voice-inbound?step=voicemail&from=${encodeURIComponent(from)}&sid=${encodeURIComponent(callSid)}" />
     `)
   }
 
