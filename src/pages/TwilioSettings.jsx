@@ -1,6 +1,44 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { useNavigate } from "react-router-dom";
+
+// ── vCard / CSV parsers (runs entirely in browser, no upload) ──────────────────
+function parseVCF(text) {
+  const contacts = [];
+  const cards = text.split(/BEGIN:VCARD/i).slice(1);
+  for (const card of cards) {
+    const fnMatch  = card.match(/^FN[;:]([^\r\n]+)/im);
+    const telLines = [...card.matchAll(/^TEL[^:]*:([^\r\n]+)/gim)];
+    const name = fnMatch ? fnMatch[1].trim().replace(/\\n/g, " ") : "";
+    for (const tel of telLines) {
+      const num = tel[1].trim().replace(/[^\d+]/g, "");
+      if (num.length >= 10) {
+        const e164 = num.startsWith("+") ? num : `+1${num.slice(-10)}`;
+        contacts.push({ label: name || "Unknown", number: e164 });
+      }
+    }
+  }
+  return contacts;
+}
+
+function parseCSV(text) {
+  const contacts = [];
+  const lines = text.split(/\r?\n/);
+  if (!lines.length) return contacts;
+  const header = lines[0].split(",").map(h => h.toLowerCase().trim().replace(/['"]/g, ""));
+  const nameIdx = header.findIndex(h => h === "name" || h === "given name" || h === "first name");
+  const phoneIdx = header.findIndex(h => h.includes("phone") || h.includes("mobile") || h.includes("cell") || h.includes("tel"));
+  if (phoneIdx < 0) return contacts;
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(",").map(c => c.trim().replace(/^"|"$/g, ""));
+    const rawNum = (cols[phoneIdx] || "").replace(/[^\d+]/g, "");
+    if (rawNum.length < 10) continue;
+    const e164 = rawNum.startsWith("+") ? rawNum : `+1${rawNum.slice(-10)}`;
+    const name = nameIdx >= 0 ? (cols[nameIdx] || "") : "";
+    contacts.push({ label: name || "Unknown", number: e164 });
+  }
+  return contacts;
+}
 
 const BLUE   = "#0b3ea8";
 const GREEN  = "#22c55e";
@@ -35,7 +73,12 @@ export default function TwilioSettings() {
   const [loading, setLoading]     = useState(true);
   const [saving, setSaving]       = useState(false);
   const [saved, setSaved]         = useState(false);
-  const [newVip, setNewVip]       = useState({ number: "", label: "" });
+  const [newVip, setNewVip]           = useState({ number: "", label: "" });
+  const [importList, setImportList]   = useState([]);   // parsed contacts
+  const [selected, setSelected]       = useState(new Set());
+  const [showImport, setShowImport]   = useState(false);
+  const [importSearch, setImportSearch] = useState("");
+  const fileInputRef                  = useRef(null);
   const [config, setConfig]       = useState({
     account_sid:              "",
     auth_token:               "",
@@ -126,6 +169,36 @@ export default function TwilioSettings() {
 
   function removeVip(idx) {
     setConfig(c => ({ ...c, vip_numbers: c.vip_numbers.filter((_, i) => i !== idx) }));
+  }
+
+  function handleFileImport(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const text = ev.target.result;
+      const parsed = file.name.toLowerCase().endsWith(".csv") ? parseCSV(text) : parseVCF(text);
+      // Dedupe: remove already-VIP numbers
+      const existing = new Set((config.vip_numbers || []).map(v => v.number));
+      const fresh = parsed.filter(c => !existing.has(c.number));
+      // Dedupe within file (keep first occurrence per number)
+      const seen = new Set();
+      const unique = fresh.filter(c => { if (seen.has(c.number)) return false; seen.add(c.number); return true; });
+      setImportList(unique);
+      setSelected(new Set(unique.map((_, i) => i)));  // select all by default
+      setImportSearch("");
+      setShowImport(true);
+    };
+    reader.readAsText(file);
+    e.target.value = "";  // reset so same file can be picked again
+  }
+
+  function addSelected() {
+    const toAdd = importList.filter((_, i) => selected.has(i));
+    setConfig(c => ({ ...c, vip_numbers: [...(c.vip_numbers || []), ...toAdd] }));
+    setShowImport(false);
+    setImportList([]);
+    setSelected(new Set());
   }
 
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
@@ -330,7 +403,13 @@ export default function TwilioSettings() {
 
         {/* Add new VIP */}
         <div style={{ backgroundColor: "#f9fafb", borderRadius: 10, padding: 16, border: "1px dashed #d1d5db" }}>
-          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Add a VIP Number</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>Add a VIP Number</div>
+            <button onClick={() => fileInputRef.current?.click()}
+              style={{ padding: "6px 14px", backgroundColor: GREEN, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              📥 Import from Phone
+            </button>
+          </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <input value={newVip.number} onChange={e => setNewVip(v => ({ ...v, number: e.target.value }))}
               placeholder="Phone number e.g. (337) 555-1234" style={{ ...inp(), flex: 2, minWidth: 180 }} />
@@ -340,8 +419,93 @@ export default function TwilioSettings() {
               + Add
             </button>
           </div>
+          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 8 }}>
+            Import accepts .vcf (iPhone/Android contacts export) or .csv (Google Contacts export)
+          </div>
         </div>
+
+        {/* Hidden file input */}
+        <input ref={fileInputRef} type="file" accept=".vcf,.csv" onChange={handleFileImport} style={{ display: "none" }} />
       </div>
+
+      {/* ── IMPORT MODAL ─────────────────────────────────────────────────── */}
+      {showImport && (
+        <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div style={{ backgroundColor: "#fff", borderRadius: 16, width: "100%", maxWidth: 560, maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+            {/* Modal header */}
+            <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid #e5e7eb" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: BLUE }}>📥 Import Contacts as VIPs</div>
+                  <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>
+                    {importList.length} contacts found • {selected.size} selected
+                  </div>
+                </div>
+                <button onClick={() => setShowImport(false)} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#9ca3af", lineHeight: 1 }}>×</button>
+              </div>
+              {/* Search */}
+              <input value={importSearch} onChange={e => setImportSearch(e.target.value)}
+                placeholder="Search by name or number..." style={{ ...inp(), marginTop: 12, fontSize: 13 }} />
+              {/* Select all / none */}
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <button onClick={() => setSelected(new Set(importList.map((_, i) => i)))}
+                  style={{ fontSize: 12, padding: "4px 10px", border: "1px solid #d1d5db", borderRadius: 6, cursor: "pointer", backgroundColor: "#fff", color: "#374151" }}>
+                  Select All
+                </button>
+                <button onClick={() => setSelected(new Set())}
+                  style={{ fontSize: 12, padding: "4px 10px", border: "1px solid #d1d5db", borderRadius: 6, cursor: "pointer", backgroundColor: "#fff", color: "#374151" }}>
+                  Deselect All
+                </button>
+              </div>
+            </div>
+
+            {/* Contact list */}
+            <div style={{ overflowY: "auto", flex: 1, padding: "8px 24px" }}>
+              {importList.length === 0 ? (
+                <div style={{ textAlign: "center", padding: 32, color: "#9ca3af", fontSize: 14 }}>
+                  No new contacts found (duplicates are filtered out)
+                </div>
+              ) : (
+                importList
+                  .filter(c => !importSearch || c.label.toLowerCase().includes(importSearch.toLowerCase()) || c.number.includes(importSearch.replace(/\D/g, "")))
+                  .map((contact, rawIdx) => {
+                    // find actual index in importList
+                    const idx = importList.findIndex((c, i) => c === contact && (rawIdx === 0 || i >= 0));
+                    const actualIdx = importList.indexOf(contact);
+                    const isChecked = selected.has(actualIdx);
+                    return (
+                      <label key={actualIdx} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid #f3f4f6", cursor: "pointer" }}>
+                        <input type="checkbox" checked={isChecked}
+                          onChange={() => {
+                            const next = new Set(selected);
+                            if (isChecked) next.delete(actualIdx); else next.add(actualIdx);
+                            setSelected(next);
+                          }}
+                          style={{ width: 16, height: 16, cursor: "pointer" }} />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: "#111" }}>{contact.label}</div>
+                          <div style={{ fontSize: 12, color: "#6b7280" }}>{formatPhone(contact.number)}</div>
+                        </div>
+                      </label>
+                    );
+                  })
+              )}
+            </div>
+
+            {/* Modal footer */}
+            <div style={{ padding: "16px 24px", borderTop: "1px solid #e5e7eb", display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setShowImport(false)}
+                style={{ padding: "10px 20px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 14, cursor: "pointer", backgroundColor: "#fff", color: "#374151" }}>
+                Cancel
+              </button>
+              <button onClick={addSelected} disabled={selected.size === 0}
+                style={{ padding: "10px 24px", backgroundColor: selected.size === 0 ? "#e5e7eb" : BLUE, color: selected.size === 0 ? "#9ca3af" : "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: selected.size === 0 ? "not-allowed" : "pointer" }}>
+                ✅ Add {selected.size} VIP{selected.size !== 1 ? "s" : ""}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── SMS AUTO-REPLY ───────────────────────────────────────────────── */}
       <div style={card}>
