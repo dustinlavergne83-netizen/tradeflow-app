@@ -11,8 +11,8 @@ create extension if not exists pg_net;
 -- 2. Enable pg_cron if not already enabled
 create extension if not exists pg_cron;
 
--- 3. Remove old job if it exists
-select cron.unschedule('send-ai-reminder-sms');
+-- 3. Remove old job if it exists (safe — won't error if not found)
+select cron.unschedule(jobid) from cron.job where jobname = 'send-ai-reminder-sms';
 
 -- 4. Schedule: every minute, call the Edge Function
 select cron.schedule(
