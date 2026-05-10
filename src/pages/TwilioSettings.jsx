@@ -137,7 +137,7 @@ export default function TwilioSettings() {
     <div style={{ maxWidth: 820, margin: "0 auto", padding: "24px 16px 100px", color: "#111" }}>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 28 }}>
-        <button onClick={() => navigate("/communications")} style={{ background: "none", border: "1px solid #d1d5db", borderRadius: 8, padding: "6px 14px", fontSize: 13, cursor: "pointer" }}>← Back</button>
+        <button onClick={() => navigate("/communications")} style={{ background: "#fff", border: "1px solid #d1d5db", borderRadius: 8, padding: "6px 14px", fontSize: 13, cursor: "pointer", color: "#374151" }}>← Back</button>
         <div>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: BLUE }}>⚙️ AI Phone Settings</h1>
           <p style={{ margin: 0, fontSize: 13, color: "#6b7280" }}>Configure your AI phone assistant, business hours, and call routing</p>
@@ -390,7 +390,7 @@ export default function TwilioSettings() {
       {/* ── SAVE ────────────────────────────────────────────────────────── */}
       <div style={{ position: "sticky", bottom: 0, backgroundColor: "#fff", padding: "16px 0", borderTop: "1px solid #e5e7eb", display: "flex", gap: 12, justifyContent: "flex-end" }}>
         {saved && <div style={{ color: GREEN, fontSize: 14, fontWeight: 700, alignSelf: "center" }}>✅ Saved!</div>}
-        <button onClick={() => navigate("/communications")} style={{ padding: "12px 24px", border: "1px solid #d1d5db", borderRadius: 10, fontSize: 14, cursor: "pointer", backgroundColor: "#fff" }}>
+        <button onClick={() => navigate("/communications")} style={{ padding: "12px 24px", border: "1px solid #d1d5db", borderRadius: 10, fontSize: 14, cursor: "pointer", backgroundColor: "#fff", color: "#374151" }}>
           Cancel
         </button>
         <button onClick={save} disabled={saving} style={{ padding: "12px 28px", backgroundColor: BLUE, color: "#fff", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 800, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}>
