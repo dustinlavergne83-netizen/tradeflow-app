@@ -67,6 +67,68 @@ const HOURS = Array.from({ length: 24 }, (_, i) => {
   return { value: i, label: `${h}:00 ${ampm}` };
 });
 
+function VipSearch({ vips, onRemove }) {
+  const [q, setQ] = useState("");
+  const filtered = q
+    ? vips.filter((v, _) =>
+        v.label.toLowerCase().includes(q.toLowerCase()) ||
+        v.number.replace(/\D/g, "").includes(q.replace(/\D/g, ""))
+      )
+    : vips;
+
+  // map filtered back to real indices in original vips array
+  const filteredWithIdx = filtered.map(v => ({ v, idx: vips.indexOf(v) }));
+
+  return (
+    <div>
+      {/* Search bar */}
+      <div style={{ position: "relative", marginBottom: 10 }}>
+        <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: "#9ca3af", pointerEvents: "none" }}>🔍</span>
+        <input
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          placeholder={`Search ${vips.length} VIP${vips.length !== 1 ? "s" : ""}…`}
+          style={{ width: "100%", padding: "9px 14px 9px 36px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box", backgroundColor: "#fff", color: "#111", outline: "none" }}
+        />
+        {q && (
+          <button onClick={() => setQ("")}
+            style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", fontSize: 16, cursor: "pointer", color: "#9ca3af" }}>
+            ×
+          </button>
+        )}
+      </div>
+
+      {/* Scrollable list */}
+      <div style={{ maxHeight: 340, overflowY: "auto", border: "1px solid #e5e7eb", borderRadius: 10, backgroundColor: "#fafafa" }}>
+        {filteredWithIdx.length === 0 ? (
+          <div style={{ padding: 20, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
+            {q ? `No VIPs match "${q}"` : "No VIPs yet"}
+          </div>
+        ) : (
+          filteredWithIdx.map(({ v: vip, idx }) => (
+            <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: "1px solid #e5e7eb", backgroundColor: "#fff" }}>
+              <span style={{ fontSize: 18, lineHeight: 1 }}>⭐</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#111", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{vip.label}</div>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>{formatPhone(vip.number)}</div>
+              </div>
+              <button onClick={() => onRemove(idx)}
+                style={{ padding: "4px 12px", backgroundColor: "#fef2f2", color: RED, border: "1px solid #fecaca", borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 700, flexShrink: 0 }}>
+                Remove
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+      {q && (
+        <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 6, textAlign: "right" }}>
+          Showing {filteredWithIdx.length} of {vips.length}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function TwilioSettings() {
   const navigate = useNavigate();
   const [companyId, setCompanyId] = useState(null);
@@ -380,20 +442,10 @@ export default function TwilioSettings() {
           Calls from these numbers skip the AI and ring you directly — no screening, no greeting. Great for important contractors, suppliers, or frequent customers not yet in your database.
         </p>
 
-        {/* Existing VIP list */}
+        {/* Search + scrollable VIP list */}
         {config.vip_numbers?.length > 0 ? (
           <div style={{ marginBottom: 16 }}>
-            {config.vip_numbers.map((vip, idx) => (
-              <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", backgroundColor: "#f9fafb", borderRadius: 8, marginBottom: 8, border: "1px solid #e5e7eb" }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: "#111" }}>{vip.label}</div>
-                  <div style={{ fontSize: 12, color: "#6b7280" }}>{formatPhone(vip.number)}</div>
-                </div>
-                <button onClick={() => removeVip(idx)} style={{ padding: "4px 12px", backgroundColor: "#fef2f2", color: RED, border: "1px solid #fecaca", borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 700 }}>
-                  Remove
-                </button>
-              </div>
-            ))}
+            <VipSearch vips={config.vip_numbers} onRemove={removeVip} />
           </div>
         ) : (
           <div style={{ textAlign: "center", padding: "16px 0", color: "#9ca3af", fontSize: 13, marginBottom: 16 }}>
