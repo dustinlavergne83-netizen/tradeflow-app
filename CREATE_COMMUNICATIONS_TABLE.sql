@@ -41,8 +41,6 @@ CREATE POLICY "Company members can view their communications" ON public.communic
   FOR SELECT USING (
     company_id IN (
       SELECT company_id FROM public.employees WHERE user_id = auth.uid()
-      UNION
-      SELECT id FROM public.companies WHERE user_id = auth.uid()
     )
   );
 

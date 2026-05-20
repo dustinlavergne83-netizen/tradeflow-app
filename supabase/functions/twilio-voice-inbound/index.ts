@@ -1,4 +1,3 @@
-// twilio-voice-inbound — AI phone answering system for DML Electrical Service
 // Handles: known customer routing, emergency detection, AI screening, call logging
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
@@ -40,9 +39,15 @@ function twiml(xml: string): Response {
   })
 }
 
+// Escape & in URLs so they're valid inside XML attributes
+function xu(url: string): string {
+  return url.replace(/&/g, '&amp;')
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok')
 
+  try {
   const url = new URL(req.url)
   const step = url.searchParams.get('step') || 'initial'
 
@@ -76,6 +81,50 @@ serve(async (req) => {
   const customGreeting  = (cfg.ai_greeting || '').replace('{owner}', OWNER_NAME)
   const vipNumbers: { number: string }[] = cfg.vip_numbers || []
   const supaUrl         = Deno.env.get('SUPABASE_URL')!
+  const ADMIN_EMAIL     = cfg.notification_email || Deno.env.get('ADMIN_EMAIL') || 'dustin@dmlelectrical.com'
+  const RESEND_KEY      = Deno.env.get('RESEND_API_KEY') || ''
+  const FROM_EMAIL      = Deno.env.get('RESEND_FROM_EMAIL') || 'notifications@dmlelectrical.com'
+
+  // Notification number = business line (receives Twilio SMS natively)
+  const NOTIFY_NUMBER = BUSINESS_NUMBER  // +13372880395
+
+  // AT&T email-to-SMS gateway for business phone (+13372880395)
+  const ATT_SMS_EMAIL = '3372880395@txt.att.net'
+
+  // Helper: send notification via Resend → AT&T email-to-SMS gateway (delivers as text)
+  async function notifyOwner(subject: string, bodyText: string) {
+    if (!RESEND_KEY) {
+      console.warn('RESEND_API_KEY not set — skipping notification')
+      return
+    }
+    try {
+      const recipients = [ATT_SMS_EMAIL, ADMIN_EMAIL]
+      console.log('Sending notify email via Resend to', recipients.join(', '))
+      const r = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${RESEND_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: FROM_EMAIL,
+          to: recipients,
+          subject,
+          text: bodyText
+        })
+      })
+      const rb = await r.json()
+      console.log('Resend notify result:', r.status, JSON.stringify(rb))
+    } catch(e) { console.error('Resend notify error:', e) }
+  }
+
+  // ── Test endpoint: hit this URL in browser to verify notifications work ──
+  if (step === 'test') {
+    await notifyOwner(
+      '🧪 Test — DML Phone System',
+      `📞 Test notification fired at ${new Date().toLocaleTimeString()}. If you see this, notifications are working!`
+    )
+    return new Response(JSON.stringify({ status: 'test sent', notify_to: NOTIFY_NUMBER, email_to: ADMIN_EMAIL }), {
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+    })
+  }
 
   // ── Handle call status callback (saves duration when call ends) ───────────
   if (step === 'status') {
@@ -90,7 +139,7 @@ serve(async (req) => {
   // ── Handle whisper (plays to Dustin when emergency connects) ─────────────
   if (step === 'whisper') {
     const callerNum = url.searchParams.get('from') || 'unknown'
-    return twiml(`<Say voice="alice">Emergency call from ${callerNum}. Connecting now.</Say>`)
+    return twiml(`<Say voice="Polly.Joanna-Neural">Emergency call from ${callerNum}. Connecting now.</Say>`)
   }
 
   // ── Step 1: Initial call ──────────────────────────────────────────────────
@@ -138,27 +187,28 @@ serve(async (req) => {
 
     // VIP or known customer → connect directly
     if (isVip || customerName) {
-      const greeting = customerName ? `Please hold, connecting you to ${OWNER_NAME} now.` : `One moment please, connecting you now.`
+      const greeting = customerName ? `Sure thing! Hold on just a second, I'll connect you to ${OWNER_NAME} right now.` : `One moment, connecting you now.`
       return twiml(`
-        <Say voice="alice">${greeting}</Say>
+        <Say voice="Polly.Joanna-Neural">${greeting}</Say>
         <Dial callerId="${BUSINESS_NUMBER}" action="${actionUrl}">
-          <Number url="${whisperUrl}">${PERSONAL_CELL}</Number>
+          <Number url="${xu(whisperUrl)}">${PERSONAL_CELL}</Number>
         </Dial>
-        <Say voice="alice">Sorry, ${OWNER_NAME} is unavailable right now. Please call back or leave a message after the tone.</Say>
+        <Say voice="Polly.Joanna-Neural">Looks like ${OWNER_NAME} isn't available right now. Please leave a message after the tone and he'll call you right back.</Say>
         <Record maxLength="60" action="${actionUrl}" />
       `)
     }
 
     // Unknown caller → AI greeting + gather speech
-    const greeting = customGreeting || `Thank you for calling ${BUSINESS_NAME}. I'm the automated assistant. Please briefly describe what you need and I'll make sure ${OWNER_NAME} gets back to you right away.`
+    const greeting = customGreeting || `Hey, thanks for calling ${BUSINESS_NAME}! I'm the virtual assistant. Go ahead and tell me what you need, and I'll make sure ${OWNER_NAME} gets back to you.`
     const gatherUrl = `${supaUrl}/functions/v1/twilio-voice-inbound?step=analyze&from=${encodeURIComponent(from)}&sid=${encodeURIComponent(callSid)}`
+    const voicemailUrl = `${supaUrl}/functions/v1/twilio-voice-inbound?step=voicemail&from=${encodeURIComponent(from)}&sid=${encodeURIComponent(callSid)}`
     return twiml(`
-      <Say voice="alice">${greeting}</Say>
-      <Gather input="speech" action="${gatherUrl}" timeout="15" speechTimeout="auto" language="en-US">
-        <Say voice="alice">Go ahead after the tone.</Say>
+      <Say voice="Polly.Joanna-Neural">${greeting}</Say>
+      <Gather input="speech" action="${xu(gatherUrl)}" timeout="15" speechTimeout="auto" language="en-US">
+        <Say voice="Polly.Joanna-Neural">I'm listening, go ahead.</Say>
       </Gather>
-      <Say voice="alice">I didn't catch that. Let me take a quick message — please leave your name and number after the tone and ${OWNER_NAME} will call you back soon.</Say>
-      <Record maxLength="60" action="${supaUrl}/functions/v1/twilio-voice-inbound?step=voicemail&from=${encodeURIComponent(from)}&sid=${encodeURIComponent(callSid)}" />
+      <Say voice="Polly.Joanna-Neural">I didn't quite catch that. Go ahead and leave your name and number after the tone and ${OWNER_NAME} will call you right back.</Say>
+      <Record maxLength="60" action="${xu(voicemailUrl)}" />
     `)
   }
 
@@ -172,25 +222,14 @@ serve(async (req) => {
       .update({ type: 'voicemail', recording_url: recordingUrl, status: 'voicemail' })
       .eq('call_sid', sid)
 
-    // Send Twilio SMS to Dustin
-    try {
-      const sid_ = Deno.env.get('TWILIO_ACCOUNT_SID')
-      const auth = Deno.env.get('TWILIO_AUTH_TOKEN')
-      await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid_}/Messages.json`, {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Basic ' + btoa(`${sid_}:${auth}`),
-          'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        body: new URLSearchParams({
-          From: TWILIO_NUMBER,
-          To: PERSONAL_CELL,
-          Body: `📞 Voicemail from ${fromNum.slice(-10)} — check DML Comms app to listen.`
-        })
-      })
-    } catch (_) {}
+    // Notify owner via Resend email (reliable) + attempt Twilio SMS
+    const dispVM = fromNum.replace(/\D/g,'').slice(-10)
+    await notifyOwner(
+      `📞 New Voicemail — ${BUSINESS_NAME}`,
+      `📞 Voicemail from ${dispVM}. Check DML Comms to listen.`
+    )
 
-    return twiml(`<Say voice="alice">Thank you. ${OWNER_NAME} will call you back soon. Goodbye!</Say><Hangup/>`)
+    return twiml(`<Say voice="Polly.Joanna-Neural">Perfect, I'll let ${OWNER_NAME} know you called. Talk soon!</Say><Hangup/>`)
   }
 
   // ── Step 3: Analyze speech with GPT-4o ───────────────────────────────────
@@ -203,7 +242,7 @@ serve(async (req) => {
     console.log('Speech from caller:', speech, 'From:', fromNum)
 
     if (!speech.trim()) {
-      return twiml(`<Say voice="alice">I didn't catch that. ${OWNER_NAME} will call you back when he's available. Goodbye!</Say><Hangup/>`)
+      return twiml(`<Say voice="Polly.Joanna-Neural">No worries! I'll have ${OWNER_NAME} reach out to you when he's free. Have a good one!</Say><Hangup/>`)
     }
 
     // Quick keyword check first (no API cost)
@@ -236,11 +275,11 @@ serve(async (req) => {
 
       const whisperUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/twilio-voice-inbound?step=whisper&from=EMERGENCY`
       return twiml(`
-        <Say voice="alice">This sounds like an emergency. Let me connect you to ${OWNER_NAME} right away. Please hold.</Say>
+        <Say voice="Polly.Joanna-Neural">Oh wow, that sounds like an emergency. Let me get ${OWNER_NAME} on the line right now — please hold just a moment.</Say>
         <Dial callerId="${BUSINESS_NUMBER}" action="${statusUrl}">
-          <Number url="${whisperUrl}">${PERSONAL_CELL}</Number>
+          <Number url="${xu(whisperUrl)}">${PERSONAL_CELL}</Number>
         </Dial>
-        <Say voice="alice">Sorry, ${OWNER_NAME} is not available. Please call 911 if this is a life-threatening emergency. Otherwise leave a message after the tone.</Say>
+        <Say voice="Polly.Joanna-Neural">I'm so sorry — ${OWNER_NAME} isn't picking up right now. If this is life-threatening, please call 9-1-1 immediately. Otherwise, please leave a message after the tone.</Say>
         <Record maxLength="60" action="${statusUrl}" />
       `)
     }
@@ -268,7 +307,9 @@ Return valid JSON only.`
         temperature: 0.3,
       })
 
-      const parsed = JSON.parse(resp.choices[0].message.content || '{}')
+      let jsonText = resp.choices[0].message.content || '{}'
+      jsonText = jsonText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim()
+      const parsed = JSON.parse(jsonText)
       callerName = parsed.caller_name || ''
       summary = parsed.summary || speech
       const aiResponse = parsed.response || `Got it. ${OWNER_NAME} will call you back soon.`
@@ -279,11 +320,11 @@ Return valid JSON only.`
           .update({ ai_summary: `🚨 ${summary}`, customer_name: callerName || null, status: 'emergency' })
           .eq('call_sid', sid)
         return twiml(`
-          <Say voice="alice">That sounds urgent — connecting you to ${OWNER_NAME} immediately.</Say>
+          <Say voice="Polly.Joanna-Neural">Oh, that sounds really urgent. Let me connect you to ${OWNER_NAME} right now — just one moment.</Say>
           <Dial callerId="${BUSINESS_NUMBER}" action="${statusUrl}">
-            <Number url="${whisperUrl}">${PERSONAL_CELL}</Number>
+            <Number url="${xu(whisperUrl)}">${PERSONAL_CELL}</Number>
           </Dial>
-          <Say voice="alice">Sorry, ${OWNER_NAME} is unavailable. Please leave a message after the tone.</Say>
+          <Say voice="Polly.Joanna-Neural">I'm sorry — ${OWNER_NAME} isn't available at the moment. Please leave a message after the tone and he'll get back to you as soon as possible.</Say>
           <Record maxLength="60" action="${statusUrl}" />
         `)
       }
@@ -293,38 +334,41 @@ Return valid JSON only.`
         .update({ ai_summary: summary, customer_name: callerName || null, status: 'completed' })
         .eq('call_sid', sid)
 
-      // Text Dustin with summary
+      // Notify owner via email (Resend) + attempt Twilio SMS as backup
       const cleanNum = fromNum.replace(/\D/g, '').slice(-10)
       const dispNum = `(${cleanNum.slice(0,3)}) ${cleanNum.slice(3,6)}-${cleanNum.slice(6)}`
-      try {
-        const twSid = Deno.env.get('TWILIO_ACCOUNT_SID')
-        const twAuth = Deno.env.get('TWILIO_AUTH_TOKEN')
-        await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twSid}/Messages.json`, {
-          method: 'POST',
-          headers: {
-            'Authorization': 'Basic ' + btoa(`${twSid}:${twAuth}`),
-            'Content-Type': 'application/x-www-form-urlencoded'
-          },
-          body: new URLSearchParams({
-            From: TWILIO_NUMBER,
-            To: PERSONAL_CELL,
-            Body: `📞 New call${callerName ? ` from ${callerName}` : ''} (${dispNum}):\n"${summary}"\n\nCheck DML Comms app to call back.`
-          })
-        })
-      } catch (_) {}
+      await notifyOwner(
+        `📞 New Call${callerName ? ` from ${callerName}` : ''} — ${BUSINESS_NAME}`,
+        `📞${callerName ? ` ${callerName}` : ''} (${dispNum}): ${summary}`
+      )
 
-      return twiml(`<Say voice="alice">${aiResponse} Have a great day!</Say><Hangup/>`)
+      return twiml(`<Say voice="Polly.Joanna-Neural">${aiResponse} Have a great day!</Say><Hangup/>`)
 
     } catch (e) {
       console.error('GPT error:', e)
-      // Fallback: save raw speech, text Dustin
+      // Fallback: save raw speech, still notify owner
       await supabase.from('communications')
         .update({ ai_summary: speech, status: 'completed' })
         .eq('call_sid', sid)
 
-      return twiml(`<Say voice="alice">Got it, thank you. ${OWNER_NAME} will call you back shortly. Have a great day!</Say><Hangup/>`)
+      const cleanNum = fromNum.replace(/\D/g, '').slice(-10)
+      const dispNum = `(${cleanNum.slice(0,3)}) ${cleanNum.slice(3,6)}-${cleanNum.slice(6)}`
+      await notifyOwner(
+        `📞 New Call — ${BUSINESS_NAME}`,
+        `📞 (${dispNum}) called. AI unavailable. Message: ${speech.slice(0, 120)}`
+      )
+
+      return twiml(`<Say voice="Polly.Joanna-Neural">Got it, thank you! ${OWNER_NAME} will call you back shortly. Have a great day!</Say><Hangup/>`)
     }
   }
 
-  return twiml(`<Say voice="alice">Thank you for calling DML Electrical. Please try again shortly.</Say><Hangup/>`)
+  return twiml(`<Say voice="Polly.Joanna-Neural">Thanks for calling DML Electrical! Please try again shortly.</Say><Hangup/>`)
+
+  } catch (e) {
+    console.error('Unhandled error in twilio-voice-inbound:', e)
+    return new Response(
+      `<?xml version="1.0" encoding="UTF-8"?>\n<Response><Say voice="Polly.Joanna-Neural">We're so sorry, there was a technical issue. Please try your call again shortly.</Say><Hangup/></Response>`,
+      { headers: { 'Content-Type': 'text/xml' } }
+    )
+  }
 })
