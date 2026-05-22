@@ -21,7 +21,7 @@ Deno.serve(async (req) => {
     const fileName = `DML_Timesheets_${(weekLabel || 'week').replace(/[^a-zA-Z0-9]/g, '_')}.pdf`
 
     const emailPayload = {
-      from: 'DML Electrical Service <onboarding@resend.dev>',
+      from: 'DML Electrical Service <noreply@dmlelectrical.com>',
       reply_to: 'dustin@dmlelectrical.com',
       to: ['dustin@dmlelectrical.com'],
       subject: `Employee Timesheets — Week of ${weekLabel} — DML Electrical`,
