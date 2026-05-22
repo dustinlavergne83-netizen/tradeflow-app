@@ -10,7 +10,10 @@
     "plugins": [],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.tradeflow.timeclock"
+      "bundleIdentifier": "com.tradeflow.timeclock",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.tradeflow.timeclock",

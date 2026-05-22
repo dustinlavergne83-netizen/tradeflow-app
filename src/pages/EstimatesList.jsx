@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
+import { supabase } from "../lib/supabase";
 
 export default function EstimatesList() {
   const navigate = useNavigate();
@@ -10,6 +10,7 @@ export default function EstimatesList() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState("all"); // "all", "estimates", "proposals"
+  const [viewModalEstimate, setViewModalEstimate] = useState(null); // estimate to view
 
   useEffect(() => {
     loadEstimates();
@@ -431,7 +432,7 @@ export default function EstimatesList() {
                             ✏️
                           </button>
                           <button
-                            onClick={() => window.open(`/estimate/quick/view?estimateId=${estimate.id}`, '_blank')}
+                            onClick={() => setViewModalEstimate(estimate)}
                             style={{...styles.actionButton, ...styles.viewButton}}
                             title="Preview estimate"
                           >
@@ -466,6 +467,65 @@ export default function EstimatesList() {
           Showing {filteredEstimates.length} of {estimates.length} estimate{estimates.length !== 1 ? 's' : ''}
         </p>
       </div>
+
+      {/* ── View Format Modal ── */}
+      {viewModalEstimate && (
+        <div style={{
+          position:"fixed", inset:0, background:"rgba(0,0,0,0.6)",
+          display:"flex", alignItems:"center", justifyContent:"center",
+          zIndex:1000, padding:16
+        }}>
+          <div style={{
+            background:"#fff", borderRadius:14, padding:"32px 28px",
+            maxWidth:480, width:"100%", boxShadow:"0 8px 32px rgba(0,0,0,0.25)"
+          }}>
+            <h2 style={{margin:"0 0 4px", fontSize:20, color:"#111", textAlign:"center"}}>
+              Choose View Format
+            </h2>
+            <p style={{margin:"0 0 20px", fontSize:13, color:"#888", textAlign:"center"}}>
+              Estimate #{viewModalEstimate.estimate_number?.replace("EST-","")}
+            </p>
+
+            {[
+              { key:"summary",           icon:"📄", title:"Summary Only",                    desc:"Scope of work description + Total Investment — no line items" },
+              { key:"itemized",          icon:"💰", title:"Itemized with Pricing",            desc:"Every line item listed with individual prices + Total Investment" },
+              { key:"itemized-no-price", icon:"📋", title:"Itemized (No Individual Prices)",  desc:"All items listed so customer sees what's included — only Total Investment shown" },
+            ].map(opt => (
+              <button
+                key={opt.key}
+                onClick={() => {
+                  window.open(`/estimate/quick/view?estimateId=${viewModalEstimate.id}&view=${opt.key}`, "_blank");
+                  setViewModalEstimate(null);
+                }}
+                style={{
+                  display:"flex", alignItems:"center", gap:14,
+                  width:"100%", background:"#f9fafb",
+                  border:"2px solid #e5e7eb", borderRadius:10,
+                  padding:"14px 16px", marginBottom:10,
+                  cursor:"pointer", textAlign:"left",
+                }}
+              >
+                <span style={{fontSize:26, flexShrink:0}}>{opt.icon}</span>
+                <div>
+                  <div style={{fontSize:15, fontWeight:700, color:"#111", marginBottom:2}}>{opt.title}</div>
+                  <div style={{fontSize:12, color:"#888", lineHeight:1.4}}>{opt.desc}</div>
+                </div>
+              </button>
+            ))}
+
+            <button
+              onClick={() => setViewModalEstimate(null)}
+              style={{
+                width:"100%", padding:"10px", marginTop:4,
+                background:"transparent", border:"1px solid #ddd",
+                borderRadius:8, cursor:"pointer", color:"#888", fontSize:14
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

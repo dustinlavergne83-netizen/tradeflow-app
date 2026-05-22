@@ -1,23 +1,90 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { supabase } from "../lib/supabase";
 import logoImage from "../assets/LOGOD.jpg";
+import { supabase } from "../lib/supabase";
 
 const ACCENT = "#fc6b04";
 
-export default function QuickEstimateView() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const estimateId = searchParams.get("estimateId");
-  const initialMode = searchParams.get("mode") || "itemized"; // "summary" or "itemized"
+// ─── View Choice Modal ────────────────────────────────────────────────────────
+function ViewChoiceModal({ onChoose }) {
+  return (
+    <div style={{
+      position:"fixed", inset:0, background:"rgba(0,0,0,0.6)",
+      display:"flex", alignItems:"center", justifyContent:"center",
+      zIndex:1000, padding:16
+    }}>
+      <div style={{
+        background:"#fff", borderRadius:14, padding:"32px 28px",
+        maxWidth:480, width:"100%", boxShadow:"0 8px 32px rgba(0,0,0,0.25)"
+      }}>
+        <h2 style={{margin:"0 0 6px", fontSize:20, color:"#111", textAlign:"center"}}>
+          Choose View Format
+        </h2>
+        <p style={{margin:"0 0 24px", fontSize:13, color:"#555", textAlign:"center"}}>
+          How would you like to display this estimate?
+        </p>
 
-  const [estimate, setEstimate] = useState(null);
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState(initialMode);
+        {/* Option 1 – Summary Only */}
+        <button onClick={() => onChoose("summary")} style={optBtn}>
+          <span style={optIcon}>📄</span>
+          <div style={{textAlign:"left"}}>
+            <div style={optTitle}>Summary Only</div>
+            <div style={optDesc}>Scope of work description + Total Investment — no line items shown</div>
+          </div>
+        </button>
+
+        {/* Option 2 – Itemized with Pricing */}
+        <button onClick={() => onChoose("itemized")} style={optBtn}>
+          <span style={optIcon}>💰</span>
+          <div style={{textAlign:"left"}}>
+            <div style={optTitle}>Itemized with Pricing</div>
+            <div style={optDesc}>Every line item listed with individual prices + Total Investment</div>
+          </div>
+        </button>
+
+        {/* Option 3 – Itemized No Pricing */}
+        <button onClick={() => onChoose("itemized-no-price")} style={optBtn}>
+          <span style={optIcon}>📋</span>
+          <div style={{textAlign:"left"}}>
+            <div style={optTitle}>Itemized (No Individual Prices)</div>
+            <div style={optDesc}>All items listed so customer sees what's included — only Total Investment shown</div>
+          </div>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const optBtn = {
+  display:"flex", alignItems:"center", gap:14,
+  width:"100%", background:"#f9fafb",
+  border:"2px solid #e5e7eb", borderRadius:10,
+  padding:"14px 16px", marginBottom:12,
+  cursor:"pointer", textAlign:"left",
+  transition:"border-color 0.15s",
+};
+const optIcon  = { fontSize:28, flexShrink:0 };
+const optTitle = { fontSize:15, fontWeight:700, color:"#111", marginBottom:2 };
+const optDesc  = { fontSize:12, color:"#555", lineHeight:1.4 };
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+export default function QuickEstimateView() {
+  const [searchParams] = useSearchParams();
+  const estimateId = searchParams.get("estimateId");
+  const viewParam  = searchParams.get("view"); // "summary" | "itemized" | "itemized-no-price"
+
+  const [estimate, setEstimate]   = useState(null);
+  const [items, setItems]         = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [chosenView, setChosenView] = useState(viewParam || null);
 
   useEffect(() => {
     if (estimateId) loadEstimate();
   }, [estimateId]);
+
+  useEffect(() => {
+    if (viewParam) setChosenView(viewParam);
+  }, [viewParam]);
 
   async function loadEstimate() {
     try {
@@ -45,7 +112,7 @@ export default function QuickEstimateView() {
   const fmtMoney = (n) => "$" + Number(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,",");
 
   if (loading) return (
-    <div style={pg}><p style={{textAlign:"center",padding:"60px",color:"#666",fontSize:16}}>Loading estimate...</p></div>
+    <div style={pg}><p style={{textAlign:"center",padding:"60px",color:"#444",fontSize:16}}>Loading estimate...</p></div>
   );
   if (!estimate) return (
     <div style={pg}><p style={{textAlign:"center",padding:"60px",color:"#ef4444",fontSize:16}}>Estimate not found</p></div>
@@ -55,29 +122,56 @@ export default function QuickEstimateView() {
   const total = estimate.total || subtotal;
 
   return (
-    <div style={pg}>
-      {/* Print CSS to hide toggle buttons */}
-      <style>{`@media print { .no-print { display: none !important; } }`}</style>
-      <div style={card}>
+    <div id="qev-pg" style={pg}>
+      {/* Print CSS */}
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          body { background: #fff !important; }
+          #qev-pg {
+            background: #fff !important;
+            padding: 0 !important;
+            min-height: auto !important;
+          }
+          #qev-card {
+            box-shadow: none !important;
+            border: none !important;
+            border-radius: 0 !important;
+            padding: 24px !important;
+            margin: 0 !important;
+            max-width: 100% !important;
+          }
+        }
+      `}</style>
 
-        {/* Logo */}
-        <div style={{textAlign:"center", marginBottom:16}}>
-          <img src={logoImage} alt="DML Electrical" style={{maxWidth:200, width:"100%", height:"auto"}} />
-          <p style={{fontSize:11, color:"#888", margin:"4px 0 0"}}>
-            (337)288-0395 · info@dmlelectrical.com · Lic# 63147
-          </p>
-        </div>
+      {/* Show view choice modal if not yet chosen */}
+      {!chosenView && (
+        <ViewChoiceModal onChoose={setChosenView} />
+      )}
 
-        {/* Estimate # and Date row */}
-        <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6}}>
-          <div>
-            <p style={{fontSize:12, color:"#888", margin:0}}>Date</p>
-            <p style={{fontSize:14, fontWeight:600, color:"#111", margin:0}}>{fmtDate(estimate.estimate_date)}</p>
+      <div id="qev-card" style={card}>
+
+        {/* Header: Date | Logo | Estimate # */}
+        <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8}}>
+          {/* Date - left */}
+          <div style={{minWidth:90}}>
+            <p style={{fontSize:11, color:"#555", margin:0}}>Date</p>
+            <p style={{fontSize:13, fontWeight:600, color:"#111", margin:0}}>{fmtDate(estimate.estimate_date)}</p>
           </div>
-          <div style={{textAlign:"right"}}>
-            <p style={{fontSize:12, color:"#888", margin:0}}>Estimate #</p>
+
+          {/* Logo - center */}
+          <div style={{textAlign:"center", flex:1, padding:"0 12px"}}>
+            <img src={logoImage} alt="DML Electrical" style={{maxWidth:180, width:"100%", height:"auto"}} />
+            <p style={{fontSize:11, color:"#555", margin:"4px 0 0"}}>
+              (337)288-0395 · info@dmlelectrical.com · Lic# 63147
+            </p>
+          </div>
+
+          {/* Estimate # - right */}
+          <div style={{textAlign:"right", minWidth:90}}>
+            <p style={{fontSize:11, color:"#555", margin:0}}>Estimate #</p>
             <p style={{fontSize:18, fontWeight:"bold", color:"#111", margin:0}}>{estimate.estimate_number}</p>
-            <span style={{
+            <span className="no-print" style={{
               display:"inline-block", marginTop:4,
               padding:"2px 8px", background:"#6b7280",
               color:"#fff", borderRadius:4, fontSize:10, fontWeight:"bold"
@@ -91,60 +185,53 @@ export default function QuickEstimateView() {
 
         {/* Prepared For */}
         <div style={{marginBottom:16}}>
-          <p style={{fontSize:12, color:"#888", margin:"0 0 2px"}}>Prepared For:</p>
+          <p style={{fontSize:12, color:"#555", margin:"0 0 2px"}}>Prepared For:</p>
           <p style={{fontSize:16, fontWeight:"bold", color:"#111", margin:0}}>{estimate.customer_name}</p>
           {estimate.project_name && estimate.project_name !== "Quick Estimate" && (
             <>
-              <p style={{fontSize:12, color:"#888", margin:"8px 0 2px"}}>Project:</p>
+              <p style={{fontSize:12, color:"#555", margin:"8px 0 2px"}}>Project:</p>
               <p style={{fontSize:14, fontWeight:600, color:"#111", margin:0}}>{estimate.project_name}</p>
             </>
           )}
         </div>
 
-        {/* View Mode Toggle - hidden when printing */}
-        <div className="no-print" style={{
-          display:"flex", justifyContent:"center", gap:8, marginBottom:16,
-          padding:"8px", backgroundColor:"#f3f4f6", borderRadius:8
-        }}>
-          <button
-            onClick={() => setViewMode("summary")}
-            style={{
-              padding:"8px 20px", fontSize:13, fontWeight:"700", cursor:"pointer",
-              border: viewMode === "summary" ? `2px solid ${ACCENT}` : "2px solid transparent",
-              backgroundColor: viewMode === "summary" ? "#fff" : "transparent",
-              color: viewMode === "summary" ? ACCENT : "#666",
-              borderRadius:6, transition:"all 0.2s"
-            }}
-          >
-            📋 Summary Only
-          </button>
-          <button
-            onClick={() => setViewMode("itemized")}
-            style={{
-              padding:"8px 20px", fontSize:13, fontWeight:"700", cursor:"pointer",
-              border: viewMode === "itemized" ? `2px solid ${ACCENT}` : "2px solid transparent",
-              backgroundColor: viewMode === "itemized" ? "#fff" : "transparent",
-              color: viewMode === "itemized" ? ACCENT : "#666",
-              borderRadius:6, transition:"all 0.2s"
-            }}
-          >
-            📝 Itemized
-          </button>
-        </div>
-
-        {viewMode === "itemized" ? (
+        {/* ── SUMMARY ONLY view ── */}
+        {chosenView === "summary" && (
           <>
-            {/* Line Items Header */}
+            <div style={{
+              borderTop:`2px solid ${ACCENT}`, borderBottom:`2px solid ${ACCENT}`,
+              padding:"8px 0", marginBottom:12
+            }}>
+              <span style={{fontSize:11, fontWeight:"bold", color:"#444", textTransform:"uppercase"}}>
+                Scope of Work
+              </span>
+            </div>
+            {(estimate.description || estimate.notes) ? (
+              <p style={{fontSize:14, color:"#333", lineHeight:1.7, margin:"0 0 16px", textAlign:"center"}}>
+                {estimate.description || estimate.notes}
+              </p>
+            ) : (
+              <p style={{fontSize:13, color:"#555", margin:"0 0 16px", textAlign:"center", fontStyle:"italic"}}>
+                No scope description provided.
+              </p>
+            )}
+          </>
+        )}
+
+        {/* ── ITEMIZED views (with or without price) ── */}
+        {(chosenView === "itemized" || chosenView === "itemized-no-price") && (
+          <>
             <div style={{
               display:"flex", justifyContent:"space-between",
               padding:"6px 0", borderBottom:`2px solid ${ACCENT}`,
               marginBottom:4
             }}>
-              <span style={{fontSize:11, fontWeight:"bold", color:"#888", textTransform:"uppercase"}}>Description</span>
-              <span style={{fontSize:11, fontWeight:"bold", color:"#888", textTransform:"uppercase"}}>Amount</span>
+              <span style={{fontSize:11, fontWeight:"bold", color:"#444", textTransform:"uppercase"}}>Description</span>
+              {chosenView === "itemized" && (
+                <span style={{fontSize:11, fontWeight:"bold", color:"#444", textTransform:"uppercase"}}>Amount</span>
+              )}
             </div>
 
-            {/* Line Items */}
             {items.map((item, i) => (
               <div key={item.id} style={{
                 display:"flex", justifyContent:"space-between", alignItems:"flex-start",
@@ -158,41 +245,16 @@ export default function QuickEstimateView() {
                 }}>
                   {item.description}
                 </span>
-                <span style={{
-                  fontSize:14, fontWeight:"bold", color:"#111",
-                  whiteSpace:"nowrap", flexShrink:0
-                }}>
-                  {fmtMoney(item.line_total || item.material_total)}
-                </span>
+                {chosenView === "itemized" && (
+                  <span style={{
+                    fontSize:14, fontWeight:"bold", color:"#111",
+                    whiteSpace:"nowrap", flexShrink:0
+                  }}>
+                    {fmtMoney(item.line_total || item.material_total)}
+                  </span>
+                )}
               </div>
             ))}
-          </>
-        ) : (
-          <>
-            {/* Summary Mode - just scope of work description and total */}
-            <div style={{borderBottom:`2px solid ${ACCENT}`, paddingBottom:4, marginBottom:12}}>
-              <span style={{fontSize:11, fontWeight:"bold", color:"#888", textTransform:"uppercase"}}>Scope of Work</span>
-            </div>
-            
-            {/* Show notes/description as scope */}
-            {estimate.notes ? (
-              <div style={{padding:"12px 0", lineHeight:1.6, fontSize:14, color:"#222"}}>
-                <p style={{margin:0, whiteSpace:"pre-wrap"}}>{estimate.notes}</p>
-              </div>
-            ) : (
-              <div style={{padding:"12px 0", lineHeight:1.6, fontSize:14, color:"#222"}}>
-                <p style={{margin:"0 0 8px", fontWeight:"600"}}>
-                  {estimate.project_name && estimate.project_name !== "Quick Estimate"
-                    ? estimate.project_name
-                    : "Electrical Work"
-                  }
-                </p>
-                <p style={{margin:0, color:"#555"}}>
-                  Includes all labor, materials, and equipment necessary to complete the scope of work as discussed.
-                  {items.length > 0 && ` (${items.length} item${items.length !== 1 ? 's' : ''})`}
-                </p>
-              </div>
-            )}
           </>
         )}
 
@@ -202,25 +264,25 @@ export default function QuickEstimateView() {
           marginTop:16, padding:"14px 0",
           borderTop:`3px solid ${ACCENT}`
         }}>
-          <span style={{fontSize:16, fontWeight:"bold", color:"#111"}}>Total Estimate</span>
+          <span style={{fontSize:16, fontWeight:"bold", color:"#111"}}>Total Investment</span>
           <span style={{fontSize:22, fontWeight:"bold", color: ACCENT}}>{fmtMoney(total)}</span>
         </div>
 
-        {/* Notes - hide in summary mode since notes already shown as scope */}
-        {estimate.notes && viewMode === "itemized" && (
+        {/* Notes - hide in summary view if notes is already shown as scope */}
+        {estimate.notes && (chosenView !== "summary" || estimate.description) && (
           <div style={{
             background:"#f9fafb", borderRadius:8, padding:12,
             marginTop:12, marginBottom:12
           }}>
             <p style={{fontSize:12, fontWeight:"bold", color:"#111", margin:"0 0 4px"}}>Notes:</p>
-            <p style={{fontSize:13, color:"#555", margin:0, whiteSpace:"pre-wrap", lineHeight:1.5}}>
+            <p style={{fontSize:13, color:"#444", margin:0, whiteSpace:"pre-wrap", lineHeight:1.5}}>
               {estimate.notes}
             </p>
           </div>
         )}
 
         {/* Terms */}
-        <p style={{fontSize:11, color:"#aaa", lineHeight:1.5, margin:"12px 0"}}>
+        <p style={{fontSize:11, color:"#444", lineHeight:1.5, margin:"12px 0"}}>
           This estimate is valid for 30 days from the date shown above. Pricing is subject to change
           after that period. Changes to scope may result in additional charges. Does not include
           permits or inspections unless noted.
@@ -230,18 +292,18 @@ export default function QuickEstimateView() {
         <div style={{display:"flex", gap:20, marginTop:16, marginBottom:20}}>
           <div style={{flex:1}}>
             <div style={{borderBottom:"2px solid #333", height:36, marginBottom:4}} />
-            <p style={{fontSize:10, color:"#999", textTransform:"uppercase", margin:0}}>Customer Signature</p>
+            <p style={{fontSize:10, color:"#444", textTransform:"uppercase", margin:0}}>Customer Signature</p>
           </div>
           <div style={{flex:1}}>
             <div style={{borderBottom:"2px solid #333", height:36, marginBottom:4}} />
-            <p style={{fontSize:10, color:"#999", textTransform:"uppercase", margin:0}}>Date</p>
+            <p style={{fontSize:10, color:"#444", textTransform:"uppercase", margin:0}}>Date</p>
           </div>
         </div>
 
         {/* Footer */}
         <div style={{textAlign:"center", borderTop:"1px solid #eee", paddingTop:12}}>
-          <p style={{fontSize:12, color:"#bbb", margin:"2px 0"}}>Thank you for the opportunity!</p>
-          <p style={{fontSize:11, color:"#bbb", margin:"2px 0"}}>DML Electrical Service, LLC · P.O. Box 363, Jennings, LA 70546</p>
+          <p style={{fontSize:12, color:"#555", margin:"2px 0"}}>Thank you for the opportunity!</p>
+          <p style={{fontSize:11, color:"#555", margin:"2px 0"}}>DML Electrical Service, LLC · P.O. Box 363, Jennings, LA 70546</p>
         </div>
 
       </div>
