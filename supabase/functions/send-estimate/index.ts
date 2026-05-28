@@ -249,7 +249,7 @@ Deno.serve(async (req) => {
         'Authorization': `Bearer ${RESEND_API_KEY}`,
       },
       body: JSON.stringify({
-        from: 'DML Electrical Service <noreply@dmlelectrical.com>',
+        from: 'DML Electrical Service <noreply@tradeflowllc.com>',
         reply_to: 'dustin@dmlelectrical.com',
         to: emailAddresses,
         bcc: ['dustin@dmlelectrical.com'],
