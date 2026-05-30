@@ -200,14 +200,20 @@ export default function Employees() {
               <tbody className="divide-y divide-gray-100">
                 {filtered.map((emp) => (
                   <tr key={emp.id} className={`hover:bg-gray-50 transition-colors ${!emp.is_active ? "opacity-50" : ""}`}>
-                    <td className="px-5 py-3 font-semibold text-gray-900">👷 {emp.first_name} {emp.last_name}</td>
+                    <td className="px-5 py-3 font-semibold text-gray-900">
+                      {emp.role === "contractor" ? "🔧" : ""} {emp.first_name} {emp.last_name}
+                    </td>
                     <td className="px-5 py-3 text-gray-600">
                       <div className="text-xs">{emp.email ?? "—"}</div>
                       <div className="text-xs text-gray-400">{emp.phone ?? ""}</div>
                     </td>
                     <td className="px-5 py-3">
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${emp.role === "admin" ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-600"}`}>
-                        {emp.role ?? "employee"}
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                        emp.role === "admin" ? "bg-blue-100 text-blue-700" :
+                        emp.role === "contractor" ? "bg-orange-100 text-orange-700" :
+                        "bg-gray-100 text-gray-600"
+                      }`}>
+                        {emp.role === "contractor" ? "🔧 Contractor" : emp.role ?? "employee"}
                       </span>
                     </td>
                     <td className="px-5 py-3 text-gray-600">{emp.hourly_rate ? `$${emp.hourly_rate}/hr` : "—"}</td>
@@ -287,12 +293,13 @@ export default function Employees() {
                   <select value={addForm.role} onChange={(e) => setAddForm({ ...addForm, role: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
                     <option value="employee">Employee</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Hourly Rate ($)</label>
-                  <input type="number" value={addForm.hourly_rate} onChange={(e) => setAddForm({ ...addForm, hourly_rate: e.target.value })}
+                     <option value="contractor">Contractor</option>
+                     <option value="admin">Admin</option>
+                   </select>
+                 </div>
+                 <div>
+                   <label className="block text-xs font-semibold text-gray-600 mb-1">Hourly Rate ($)</label>
+                   <input type="number" value={addForm.hourly_rate} onChange={(e) => setAddForm({ ...addForm, hourly_rate: e.target.value })}
                     placeholder="25.00" min="0" step="0.25" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
                 </div>
               </div>
@@ -344,13 +351,14 @@ export default function Employees() {
                   <label className="block text-xs font-semibold text-gray-600 mb-1">Role</label>
                   <select value={editForm.role} onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
-                    <option value="employee">Employee</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Hourly Rate ($)</label>
-                  <input type="number" value={editForm.hourly_rate} onChange={(e) => setEditForm({ ...editForm, hourly_rate: e.target.value })}
+                     <option value="employee">Employee</option>
+                     <option value="contractor">Contractor</option>
+                     <option value="admin">Admin</option>
+                   </select>
+                 </div>
+                 <div>
+                   <label className="block text-xs font-semibold text-gray-600 mb-1">Hourly Rate ($)</label>
+                   <input type="number" value={editForm.hourly_rate} onChange={(e) => setEditForm({ ...editForm, hourly_rate: e.target.value })}
                     min="0" step="0.25" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
                 </div>
               </div>
