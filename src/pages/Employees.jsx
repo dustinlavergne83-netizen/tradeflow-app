@@ -221,6 +221,7 @@ export default function Employees() {
       emergency_relationship: selectedEmployee.emergency_relationship || '',
       emergency_phone: selectedEmployee.emergency_phone || '',
       hourly_rate: selectedEmployee.hourly_rate || 0,
+      employment_type: selectedEmployee.employment_type || 'employee',
       vacation_hours_used: selectedEmployee.vacation_hours_used || 0,
     });
     setIsEditing(true);
@@ -246,6 +247,7 @@ export default function Employees() {
           emergency_relationship: (editForm.emergency_relationship || '').trim(),
           emergency_phone: (editForm.emergency_phone || '').trim(),
           hourly_rate: parseFloat(editForm.hourly_rate) || 0,
+          employment_type: editForm.employment_type || 'employee',
           vacation_hours_used: parseFloat(editForm.vacation_hours_used) || 0,
         })
         .eq("id", selectedEmployee.id);
@@ -631,6 +633,17 @@ export default function Employees() {
                         <p style={styles.helpText}>
                           Employees receive 40 hours of vacation per year after 1 full year of employment
                         </p>
+                      </div>
+                      <div style={styles.formGroup}>
+                        <label style={styles.label}>Employment Type</label>
+                        <select
+                          style={styles.input}
+                          value={editForm.employment_type || 'employee'}
+                          onChange={(e) => setEditForm({...editForm, employment_type: e.target.value})}
+                        >
+                          <option value="employee">Employee (W-2)</option>
+                          <option value="contractor">Contractor (1099) — shows $ on timesheets</option>
+                        </select>
                       </div>
                       <div style={styles.formGroup}>
                         <label style={styles.label}>Hourly Rate ($)</label>
