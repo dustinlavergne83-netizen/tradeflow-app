@@ -94,6 +94,9 @@ export default function EmployeeTimesheets() {
   const [editForm, setEditForm] = useState({});
   const [saving, setSaving] = useState(false);
 
+  // ── email CPA modal ───────────────────────────────────────────────────────
+  const [emailModal, setEmailModal] = useState({ show: false, to: "dustin@dmlelectrical.com", cc: "", subject: "", sending: false });
+
   // ── reports modal ─────────────────────────────────────────────────────────
   const [showReportsModal, setShowReportsModal] = useState(false);
   const [reportType, setReportType] = useState(null); // 'employee' | 'job' | 'daterange'
@@ -660,12 +663,12 @@ export default function EmployeeTimesheets() {
   }
 
   // ── email CPA (PDF attachment via Resend) ────────────────────────────────
-  async function emailCPA() {
+  async function sendTimesheetEmail() {
+    setEmailModal(m => ({ ...m, sending: true }));
     try {
       const doc = await buildTimesheetPDF();
       const pdfBase64 = doc.output("datauristring").split(",")[1];
 
-      // Use raw fetch so we always get the actual response body (even on 500)
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
@@ -675,7 +678,13 @@ export default function EmployeeTimesheets() {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${supabaseKey}`,
         },
-        body: JSON.stringify({ weekLabel, pdfBase64 }),
+        body: JSON.stringify({
+          weekLabel,
+          pdfBase64,
+          to: emailModal.to.trim(),
+          cc: emailModal.cc.trim() || undefined,
+          subject: emailModal.subject.trim() || undefined,
+        }),
       });
 
       const result = await resp.json();
@@ -685,8 +694,10 @@ export default function EmployeeTimesheets() {
         throw new Error(result?.error || `Server error ${resp.status}`);
       }
 
-      alert(`✅ Timesheet PDF sent to dustin@dmlelectrical.com — forward it to your CPA from there.\n\n(Note: to send directly to cc@sass.tax you'll need a verified domain in Resend.)`);
+      setEmailModal(m => ({ ...m, show: false, sending: false }));
+      alert(`✅ Timesheet sent to ${emailModal.to}${emailModal.cc ? ` (CC: ${emailModal.cc})` : ""}!`);
     } catch (e) {
+      setEmailModal(m => ({ ...m, sending: false }));
       alert("Email failed: " + e.message);
       console.error("emailCPA error:", e);
     }
@@ -792,7 +803,7 @@ export default function EmployeeTimesheets() {
             style={{ padding: "10px 18px", backgroundColor: "#2563eb", border: "none", borderRadius: 8, cursor: "pointer", color: "#fff", fontWeight: 700, fontSize: 14 }}>
             📊 Reports
           </button>
-          <button onClick={emailCPA}
+          <button onClick={() => setEmailModal(m => ({ ...m, show: true }))}
             style={{ padding: "10px 18px", backgroundColor: "#059669", border: "none", borderRadius: 8, cursor: "pointer", color: "#fff", fontWeight: 700, fontSize: 14 }}>
             📧 Email CPA
           </button>
@@ -1531,6 +1542,92 @@ export default function EmployeeTimesheets() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Email CPA Modal ──────────────────────────────────────────────── */}
+      {emailModal.show && (
+        <>
+          <div onClick={() => !emailModal.sending && setEmailModal(m => ({ ...m, show: false }))}
+            style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.6)", zIndex: 6000 }} />
+          <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: 500, maxWidth: "95vw", backgroundColor: "#fff", borderRadius: 16, zIndex: 6001, overflow: "hidden", boxShadow: "0 24px 64px rgba(0,0,0,0.4)" }}>
+            {/* Header */}
+            <div style={{ backgroundColor: "#059669", padding: "18px 24px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ color: "#fff", fontWeight: 800, fontSize: 20 }}>📧 Email Timesheet</div>
+              <button onClick={() => !emailModal.sending && setEmailModal(m => ({ ...m, show: false }))}
+                style={{ background: "none", border: "none", color: "#fff", fontSize: 24, cursor: "pointer", lineHeight: 1 }}>✕</button>
+            </div>
+            <div style={{ padding: 24 }}>
+              {/* Week info */}
+              <div style={{ backgroundColor: "#f0fdf4", border: "1px solid #86efac", borderRadius: 8, padding: "10px 14px", marginBottom: 20, fontSize: 13, color: "#166534" }}>
+                📅 Sending timesheet for: <strong>{weekLabel}</strong>
+                {contractorEmps.length > 0 && <span style={{ marginLeft: 8, color: "#7c3aed" }}>• Includes contractor dollar table</span>}
+              </div>
+
+              {/* To */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={labelStyle}>To (required)</label>
+                <input
+                  type="email"
+                  value={emailModal.to}
+                  onChange={(e) => setEmailModal(m => ({ ...m, to: e.target.value }))}
+                  placeholder="recipient@example.com"
+                  style={inputStyle}
+                />
+                <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {["dustin@dmlelectrical.com", "cc@sass.tax"].map(addr => (
+                    <button key={addr} onClick={() => setEmailModal(m => ({ ...m, to: addr }))}
+                      style={{ padding: "3px 10px", border: "1px solid #d1d5db", borderRadius: 20, fontSize: 11, cursor: "pointer", backgroundColor: emailModal.to === addr ? "#059669" : "#f9fafb", color: emailModal.to === addr ? "#fff" : "#374151", fontWeight: 600 }}>
+                      {addr}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* CC */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={labelStyle}>CC (optional — separate multiple with commas)</label>
+                <input
+                  type="text"
+                  value={emailModal.cc}
+                  onChange={(e) => setEmailModal(m => ({ ...m, cc: e.target.value }))}
+                  placeholder="cpa@example.com, boss@example.com"
+                  style={inputStyle}
+                />
+                <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {["cc@sass.tax", "dustin@dmlelectrical.com"].map(addr => (
+                    <button key={addr} onClick={() => {
+                      const current = emailModal.cc.split(",").map(s => s.trim()).filter(Boolean);
+                      if (!current.includes(addr)) {
+                        setEmailModal(m => ({ ...m, cc: [...current, addr].join(", ") }));
+                      }
+                    }}
+                      style={{ padding: "3px 10px", border: "1px solid #d1d5db", borderRadius: 20, fontSize: 11, cursor: "pointer", backgroundColor: emailModal.cc.includes(addr) ? "#059669" : "#f9fafb", color: emailModal.cc.includes(addr) ? "#fff" : "#374151", fontWeight: 600 }}>
+                      + {addr}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Subject */}
+              <div style={{ marginBottom: 24 }}>
+                <label style={labelStyle}>Subject (optional — leave blank for default)</label>
+                <input
+                  type="text"
+                  value={emailModal.subject}
+                  onChange={(e) => setEmailModal(m => ({ ...m, subject: e.target.value }))}
+                  placeholder={`Weekly Timesheet — ${weekLabel}`}
+                  style={inputStyle}
+                />
+              </div>
+
+              {/* Send */}
+              <button onClick={sendTimesheetEmail} disabled={!emailModal.to || emailModal.sending}
+                style={{ width: "100%", padding: "13px 0", backgroundColor: emailModal.sending ? "#6ee7b7" : "#059669", border: "none", borderRadius: 10, color: "#fff", fontWeight: 800, fontSize: 16, cursor: (!emailModal.to || emailModal.sending) ? "not-allowed" : "pointer" }}>
+                {emailModal.sending ? "⏳ Generating PDF & Sending…" : "📧 Send Timesheet PDF"}
+              </button>
+            </div>
+          </div>
+        </>
       )}
 
       {/* Print styles */}

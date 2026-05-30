@@ -10,7 +10,7 @@ Deno.serve(async (req) => {
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
     if (!RESEND_API_KEY) throw new Error('RESEND_API_KEY not set')
 
-    const { weekLabel, pdfBase64 } = await req.json()
+    const { weekLabel, pdfBase64, to, cc, subject } = await req.json()
 
     if (!pdfBase64) {
       return new Response(JSON.stringify({ error: 'pdfBase64 is required' }), {
@@ -18,13 +18,22 @@ Deno.serve(async (req) => {
       })
     }
 
+    // Use provided recipients or fall back to default
+    const toAddress = to || 'dustin@dmlelectrical.com'
+    const emailSubject = subject || `Employee Timesheets — Week of ${weekLabel} — DML Electrical`
     const fileName = `DML_Timesheets_${(weekLabel || 'week').replace(/[^a-zA-Z0-9]/g, '_')}.pdf`
 
-    const emailPayload = {
+    // Parse CC addresses (comma-separated string → array)
+    const ccArray: string[] = cc
+      ? cc.split(',').map((s: string) => s.trim()).filter(Boolean)
+      : []
+
+    const emailPayload: Record<string, unknown> = {
       from: 'DML Electrical Service <noreply@tradeflowllc.com>',
       reply_to: 'dustin@dmlelectrical.com',
-      to: ['dustin@dmlelectrical.com'],
-      subject: `Employee Timesheets — Week of ${weekLabel} — DML Electrical`,
+      to: [toAddress],
+      ...(ccArray.length > 0 ? { cc: ccArray } : {}),
+      subject: emailSubject,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <div style="background: #f9fafb; padding: 24px; border: 1px solid #e5e7eb; border-radius: 8px;">
