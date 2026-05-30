@@ -1391,8 +1391,9 @@ export default function EmployeeTimesheets() {
                   const emp = employees.find(x => x.user_id === e.target.value);
                   setPasteModal(p => ({ ...p, targetUid: e.target.value, targetEmpName: emp ? `${emp.first_name} ${emp.last_name}` : "" }));
                 }}
-                style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "2px solid #d1d5db", fontSize: 14, backgroundColor: "#fff" }}
+                style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "2px solid #d1d5db", fontSize: 14, backgroundColor: "#fff", color: "#111" }}
               >
+                <option value="">— Select employee —</option>
                 {employees
                   .filter(e => e.user_id !== copiedTime.fromUid)
                   .map(e => (
