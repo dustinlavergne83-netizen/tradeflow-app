@@ -82,7 +82,7 @@ export default function Employees() {
 
       setMessage({
         type: "success",
-        text: `Employee created! Share these credentials:\n\nEmail: ${email}\nTemporary Password: ${data.tempPassword}\n\nThey can sign in and complete their profile.`,
+        text: `Invitation sent to ${email}! They will receive an email with a link to set up their account and complete their profile.`,
       });
       
       // Reset form and reload employees

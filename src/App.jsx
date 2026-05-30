@@ -75,6 +75,7 @@ import SuperAdmin from "./pages/SuperAdmin";
 import TimeclockAdmin from "./pages/TimeclockAdmin";
 import PortalLogin from "./pages/portal/PortalLogin";
 import PortalDashboard from "./pages/portal/PortalDashboard";
+import SetPassword from "./pages/SetPassword";
 
 // Portal pages
 import CustomerLogin from "./pages/customer/CustomerLogin";
@@ -85,6 +86,7 @@ import EmployeePortal from "./pages/employee/EmployeePortal";
 
 // Pages that should never show the DesktopHeader
 const NO_HEADER_PATHS = new Set([
+  "/set-password",
   "/",
   "/proposal/commercial-public",
   "/invoice/commercial-public",
@@ -104,7 +106,7 @@ const NO_HEADER_PATHS = new Set([
 
 // Known first-level app paths that should NOT be treated as portal slugs
 const KNOWN_APP_PATHS = new Set([
-  "/signin", "/signup", "/dashboard", "/projects", "/estimates", "/invoices",
+  "/signin", "/signup", "/set-password", "/dashboard", "/projects", "/estimates", "/invoices",
   "/expenses", "/accounting", "/customers", "/vendors", "/employees", "/timeclock",
   "/company-locations", "/scheduled-notifications", "/admin", "/assemblies",
   "/base-materials", "/check-stubs", "/employee-locations", "/geofence-events",
@@ -143,6 +145,7 @@ function AppContent() {
           {/* ── Auth (employees/admin) ───────────────────────────────────── */}
           <Route path="/signin" element={<SignIn />} />
           <Route path="/signup" element={<SignUp />} />
+          <Route path="/set-password" element={<SetPassword />} />
           <Route path="/profile-setup" element={<ProfileSetup />} />
 
           {/* ── Customer Portal ──────────────────────────────────────────── */}
