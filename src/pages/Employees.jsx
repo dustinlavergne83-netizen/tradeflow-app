@@ -922,6 +922,24 @@ export default function Employees() {
                   </div>
                 </div>
 
+                {/* Contractor Option */}
+                <div
+                  onClick={() => setSelectedRole("contractor")}
+                  style={{
+                    ...styles.roleOption,
+                    borderColor: selectedRole === "contractor" ? "#f97316" : "#e5e7eb",
+                    backgroundColor: selectedRole === "contractor" ? "#fff7ed" : "#fff",
+                  }}
+                >
+                  <div style={styles.roleOptionRadio}>
+                    {selectedRole === "contractor" && <div style={{...styles.roleOptionRadioInner, backgroundColor: "#f97316"}} />}
+                  </div>
+                  <div style={{flex: 1}}>
+                    <div style={styles.roleOptionTitle}>🔧 Contractor</div>
+                    <div style={styles.roleOptionDesc}>Time tracked hourly — paid by dollar amount (no payroll)</div>
+                  </div>
+                </div>
+
                 {/* Admin Option */}
                 <div
                   onClick={() => setSelectedRole("admin")}
