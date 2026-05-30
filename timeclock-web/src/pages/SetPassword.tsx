@@ -8,27 +8,21 @@ export default function SetPassword() {
   const [password,  setPassword]  = useState("");
   const [confirm,   setConfirm]   = useState("");
   const [loading,   setLoading]   = useState(false);
-  const [ready,     setReady]     = useState(false); // session detected from invite link
+  const [ready,     setReady]     = useState(false);
   const [checking,  setChecking]  = useState(true);
+  const [done,      setDone]      = useState(false); // show post-set screen
+  const [isAdmin,   setIsAdmin]   = useState(false); // role after password set
 
   useEffect(() => {
-    // Supabase processes the invite/magic-link token from the URL hash automatically.
-    // We listen for the resulting auth event to know the session is ready.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (
-        (event === "SIGNED_IN" || event === "PASSWORD_RECOVERY") &&
-        session
-      ) {
+      if ((event === "SIGNED_IN" || event === "PASSWORD_RECOVERY") && session) {
         setReady(true);
         setChecking(false);
       }
     });
 
-    // Also check if a session already exists (e.g., page was refreshed)
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        setReady(true);
-      }
+      if (session) setReady(true);
       setChecking(false);
     });
 
@@ -46,15 +40,40 @@ export default function SetPassword() {
       return;
     }
     setLoading(true);
+
     const { error } = await supabase.auth.updateUser({ password });
-    setLoading(false);
+
     if (error) {
       toast.error(error.message);
-    } else {
+      setLoading(false);
+      return;
+    }
+
+    // Look up the employee's role to decide where to send them
+    const { data: { user } } = await supabase.auth.getUser();
+    let role = "employee";
+    if (user) {
+      const { data: emp } = await supabase
+        .from("employees")
+        .select("role")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      role = emp?.role ?? "employee";
+    }
+
+    setLoading(false);
+
+    if (role === "admin" || role === "super_admin") {
       toast.success("Password set! Welcome to TradeFlow 🎉");
       navigate("/dashboard");
+    } else {
+      // Regular employee — don't give them the admin dashboard
+      setIsAdmin(false);
+      setDone(true);
     }
   }
+
+  // ── Screens ───────────────────────────────────────────────────────────────
 
   if (checking) {
     return (
@@ -93,10 +112,75 @@ export default function SetPassword() {
     );
   }
 
+  // Post-set screen for regular employees
+  if (done) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+        <div className="w-full max-w-md text-center">
+          <div
+            className="w-16 h-16 rounded-2xl flex items-center justify-center text-white font-black text-2xl mx-auto mb-4"
+            style={{ backgroundColor: "#0b3ea8" }}
+          >
+            TF
+          </div>
+
+          {/* Success badge */}
+          <div className="w-16 h-16 rounded-full flex items-center justify-center text-3xl mx-auto mb-4 bg-green-100">
+            ✅
+          </div>
+
+          <h1 className="text-2xl font-black text-gray-900 mb-2">You're all set!</h1>
+          <p className="text-gray-500 text-sm mb-8">
+            Your TradeFlow password has been created successfully.
+          </p>
+
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 text-left mb-6">
+            <h2 className="text-base font-black text-gray-900 mb-2">📱 Download the TradeFlow App</h2>
+            <p className="text-sm text-gray-600 mb-4 leading-relaxed">
+              As a field employee, you'll clock in and out using the <strong>TradeFlow mobile app</strong>.
+              Use your email and the password you just created to sign in.
+            </p>
+
+            {/* Placeholder download buttons */}
+            <div className="space-y-3">
+              <a
+                href="#"
+                className="flex items-center justify-center gap-3 w-full py-3 px-4 bg-black text-white rounded-xl font-semibold text-sm opacity-60 cursor-not-allowed"
+                onClick={(e) => { e.preventDefault(); toast("App Store link coming soon!"); }}
+              >
+                <span className="text-xl">🍎</span>
+                Download on the App Store
+              </a>
+              <a
+                href="#"
+                className="flex items-center justify-center gap-3 w-full py-3 px-4 bg-green-700 text-white rounded-xl font-semibold text-sm opacity-60 cursor-not-allowed"
+                onClick={(e) => { e.preventDefault(); toast("Google Play link coming soon!"); }}
+              >
+                <span className="text-xl">🤖</span>
+                Get it on Google Play
+              </a>
+            </div>
+
+            <p className="text-xs text-gray-400 mt-4 text-center">
+              App store links will be available soon.
+            </p>
+          </div>
+
+          <p className="text-xs text-gray-400">
+            Questions?{" "}
+            <a href="mailto:info@tradeflowllc.com" className="text-blue-600 hover:underline">
+              info@tradeflowllc.com
+            </a>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Main set-password form
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="w-full max-w-md">
-        {/* Logo */}
         <div className="text-center mb-8">
           <div
             className="w-16 h-16 rounded-2xl flex items-center justify-center text-white font-black text-2xl mx-auto mb-4"
@@ -108,7 +192,6 @@ export default function SetPassword() {
           <p className="text-gray-500 text-sm mt-1">Set your password to get started</p>
         </div>
 
-        {/* Card */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
@@ -148,7 +231,7 @@ export default function SetPassword() {
               className="w-full py-3 rounded-xl font-black text-white text-sm transition-opacity disabled:opacity-60"
               style={{ backgroundColor: "#fc6b04" }}
             >
-              {loading ? "Setting password…" : "Set Password & Enter TradeFlow →"}
+              {loading ? "Setting password…" : "Set Password →"}
             </button>
           </form>
         </div>

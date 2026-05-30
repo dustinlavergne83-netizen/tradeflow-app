@@ -12,9 +12,10 @@ import AIChat from "./pages/AIChat";
 import GPS from "./pages/GPS";
 import DeleteAccount from "./pages/DeleteAccount";
 import SetPassword from "./pages/SetPassword";
+import DownloadApp from "./pages/DownloadApp";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, employeeRole } = useAuth();
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="text-center">
@@ -24,6 +25,8 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     </div>
   );
   if (!user) return <Navigate to="/login" replace />;
+  // Regular field employees don't have access to the admin web portal
+  if (employeeRole === "employee") return <Navigate to="/download-app" replace />;
   return <>{children}</>;
 }
 
@@ -33,6 +36,7 @@ function AppRoutes() {
       <Route path="/login" element={<Login />} />
       <Route path="/delete-account" element={<DeleteAccount />} />
       <Route path="/set-password"   element={<SetPassword />} />
+      <Route path="/download-app"   element={<DownloadApp />} />
       <Route
         path="/"
         element={
