@@ -117,7 +117,7 @@ export default function EmployeeTimesheets() {
     setLoading(true);
     try {
       const [{ data: emps }, { data: segs }, { data: open }, { data: projs }] = await Promise.all([
-        supabase.from("employees").select("user_id, first_name, last_name").order("first_name"),
+        supabase.from("employees").select("user_id, first_name, last_name, employment_type, hourly_rate").order("first_name"),
         supabase.from("shift_segments")
           .select("id, user_id, start_at, end_at, is_lunch, project_task, project_id")
           .gte("start_at", weekDays[0] + "T00:00:00")
@@ -166,10 +166,18 @@ export default function EmployeeTimesheets() {
     .map((uid) => {
       const emp = employees.find(e => e.user_id === uid);
       if (!emp) return null;
-      return { uid, name: `${emp.first_name} ${emp.last_name}` };
+      return {
+        uid,
+        name: `${emp.first_name} ${emp.last_name}`,
+        type: emp.employment_type || 'employee',
+        rate: parseFloat(emp.hourly_rate) || 0,
+      };
     })
     .filter(Boolean)
     .sort((a, b) => a.name.localeCompare(b.name));
+
+  const regularEmps = activeEmployees.filter(e => e.type !== 'contractor');
+  const contractorEmps = activeEmployees.filter(e => e.type === 'contractor');
 
   // Employees not yet shown (available to add)
   const availableToAdd = employees.filter(e => !allShownUids.includes(e.user_id));
@@ -178,7 +186,8 @@ export default function EmployeeTimesheets() {
     return weekDays.reduce((sum, d) => sum + calcDayHours(getSegsForDay(uid, d)), 0);
   }
 
-  const grandTotal = activeEmployees.reduce((sum, e) => sum + getWeekTotal(e.uid), 0);
+  const grandTotal = regularEmps.reduce((sum, e) => sum + getWeekTotal(e.uid), 0);
+  const contractorGrandPay = contractorEmps.reduce((sum, e) => sum + getWeekTotal(e.uid) * e.rate, 0);
 
   // ── cell click ────────────────────────────────────────────────────────────
   function openCellEdit(uid, dateStr, empName) {
@@ -364,7 +373,8 @@ export default function EmployeeTimesheets() {
 
     const head = [["Employee", ...dayHeaders, "Total"]];
 
-    const body = activeEmployees.map((emp) => {
+    // ── Employee table (hours) ───────────────────────────────────────────
+    const empBody = regularEmps.map((emp) => {
       const days = weekDays.map((d) => {
         const h = calcDayHours(getSegsForDay(emp.uid, d));
         return h > 0 ? h.toFixed(2) : "—";
@@ -372,17 +382,16 @@ export default function EmployeeTimesheets() {
       return [emp.name, ...days, getWeekTotal(emp.uid).toFixed(2)];
     });
 
-    const dayTotals = weekDays.map((d) =>
-      activeEmployees.reduce((sum, emp) => sum + calcDayHours(getSegsForDay(emp.uid, d)), 0)
+    const empDayTotals = weekDays.map((d) =>
+      regularEmps.reduce((sum, emp) => sum + calcDayHours(getSegsForDay(emp.uid, d)), 0)
     );
-    body.push(["WEEK TOTAL", ...dayTotals.map((h) => h > 0 ? h.toFixed(2) : "—"), grandTotal.toFixed(2)]);
+    empBody.push(["WEEK TOTAL", ...empDayTotals.map((h) => h > 0 ? h.toFixed(2) : "—"), grandTotal.toFixed(2)]);
 
     doc.autoTable({
       head,
-      body,
+      body: empBody,
       startY: 156,
       styles: { fontSize: 10, cellPadding: 7, halign: "center", valign: "middle", lineColor: [209, 213, 219], lineWidth: 0.4 },
-      // Light gray header — no dark blue
       headStyles: { fillColor: [243, 244, 246], textColor: [17, 24, 39], fontStyle: "bold", fontSize: 10, lineColor: [209, 213, 219], lineWidth: 0.4 },
       columnStyles: {
         0: { halign: "left", fontStyle: "bold", cellWidth: 160 },
@@ -390,14 +399,60 @@ export default function EmployeeTimesheets() {
       },
       alternateRowStyles: { fillColor: [249, 250, 251] },
       didParseCell(data) {
-        // WEEK TOTAL row — light orange tint, bold, no dark blue
-        if (data.row.index === body.length - 1) {
+        if (data.row.index === empBody.length - 1) {
           data.cell.styles.fillColor = [255, 247, 237];
           data.cell.styles.textColor = [180, 70, 0];
           data.cell.styles.fontStyle = "bold";
         }
       },
     });
+
+    // ── Contractor table (dollars) — only if there are contractors ───────
+    if (contractorEmps.length > 0) {
+      const afterEmpY = doc.lastAutoTable.finalY + 20;
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.setTextColor(124, 58, 237);
+      doc.text("Contractors", 40, afterEmpY);
+
+      const ctHead = [["Contractor", ...dayHeaders, "Total ($)"]];
+      const ctBody = contractorEmps.map((emp) => {
+        const days = weekDays.map((d) => {
+          const h = calcDayHours(getSegsForDay(emp.uid, d));
+          const pay = h * emp.rate;
+          return pay > 0 ? `$${pay.toFixed(2)}` : "—";
+        });
+        const weekPay = getWeekTotal(emp.uid) * emp.rate;
+        const rateLabel = emp.rate > 0 ? ` ($${emp.rate}/hr)` : "";
+        return [`${emp.name}${rateLabel}`, ...days, `$${weekPay.toFixed(2)}`];
+      });
+
+      const ctDayTotals = weekDays.map((d) =>
+        contractorEmps.reduce((sum, emp) => sum + calcDayHours(getSegsForDay(emp.uid, d)) * emp.rate, 0)
+      );
+      ctBody.push(["TOTAL", ...ctDayTotals.map((p) => p > 0 ? `$${p.toFixed(2)}` : "—"), `$${contractorGrandPay.toFixed(2)}`]);
+
+      doc.autoTable({
+        head: ctHead,
+        body: ctBody,
+        startY: afterEmpY + 8,
+        styles: { fontSize: 10, cellPadding: 7, halign: "center", valign: "middle", lineColor: [209, 213, 219], lineWidth: 0.4 },
+        headStyles: { fillColor: [237, 233, 254], textColor: [109, 40, 217], fontStyle: "bold", fontSize: 10 },
+        columnStyles: {
+          0: { halign: "left", fontStyle: "bold", cellWidth: 160 },
+          8: { fillColor: [243, 232, 255], fontStyle: "bold", textColor: [109, 40, 217] },
+        },
+        alternateRowStyles: { fillColor: [250, 245, 255] },
+        didParseCell(data) {
+          if (data.row.index === ctBody.length - 1) {
+            data.cell.styles.fillColor = [243, 232, 255];
+            data.cell.styles.textColor = [109, 40, 217];
+            data.cell.styles.fontStyle = "bold";
+          }
+        },
+      });
+    }
 
     return doc;
   }
@@ -802,7 +857,8 @@ export default function EmployeeTimesheets() {
                   </td>
                 </tr>
               )}
-              {activeEmployees.map((emp, empIdx) => {
+              {/* ── Regular Employees ── */}
+              {regularEmps.map((emp, empIdx) => {
                 const weekTotal = getWeekTotal(emp.uid);
                 const isIn = openSegs.some((s) => s.user_id === emp.uid);
                 return (
@@ -824,50 +880,34 @@ export default function EmployeeTimesheets() {
                         <td key={d}
                           onClick={() => openCellEdit(emp.uid, d, emp.name)}
                           title="Click to view/edit or add punch"
-                          style={{
-                            padding: "10px 8px",
-                            textAlign: "center",
-                            cursor: "pointer",
-                            backgroundColor: isToday ? "#eff6ff" : undefined,
-                            transition: "background 0.15s",
-                          }}
+                          style={{ padding: "10px 8px", textAlign: "center", cursor: "pointer", backgroundColor: isToday ? "#eff6ff" : undefined, transition: "background 0.15s" }}
                           onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "#dbeafe"; }}
                           onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = isToday ? "#eff6ff" : (empIdx % 2 === 0 ? "#fff" : "#f9fafb"); }}
                         >
                           {daySeg.length === 0 ? (
                             copiedTime && copiedTime.day === d ? (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setPasteModal({ targetUid: emp.uid, targetEmpName: emp.name, day: d }); }}
-                                style={{ border: "2px solid #3b82f6", background: "#eff6ff", color: "#2563eb", borderRadius: 6, fontSize: 11, padding: "3px 7px", cursor: "pointer", fontWeight: 700 }}
-                              >
+                              <button onClick={(e) => { e.stopPropagation(); setPasteModal({ targetUid: emp.uid, targetEmpName: emp.name, day: d }); }}
+                                style={{ border: "2px solid #3b82f6", background: "#eff6ff", color: "#2563eb", borderRadius: 6, fontSize: 11, padding: "3px 7px", cursor: "pointer", fontWeight: 700 }}>
                                 📋 Paste
                               </button>
-                            ) : (
-                              <span style={{ color: "#d1d5db", fontSize: 18 }}>+</span>
-                            )
+                            ) : <span style={{ color: "#d1d5db", fontSize: 18 }}>+</span>
                           ) : (
                             <>
                               <div style={{ fontWeight: 700, color: hasOpen ? "#f59e0b" : "#111", fontSize: 14 }}>
                                 {hasOpen ? "In…" : (
                                   <span>
                                     {fmtH(hours)}h
-                                    <button
-                                      title={`Copy ${emp.name}'s time`}
+                                    <button title={`Copy ${emp.name}'s time`}
                                       onClick={(e) => { e.stopPropagation(); setCopiedTime({ fromEmp: emp.name, fromUid: emp.uid, day: d, segs: daySeg, hours, hasLunch, projects }); }}
-                                      style={{ marginLeft: 4, border: "none", background: copiedTime?.fromUid === emp.uid && copiedTime?.day === d ? "#10b981" : "#e5e7eb", color: copiedTime?.fromUid === emp.uid && copiedTime?.day === d ? "#fff" : "#374151", borderRadius: 4, fontSize: 10, padding: "1px 4px", cursor: "pointer" }}
-                                    >📋</button>
+                                      style={{ marginLeft: 4, border: "none", background: copiedTime?.fromUid === emp.uid && copiedTime?.day === d ? "#10b981" : "#e5e7eb", color: copiedTime?.fromUid === emp.uid && copiedTime?.day === d ? "#fff" : "#374151", borderRadius: 4, fontSize: 10, padding: "1px 4px", cursor: "pointer" }}>📋</button>
                                   </span>
                                 )}
                                 {hasLunch && <span style={{ fontSize: 10, marginLeft: 3 }} title="Lunch taken">🍽</span>}
                               </div>
                               {projects.slice(0, 2).map((p, pi) => (
-                                <div key={pi} className="print-hide" style={{ fontSize: 10, color: "#6b7280", lineHeight: 1.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 88 }} title={p}>
-                                  {p}
-                                </div>
+                                <div key={pi} className="print-hide" style={{ fontSize: 10, color: "#6b7280", lineHeight: 1.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 88 }} title={p}>{p}</div>
                               ))}
-                              {projects.length > 2 && (
-                                <div className="print-hide" style={{ fontSize: 10, color: "#9ca3af" }}>+{projects.length - 2} more</div>
-                              )}
+                              {projects.length > 2 && <div className="print-hide" style={{ fontSize: 10, color: "#9ca3af" }}>+{projects.length - 2} more</div>}
                             </>
                           )}
                         </td>
@@ -875,6 +915,78 @@ export default function EmployeeTimesheets() {
                     })}
                     <td style={{ padding: "12px 14px", textAlign: "center", fontWeight: 800, fontSize: 15, color: weekTotal > 0 ? BRAND.primary : "#d1d5db" }}>
                       {weekTotal > 0 ? `${fmtH(weekTotal)}h` : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+              {/* ── Contractors Section ── */}
+              {contractorEmps.length > 0 && (
+                <tr>
+                  <td colSpan={9} style={{ padding: "8px 16px", backgroundColor: "#7c3aed", color: "#fff", fontWeight: 800, fontSize: 12, textTransform: "uppercase", letterSpacing: 1 }}>
+                    🔧 Contractors — Dollar Amounts
+                  </td>
+                </tr>
+              )}
+              {contractorEmps.map((emp, empIdx) => {
+                const weekTotal = getWeekTotal(emp.uid);
+                const weekPay = weekTotal * emp.rate;
+                const isIn = openSegs.some((s) => s.user_id === emp.uid);
+                return (
+                  <tr key={emp.uid} style={{ borderBottom: "1px solid #e5e7eb", backgroundColor: empIdx % 2 === 0 ? "#faf5ff" : "#f3e8ff" }}>
+                    <td style={{ padding: "12px 16px", fontWeight: 700, color: "#111" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        {isIn && <span title="Currently clocked in" style={{ color: "#10b981", fontSize: 10 }}>●</span>}
+                        {emp.name}
+                        {emp.rate > 0 && <span className="print-hide" style={{ fontSize: 10, color: "#7c3aed", marginLeft: 4 }}>${emp.rate}/hr</span>}
+                      </div>
+                    </td>
+                    {weekDays.map((d) => {
+                      const daySeg = getSegsForDay(emp.uid, d);
+                      const hours = calcDayHours(daySeg);
+                      const dayPay = hours * emp.rate;
+                      const projects = getDayProjects(daySeg);
+                      const hasLunch = daySeg.some((s) => s.is_lunch);
+                      const hasOpen = daySeg.some((s) => !s.end_at);
+                      const isToday = toYMD(new Date()) === d;
+                      return (
+                        <td key={d}
+                          onClick={() => openCellEdit(emp.uid, d, emp.name)}
+                          title="Click to view/edit or add punch"
+                          style={{ padding: "10px 8px", textAlign: "center", cursor: "pointer", backgroundColor: isToday ? "#ede9fe" : undefined, transition: "background 0.15s" }}
+                          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "#ddd6fe"; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = isToday ? "#ede9fe" : (empIdx % 2 === 0 ? "#faf5ff" : "#f3e8ff"); }}
+                        >
+                          {daySeg.length === 0 ? (
+                            copiedTime && copiedTime.day === d ? (
+                              <button onClick={(e) => { e.stopPropagation(); setPasteModal({ targetUid: emp.uid, targetEmpName: emp.name, day: d }); }}
+                                style={{ border: "2px solid #7c3aed", background: "#ede9fe", color: "#7c3aed", borderRadius: 6, fontSize: 11, padding: "3px 7px", cursor: "pointer", fontWeight: 700 }}>
+                                📋 Paste
+                              </button>
+                            ) : <span style={{ color: "#d1d5db", fontSize: 18 }}>+</span>
+                          ) : (
+                            <>
+                              <div style={{ fontWeight: 700, color: hasOpen ? "#f59e0b" : "#7c3aed", fontSize: 14 }}>
+                                {hasOpen ? "In…" : (
+                                  <span>
+                                    {emp.rate > 0 ? `$${dayPay.toFixed(2)}` : `${fmtH(hours)}h`}
+                                    <button title={`Copy ${emp.name}'s time`}
+                                      onClick={(e) => { e.stopPropagation(); setCopiedTime({ fromEmp: emp.name, fromUid: emp.uid, day: d, segs: daySeg, hours, hasLunch, projects }); }}
+                                      style={{ marginLeft: 4, border: "none", background: copiedTime?.fromUid === emp.uid && copiedTime?.day === d ? "#10b981" : "#e5e7eb", color: copiedTime?.fromUid === emp.uid && copiedTime?.day === d ? "#fff" : "#374151", borderRadius: 4, fontSize: 10, padding: "1px 4px", cursor: "pointer" }}>📋</button>
+                                  </span>
+                                )}
+                                {hasLunch && <span style={{ fontSize: 10, marginLeft: 3 }} title="Lunch taken">🍽</span>}
+                              </div>
+                              <div className="print-hide" style={{ fontSize: 10, color: "#6b7280" }}>{fmtH(hours)}h</div>
+                              {projects.slice(0, 1).map((p, pi) => (
+                                <div key={pi} className="print-hide" style={{ fontSize: 10, color: "#6b7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 88 }} title={p}>{p}</div>
+                              ))}
+                            </>
+                          )}
+                        </td>
+                      );
+                    })}
+                    <td style={{ padding: "12px 14px", textAlign: "center", fontWeight: 800, fontSize: 15, color: weekPay > 0 ? "#7c3aed" : "#d1d5db" }}>
+                      {weekPay > 0 ? `$${weekPay.toFixed(2)}` : "—"}
                     </td>
                   </tr>
                 );
@@ -913,12 +1025,12 @@ export default function EmployeeTimesheets() {
                 </td>
               </tr>
 
-              {/* Totals row */}
-              {activeEmployees.length > 0 && (
+              {/* Employee Totals row */}
+              {regularEmps.length > 0 && (
                 <tr style={{ borderTop: "3px solid #0b3ea8", backgroundColor: "#f0f4ff" }}>
-                  <td style={{ padding: "12px 16px", fontWeight: 800, color: "#111", fontSize: 13, textTransform: "uppercase" }}>Week Total</td>
+                  <td style={{ padding: "12px 16px", fontWeight: 800, color: "#111", fontSize: 13, textTransform: "uppercase" }}>Employee Total</td>
                   {weekDays.map((d) => {
-                    const dayTotal = activeEmployees.reduce((sum, emp) => sum + calcDayHours(getSegsForDay(emp.uid, d)), 0);
+                    const dayTotal = regularEmps.reduce((sum, emp) => sum + calcDayHours(getSegsForDay(emp.uid, d)), 0);
                     return (
                       <td key={d} style={{ padding: "12px 8px", textAlign: "center", fontWeight: 700, color: dayTotal > 0 ? "#111" : "#d1d5db" }}>
                         {dayTotal > 0 ? `${fmtH(dayTotal)}h` : "—"}
@@ -927,6 +1039,23 @@ export default function EmployeeTimesheets() {
                   })}
                   <td style={{ padding: "12px 14px", textAlign: "center", fontWeight: 900, fontSize: 16, color: BRAND.accent }}>
                     {fmtH(grandTotal)}h
+                  </td>
+                </tr>
+              )}
+              {/* Contractor Totals row */}
+              {contractorEmps.length > 0 && (
+                <tr style={{ borderTop: "3px solid #7c3aed", backgroundColor: "#f3e8ff" }}>
+                  <td style={{ padding: "12px 16px", fontWeight: 800, color: "#111", fontSize: 13, textTransform: "uppercase" }}>Contractor Total</td>
+                  {weekDays.map((d) => {
+                    const dayPay = contractorEmps.reduce((sum, emp) => sum + calcDayHours(getSegsForDay(emp.uid, d)) * emp.rate, 0);
+                    return (
+                      <td key={d} style={{ padding: "12px 8px", textAlign: "center", fontWeight: 700, color: dayPay > 0 ? "#7c3aed" : "#d1d5db" }}>
+                        {dayPay > 0 ? `$${dayPay.toFixed(2)}` : "—"}
+                      </td>
+                    );
+                  })}
+                  <td style={{ padding: "12px 14px", textAlign: "center", fontWeight: 900, fontSize: 16, color: "#7c3aed" }}>
+                    ${contractorGrandPay.toFixed(2)}
                   </td>
                 </tr>
               )}
