@@ -1386,18 +1386,18 @@ export default function EmployeeTimesheets() {
             <div style={{ marginBottom: 20 }}>
               <label style={{ fontSize: 13, fontWeight: 700, color: "#374151", display: "block", marginBottom: 6 }}>Paste to employee:</label>
               <select
-                value={pasteModal.targetUid}
+                value={pasteModal.targetUid || ""}
                 onChange={(e) => {
                   const emp = employees.find(x => x.user_id === e.target.value);
                   setPasteModal(p => ({ ...p, targetUid: e.target.value, targetEmpName: emp ? `${emp.first_name} ${emp.last_name}` : "" }));
                 }}
-                style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "2px solid #d1d5db", fontSize: 14, backgroundColor: "#fff", color: "#111" }}
+                style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "2px solid #d1d5db", fontSize: 14, backgroundColor: "#ffffff", color: "#111111", colorScheme: "light", WebkitTextFillColor: "#111111" }}
               >
-                <option value="">— Select employee —</option>
+                <option value="" style={{ color: "#111", backgroundColor: "#fff" }}>— Select employee —</option>
                 {employees
                   .filter(e => e.user_id !== copiedTime.fromUid)
                   .map(e => (
-                    <option key={e.user_id} value={e.user_id}>{e.first_name} {e.last_name}</option>
+                    <option key={e.user_id} value={e.user_id} style={{ color: "#111", backgroundColor: "#fff" }}>{e.first_name} {e.last_name}</option>
                   ))}
               </select>
             </div>
