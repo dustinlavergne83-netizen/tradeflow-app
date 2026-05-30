@@ -25,6 +25,9 @@ export default function Employees() {
   const [showRolePicker, setShowRolePicker] = useState(null); // employee id when picker is open
   const [selectedRole, setSelectedRole] = useState("employee");
   const [resettingPassword, setResettingPassword] = useState(null); // employee id when resetting
+  const [activeModalTab, setActiveModalTab] = useState("details"); // 'details' | 'paystubs'
+  const [payStubs, setPayStubs] = useState([]);
+  const [loadingStubs, setLoadingStubs] = useState(false);
 
   useEffect(() => {
     loadEmployees();
@@ -202,6 +205,36 @@ export default function Employees() {
     // After 1 year of employment, employee gets 40 hours per year
     // This resets annually, not cumulative
     return 40;
+  }
+
+  async function loadPayStubs(employeeId) {
+    setLoadingStubs(true);
+    try {
+      const { data, error } = await supabase
+        .from("check_stubs")
+        .select("*")
+        .eq("employee_id", employeeId)
+        .order("pay_date", { ascending: false });
+      if (error) throw error;
+      setPayStubs(data || []);
+    } catch (err) {
+      console.error("Error loading pay stubs:", err);
+      setPayStubs([]);
+    } finally {
+      setLoadingStubs(false);
+    }
+  }
+
+  async function downloadStub(stub) {
+    try {
+      const { data, error } = await supabase.storage
+        .from("check-stubs")
+        .createSignedUrl(stub.file_path, 60);
+      if (error) throw error;
+      window.open(data.signedUrl, "_blank");
+    } catch (err) {
+      alert("Download failed: " + err.message);
+    }
   }
 
   function startEditing() {
@@ -485,20 +518,90 @@ export default function Employees() {
         {showDetailsModal && selectedEmployee && (
           <div style={styles.modalOverlay} onClick={() => setShowDetailsModal(false)}>
             <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
-              <div style={styles.modalHeader}>
-                <h2 style={styles.modalTitle}>
-                  {selectedEmployee.first_name} {selectedEmployee.last_name}
-                </h2>
-                <button
-                  onClick={() => setShowDetailsModal(false)}
-                  style={styles.closeButton}
-                >
-                  ✕
-                </button>
-              </div>
+          <div style={styles.modalHeader}>
+            <h2 style={styles.modalTitle}>
+              {selectedEmployee.first_name} {selectedEmployee.last_name}
+            </h2>
+            <button
+              onClick={() => { setShowDetailsModal(false); setIsEditing(false); setActiveModalTab("details"); }}
+              style={styles.closeButton}
+            >
+              ✕
+            </button>
+          </div>
+          {/* Tab navigation */}
+          <div style={{ display: "flex", gap: 0, borderBottom: "2px solid #e5e7eb", padding: "0 24px", backgroundColor: "#f9fafb" }}>
+            {[
+              { key: "details", label: "📋 Details" },
+              { key: "paystubs", label: "💵 Pay Stubs" },
+            ].map(tab => (
+              <button key={tab.key} onClick={() => {
+                setActiveModalTab(tab.key);
+                setIsEditing(false);
+                if (tab.key === "paystubs") loadPayStubs(selectedEmployee.id);
+              }}
+                style={{
+                  padding: "10px 20px",
+                  border: "none",
+                  borderBottom: activeModalTab === tab.key ? "3px solid #0b3ea8" : "3px solid transparent",
+                  backgroundColor: "transparent",
+                  fontWeight: activeModalTab === tab.key ? 800 : 600,
+                  fontSize: 14,
+                  color: activeModalTab === tab.key ? "#0b3ea8" : "#6b7280",
+                  cursor: "pointer",
+                  marginBottom: -2,
+                }}>
+                {tab.label}
+              </button>
+            ))}
+          </div>
 
               <div style={styles.modalContent}>
-                {isEditing ? (
+                {/* ── Pay Stubs Tab ── */}
+                {activeModalTab === "paystubs" && (
+                  <div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                      <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#111" }}>Pay Stubs</h3>
+                      <span style={{ fontSize: 12, color: "#9ca3af" }}>Auto-loaded from CPA email</span>
+                    </div>
+                    {loadingStubs ? (
+                      <div style={{ textAlign: "center", padding: 40, color: "#9ca3af" }}>Loading pay stubs…</div>
+                    ) : payStubs.length === 0 ? (
+                      <div style={{ textAlign: "center", padding: 40, backgroundColor: "#f9fafb", borderRadius: 8, border: "2px dashed #e5e7eb" }}>
+                        <div style={{ fontSize: 40, marginBottom: 12 }}>📭</div>
+                        <div style={{ fontWeight: 700, color: "#374151", marginBottom: 6 }}>No pay stubs yet</div>
+                        <div style={{ fontSize: 13, color: "#9ca3af" }}>Pay stubs will appear here automatically when your CPA emails them to <strong>paystubs@dmlelectrical.com</strong></div>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {payStubs.map(stub => (
+                          <div key={stub.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", backgroundColor: "#f9fafb", borderRadius: 8, border: "1px solid #e5e7eb" }}>
+                            <div>
+                              <div style={{ fontWeight: 700, color: "#111", fontSize: 15 }}>
+                                Pay Date: {stub.pay_date ? new Date(stub.pay_date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "—"}
+                              </div>
+                              {stub.pay_period_start && stub.pay_period_end && (
+                                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+                                  Period: {new Date(stub.pay_period_start + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })} – {new Date(stub.pay_period_end + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                                </div>
+                              )}
+                              {stub.ai_confidence > 0 && (
+                                <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>
+                                  AI confidence: {Math.round(stub.ai_confidence * 100)}%
+                                </div>
+                              )}
+                            </div>
+                            <button onClick={() => downloadStub(stub)}
+                              style={{ backgroundColor: "#0b3ea8", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                              📥 Download
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {activeModalTab === "details" && isEditing ? (
                   /* EDIT MODE - Show input fields */
                   <>
                     <div style={styles.detailSection}>
@@ -690,7 +793,7 @@ export default function Employees() {
                       </div>
                     </div>
                   </>
-                ) : (
+                ) : activeModalTab === "details" ? (
                   /* VIEW MODE - Show display values */
                   <>
                     <div style={styles.detailSection}>
@@ -852,11 +955,14 @@ export default function Employees() {
                   </div>
                 </div>
                   </>
-                )}
+                ) : null}
               </div>
 
               <div style={styles.modalActions}>
-                {isEditing ? (
+                {activeModalTab === "paystubs" ? (
+                  <button onClick={() => { setShowDetailsModal(false); setActiveModalTab("details"); }}
+                    style={styles.modalCloseButton}>Close</button>
+                ) : isEditing ? (
                   <>
                     <button
                       onClick={saveEmployeeEdits}
@@ -873,19 +979,12 @@ export default function Employees() {
                   </>
                 ) : (
                   <>
-                    <button
-                      onClick={startEditing}
-                      style={{...styles.modalCloseButton, marginRight: 12, backgroundColor: "#3b82f6"}}
-                    >
+                    <button onClick={startEditing}
+                      style={{...styles.modalCloseButton, marginRight: 12, backgroundColor: "#3b82f6"}}>
                       ✏️ Edit Information
                     </button>
-                    <button
-                      onClick={() => {
-                        setShowDetailsModal(false);
-                        setIsEditing(false);
-                      }}
-                      style={styles.modalCloseButton}
-                    >
+                    <button onClick={() => { setShowDetailsModal(false); setIsEditing(false); setActiveModalTab("details"); }}
+                      style={styles.modalCloseButton}>
                       Close
                     </button>
                   </>

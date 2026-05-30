@@ -1,393 +1,427 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+// Process Check Stub Email — Resend Inbound Webhook
+// Receives combined PDF from CPA, splits by page, uses GPT-4o to identify each employee,
+// stores each page as a separate PDF in Supabase Storage + records in check_stubs table.
+
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { corsHeaders } from "../_shared/cors.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  const supabase = createClient(
+    Deno.env.get("SUPABASE_URL") ?? "",
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+  );
+
   try {
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+    // ── 1. Parse Resend inbound webhook (JSON body) ────────────────────────
+    const body = await req.json();
+    const from: string = body.from ?? "";
+    const subject: string = body.subject ?? "";
+    const textBody: string = body.text ?? body.html ?? "";
+
+    console.log("Inbound email from:", from, "Subject:", subject);
+
+    // ── 2. Find PDF attachment ─────────────────────────────────────────────
+    const attachments: Array<{ filename: string; content: string; contentType: string }> =
+      body.attachments ?? [];
+
+    const pdfAttachment = attachments.find(
+      (a) => a.contentType?.includes("pdf") || a.filename?.toLowerCase().endsWith(".pdf")
     );
 
-    // Parse the incoming email data from SendGrid Inbound Parse webhook
-    const formData = await req.formData();
-    
-    const from = formData.get("from") as string || "";
-    const subject = formData.get("subject") as string || "";
-    const text = formData.get("text") as string || "";
-    const html = formData.get("html") as string || "";
-    
-    console.log("Email received from:", from);
-    console.log("Subject:", subject);
-    
-    // Get attachment count from SendGrid
-    const attachmentCount = parseInt(formData.get("attachments") as string || "0");
-    console.log("Attachments:", attachmentCount);
-    
-    // Get pay period info from email body or subject
-    // Expected format in email body:
-    // Pay Period: 01/15/2026 - 01/31/2026
-    // Pay Date: 02/05/2026
-    
-    const payPeriodMatch = text?.match(/Pay Period:\s*(\d{1,2}\/\d{1,2}\/\d{4})\s*-\s*(\d{1,2}\/\d{1,2}\/\d{4})/i);
-    const payDateMatch = text?.match(/Pay Date:\s*(\d{1,2}\/\d{1,2}\/\d{4})/i);
-    
-    if (!payPeriodMatch || !payDateMatch) {
-      throw new Error("Email must include 'Pay Period: MM/DD/YYYY - MM/DD/YYYY' and 'Pay Date: MM/DD/YYYY' in the body");
+    if (!pdfAttachment) {
+      console.error("No PDF attachment found in email");
+      await sendResultEmail(from, [], "No PDF attachment found in the email.", supabase);
+      return new Response(JSON.stringify({ error: "No PDF attachment found" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
-    
-    const payPeriodStart = convertToISODate(payPeriodMatch[1]);
-    const payPeriodEnd = convertToISODate(payPeriodMatch[2]);
-    const payDate = convertToISODate(payDateMatch[1]);
 
-    console.log("Pay Period:", payPeriodStart, "to", payPeriodEnd);
-    console.log("Pay Date:", payDate);
+    console.log("Found PDF attachment:", pdfAttachment.filename, "size:", pdfAttachment.content?.length);
 
-    // Process attachments from SendGrid format
-    const results = [];
-    
-    for (let i = 1; i <= attachmentCount; i++) {
-      const attachmentFile = formData.get(`attachment${i}`) as File;
-      const attachmentInfo = formData.get(`attachment-info`) as string;
-      
-      if (!attachmentFile) {
-        console.log(`No attachment found at index ${i}`);
-        continue;
-      }
-      
-      // Get filename from the file object or parse from attachment-info
-      let filename = attachmentFile.name || "unknown.pdf";
-      
-      // SendGrid may send filename in attachment-info JSON
-      if (attachmentInfo) {
-        try {
-          const info = JSON.parse(attachmentInfo);
-          if (info[`attachment${i}`]?.filename) {
-            filename = info[`attachment${i}`].filename;
-          }
-        } catch (e) {
-          // If parse fails, use filename from file object
+    // ── 3. Decode base64 PDF ───────────────────────────────────────────────
+    const pdfBase64 = pdfAttachment.content;
+    const pdfBytes = base64ToUint8Array(pdfBase64);
+
+    // ── 4. Get employee list ───────────────────────────────────────────────
+    const { data: employees, error: empError } = await supabase
+      .from("employees")
+      .select("id, first_name, last_name")
+      .or("archived.is.null,archived.eq.false")
+      .order("last_name");
+
+    if (empError) throw empError;
+    console.log("Loaded", employees?.length ?? 0, "employees");
+
+    // ── 5. Load pdf-lib and split into individual pages ────────────────────
+    const { PDFDocument } = await import("https://cdn.skypack.dev/pdf-lib@1.17.1");
+    const fullPdf = await PDFDocument.load(pdfBytes);
+    const totalPages = fullPdf.getPageCount();
+    console.log("PDF has", totalPages, "pages");
+
+    // ── 6. Process each page ───────────────────────────────────────────────
+    const results: Array<{
+      page: number;
+      employee?: string;
+      employee_id?: string;
+      pay_date?: string;
+      success: boolean;
+      error?: string;
+    }> = [];
+
+    for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+      console.log(`\n--- Processing page ${pageIndex + 1} of ${totalPages} ---`);
+      try {
+        // Extract single page PDF bytes
+        const singlePdf = await PDFDocument.create();
+        const [copiedPage] = await singlePdf.copyPages(fullPdf, [pageIndex]);
+        singlePdf.addPage(copiedPage);
+        const pageBytes = await singlePdf.save();
+
+        // Extract text from page using pdfjs-dist
+        const pageText = await extractTextFromPDFPage(pageBytes);
+        console.log("Extracted text (first 200 chars):", pageText.substring(0, 200));
+
+        // Ask GPT-4o to identify the employee from the text
+        const aiResult = await identifyEmployeeWithAI(pageText, employees ?? [], pageIndex + 1);
+        console.log("AI result:", JSON.stringify(aiResult));
+
+        if (!aiResult.employee_id) {
+          results.push({
+            page: pageIndex + 1,
+            success: false,
+            error: aiResult.error ?? `Could not identify employee on page ${pageIndex + 1} (AI: "${aiResult.employee_name ?? "?"}")`,
+          });
+          continue;
         }
-      }
-      
-      console.log(`Processing attachment ${i}:`, filename);
-      
-      // Only process PDFs
-      if (!filename.toLowerCase().endsWith('.pdf')) {
-        results.push({ filename, success: false, error: "Not a PDF file" });
-        continue;
-      }
 
-      // Read the PDF file from SendGrid's File object
-      const pdfBytes = await attachmentFile.arrayBuffer();
-      const uint8Array = new Uint8Array(pdfBytes);
+        const emp = (employees ?? []).find((e) => e.id === aiResult.employee_id);
+        const empName = emp ? `${emp.first_name} ${emp.last_name}` : aiResult.matched_employee_name;
 
-      // Check if this is a combined PDF or single stub
-      // Expected naming: "FirstName_LastName_PayDate.pdf" for single stubs
-      // Or just "CheckStubs.pdf" or "Payroll.pdf" for combined
-      
-      if (isCombinedPDF(filename)) {
-        console.log("Processing as combined PDF");
-        // Process as combined PDF - needs splitting
-        const splitResults = await splitCombinedPDF(
-          uint8Array,
-          payPeriodStart,
-          payPeriodEnd,
-          payDate,
-          supabase
-        );
-        results.push(...splitResults);
-      } else {
-        console.log("Processing as single employee stub");
-        // Process as single employee stub
-        const singleResult = await processSingleStub(
-          uint8Array,
-          filename,
-          payPeriodStart,
-          payPeriodEnd,
-          payDate,
-          supabase
-        );
-        results.push(singleResult);
+        // Build file path
+        const payDate = aiResult.pay_date ?? aiResult.pay_period_end ?? new Date().toISOString().split("T")[0];
+        const safeName = empName?.replace(/\s+/g, "_") ?? "Unknown";
+        const filePath = `${aiResult.employee_id}/${safeName}_${payDate}.pdf`;
+
+        // Upload to check-stubs bucket
+        const { error: uploadError } = await supabase.storage
+          .from("check-stubs")
+          .upload(filePath, pageBytes, {
+            contentType: "application/pdf",
+            upsert: true,
+          });
+
+        if (uploadError) throw new Error("Upload failed: " + uploadError.message);
+
+        // Insert database record
+        const { error: dbError } = await supabase.from("check_stubs").insert({
+          employee_id: aiResult.employee_id,
+          pay_period_start: aiResult.pay_period_start ?? null,
+          pay_period_end: aiResult.pay_period_end ?? null,
+          pay_date: payDate,
+          file_path: filePath,
+          file_name: `${safeName}_${payDate}.pdf`,
+          uploaded_by: null,
+          ai_confidence: aiResult.confidence ?? 0,
+          ai_raw_name: aiResult.employee_name ?? null,
+        });
+
+        // Ignore duplicate key (already uploaded this period)
+        if (dbError && dbError.code !== "23505") throw new Error("DB insert failed: " + dbError.message);
+
+        results.push({
+          page: pageIndex + 1,
+          employee: empName ?? undefined,
+          employee_id: aiResult.employee_id,
+          pay_date: payDate,
+          success: true,
+        });
+
+      } catch (err: any) {
+        console.error(`Page ${pageIndex + 1} failed:`, err.message);
+        results.push({ page: pageIndex + 1, success: false, error: err.message });
       }
     }
 
-    // Send email notification with results
-    await sendProcessingNotification(from, results, supabase);
+    // ── 7. Send summary email back to CPA ─────────────────────────────────
+    await sendResultEmail(from, results, null, supabase);
+
+    const successCount = results.filter((r) => r.success).length;
+    console.log(`\nDone: ${successCount}/${totalPages} pages processed successfully`);
 
     return new Response(
-      JSON.stringify({ 
-        success: true,
-        message: "Check stubs processed",
-        results 
-      }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      JSON.stringify({ success: true, total: totalPages, processed: successCount, results }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
-  } catch (error) {
-    console.error("Email Processing Error:", error);
+  } catch (err: any) {
+    console.error("Fatal error:", err);
     return new Response(
-      JSON.stringify({ error: error.message }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      JSON.stringify({ error: err.message }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });
 
-// Helper Functions
-
-function convertToISODate(dateStr: string): string {
-  // Convert MM/DD/YYYY to YYYY-MM-DD
-  const [month, day, year] = dateStr.split('/');
-  return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-}
-
-function isCombinedPDF(filename: string): boolean {
-  // If filename doesn't follow "FirstName_LastName_Date.pdf" pattern, assume combined
-  const singleStubPattern = /^[A-Za-z]+_[A-Za-z]+_\d{4}-\d{2}-\d{2}\.pdf$/i;
-  return !singleStubPattern.test(filename);
-}
-
-async function splitCombinedPDF(
-  pdfBytes: Uint8Array,
-  payPeriodStart: string,
-  payPeriodEnd: string,
-  payDate: string,
-  supabase: any
-): Promise<any[]> {
-  // Import PDF library
-  const { PDFDocument } = await import("https://cdn.skypack.dev/pdf-lib@1.17.1");
-  const pdfDoc = await PDFDocument.load(pdfBytes);
-  const totalPages = pdfDoc.getPageCount();
-
-  console.log("Combined PDF has", totalPages, "pages");
-
-  // Get all active employees
-  const { data: employees, error: empError } = await supabase
-    .from("employees")
-    .select("id, first_name, last_name")
-    .eq("archived", false)
-    .order("last_name");
-
-  if (empError) throw empError;
-
-  console.log("Found", employees.length, "active employees");
-
-  const results = [];
-  
-  // Assume 1 page per employee, in alphabetical order by last name
-  for (let i = 0; i < employees.length && i < totalPages; i++) {
-    try {
-      const employee = employees[i];
-      console.log(`Processing page ${i + 1} for ${employee.first_name} ${employee.last_name}`);
-      
-      // Extract single page
-      const newPdf = await PDFDocument.create();
-      const [copiedPage] = await newPdf.copyPages(pdfDoc, [i]);
-      newPdf.addPage(copiedPage);
-      const newPdfBytes = await newPdf.save();
-
-      // Upload to storage
-      const fileName = `${employee.id}_${payPeriodEnd}.pdf`;
-      const filePath = `check-stubs/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("check-stubs")
-        .upload(filePath, newPdfBytes, {
-          contentType: "application/pdf",
-          upsert: true,
-        });
-
-      if (uploadError) throw uploadError;
-
-      // Insert record
-      const { error: dbError } = await supabase.from("check_stubs").insert({
-        employee_id: employee.id,
-        pay_period_start: payPeriodStart,
-        pay_period_end: payPeriodEnd,
-        pay_date: payDate,
-        file_path: filePath,
-        file_name: `${employee.first_name}_${employee.last_name}_${payPeriodEnd}.pdf`,
-        uploaded_by: null, // Email upload
-      });
-
-      if (dbError && dbError.code !== '23505') throw dbError; // Ignore duplicates
-
-      results.push({
-        employee: `${employee.first_name} ${employee.last_name}`,
-        success: true,
-        message: "Check stub uploaded successfully",
-      });
-    } catch (err) {
-      console.error("Error processing employee:", employees[i].first_name, employees[i].last_name, err);
-      results.push({
-        employee: `${employees[i].first_name} ${employees[i].last_name}`,
-        success: false,
-        error: err.message,
-      });
-    }
-  }
-
-  return results;
-}
-
-async function processSingleStub(
-  pdfBytes: Uint8Array,
-  filename: string,
-  payPeriodStart: string,
-  payPeriodEnd: string,
-  payDate: string,
-  supabase: any
-): Promise<any> {
+// ─── Extract text from a PDF page using pure-JS PDF stream parsing ──────────
+// Works in Deno without any native modules (no canvas, no pdfjs-dist).
+// Parses PDF content streams and extracts text from Tj / TJ operators.
+function extractTextFromPDFPage(pdfBytes: Uint8Array): string {
   try {
-    // Parse filename: FirstName_LastName_Date.pdf
-    const match = filename.match(/^([A-Za-z]+)_([A-Za-z]+)_(\d{4}-\d{2}-\d{2})\.pdf$/i);
-    
-    if (!match) {
-      throw new Error("Filename must be in format: FirstName_LastName_YYYY-MM-DD.pdf");
+    // Decode bytes as latin-1 (preserves all byte values)
+    const decoder = new TextDecoder("latin-1");
+    const pdfStr = decoder.decode(pdfBytes);
+
+    const texts: string[] = [];
+
+    // ── Decompress flate streams if present ──────────────────────────────
+    // For now, work on raw PDF text (many payroll PDFs use uncompressed text)
+    // Find all text blocks between BT...ET
+    const btEtRegex = /BT([\s\S]*?)ET/g;
+    let blockMatch: RegExpExecArray | null;
+
+    while ((blockMatch = btEtRegex.exec(pdfStr)) !== null) {
+      const block = blockMatch[1];
+
+      // (text)Tj — single string show
+      const tjRegex = /\(([^)\\]*(?:\\.[^)\\]*)*)\)\s*Tj/g;
+      let m: RegExpExecArray | null;
+      while ((m = tjRegex.exec(block)) !== null) {
+        texts.push(decodePDFString(m[1]));
+      }
+
+      // [(text) num (text)]TJ — array string show
+      const tjArrRegex = /\[([\s\S]*?)\]\s*TJ/g;
+      let arrM: RegExpExecArray | null;
+      while ((arrM = tjArrRegex.exec(block)) !== null) {
+        const innerStr = arrM[1];
+        const strParts = innerStr.match(/\(([^)\\]*(?:\\.[^)\\]*)*)\)/g) || [];
+        strParts.forEach((p) => texts.push(decodePDFString(p.slice(1, -1))));
+      }
     }
 
-    const [, firstName, lastName] = match;
-
-    console.log(`Looking for employee: ${firstName} ${lastName}`);
-
-    // Find employee
-    const { data: employees, error: findError } = await supabase
-      .from("employees")
-      .select("id")
-      .ilike("first_name", firstName)
-      .ilike("last_name", lastName)
-      .limit(1);
-
-    if (findError) throw findError;
-    if (!employees || employees.length === 0) {
-      throw new Error(`Employee not found: ${firstName} ${lastName}`);
+    // Also grab any readable ASCII text from the raw stream (catches unencoded text)
+    if (texts.length === 0) {
+      const asciiMatch = pdfStr.match(/[\x20-\x7E]{4,}/g) || [];
+      const readable = asciiMatch
+        .filter((s) => /[a-zA-Z]{2,}/.test(s))
+        .join(" ");
+      return readable.replace(/\s+/g, " ").trim().substring(0, 4000);
     }
 
-    const employeeId = employees[0].id;
-    const filePath = `check-stubs/${employeeId}_${payPeriodEnd}.pdf`;
-
-    console.log(`Uploading to: ${filePath}`);
-
-    // Upload to storage
-    const { error: uploadError } = await supabase.storage
-      .from("check-stubs")
-      .upload(filePath, pdfBytes, {
-        contentType: "application/pdf",
-        upsert: true,
-      });
-
-    if (uploadError) throw uploadError;
-
-    // Insert record
-    const { error: dbError } = await supabase.from("check_stubs").insert({
-      employee_id: employeeId,
-      pay_period_start: payPeriodStart,
-      pay_period_end: payPeriodEnd,
-      pay_date: payDate,
-      file_path: filePath,
-      file_name: filename,
-      uploaded_by: null,
-    });
-
-    if (dbError && dbError.code !== '23505') throw dbError; // Ignore duplicates
-
-    return {
-      employee: `${firstName} ${lastName}`,
-      success: true,
-      message: "Check stub uploaded successfully",
-    };
-  } catch (err) {
-    console.error("Error processing single stub:", err);
-    return {
-      filename,
-      success: false,
-      error: err.message,
-    };
+    return texts.join(" ").replace(/\s+/g, " ").trim();
+  } catch (err: any) {
+    console.error("PDF text extraction failed:", err.message);
+    return "";
   }
 }
 
-async function sendProcessingNotification(
-  recipientEmail: string,
-  results: any[],
-  supabase: any
-): Promise<void> {
-  const successCount = results.filter(r => r.success).length;
-  const failureCount = results.filter(r => !r.success).length;
+function decodePDFString(raw: string): string {
+  return raw
+    .replace(/\\n/g, " ")
+    .replace(/\\r/g, " ")
+    .replace(/\\t/g, " ")
+    .replace(/\\(\d{3})/g, (_m, oct) => String.fromCharCode(parseInt(oct, 8)))
+    .replace(/\\(.)/g, "$1");
+}
 
-  const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
-  if (!RESEND_API_KEY) {
-    console.log("RESEND_API_KEY not set, skipping notification email");
-    return; // Skip if not configured
-  }
+// ─── Ask GPT-4o to identify the employee from extracted text ─────────────────
+async function identifyEmployeeWithAI(
+  pageText: string,
+  employees: Array<{ id: string; first_name: string; last_name: string }>,
+  pageNum: number
+): Promise<{
+  employee_name?: string | null;
+  matched_employee_name?: string | null;
+  employee_id?: string | null;
+  pay_period_start?: string | null;
+  pay_period_end?: string | null;
+  pay_date?: string | null;
+  confidence?: number;
+  error?: string;
+}> {
+  const openaiKey = Deno.env.get("OPENAI_API_KEY");
+  if (!openaiKey) return { error: "OPENAI_API_KEY not configured" };
 
-  const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Check Stub Processing Results</title>
-</head>
-<body style="font-family: Arial, sans-serif; padding: 20px;">
-  <h2 style="color: #0b3ea8;">Check Stub Processing Complete</h2>
-  
-  <p>Your email has been processed successfully.</p>
-  
-  <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px 0;">
-    <p style="margin: 5px 0;"><strong>✅ Successful:</strong> ${successCount}</p>
-    <p style="margin: 5px 0;"><strong>❌ Failed:</strong> ${failureCount}</p>
-  </div>
+  const employeeListStr = employees
+    .map((e) => `${e.first_name} ${e.last_name}`)
+    .join(", ");
 
-  <h3>Details:</h3>
-  <ul>
-    ${results.map(r => `
-      <li>
-        <strong>${r.employee || r.filename}:</strong> 
-        ${r.success ? '✅ Success' : '❌ ' + r.error}
-      </li>
-    `).join('')}
-  </ul>
+  const prompt = `This is extracted text from page ${pageNum} of a paycheck stub PDF.
 
-  <p style="color: #666; font-size: 12px; margin-top: 30px;">
-    This is an automated notification from DML Electrical Service, LLC
-  </p>
-</body>
-</html>
-  `;
+KNOWN EMPLOYEES: ${employeeListStr}
+
+EXTRACTED TEXT:
+${pageText.substring(0, 3000)}
+
+Return ONLY valid JSON (no markdown, no code block):
+{
+  "employee_name": "exact name as shown on the stub",
+  "matched_employee_name": "closest match from KNOWN EMPLOYEES list, or null",
+  "pay_period_start": "YYYY-MM-DD or null",
+  "pay_period_end": "YYYY-MM-DD or null", 
+  "pay_date": "YYYY-MM-DD or null",
+  "confidence": 0.95
+}
+
+Rules:
+- matched_employee_name MUST be exactly one name from the KNOWN EMPLOYEES list, or null
+- Convert any date format to YYYY-MM-DD
+- pay_date is the check date / date paid
+- confidence is 0.0-1.0 based on how certain you are of the match`;
 
   try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
+    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${openaiKey}`,
       },
       body: JSON.stringify({
-        from: 'reports@dmlelectrical.com',
-        to: [recipientEmail],
-        subject: `Check Stub Processing Results - ${successCount} Successful, ${failureCount} Failed`,
-        html: html,
+        model: "gpt-4o",
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 512,
+        temperature: 0,
       }),
     });
 
-    if (!res.ok) {
-      console.error("Failed to send notification email:", await res.text());
-    } else {
-      console.log("Notification email sent successfully");
+    if (!resp.ok) {
+      const err = await resp.text();
+      return { error: `OpenAI API error: ${err}` };
     }
-  } catch (err) {
-    console.error("Error sending notification:", err);
+
+    const data = await resp.json();
+    const rawText = data.choices?.[0]?.message?.content ?? "";
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return { error: `Could not parse AI response: ${rawText}` };
+
+    const parsed = JSON.parse(jsonMatch[0]);
+
+    // Match to employee ID
+    let matchedEmployee: typeof employees[0] | undefined;
+
+    if (parsed.matched_employee_name) {
+      matchedEmployee = employees.find(
+        (e) =>
+          `${e.first_name} ${e.last_name}`.toLowerCase() ===
+          parsed.matched_employee_name.toLowerCase()
+      );
+    }
+
+    // Fallback: fuzzy match on employee_name
+    if (!matchedEmployee && parsed.employee_name) {
+      const nl = parsed.employee_name.toLowerCase().replace(/[^a-z\s]/g, "");
+      matchedEmployee = employees.find((e) => {
+        const fn = e.first_name.toLowerCase();
+        const ln = e.last_name.toLowerCase();
+        return nl.includes(fn) && nl.includes(ln);
+      });
+    }
+
+    // Last-name-only fallback
+    if (!matchedEmployee && parsed.employee_name) {
+      const parts = parsed.employee_name.toLowerCase().split(/\s+/);
+      matchedEmployee = employees.find((e) =>
+        parts.some((p: string) => p === e.last_name.toLowerCase() && p.length > 2)
+      );
+    }
+
+    return {
+      employee_name: parsed.employee_name ?? null,
+      matched_employee_name: matchedEmployee
+        ? `${matchedEmployee.first_name} ${matchedEmployee.last_name}`
+        : parsed.matched_employee_name ?? null,
+      employee_id: matchedEmployee?.id ?? null,
+      pay_period_start: parsed.pay_period_start ?? null,
+      pay_period_end: parsed.pay_period_end ?? null,
+      pay_date: parsed.pay_date ?? null,
+      confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0,
+    };
+  } catch (err: any) {
+    return { error: `AI parsing failed: ${err.message}` };
   }
+}
+
+// ─── Send result email back to CPA ────────────────────────────────────────────
+async function sendResultEmail(
+  toEmail: string,
+  results: Array<{ page: number; employee?: string; pay_date?: string; success: boolean; error?: string }>,
+  overrideMessage: string | null,
+  supabase: any
+): Promise<void> {
+  const resendKey = Deno.env.get("RESEND_API_KEY");
+  if (!resendKey) { console.log("RESEND_API_KEY not set — skipping result email"); return; }
+
+  const successCount = results.filter((r) => r.success).length;
+  const failCount = results.filter((r) => !r.success).length;
+
+  const rows = results.map((r) =>
+    r.success
+      ? `<tr><td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;">Page ${r.page}</td><td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;">${r.employee}</td><td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;color:#059669">✅ Stored (${r.pay_date})</td></tr>`
+      : `<tr><td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;">Page ${r.page}</td><td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;">—</td><td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;color:#ef4444">❌ ${r.error}</td></tr>`
+  ).join("");
+
+  const html = `
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+  <div style="background:#0b3ea8;padding:20px 24px;border-radius:8px 8px 0 0;">
+    <h2 style="color:#fff;margin:0;font-size:20px;">DML Electrical — Check Stub Processing</h2>
+  </div>
+  <div style="background:#f9fafb;padding:20px 24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px;">
+    ${overrideMessage
+      ? `<p style="color:#ef4444;font-weight:bold;">${overrideMessage}</p>`
+      : `
+    <p style="color:#111;">Your check stubs have been processed and stored.</p>
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:14px;margin-bottom:16px;">
+      <div style="font-size:22px;font-weight:800;color:${successCount > 0 ? "#059669" : "#6b7280"}">
+        ✅ ${successCount} processed &nbsp; ${failCount > 0 ? `<span style="color:#ef4444;">❌ ${failCount} failed</span>` : ""}
+      </div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead>
+        <tr style="background:#f3f4f6;">
+          <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #e5e7eb;">Page</th>
+          <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #e5e7eb;">Employee</th>
+          <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #e5e7eb;">Status</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    `}
+    <p style="color:#9ca3af;font-size:11px;margin-top:20px;">Processed automatically by TradeFlow · DML Electrical Service, LLC</p>
+  </div>
+</div>`;
+
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${resendKey}` },
+      body: JSON.stringify({
+        from: "DML Electrical <noreply@tradeflowllc.com>",
+        to: [toEmail],
+        subject: overrideMessage
+          ? "⚠️ Check Stub Processing Error — DML Electrical"
+          : `✅ Check Stubs Processed: ${successCount}/${results.length} — DML Electrical`,
+        html,
+      }),
+    });
+    if (!res.ok) console.error("Result email failed:", await res.text());
+    else console.log("Result email sent to", toEmail);
+  } catch (err: any) {
+    console.error("sendResultEmail error:", err.message);
+  }
+}
+
+// ─── Base64 → Uint8Array ──────────────────────────────────────────────────────
+function base64ToUint8Array(base64: string): Uint8Array {
+  // Remove data URI prefix if present
+  const clean = base64.replace(/^data:[^;]+;base64,/, "");
+  const binary = atob(clean);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
 }
