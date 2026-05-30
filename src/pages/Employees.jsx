@@ -389,13 +389,21 @@ export default function Employees() {
                   <p style={styles.employeeDetail}>{emp.email}</p>
                   {emp.phone && <p style={styles.employeeDetail}>📱 {emp.phone}</p>}
                   {emp.date_of_birth && <p style={styles.employeeDetail}>🎂 {formatDate(emp.date_of_birth)}</p>}
+                  {emp.role === "contractor" && (
+                    <p style={{fontSize: 13, color: emp.hourly_rate > 0 ? "#d97706" : "#ef4444", margin: "4px 0", fontWeight: 600}}>
+                      {emp.hourly_rate > 0
+                        ? `🔧 $${parseFloat(emp.hourly_rate).toFixed(2)}/hr contractor`
+                        : "⚠️ No hourly rate set — click View Details to add"}
+                    </p>
+                  )}
                   <div style={styles.badges}>
                     <span 
                       style={{
                         ...styles.badge,
                         backgroundColor: 
                           emp.role === "admin" ? "#ef4444" : 
-                          emp.role === "supervisor" ? "#8b5cf6" : 
+                          emp.role === "supervisor" ? "#8b5cf6" :
+                          emp.role === "contractor" ? "#f97316" :
                           "#6b7280",
                         cursor: "pointer",
                       }}
