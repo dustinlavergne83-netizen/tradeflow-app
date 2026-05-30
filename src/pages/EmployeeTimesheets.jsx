@@ -664,6 +664,7 @@ export default function EmployeeTimesheets() {
 
       setPasteModal(null);
       await loadData();
+      alert(`✅ Pasted ${result.insertedCount} segment(s) to ${pasteModal.targetEmpName || targetUid}!`);
     } catch (err) {
       alert("Paste failed: " + err.message);
     } finally {
