@@ -73,16 +73,21 @@ export default function Employees() {
       if (error) throw error;
 
       if (data.error) {
+        setMessage({ type: "error", text: data.error });
+        return;
+      }
+
+      if (data.emailError) {
         setMessage({
           type: "error",
-          text: data.error,
+          text: `⚠️ Employee record created but the invite email failed to send.\n\nResend error: ${data.emailError}\n\nCheck that RESEND_API_KEY is set in Supabase → Edge Functions → Secrets.`,
         });
         return;
       }
 
       setMessage({
         type: "success",
-        text: `Invitation sent to ${email}! They will receive an email with a link to set up their account and complete their profile.`,
+        text: `✅ Invitation sent to ${email}! They will receive an email with a link to set up their account.`,
       });
       
       // Reset form and reload employees
