@@ -639,47 +639,28 @@ export default function EmployeeTimesheets() {
 
   async function pasteTimeToEmployee() {
     if (!pasteModal || !copiedTime) return;
+    if (!pasteModal.targetUid) { alert("Please select an employee first."); return; }
     setPasteSaving(true);
     try {
       const { targetUid } = pasteModal;
       const { day, segs } = copiedTime;
 
-      // Find existing shift for target employee on this day
-      const { data: existingShifts } = await supabase
-        .from("shifts")
-        .select("id")
-        .eq("user_id", targetUid)
-        .gte("clock_in", day + "T00:00:00")
-        .lte("clock_in", day + "T23:59:59")
-        .limit(1);
+      // Get the current session token
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Not authenticated");
 
-      let shiftId;
-      if (existingShifts && existingShifts.length > 0) {
-        shiftId = existingShifts[0].id;
-      } else {
-        const firstSeg = segs[0];
-        const lastSeg = segs[segs.length - 1];
-        const { data: newShift, error: shiftErr } = await supabase
-          .from("shifts")
-          .insert({ user_id: targetUid, clock_in: firstSeg.start_at, clock_out: lastSeg.end_at || null })
-          .select()
-          .single();
-        if (shiftErr) throw shiftErr;
-        shiftId = newShift.id;
-      }
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const resp = await fetch(`${supabaseUrl}/functions/v1/admin-copy-shift`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ targetUid, day, segs }),
+      });
 
-      for (const sourceSeg of segs) {
-        const { error: segErr } = await supabase.from("shift_segments").insert({
-          shift_id: shiftId,
-          user_id: targetUid,
-          start_at: sourceSeg.start_at,
-          end_at: sourceSeg.end_at || null,
-          project_task: sourceSeg.project_task || null,
-          project_id: sourceSeg.project_id || null,
-          is_lunch: sourceSeg.is_lunch || false,
-        });
-        if (segErr) throw segErr;
-      }
+      const result = await resp.json();
+      if (!resp.ok || result?.error) throw new Error(result?.error || `Server error ${resp.status}`);
 
       setPasteModal(null);
       await loadData();
