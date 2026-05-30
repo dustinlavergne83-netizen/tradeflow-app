@@ -135,15 +135,17 @@ export default function Employees() {
         return;
       }
 
-      // Use the RPC function to update role
-      const { error: rpcError } = await supabase.rpc("set_user_role", {
-        target_uid: employee.user_id,
-        new_role: newRole,
-      });
+      // For contractor, skip the auth RPC (contractors use employee-level app access)
+      // Only update the employees table record
+      if (newRole !== "contractor") {
+        const { error: rpcError } = await supabase.rpc("set_user_role", {
+          target_uid: employee.user_id,
+          new_role: newRole,
+        });
+        if (rpcError) throw rpcError;
+      }
 
-      if (rpcError) throw rpcError;
-      
-      // Also update employees table directly
+      // Always update employees table
       const { error: empError } = await supabase
         .from("employees")
         .update({ role: newRole })
