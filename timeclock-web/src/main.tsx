@@ -12,14 +12,17 @@ import "./index.css";
 // so the SetPassword page can pick up the session and show the password form.
 {
   const hash = window.location.hash;
+  // Detect ANY Supabase auth redirect — these always contain access_token in the hash.
+  // Regular logins via the login form do NOT add a hash, so this is safe.
   const isAuthLink =
+    hash.includes("access_token=") ||
     hash.includes("type=invite") ||
     hash.includes("type=magiclink") ||
     hash.includes("type=recovery");
   const alreadyOnSetPassword = window.location.pathname.startsWith("/set-password");
 
   if (isAuthLink && !alreadyOnSetPassword) {
-    // replace() keeps the hash so Supabase can exchange the token on the new page
+    // replace() preserves the hash so Supabase can exchange the token on /set-password
     window.location.replace("/set-password" + hash);
   }
 }
