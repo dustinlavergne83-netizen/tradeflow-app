@@ -11,6 +11,7 @@ import Reports from "./pages/Reports";
 import AIChat from "./pages/AIChat";
 import GPS from "./pages/GPS";
 import DeleteAccount from "./pages/DeleteAccount";
+import SetPassword from "./pages/SetPassword";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -31,6 +32,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/delete-account" element={<DeleteAccount />} />
+      <Route path="/set-password"   element={<SetPassword />} />
       <Route
         path="/"
         element={
