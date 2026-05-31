@@ -17,10 +17,12 @@ Deno.serve(async (req) => {
 
   try {
     // ── 1. Parse Resend webhook (JSON body) ────────────────────────────────
-    // Resend delivers inbound emails as webhook events:
-    // { type: "email.received", data: { from, to, subject, text, html, attachments } }
-    // We also handle the legacy flat format just in case.
     const body = await req.json();
+    // DIAGNOSTIC: log full body structure (excluding large attachment content)
+    const bodyForLog = JSON.parse(JSON.stringify(body, (k, v) =>
+      (k === "content" && typeof v === "string" && v.length > 100) ? `[BASE64 length=${v.length}]` : v
+    ));
+    console.log("FULL BODY:", JSON.stringify(bodyForLog).substring(0, 4000));
 
     // Filter: only process email.received events (not sent/bounced/etc.)
     const eventType: string = body.type ?? "";
@@ -36,7 +38,15 @@ Deno.serve(async (req) => {
 
     const from: string = emailData.from ?? "";
     const subject: string = emailData.subject ?? "";
-    const emailId: string = emailData.id ?? body.id ?? "";   // needed to download attachments
+    // Log all keys so we can find the email ID field
+    console.log("body keys:", Object.keys(body).join(", "));
+    console.log("emailData keys:", Object.keys(emailData).join(", "));
+    // Resend may use 'id', 'email_id', or put it at the root body level
+    const emailId: string =
+      emailData.id ?? emailData.email_id ??
+      body.id ?? body.email_id ??
+      body.created_at ?? "";  // fallback — we'll see from logs what's available
+    console.log("emailId resolved to:", emailId);
     const textBody: string = emailData.text ?? emailData.html ?? "";
 
     // Filter: only process emails to paystubs@dmlelectrical.com
