@@ -126,14 +126,28 @@ Deno.serve(async (req) => {
 
       console.log(`Downloading attachment via Resend API — emailId: ${emailId}, attachmentId: ${attachmentId}`);
 
-      const dlResp = await fetch(
+      // Try several possible Resend inbound attachment endpoints
+      const urlsToTry = [
+        `https://api.resend.com/inbound/emails/${emailId}/attachments/${attachmentId}`,
         `https://api.resend.com/emails/${emailId}/attachments/${attachmentId}`,
-        { headers: { "Authorization": `Bearer ${resendKey}` } }
-      );
+        `https://api.resend.com/attachments/${attachmentId}`,
+      ];
 
-      if (!dlResp.ok) {
-        const errText = await dlResp.text();
-        const msg = `Resend attachment download failed (${dlResp.status}): ${errText}`;
+      let dlResp: Response | null = null;
+      for (const url of urlsToTry) {
+        console.log("Trying download URL:", url);
+        const r = await fetch(url, { headers: { "Authorization": `Bearer ${resendKey}` } });
+        console.log(`  → ${r.status}`);
+        if (r.ok) { dlResp = r; break; }
+        // Drain body so connection can be reused
+        await r.text();
+      }
+
+      if (!dlResp) {
+        // None of the Resend download URLs worked — Resend doesn't support
+        // inbound attachment downloads yet. Guide admin to use the portal upload.
+        const msg = `Resend does not provide inbound attachment content via API. ` +
+          `Please upload the PDF directly via the TradeFlow admin portal instead.`;
         console.error(msg);
         await sendResultEmail(from, [], msg, supabase);
         return new Response(JSON.stringify({ error: msg }), {
