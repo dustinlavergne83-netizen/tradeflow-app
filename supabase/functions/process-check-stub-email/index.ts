@@ -16,168 +16,146 @@ Deno.serve(async (req) => {
   );
 
   try {
-    // ── 1. Parse Resend webhook (JSON body) ────────────────────────────────
-    const body = await req.json();
-    // DIAGNOSTIC: log full body structure (excluding large attachment content)
-    const bodyForLog = JSON.parse(JSON.stringify(body, (k, v) =>
-      (k === "content" && typeof v === "string" && v.length > 100) ? `[BASE64 length=${v.length}]` : v
-    ));
-    console.log("FULL BODY:", JSON.stringify(bodyForLog).substring(0, 4000));
+    const contentType = req.headers.get("content-type") ?? "";
+    console.log("Incoming request content-type:", contentType);
 
-    // Filter: only process email.received events (not sent/bounced/etc.)
-    const eventType: string = body.type ?? "";
-    if (eventType && eventType !== "email.received") {
-      console.log("Ignoring non-inbound event:", eventType);
-      return new Response(JSON.stringify({ ignored: true, type: eventType }), {
-        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Support both wrapped { type, data: {...} } and flat { from, subject, ... }
-    const emailData = (body.data && typeof body.data === "object") ? body.data : body;
-
-    const from: string = emailData.from ?? "";
-    const subject: string = emailData.subject ?? "";
-    // Log all keys so we can find the email ID field
-    console.log("body keys:", Object.keys(body).join(", "));
-    console.log("emailData keys:", Object.keys(emailData).join(", "));
-    // Resend may use 'id', 'email_id', or put it at the root body level
-    const emailId: string =
-      emailData.id ?? emailData.email_id ??
-      body.id ?? body.email_id ??
-      body.created_at ?? "";  // fallback — we'll see from logs what's available
-    console.log("emailId resolved to:", emailId);
-    const textBody: string = emailData.text ?? emailData.html ?? "";
-
-    // Filter: only process emails to paystubs@dmlelectrical.com
-    const toAddresses: string[] = Array.isArray(emailData.to)
-      ? emailData.to
-      : typeof emailData.to === "string"
-        ? [emailData.to]
-        : [];
-    const isPaystubs = toAddresses.some(
-      (addr: string) => {
-        const a = addr.toLowerCase();
-        return a.includes("paystubs@stubs.dmlelectrical.com") ||
-               a.includes("paystubs@dmlelectrical.com");
-      }
-    );
-    if (!isPaystubs && toAddresses.length > 0) {
-      console.log("Ignoring email not addressed to paystubs@stubs.dmlelectrical.com. To:", toAddresses);
-      return new Response(JSON.stringify({ ignored: true, to: toAddresses }), {
-        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    console.log("Inbound email from:", from, "To:", toAddresses, "Subject:", subject);
-
-    // ── 2. Find PDF attachment ─────────────────────────────────────────────
-    const attachments: Array<{ filename: string; content: string; contentType: string }> =
-      emailData.attachments ?? [];
-
-    const pdfAttachment = attachments.find(
-      (a) => a.contentType?.includes("pdf") || a.filename?.toLowerCase().endsWith(".pdf")
-    );
-
-    if (!pdfAttachment) {
-      console.error("No PDF attachment found in email");
-      await sendResultEmail(from, [], "No PDF attachment found in the email.", supabase);
-      return new Response(JSON.stringify({ error: "No PDF attachment found" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Log all keys so we can see exactly what Resend sends
-    const attKeys = Object.keys(pdfAttachment);
-    console.log("Attachment keys:", attKeys.join(", "));
-    console.log("Found PDF attachment:", pdfAttachment.filename,
-      "content_type:", (pdfAttachment as any).content_type ?? pdfAttachment.contentType,
-      "size:", (pdfAttachment as any).size,
-      "content length:", pdfAttachment.content?.length ?? (pdfAttachment as any).data?.length ?? "MISSING"
-    );
-
-    // ── 3. Get PDF bytes ───────────────────────────────────────────────────
-    // Resend strips attachment content from inbound webhooks.
-    // Must download via Resend API: GET /emails/{emailId}/attachments/{attachmentId}
+    let from = "";
     let pdfBytes: Uint8Array;
 
-    const inlineContent: string =
-      pdfAttachment.content ??
-      (pdfAttachment as any).data ??
-      (pdfAttachment as any).body ??
-      (pdfAttachment as any).content_base64 ?? "";
+    // ── 1a. Mailgun inbound (multipart/form-data) ──────────────────────────
+    // Mailgun sends the full attachment content inline in multipart form data.
+    if (contentType.includes("multipart/form-data")) {
+      console.log("Parsing Mailgun multipart webhook...");
+      const form = await req.formData();
 
-    if (inlineContent) {
-      console.log("Using inline attachment content, length:", inlineContent.length);
-      pdfBytes = base64ToUint8Array(inlineContent);
+      from = (form.get("from") as string) ?? "";
+      const to = (form.get("recipient") as string) ?? (form.get("To") as string) ?? "";
+      const subject = (form.get("subject") as string) ?? (form.get("Subject") as string) ?? "";
+      const attachmentCount = parseInt((form.get("attachment-count") as string) ?? "0", 10);
+
+      console.log("Mailgun email from:", from, "to:", to, "subject:", subject, "attachments:", attachmentCount);
+
+      // Filter: only process emails to paystubs address
+      const toAddresses = [to].filter(Boolean);
+      const isPaystubs = toAddresses.some((addr) => {
+        const a = addr.toLowerCase();
+        return a.includes("paystubs@stubs.dmlelectrical.com") || a.includes("paystubs@dmlelectrical.com");
+      });
+      if (!isPaystubs) {
+        console.log("Ignoring — not addressed to paystubs:", toAddresses);
+        return new Response(JSON.stringify({ ignored: true }), {
+          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Find PDF attachment — Mailgun uses attachment-1, attachment-2, ...
+      let pdfFile: File | null = null;
+      for (let i = 1; i <= Math.max(attachmentCount, 5); i++) {
+        const file = form.get(`attachment-${i}`) as File | null;
+        if (!file) continue;
+        if (file.type?.includes("pdf") || file.name?.toLowerCase().endsWith(".pdf")) {
+          pdfFile = file;
+          console.log("Found PDF via Mailgun attachment:", file.name, "size:", file.size);
+          break;
+        }
+      }
+
+      if (!pdfFile) {
+        const msg = "No PDF attachment found in Mailgun email";
+        console.error(msg);
+        await sendResultEmail(from, [], msg, supabase);
+        return new Response(JSON.stringify({ error: msg }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const buf = await pdfFile.arrayBuffer();
+      pdfBytes = new Uint8Array(buf);
+      console.log("Mailgun PDF bytes:", pdfBytes.length);
+
+    // ── 1b. Resend inbound (JSON) ─────────────────────────────────────────
     } else {
-      // Download from Resend API
-      const attachmentId: string = (pdfAttachment as any).id ?? "";
-      const resendKey = Deno.env.get("RESEND_API_KEY") ?? "";
+      const body = await req.json();
+      const eventType: string = body.type ?? "";
+      if (eventType && eventType !== "email.received") {
+        console.log("Ignoring non-inbound event:", eventType);
+        return new Response(JSON.stringify({ ignored: true, type: eventType }), {
+          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
-      if (!attachmentId || !emailId) {
-        const msg = `Cannot download attachment — emailId: "${emailId}", attachmentId: "${attachmentId}"`;
-        console.error(msg);
-        await sendResultEmail(from, [], msg, supabase);
-        return new Response(JSON.stringify({ error: msg }), {
+      const emailData = (body.data && typeof body.data === "object") ? body.data : body;
+      from = emailData.from ?? "";
+      const subject: string = emailData.subject ?? "";
+      const emailId: string = emailData.email_id ?? emailData.id ?? body.email_id ?? body.id ?? "";
+
+      const toAddresses: string[] = Array.isArray(emailData.to) ? emailData.to
+        : typeof emailData.to === "string" ? [emailData.to] : [];
+      const isPaystubs = toAddresses.some((addr: string) => {
+        const a = addr.toLowerCase();
+        return a.includes("paystubs@stubs.dmlelectrical.com") || a.includes("paystubs@dmlelectrical.com");
+      });
+      if (!isPaystubs && toAddresses.length > 0) {
+        console.log("Ignoring — not addressed to paystubs:", toAddresses);
+        return new Response(JSON.stringify({ ignored: true }), {
+          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      console.log("Resend inbound from:", from, "subject:", subject, "emailId:", emailId);
+
+      const attachments: any[] = emailData.attachments ?? [];
+      const pdfAttachment = attachments.find(
+        (a: any) => (a.content_type ?? a.contentType ?? "").includes("pdf") ||
+          a.filename?.toLowerCase().endsWith(".pdf")
+      );
+
+      if (!pdfAttachment) {
+        console.error("No PDF attachment in Resend email. attachments:", attachments.length);
+        await sendResultEmail(from, [], "No PDF attachment found in the email.", supabase);
+        return new Response(JSON.stringify({ error: "No PDF attachment" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      console.log(`Downloading attachment via Resend API — emailId: ${emailId}, attachmentId: ${attachmentId}`);
+      const attId: string = pdfAttachment.id ?? "";
+      console.log("Attachment:", pdfAttachment.filename, "id:", attId, "emailId:", emailId);
 
-      // Try several possible Resend inbound attachment endpoints
-      const urlsToTry = [
-        `https://api.resend.com/inbound/emails/${emailId}/attachments/${attachmentId}`,
-        `https://api.resend.com/emails/${emailId}/attachments/${attachmentId}`,
-        `https://api.resend.com/attachments/${attachmentId}`,
-      ];
-
-      let dlResp: Response | null = null;
-      for (const url of urlsToTry) {
-        console.log("Trying download URL:", url);
-        const r = await fetch(url, { headers: { "Authorization": `Bearer ${resendKey}` } });
-        console.log(`  → ${r.status}`);
-        if (r.ok) { dlResp = r; break; }
-        // Drain body so connection can be reused
-        await r.text();
-      }
-
-      if (!dlResp) {
-        // None of the Resend download URLs worked — Resend doesn't support
-        // inbound attachment downloads yet. Guide admin to use the portal upload.
-        const msg = `Resend does not provide inbound attachment content via API. ` +
-          `Please upload the PDF directly via the TradeFlow admin portal instead.`;
-        console.error(msg);
-        await sendResultEmail(from, [], msg, supabase);
-        return new Response(JSON.stringify({ error: msg }), {
-          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      const contentType = dlResp.headers.get("content-type") ?? "";
-      console.log("Download response content-type:", contentType);
-
-      if (contentType.includes("application/json")) {
-        // Resend might return base64 JSON
-        const json = await dlResp.json();
-        const b64 = json.content ?? json.data ?? json.body ?? "";
-        if (!b64) {
-          const msg = `Resend returned JSON but no content field. Keys: ${Object.keys(json).join(", ")}`;
+      // Try to get inline content first, then download from API
+      const inlineB64: string = pdfAttachment.content ?? pdfAttachment.data ?? "";
+      if (inlineB64) {
+        pdfBytes = base64ToUint8Array(inlineB64);
+        console.log("Using inline content, bytes:", pdfBytes.length);
+      } else {
+        const resendKey = Deno.env.get("RESEND_API_KEY") ?? "";
+        const urlsToTry = [
+          `https://api.resend.com/inbound/emails/${emailId}/attachments/${attId}`,
+          `https://api.resend.com/emails/${emailId}/attachments/${attId}`,
+        ];
+        let dlResp: Response | null = null;
+        for (const url of urlsToTry) {
+          const r = await fetch(url, { headers: { "Authorization": `Bearer ${resendKey}` } });
+          console.log("Trying", url, "→", r.status);
+          if (r.ok) { dlResp = r; break; }
+          await r.text();
+        }
+        if (!dlResp) {
+          const msg = "Cannot retrieve PDF content from Resend. Switch to Mailgun inbound or use manual upload.";
           console.error(msg);
           await sendResultEmail(from, [], msg, supabase);
           return new Response(JSON.stringify({ error: msg }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        pdfBytes = base64ToUint8Array(b64);
-      } else {
-        // Binary response — convert ArrayBuffer directly
-        const buffer = await dlResp.arrayBuffer();
-        pdfBytes = new Uint8Array(buffer);
+        const dlCT = dlResp.headers.get("content-type") ?? "";
+        if (dlCT.includes("application/json")) {
+          const j = await dlResp.json();
+          pdfBytes = base64ToUint8Array(j.content ?? j.data ?? "");
+        } else {
+          pdfBytes = new Uint8Array(await dlResp.arrayBuffer());
+        }
+        console.log("Downloaded PDF bytes:", pdfBytes.length);
       }
-
-      console.log("Downloaded PDF bytes:", pdfBytes.length);
     }
 
     // ── 4. Get employee list ───────────────────────────────────────────────
