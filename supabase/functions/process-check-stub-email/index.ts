@@ -45,10 +45,14 @@ Deno.serve(async (req) => {
         ? [emailData.to]
         : [];
     const isPaystubs = toAddresses.some(
-      (addr: string) => addr.toLowerCase().includes("paystubs@dmlelectrical.com")
+      (addr: string) => {
+        const a = addr.toLowerCase();
+        return a.includes("paystubs@stubs.dmlelectrical.com") ||
+               a.includes("paystubs@dmlelectrical.com");
+      }
     );
     if (!isPaystubs && toAddresses.length > 0) {
-      console.log("Ignoring email not addressed to paystubs@dmlelectrical.com. To:", toAddresses);
+      console.log("Ignoring email not addressed to paystubs@stubs.dmlelectrical.com. To:", toAddresses);
       return new Response(JSON.stringify({ ignored: true, to: toAddresses }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

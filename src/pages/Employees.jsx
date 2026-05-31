@@ -475,6 +475,20 @@ export default function Employees() {
                   >
                     👁️ View Details
                   </button>
+                  <button
+                    onClick={() => {
+                      setSelectedEmployee(emp);
+                      setActiveModalTab("paystubs");
+                      setShowDetailsModal(true);
+                      loadPayStubs(emp.id);
+                    }}
+                    style={{
+                      ...styles.actionButton,
+                      backgroundColor: "#059669",
+                    }}
+                  >
+                    💵 Pay Stubs
+                  </button>
                   {!showArchived && (
                     <>
                       <button
@@ -570,7 +584,7 @@ export default function Employees() {
                       <div style={{ textAlign: "center", padding: 40, backgroundColor: "#f9fafb", borderRadius: 8, border: "2px dashed #e5e7eb" }}>
                         <div style={{ fontSize: 40, marginBottom: 12 }}>📭</div>
                         <div style={{ fontWeight: 700, color: "#374151", marginBottom: 6 }}>No pay stubs yet</div>
-                        <div style={{ fontSize: 13, color: "#9ca3af" }}>Pay stubs will appear here automatically when your CPA emails them to <strong>paystubs@dmlelectrical.com</strong></div>
+                        <div style={{ fontSize: 13, color: "#9ca3af" }}>Pay stubs will appear here automatically when your CPA emails them to <strong>paystubs@stubs.dmlelectrical.com</strong></div>
                       </div>
                     ) : (
                       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
