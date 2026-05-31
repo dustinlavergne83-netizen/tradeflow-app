@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
       : []
 
     const emailPayload: Record<string, unknown> = {
-      from: 'DML Electrical Service <noreply@tradeflowllc.com>',
+      from: 'DML Electrical Service <noreply@dmlelectrical.com>',
       reply_to: 'dustin@dmlelectrical.com',
       to: [toAddress],
       ...(ccArray.length > 0 ? { cc: ccArray } : {}),

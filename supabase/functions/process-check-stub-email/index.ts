@@ -399,7 +399,7 @@ async function sendResultEmail(
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${resendKey}` },
       body: JSON.stringify({
-        from: "DML Electrical <noreply@tradeflowllc.com>",
+        from: "DML Electrical Service <noreply@dmlelectrical.com>",
         to: [toEmail],
         subject: overrideMessage
           ? "⚠️ Check Stub Processing Error — DML Electrical"
