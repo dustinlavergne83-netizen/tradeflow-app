@@ -76,10 +76,32 @@ Deno.serve(async (req) => {
       });
     }
 
-    console.log("Found PDF attachment:", pdfAttachment.filename, "size:", pdfAttachment.content?.length);
+    // Log all keys so we can see exactly what Resend sends
+    const attKeys = Object.keys(pdfAttachment);
+    console.log("Attachment keys:", attKeys.join(", "));
+    console.log("Found PDF attachment:", pdfAttachment.filename,
+      "content_type:", (pdfAttachment as any).content_type ?? pdfAttachment.contentType,
+      "size:", (pdfAttachment as any).size,
+      "content length:", pdfAttachment.content?.length ?? (pdfAttachment as any).data?.length ?? "MISSING"
+    );
 
     // ── 3. Decode base64 PDF ───────────────────────────────────────────────
-    const pdfBase64 = pdfAttachment.content;
+    // Resend may use 'content', 'data', or 'body' for attachment bytes
+    const pdfBase64: string =
+      pdfAttachment.content ??
+      (pdfAttachment as any).data ??
+      (pdfAttachment as any).body ??
+      (pdfAttachment as any).content_base64 ?? "";
+
+    if (!pdfBase64) {
+      const availKeys = Object.keys(pdfAttachment).join(", ");
+      console.error("Attachment content missing. Available keys:", availKeys);
+      await sendResultEmail(from, [], `PDF attachment found (${pdfAttachment.filename}) but content was empty. Available keys: ${availKeys}`, supabase);
+      return new Response(JSON.stringify({ error: "Attachment content missing", keys: availKeys }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const pdfBytes = base64ToUint8Array(pdfBase64);
 
     // ── 4. Get employee list ───────────────────────────────────────────────
