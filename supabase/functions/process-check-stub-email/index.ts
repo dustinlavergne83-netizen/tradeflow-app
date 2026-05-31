@@ -36,6 +36,7 @@ Deno.serve(async (req) => {
 
     const from: string = emailData.from ?? "";
     const subject: string = emailData.subject ?? "";
+    const emailId: string = emailData.id ?? body.id ?? "";   // needed to download attachments
     const textBody: string = emailData.text ?? emailData.html ?? "";
 
     // Filter: only process emails to paystubs@dmlelectrical.com
@@ -85,24 +86,75 @@ Deno.serve(async (req) => {
       "content length:", pdfAttachment.content?.length ?? (pdfAttachment as any).data?.length ?? "MISSING"
     );
 
-    // ── 3. Decode base64 PDF ───────────────────────────────────────────────
-    // Resend may use 'content', 'data', or 'body' for attachment bytes
-    const pdfBase64: string =
+    // ── 3. Get PDF bytes ───────────────────────────────────────────────────
+    // Resend strips attachment content from inbound webhooks.
+    // Must download via Resend API: GET /emails/{emailId}/attachments/{attachmentId}
+    let pdfBytes: Uint8Array;
+
+    const inlineContent: string =
       pdfAttachment.content ??
       (pdfAttachment as any).data ??
       (pdfAttachment as any).body ??
       (pdfAttachment as any).content_base64 ?? "";
 
-    if (!pdfBase64) {
-      const availKeys = Object.keys(pdfAttachment).join(", ");
-      console.error("Attachment content missing. Available keys:", availKeys);
-      await sendResultEmail(from, [], `PDF attachment found (${pdfAttachment.filename}) but content was empty. Available keys: ${availKeys}`, supabase);
-      return new Response(JSON.stringify({ error: "Attachment content missing", keys: availKeys }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    if (inlineContent) {
+      console.log("Using inline attachment content, length:", inlineContent.length);
+      pdfBytes = base64ToUint8Array(inlineContent);
+    } else {
+      // Download from Resend API
+      const attachmentId: string = (pdfAttachment as any).id ?? "";
+      const resendKey = Deno.env.get("RESEND_API_KEY") ?? "";
 
-    const pdfBytes = base64ToUint8Array(pdfBase64);
+      if (!attachmentId || !emailId) {
+        const msg = `Cannot download attachment — emailId: "${emailId}", attachmentId: "${attachmentId}"`;
+        console.error(msg);
+        await sendResultEmail(from, [], msg, supabase);
+        return new Response(JSON.stringify({ error: msg }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      console.log(`Downloading attachment via Resend API — emailId: ${emailId}, attachmentId: ${attachmentId}`);
+
+      const dlResp = await fetch(
+        `https://api.resend.com/emails/${emailId}/attachments/${attachmentId}`,
+        { headers: { "Authorization": `Bearer ${resendKey}` } }
+      );
+
+      if (!dlResp.ok) {
+        const errText = await dlResp.text();
+        const msg = `Resend attachment download failed (${dlResp.status}): ${errText}`;
+        console.error(msg);
+        await sendResultEmail(from, [], msg, supabase);
+        return new Response(JSON.stringify({ error: msg }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const contentType = dlResp.headers.get("content-type") ?? "";
+      console.log("Download response content-type:", contentType);
+
+      if (contentType.includes("application/json")) {
+        // Resend might return base64 JSON
+        const json = await dlResp.json();
+        const b64 = json.content ?? json.data ?? json.body ?? "";
+        if (!b64) {
+          const msg = `Resend returned JSON but no content field. Keys: ${Object.keys(json).join(", ")}`;
+          console.error(msg);
+          await sendResultEmail(from, [], msg, supabase);
+          return new Response(JSON.stringify({ error: msg }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        pdfBytes = base64ToUint8Array(b64);
+      } else {
+        // Binary response — convert ArrayBuffer directly
+        const buffer = await dlResp.arrayBuffer();
+        pdfBytes = new Uint8Array(buffer);
+      }
+
+      console.log("Downloaded PDF bytes:", pdfBytes.length);
+    }
 
     // ── 4. Get employee list ───────────────────────────────────────────────
     const { data: employees, error: empError } = await supabase
