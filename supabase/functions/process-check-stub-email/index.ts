@@ -73,89 +73,95 @@ Deno.serve(async (req) => {
       pdfBytes = new Uint8Array(buf);
       console.log("Mailgun PDF bytes:", pdfBytes.length);
 
-    // ── 1b. Resend inbound (JSON) ─────────────────────────────────────────
+    // ── 1b. Postmark inbound (JSON with Attachments array, capital keys) ──
+    // ── 1c. Resend inbound (JSON with data.attachments, lowercase keys) ───
     } else {
       const body = await req.json();
-      const eventType: string = body.type ?? "";
-      if (eventType && eventType !== "email.received") {
-        console.log("Ignoring non-inbound event:", eventType);
-        return new Response(JSON.stringify({ ignored: true, type: eventType }), {
-          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
 
-      const emailData = (body.data && typeof body.data === "object") ? body.data : body;
-      from = emailData.from ?? "";
-      const subject: string = emailData.subject ?? "";
-      const emailId: string = emailData.email_id ?? emailData.id ?? body.email_id ?? body.id ?? "";
+      // Detect Postmark: has "MailboxHash" or "Attachments" (capital A) at root
+      const isPostmark = body.MailboxHash !== undefined || Array.isArray(body.Attachments);
 
-      const toAddresses: string[] = Array.isArray(emailData.to) ? emailData.to
-        : typeof emailData.to === "string" ? [emailData.to] : [];
-      const isPaystubs = toAddresses.some((addr: string) => {
-        const a = addr.toLowerCase();
-        return a.includes("paystubs@stubs.dmlelectrical.com") || a.includes("paystubs@dmlelectrical.com");
-      });
-      if (!isPaystubs && toAddresses.length > 0) {
-        console.log("Ignoring — not addressed to paystubs:", toAddresses);
-        return new Response(JSON.stringify({ ignored: true }), {
-          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
+      if (isPostmark) {
+        // ── Postmark format ───────────────────────────────────────────────
+        from = body.From ?? body.from ?? "";
+        const toRaw: string = body.To ?? body.to ?? body.OriginalRecipient ?? "";
+        const subject: string = body.Subject ?? body.subject ?? "";
+        console.log("Postmark inbound from:", from, "to:", toRaw, "subject:", subject);
 
-      console.log("Resend inbound from:", from, "subject:", subject, "emailId:", emailId);
-
-      const attachments: any[] = emailData.attachments ?? [];
-      const pdfAttachment = attachments.find(
-        (a: any) => (a.content_type ?? a.contentType ?? "").includes("pdf") ||
-          a.filename?.toLowerCase().endsWith(".pdf")
-      );
-
-      if (!pdfAttachment) {
-        console.error("No PDF attachment in Resend email. attachments:", attachments.length);
-        await sendResultEmail(from, [], "No PDF attachment found in the email.", supabase);
-        return new Response(JSON.stringify({ error: "No PDF attachment" }), {
-          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      const attId: string = pdfAttachment.id ?? "";
-      console.log("Attachment:", pdfAttachment.filename, "id:", attId, "emailId:", emailId);
-
-      // Try to get inline content first, then download from API
-      const inlineB64: string = pdfAttachment.content ?? pdfAttachment.data ?? "";
-      if (inlineB64) {
-        pdfBytes = base64ToUint8Array(inlineB64);
-        console.log("Using inline content, bytes:", pdfBytes.length);
-      } else {
-        const resendKey = Deno.env.get("RESEND_API_KEY") ?? "";
-        const urlsToTry = [
-          `https://api.resend.com/inbound/emails/${emailId}/attachments/${attId}`,
-          `https://api.resend.com/emails/${emailId}/attachments/${attId}`,
-        ];
-        let dlResp: Response | null = null;
-        for (const url of urlsToTry) {
-          const r = await fetch(url, { headers: { "Authorization": `Bearer ${resendKey}` } });
-          console.log("Trying", url, "→", r.status);
-          if (r.ok) { dlResp = r; break; }
-          await r.text();
+        const isPaystubs = toRaw.toLowerCase().includes("paystubs");
+        if (!isPaystubs) {
+          console.log("Ignoring Postmark — not paystubs address:", toRaw);
+          return new Response(JSON.stringify({ ignored: true }), {
+            status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         }
-        if (!dlResp) {
-          const msg = "Cannot retrieve PDF content from Resend. Switch to Mailgun inbound or use manual upload.";
-          console.error(msg);
+
+        const attachments: any[] = body.Attachments ?? [];
+        const pdfAtt = attachments.find(
+          (a: any) => (a.ContentType ?? "").toLowerCase().includes("pdf") ||
+            (a.Name ?? "").toLowerCase().endsWith(".pdf")
+        );
+        if (!pdfAtt) {
+          const msg = "No PDF attachment found in Postmark email";
+          console.error(msg, "attachment count:", attachments.length);
           await sendResultEmail(from, [], msg, supabase);
-          // Return 200 so Resend stops retrying (retries happen on 4xx/5xx)
           return new Response(JSON.stringify({ error: msg }), {
             status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        const dlCT = dlResp.headers.get("content-type") ?? "";
-        if (dlCT.includes("application/json")) {
-          const j = await dlResp.json();
-          pdfBytes = base64ToUint8Array(j.content ?? j.data ?? "");
-        } else {
-          pdfBytes = new Uint8Array(await dlResp.arrayBuffer());
+
+        console.log("Postmark PDF:", pdfAtt.Name, "size:", pdfAtt.ContentLength);
+        pdfBytes = base64ToUint8Array(pdfAtt.Content ?? "");
+        console.log("Postmark PDF bytes:", pdfBytes.length);
+
+      } else {
+        // ── Resend format ─────────────────────────────────────────────────
+        const eventType: string = body.type ?? "";
+        if (eventType && eventType !== "email.received") {
+          console.log("Ignoring non-inbound event:", eventType);
+          return new Response(JSON.stringify({ ignored: true, type: eventType }), {
+            status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         }
-        console.log("Downloaded PDF bytes:", pdfBytes.length);
+
+        const emailData = (body.data && typeof body.data === "object") ? body.data : body;
+        from = emailData.from ?? "";
+        const emailId: string = emailData.email_id ?? emailData.id ?? body.email_id ?? body.id ?? "";
+        const toAddresses: string[] = Array.isArray(emailData.to) ? emailData.to
+          : typeof emailData.to === "string" ? [emailData.to] : [];
+        const isPaystubs = toAddresses.some((addr: string) => addr.toLowerCase().includes("paystubs"));
+        if (!isPaystubs && toAddresses.length > 0) {
+          console.log("Ignoring Resend — not paystubs:", toAddresses);
+          return new Response(JSON.stringify({ ignored: true }), {
+            status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        console.log("Resend inbound from:", from, "emailId:", emailId);
+
+        const attachments: any[] = emailData.attachments ?? [];
+        const pdfAtt = attachments.find(
+          (a: any) => (a.content_type ?? a.contentType ?? "").includes("pdf") ||
+            (a.filename ?? "").toLowerCase().endsWith(".pdf")
+        );
+        if (!pdfAtt) {
+          await sendResultEmail(from, [], "No PDF attachment found in the email.", supabase);
+          return new Response(JSON.stringify({ error: "No PDF attachment" }), {
+            status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const inlineB64: string = pdfAtt.content ?? pdfAtt.data ?? "";
+        if (inlineB64) {
+          pdfBytes = base64ToUint8Array(inlineB64);
+        } else {
+          const msg = "Resend does not provide attachment content. Use Postmark inbound instead.";
+          console.error(msg);
+          await sendResultEmail(from, [], msg, supabase);
+          return new Response(JSON.stringify({ error: msg }), {
+            status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        console.log("Resend inline PDF bytes:", pdfBytes.length);
       }
     }
 
