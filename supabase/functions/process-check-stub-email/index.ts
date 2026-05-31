@@ -143,8 +143,9 @@ Deno.serve(async (req) => {
           const msg = "Cannot retrieve PDF content from Resend. Switch to Mailgun inbound or use manual upload.";
           console.error(msg);
           await sendResultEmail(from, [], msg, supabase);
+          // Return 200 so Resend stops retrying (retries happen on 4xx/5xx)
           return new Response(JSON.stringify({ error: msg }), {
-            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
         const dlCT = dlResp.headers.get("content-type") ?? "";
