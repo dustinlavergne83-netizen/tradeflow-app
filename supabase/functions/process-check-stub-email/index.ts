@@ -16,17 +16,49 @@ Deno.serve(async (req) => {
   );
 
   try {
-    // ── 1. Parse Resend inbound webhook (JSON body) ────────────────────────
+    // ── 1. Parse Resend webhook (JSON body) ────────────────────────────────
+    // Resend delivers inbound emails as webhook events:
+    // { type: "email.received", data: { from, to, subject, text, html, attachments } }
+    // We also handle the legacy flat format just in case.
     const body = await req.json();
-    const from: string = body.from ?? "";
-    const subject: string = body.subject ?? "";
-    const textBody: string = body.text ?? body.html ?? "";
 
-    console.log("Inbound email from:", from, "Subject:", subject);
+    // Filter: only process email.received events (not sent/bounced/etc.)
+    const eventType: string = body.type ?? "";
+    if (eventType && eventType !== "email.received") {
+      console.log("Ignoring non-inbound event:", eventType);
+      return new Response(JSON.stringify({ ignored: true, type: eventType }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Support both wrapped { type, data: {...} } and flat { from, subject, ... }
+    const emailData = (body.data && typeof body.data === "object") ? body.data : body;
+
+    const from: string = emailData.from ?? "";
+    const subject: string = emailData.subject ?? "";
+    const textBody: string = emailData.text ?? emailData.html ?? "";
+
+    // Filter: only process emails to paystubs@dmlelectrical.com
+    const toAddresses: string[] = Array.isArray(emailData.to)
+      ? emailData.to
+      : typeof emailData.to === "string"
+        ? [emailData.to]
+        : [];
+    const isPaystubs = toAddresses.some(
+      (addr: string) => addr.toLowerCase().includes("paystubs@dmlelectrical.com")
+    );
+    if (!isPaystubs && toAddresses.length > 0) {
+      console.log("Ignoring email not addressed to paystubs@dmlelectrical.com. To:", toAddresses);
+      return new Response(JSON.stringify({ ignored: true, to: toAddresses }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    console.log("Inbound email from:", from, "To:", toAddresses, "Subject:", subject);
 
     // ── 2. Find PDF attachment ─────────────────────────────────────────────
     const attachments: Array<{ filename: string; content: string; contentType: string }> =
-      body.attachments ?? [];
+      emailData.attachments ?? [];
 
     const pdfAttachment = attachments.find(
       (a) => a.contentType?.includes("pdf") || a.filename?.toLowerCase().endsWith(".pdf")
