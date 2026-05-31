@@ -168,6 +168,10 @@ Deno.serve(async (req) => {
         // Ignore duplicate key (already uploaded this period)
         if (dbError && dbError.code !== "23505") throw new Error("DB insert failed: " + dbError.message);
 
+        // Send push notification to employee (non-blocking — never fail the upload)
+        sendPayStubPushNotification(supabase, aiResult.employee_id, empName ?? "Employee", payDate)
+          .catch((e) => console.warn("Push notification failed (non-fatal):", e.message));
+
         results.push({
           page: pageIndex + 1,
           employee: empName ?? undefined,
@@ -448,6 +452,65 @@ async function sendResultEmail(
   } catch (err: any) {
     console.error("sendResultEmail error:", err.message);
   }
+}
+
+// ─── Send pay stub push notification to the employee ─────────────────────────
+async function sendPayStubPushNotification(
+  supabase: any,
+  employeeId: string,
+  employeeName: string,
+  payDate: string
+): Promise<void> {
+  if (!employeeId) return;
+
+  // Get the employee's user_id
+  const { data: emp } = await supabase
+    .from("employees")
+    .select("user_id")
+    .eq("id", employeeId)
+    .single();
+
+  if (!emp?.user_id) {
+    console.log(`No user_id for employee ${employeeId} — skipping push`);
+    return;
+  }
+
+  // Look up their Expo push token
+  const { data: tokenRow } = await supabase
+    .from("employee_push_tokens")
+    .select("expo_push_token")
+    .eq("user_id", emp.user_id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  if (!tokenRow?.expo_push_token) {
+    console.log(`No push token for user ${emp.user_id} — skipping push`);
+    return;
+  }
+
+  const formattedDate = (() => {
+    try { return new Date(payDate + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }); }
+    catch { return payDate; }
+  })();
+
+  const message = {
+    to: tokenRow.expo_push_token,
+    sound: "default",
+    title: "📄 Pay Stub Ready",
+    body: `Your pay stub for ${formattedDate} has been uploaded. Tap to view.`,
+    data: { type: "pay_stub", employee_id: employeeId },
+    priority: "high",
+  };
+
+  const resp = await fetch("https://exp.host/--/api/v2/push/send", {
+    method: "POST",
+    headers: { "Accept": "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(message),
+  });
+
+  const respData = await resp.json();
+  console.log(`Push sent to ${employeeName}:`, JSON.stringify(respData));
 }
 
 // ─── Base64 → Uint8Array ──────────────────────────────────────────────────────
