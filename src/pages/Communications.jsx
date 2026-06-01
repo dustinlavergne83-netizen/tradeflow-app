@@ -16,7 +16,11 @@ const MSAL_CONFIG = {
   },
   cache: { cacheLocation: "localStorage", storeAuthStateInCookie: false },
 };
-const EMAIL_SCOPES = { scopes: ["Mail.Read", "Mail.ReadBasic", "Mail.Send"] };
+const EMAIL_SCOPES = { scopes: ["Mail.Read", "Mail.ReadBasic", "Mail.ReadWrite", "Mail.Send"] };
+
+// Well-known folder map (displayName → short key)
+const FOLDER_KEYS = { "Inbox": "inbox", "Sent Items": "sent", "Drafts": "drafts", "Deleted Items": "trash", "Junk Email": "junk" };
+const FOLDER_LABELS = { inbox: "📥 Inbox", sent: "📤 Sent", drafts: "📝 Drafts", trash: "🗑️ Trash" };
 
 // Helpers
 function formatPhone(num = "") {
@@ -74,6 +78,12 @@ export default function Communications() {
   const [attachmentPreview, setAttachmentPreview] = useState(null); // { att, blobUrl, type }
   const printIframeRef = useRef(null);
   const markReadTimerRef = useRef(null);
+
+  // Folder / search / delete state
+  const [emailFolder, setEmailFolder]     = useState("inbox"); // inbox | sent | drafts | trash
+  const [emailFolderMap, setEmailFolderMap] = useState({}); // { inbox: id, sent: id, ... }
+  const [emailSearch, setEmailSearch]     = useState("");
+  const [emailDeleting, setEmailDeleting] = useState(false);
 
   // Compose / Reply state
   const [showCompose, setShowCompose]             = useState(false);
@@ -220,18 +230,53 @@ export default function Communications() {
     setEmailError(null);
   }
 
-  async function loadEmails() {
+  // Well-known folder path keys (Graph API names)
+  const GRAPH_FOLDER = { inbox: "inbox", sent: "sentitems", drafts: "drafts", trash: "deleteditems" };
+
+  async function loadEmails(folderKey) {
+    const fKey = folderKey || emailFolder;
     setEmailsLoading(true);
     setEmailError(null);
     try {
+      const folder = GRAPH_FOLDER[fKey] || "inbox";
       const data = await graphFetch(
-        "https://graph.microsoft.com/v1.0/me/messages?$top=30&$orderby=receivedDateTime desc&$select=id,subject,from,receivedDateTime,hasAttachments,bodyPreview,isRead"
+        `https://graph.microsoft.com/v1.0/me/mailFolders/${folder}/messages?$top=50&$orderby=receivedDateTime desc&$select=id,subject,from,toRecipients,receivedDateTime,hasAttachments,bodyPreview,isRead`
       );
       setEmails(data.value || []);
     } catch (err) {
       setEmailError("Failed to load emails: " + err.message);
     }
     setEmailsLoading(false);
+  }
+
+  async function handleDeleteEmail(email) {
+    if (!email) return;
+    const inTrash = emailFolder === "trash";
+    const confirmed = window.confirm(inTrash ? "Permanently delete this email?" : "Move this email to Trash?");
+    if (!confirmed) return;
+    setEmailDeleting(true);
+    try {
+      const token = await getEmailToken();
+      if (inTrash) {
+        // Permanent delete
+        await fetch(`https://graph.microsoft.com/v1.0/me/messages/${email.id}`, {
+          method: "DELETE",
+          headers: { "Authorization": `Bearer ${token}` },
+        });
+      } else {
+        // Move to Deleted Items
+        await fetch(`https://graph.microsoft.com/v1.0/me/messages/${email.id}/move`, {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ destinationId: "deleteditems" }),
+        });
+      }
+      setEmails(prev => prev.filter(e => e.id !== email.id));
+      setSelectedEmail(null);
+    } catch (err) {
+      alert("Failed to delete: " + err.message);
+    }
+    setEmailDeleting(false);
   }
 
   async function handleSelectEmail(email) {
@@ -380,14 +425,23 @@ export default function Communications() {
     setComposeFiles(prev => prev.filter((_, i) => i !== idx));
   }
 
-  function openCompose(mode, to = "", subject = "") {
+  function openCompose(mode, to = "", subject = "", body = "") {
     setComposeMode(mode);
     setComposeTo(to);
     setComposeSubject(subject);
-    setComposeBody("");
+    setComposeBody(body);
     setComposeFiles([]);
     setComposeSendResult(null);
     setShowCompose(true);
+  }
+
+  function handleForwardEmail() {
+    if (!selectedEmail) return;
+    const from = selectedEmail.from?.emailAddress?.address || "";
+    const date = new Date(selectedEmail.receivedDateTime).toLocaleString();
+    const preview = selectedEmail.bodyPreview || "";
+    const forwardedBody = `\n\n\n-------- Forwarded Message --------\nFrom: ${from}\nDate: ${date}\nSubject: ${selectedEmail.subject || ""}\n\n${preview}`;
+    openCompose("forward", "", "Fwd: " + (selectedEmail.subject || ""), forwardedBody);
   }
 
   async function handleSendEmail() {
@@ -581,6 +635,37 @@ export default function Communications() {
                 </div>
               )}
 
+              {/* Folder tabs */}
+              {emailSignedIn && (
+                <div style={{ display: "flex", borderBottom: "1px solid #e5e7eb", backgroundColor: "#f9fafb" }}>
+                  {Object.entries(FOLDER_LABELS).map(([key, label]) => (
+                    <button
+                      key={key}
+                      onClick={() => { setEmailFolder(key); setSelectedEmail(null); setEmails([]); loadEmails(key); }}
+                      style={{
+                        flex: 1, padding: "7px 4px", border: "none", borderBottom: emailFolder === key ? `2px solid ${BLUE}` : "2px solid transparent",
+                        backgroundColor: "transparent", fontSize: 11, fontWeight: emailFolder === key ? 800 : 500,
+                        color: emailFolder === key ? BLUE : "#6b7280", cursor: "pointer", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Email search */}
+              {emailSignedIn && (
+                <div style={{ padding: "8px 10px", borderBottom: "1px solid #f3f4f6" }}>
+                  <input
+                    value={emailSearch}
+                    onChange={e => setEmailSearch(e.target.value)}
+                    placeholder="🔍 Search emails..."
+                    style={{ width: "100%", padding: "7px 10px", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 12, boxSizing: "border-box", outline: "none" }}
+                  />
+                </div>
+              )}
+
               <div style={{ flex: 1, overflowY: "auto" }}>
                 {msalLoading ? (
                   <div style={{ padding: 32, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
@@ -607,7 +692,16 @@ export default function Communications() {
                     {emailError && <div style={{ color: "#ef4444", fontSize: 11, marginTop: 8 }}>{emailError}</div>}
                   </div>
                 ) : (
-                  emails.map(email => {
+                  emails.filter(email => {
+                    if (!emailSearch.trim()) return true;
+                    const q = emailSearch.toLowerCase();
+                    return (
+                      (email.subject || "").toLowerCase().includes(q) ||
+                      (email.from?.emailAddress?.name || "").toLowerCase().includes(q) ||
+                      (email.from?.emailAddress?.address || "").toLowerCase().includes(q) ||
+                      (email.bodyPreview || "").toLowerCase().includes(q)
+                    );
+                  }).map(email => {
                     const senderName = email.from?.emailAddress?.name || email.from?.emailAddress?.address || "Unknown";
                     const isActive   = selectedEmail?.id === email.id;
                     return (
@@ -770,6 +864,12 @@ export default function Communications() {
                       ↩️ Reply
                     </button>
                     <button
+                      onClick={handleForwardEmail}
+                      style={{ padding: "6px 14px", backgroundColor: "#f3f4f6", color: "#374151", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", border: "1px solid #e5e7eb", whiteSpace: "nowrap" }}
+                    >
+                      ↗️ Forward
+                    </button>
+                    <button
                       onClick={() => openCompose("compose")}
                       style={{ padding: "6px 14px", backgroundColor: BLUE, color: "#fff", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", border: "none", whiteSpace: "nowrap" }}
                     >
@@ -781,6 +881,14 @@ export default function Communications() {
                       style={{ padding: "6px 12px", backgroundColor: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, cursor: "pointer", color: "#374151" }}
                     >
                       ⛶
+                    </button>
+                    <button
+                      onClick={() => handleDeleteEmail(selectedEmail)}
+                      disabled={emailDeleting}
+                      title={emailFolder === "trash" ? "Permanently Delete" : "Move to Trash"}
+                      style={{ padding: "6px 12px", backgroundColor: emailDeleting ? "#f3f4f6" : "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, fontSize: 13, cursor: emailDeleting ? "not-allowed" : "pointer", color: "#ef4444", opacity: emailDeleting ? 0.6 : 1 }}
+                    >
+                      {emailDeleting ? "⏳" : "🗑️"}
                     </button>
                     <button
                       onClick={loadEmails}
@@ -1013,7 +1121,7 @@ export default function Communications() {
           <div style={{ backgroundColor: "#fff", borderRadius: 16, width: "100%", maxWidth: 560, display: "flex", flexDirection: "column", maxHeight: "90vh", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
             <div style={{ padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", backgroundColor: BLUE, borderRadius: "16px 16px 0 0" }}>
               <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: "#fff" }}>
-                {composeMode === "reply" ? "↩️ Reply" : "✏️ New Email"}
+                {composeMode === "reply" ? "↩️ Reply" : composeMode === "forward" ? "↗️ Forward" : "✏️ New Email"}
               </h3>
               <button onClick={() => setShowCompose(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "rgba(255,255,255,0.8)", lineHeight: 1 }}>✕</button>
             </div>
