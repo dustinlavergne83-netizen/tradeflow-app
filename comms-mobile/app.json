@@ -22,7 +22,7 @@
         "RECORD_AUDIO",
         "READ_PHONE_STATE"
       ],
-      "versionCode": 4
+      "versionCode": 5
     },
     "plugins": [
       [
