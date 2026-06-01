@@ -91,6 +91,13 @@ export default function Communications() {
     }
   }, [filter, emailSignedIn, msalLoading]);
 
+  // Auto-refresh emails every 30 seconds while on the email tab
+  useEffect(() => {
+    if (filter !== "email" || !emailSignedIn || msalLoading) return;
+    const interval = setInterval(() => { loadEmails(); }, 30000);
+    return () => clearInterval(interval);
+  }, [filter, emailSignedIn, msalLoading]);
+
   // SMS / call init
   async function init() {
     try {
