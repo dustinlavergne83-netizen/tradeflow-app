@@ -1,9 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { PublicClientApplication } from '@azure/msal-browser';
 import { supabase } from '../lib/supabase';
 
-// ── MSAL Config ──────────────────────────────────────────────────────
-const msalConfig = {
+const MSAL_CONFIG = {
   auth: {
     clientId: '1101ddc0-5dc1-4275-beb6-34b2ef897452',
     authority: 'https://login.microsoftonline.com/9bd3d089-ecc6-4777-9198-41f0d40f95d6',
@@ -12,103 +11,98 @@ const msalConfig = {
   cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false },
 };
 
-const loginRequest = { scopes: ['Mail.Read', 'Mail.ReadBasic'] };
-const msalInstance = new PublicClientApplication(msalConfig);
-const msalReady = msalInstance.initialize().then(() => {
-  // Handle redirect response if we came back from Microsoft login
-  return msalInstance.handleRedirectPromise();
-});
-
-// ── Graph API helpers ────────────────────────────────────────────────
-async function getAccessToken() {
-  await msalReady;
-  const accounts = msalInstance.getAllAccounts();
-  if (accounts.length > 0) {
-    try {
-      const resp = await msalInstance.acquireTokenSilent({ ...loginRequest, account: accounts[0] });
-      return resp.accessToken;
-    } catch {
-      const resp = await msalInstance.acquireTokenPopup(loginRequest);
-      return resp.accessToken;
-    }
-  }
-  const resp = await msalInstance.loginPopup(loginRequest);
-  return resp.accessToken;
-}
-
-async function graphFetch(url) {
-  const token = await getAccessToken();
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  if (!res.ok) throw new Error(`Graph API ${res.status}: ${res.statusText}`);
-  return res.json();
-}
-
-async function graphFetchRaw(url) {
-  const token = await getAccessToken();
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  if (!res.ok) throw new Error(`Graph API ${res.status}`);
-  return res;
-}
+const LOGIN_REQUEST = { scopes: ['Mail.Read', 'Mail.ReadBasic'] };
 
 // ── Component ────────────────────────────────────────────────────────
 export default function EmailInbox() {
   const [emails, setEmails] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [msalLoading, setMsalLoading] = useState(true);
   const [signedIn, setSignedIn] = useState(false);
   const [selectedEmail, setSelectedEmail] = useState(null);
   const [attachments, setAttachments] = useState([]);
   const [processing, setProcessing] = useState(false);
   const [processResult, setProcessResult] = useState(null);
   const [error, setError] = useState(null);
+  const msalRef = useRef(null);
 
-  // Check if already signed in
+  // ── Initialize MSAL inside useEffect ────────────────────────────
   useEffect(() => {
-    (async () => {
-      await msalReady;
-      const accounts = msalInstance.getAllAccounts();
-      if (accounts.length > 0) setSignedIn(true);
-    })();
+    const init = async () => {
+      try {
+        // Clear any stale MSAL locks from sessionStorage
+        Object.keys(sessionStorage).forEach((key) => {
+          if (key.includes('msal') || key.includes('login.windows')) {
+            sessionStorage.removeItem(key);
+          }
+        });
+
+        const instance = new PublicClientApplication(MSAL_CONFIG);
+        await instance.initialize();
+        
+        // Handle any pending redirect response
+        try {
+          await instance.handleRedirectPromise();
+        } catch (e) {
+          console.warn('MSAL redirect promise error (non-fatal):', e.message);
+        }
+
+        msalRef.current = instance;
+
+        const accounts = instance.getAllAccounts();
+        if (accounts.length > 0) {
+          setSignedIn(true);
+        }
+      } catch (err) {
+        console.error('MSAL init error:', err);
+        setError('Microsoft auth initialization failed: ' + err.message);
+      } finally {
+        setMsalLoading(false);
+      }
+    };
+    init();
   }, []);
 
-  // ── Clear stale MSAL interaction locks ──────────────────────────
-  const clearMsalState = () => {
-    // MSAL stores interaction lock in sessionStorage
-    Object.keys(sessionStorage).forEach((key) => {
-      if (key.includes('msal') || key.includes('login.windows')) {
-        sessionStorage.removeItem(key);
+  // ── Load emails when signed in ───────────────────────────────────
+  useEffect(() => {
+    if (signedIn && !msalLoading) loadEmails();
+  }, [signedIn, msalLoading]);
+
+  // ── Get access token ─────────────────────────────────────────────
+  const getAccessToken = useCallback(async () => {
+    const instance = msalRef.current;
+    if (!instance) throw new Error('MSAL not initialized');
+    const accounts = instance.getAllAccounts();
+    if (accounts.length > 0) {
+      try {
+        const resp = await instance.acquireTokenSilent({ ...LOGIN_REQUEST, account: accounts[0] });
+        return resp.accessToken;
+      } catch {
+        const resp = await instance.acquireTokenPopup(LOGIN_REQUEST);
+        return resp.accessToken;
       }
-    });
-    // Also clear localStorage MSAL keys
-    Object.keys(localStorage).forEach((key) => {
-      if (key.includes('msal') || key.includes('login.windows')) {
-        localStorage.removeItem(key);
-      }
-    });
-  };
+    }
+    const resp = await instance.loginPopup(LOGIN_REQUEST);
+    return resp.accessToken;
+  }, []);
+
+  // ── Graph API helper ─────────────────────────────────────────────
+  const graphFetch = useCallback(async (url) => {
+    const token = await getAccessToken();
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) throw new Error(`Graph API ${res.status}: ${res.statusText}`);
+    return res.json();
+  }, [getAccessToken]);
 
   // ── Sign In ──────────────────────────────────────────────────────
   const handleSignIn = async () => {
+    const instance = msalRef.current;
+    if (!instance) { setError('MSAL not ready. Please refresh the page.'); return; }
     try {
       setError(null);
-      // Clear any stale MSAL state/locks first
-      clearMsalState();
-      await msalReady;
-      await msalInstance.loginPopup(loginRequest);
+      await instance.loginPopup(LOGIN_REQUEST);
       setSignedIn(true);
-      loadEmails();
     } catch (err) {
-      if (err.message?.includes('interaction_in_progress')) {
-        clearMsalState();
-        try {
-          await msalInstance.loginPopup(loginRequest);
-          setSignedIn(true);
-          loadEmails();
-          return;
-        } catch (retryErr) {
-          setError('Sign in failed. Please do a hard refresh (Ctrl+Shift+R) and try again.');
-          return;
-        }
-      }
       setError('Sign in failed: ' + err.message);
     }
   };
@@ -126,11 +120,7 @@ export default function EmailInbox() {
       setError('Failed to load emails: ' + err.message);
     }
     setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    if (signedIn) loadEmails();
-  }, [signedIn, loadEmails]);
+  }, [graphFetch]);
 
   // ── Select Email + Load Attachments ──────────────────────────────
   const handleSelectEmail = async (email) => {
@@ -154,9 +144,7 @@ export default function EmailInbox() {
     setProcessing(true);
     setProcessResult(null);
     try {
-      // attachment.contentBytes is base64-encoded
       const { data: { session } } = await supabase.auth.getSession();
-      
       const res = await fetch(
         'https://hyhjxdgdetdqoyoscflu.supabase.co/functions/v1/process-check-stub-email',
         {
@@ -204,63 +192,76 @@ export default function EmailInbox() {
     URL.revokeObjectURL(url);
   };
 
-  // ── Render ───────────────────────────────────────────────────────
-  const styles = {
-    container: { maxWidth: 1200, margin: '0 auto', padding: 20 },
-    header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-    title: { color: '#f97316', fontSize: 28, fontWeight: 'bold', margin: 0 },
+  // ── Styles ───────────────────────────────────────────────────────
+  const s = {
+    page: { padding: 20, minHeight: 400 },
+    title: { color: '#f97316', fontSize: 26, fontWeight: 'bold', marginBottom: 16 },
     btn: { padding: '10px 20px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: 14 },
-    btnPrimary: { backgroundColor: '#f97316', color: '#fff' },
-    btnSuccess: { backgroundColor: '#22c55e', color: '#fff' },
+    btnOrange: { backgroundColor: '#f97316', color: '#fff' },
     btnBlue: { backgroundColor: '#3b82f6', color: '#fff' },
-    signInBox: { textAlign: 'center', padding: 60, backgroundColor: '#1e293b', borderRadius: 12 },
-    splitView: { display: 'flex', gap: 20, height: 'calc(100vh - 200px)' },
-    emailList: { flex: '0 0 400px', overflowY: 'auto', backgroundColor: '#1e293b', borderRadius: 12, padding: 0 },
-    emailItem: { padding: '12px 16px', borderBottom: '1px solid #334155', cursor: 'pointer', transition: 'background 0.2s' },
-    emailItemActive: { backgroundColor: '#334155' },
-    emailFrom: { fontSize: 14, fontWeight: 'bold', color: '#f8fafc', marginBottom: 2 },
-    emailSubject: { fontSize: 13, color: '#cbd5e1', marginBottom: 2 },
-    emailDate: { fontSize: 11, color: '#64748b' },
-    emailPreview: { fontSize: 12, color: '#94a3b8', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-    detailPane: { flex: 1, backgroundColor: '#1e293b', borderRadius: 12, padding: 24, overflowY: 'auto' },
-    attachmentCard: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', backgroundColor: '#0f172a', borderRadius: 8, marginBottom: 8 },
-    attachIcon: { fontSize: 20, marginRight: 10 },
-    badge: { display: 'inline-block', padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 'bold', marginLeft: 8 },
-    badgePdf: { backgroundColor: '#dc2626', color: '#fff' },
+    btnGreen: { backgroundColor: '#22c55e', color: '#fff' },
+    btnGray: { backgroundColor: '#475569', color: '#fff' },
+    box: { backgroundColor: '#1e293b', borderRadius: 12, padding: 40, textAlign: 'center', maxWidth: 500, margin: '0 auto' },
+    split: { display: 'flex', gap: 16, height: 'calc(100vh - 220px)', minHeight: 400 },
+    list: { width: 380, minWidth: 280, overflowY: 'auto', backgroundColor: '#1e293b', borderRadius: 10 },
+    detail: { flex: 1, backgroundColor: '#1e293b', borderRadius: 10, padding: 20, overflowY: 'auto' },
+    item: { padding: '10px 14px', borderBottom: '1px solid #334155', cursor: 'pointer' },
+    itemActive: { backgroundColor: '#334155' },
     unread: { borderLeft: '3px solid #f97316' },
-    error: { backgroundColor: '#dc2626', color: '#fff', padding: '10px 16px', borderRadius: 8, marginBottom: 16 },
-    success: { backgroundColor: '#22c55e', color: '#fff', padding: '10px 16px', borderRadius: 8, marginBottom: 16 },
+    attCard: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: '#0f172a', borderRadius: 8, marginBottom: 8 },
+    error: { backgroundColor: '#dc2626', color: '#fff', padding: '10px 14px', borderRadius: 8, marginBottom: 12 },
+    success: { backgroundColor: '#22c55e', color: '#fff', padding: '10px 14px', borderRadius: 8, marginBottom: 12 },
+    badge: { display: 'inline-block', padding: '2px 6px', borderRadius: 10, fontSize: 11, fontWeight: 'bold', marginLeft: 6 },
   };
 
-  if (!signedIn) {
+  // ── Loading state ────────────────────────────────────────────────
+  if (msalLoading) {
     return (
-      <div style={styles.container}>
-        <h1 style={styles.title}>📧 Email Inbox</h1>
-        <div style={styles.signInBox}>
-          <h2 style={{ color: '#f8fafc', marginBottom: 10 }}>Connect Your Outlook</h2>
-          <p style={{ color: '#94a3b8', marginBottom: 24 }}>
-            Sign in with your Microsoft account to view your emails here.
-          </p>
-          <button style={{ ...styles.btn, ...styles.btnPrimary, fontSize: 16, padding: '14px 32px' }} onClick={handleSignIn}>
-            🔑 Sign In with Microsoft
-          </button>
-          {error && <p style={{ ...styles.error, marginTop: 16 }}>{error}</p>}
+      <div style={s.page}>
+        <h1 style={s.title}>📧 Email Inbox</h1>
+        <div style={{ color: '#94a3b8', padding: 40, textAlign: 'center' }}>
+          ⏳ Initializing Microsoft authentication...
         </div>
       </div>
     );
   }
 
+  // ── Sign in screen ───────────────────────────────────────────────
+  if (!signedIn) {
+    return (
+      <div style={s.page}>
+        <h1 style={s.title}>📧 Email Inbox</h1>
+        {error && (
+          <div style={{ ...s.error, maxWidth: 500, margin: '0 auto 16px' }}>
+            {error}
+            <button onClick={() => setError(null)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', marginLeft: 8 }}>✕</button>
+          </div>
+        )}
+        <div style={s.box}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>📬</div>
+          <h2 style={{ color: '#f8fafc', marginBottom: 8 }}>Connect Your Outlook</h2>
+          <p style={{ color: '#94a3b8', marginBottom: 24 }}>
+            Sign in with your Microsoft account (dustin@dmlelectrical.com) to view emails here.
+          </p>
+          <button style={{ ...s.btn, ...s.btnOrange, fontSize: 16, padding: '14px 32px' }} onClick={handleSignIn}>
+            🔑 Sign In with Microsoft
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Main inbox view ──────────────────────────────────────────────
   return (
-    <div style={styles.container}>
-      <div style={styles.header}>
-        <h1 style={styles.title}>📧 Email Inbox</h1>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button style={{ ...styles.btn, ...styles.btnBlue }} onClick={loadEmails} disabled={loading}>
+    <div style={s.page}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <h1 style={s.title}>📧 Email Inbox</h1>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button style={{ ...s.btn, ...s.btnBlue }} onClick={loadEmails} disabled={loading}>
             {loading ? '⏳ Loading...' : '🔄 Refresh'}
           </button>
-          <button style={{ ...styles.btn, backgroundColor: '#475569', color: '#fff' }} onClick={async () => {
-            await msalReady;
-            msalInstance.logoutPopup();
+          <button style={{ ...s.btn, ...s.btnGray }} onClick={() => {
+            msalRef.current?.logoutPopup();
             setSignedIn(false);
             setEmails([]);
             setSelectedEmail(null);
@@ -270,87 +271,80 @@ export default function EmailInbox() {
         </div>
       </div>
 
-      {error && <div style={styles.error}>{error} <button onClick={() => setError(null)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', marginLeft: 10 }}>✕</button></div>}
+      {error && (
+        <div style={s.error}>
+          {error}
+          <button onClick={() => setError(null)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', marginLeft: 8 }}>✕</button>
+        </div>
+      )}
 
-      <div style={styles.splitView}>
-        {/* Email List */}
-        <div style={styles.emailList}>
-          {emails.length === 0 && !loading && (
+      <div style={s.split}>
+        {/* ── Email List ── */}
+        <div style={s.list}>
+          {loading && <p style={{ padding: 16, color: '#94a3b8', textAlign: 'center' }}>⏳ Loading emails...</p>}
+          {!loading && emails.length === 0 && (
             <p style={{ padding: 20, color: '#94a3b8', textAlign: 'center' }}>No emails found</p>
           )}
           {emails.map((email) => (
             <div
               key={email.id}
               style={{
-                ...styles.emailItem,
-                ...(selectedEmail?.id === email.id ? styles.emailItemActive : {}),
-                ...(!email.isRead ? styles.unread : {}),
+                ...s.item,
+                ...(selectedEmail?.id === email.id ? s.itemActive : {}),
+                ...(!email.isRead ? s.unread : {}),
               }}
               onClick={() => handleSelectEmail(email)}
             >
-              <div style={styles.emailFrom}>
+              <div style={{ fontSize: 13, fontWeight: 'bold', color: '#f8fafc' }}>
                 {email.from?.emailAddress?.name || email.from?.emailAddress?.address || 'Unknown'}
-                {email.hasAttachments && <span style={{ ...styles.badge, backgroundColor: '#6366f1', color: '#fff' }}>📎</span>}
+                {email.hasAttachments && <span style={{ ...s.badge, backgroundColor: '#6366f1', color: '#fff' }}>📎</span>}
               </div>
-              <div style={styles.emailSubject}>{email.subject || '(no subject)'}</div>
-              <div style={styles.emailDate}>
-                {new Date(email.receivedDateTime).toLocaleString()}
-              </div>
-              <div style={styles.emailPreview}>{email.bodyPreview}</div>
+              <div style={{ fontSize: 12, color: '#cbd5e1', marginTop: 2 }}>{email.subject || '(no subject)'}</div>
+              <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>{new Date(email.receivedDateTime).toLocaleString()}</div>
+              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email.bodyPreview}</div>
             </div>
           ))}
         </div>
 
-        {/* Detail Pane */}
-        <div style={styles.detailPane}>
+        {/* ── Detail Pane ── */}
+        <div style={s.detail}>
           {!selectedEmail ? (
-            <div style={{ textAlign: 'center', color: '#64748b', paddingTop: 100 }}>
-              <p style={{ fontSize: 48 }}>📨</p>
+            <div style={{ textAlign: 'center', color: '#64748b', paddingTop: 80 }}>
+              <div style={{ fontSize: 48 }}>📨</div>
               <p>Select an email to view details</p>
             </div>
           ) : (
             <>
-              <h2 style={{ color: '#f8fafc', marginBottom: 4, fontSize: 20 }}>{selectedEmail.subject || '(no subject)'}</h2>
-              <p style={{ color: '#94a3b8', fontSize: 13, marginBottom: 4 }}>
+              <h2 style={{ color: '#f8fafc', fontSize: 18, marginBottom: 6 }}>{selectedEmail.subject || '(no subject)'}</h2>
+              <p style={{ color: '#94a3b8', fontSize: 12, marginBottom: 4 }}>
                 <strong>From:</strong> {selectedEmail.from?.emailAddress?.name} &lt;{selectedEmail.from?.emailAddress?.address}&gt;
               </p>
-              <p style={{ color: '#64748b', fontSize: 12, marginBottom: 16 }}>
-                {new Date(selectedEmail.receivedDateTime).toLocaleString()}
-              </p>
-
-              <div style={{ color: '#cbd5e1', fontSize: 14, lineHeight: 1.6, marginBottom: 24, whiteSpace: 'pre-wrap' }}>
+              <p style={{ color: '#64748b', fontSize: 11, marginBottom: 14 }}>{new Date(selectedEmail.receivedDateTime).toLocaleString()}</p>
+              <div style={{ color: '#cbd5e1', fontSize: 13, lineHeight: 1.6, marginBottom: 20, whiteSpace: 'pre-wrap' }}>
                 {selectedEmail.bodyPreview}
               </div>
-
-              {/* Attachments */}
               {attachments.length > 0 && (
                 <>
-                  <h3 style={{ color: '#f97316', marginBottom: 12, fontSize: 16 }}>📎 Attachments</h3>
+                  <h3 style={{ color: '#f97316', marginBottom: 10, fontSize: 15 }}>📎 Attachments</h3>
                   {attachments.map((att, i) => {
                     const isPdf = att.contentType === 'application/pdf' || att.name?.toLowerCase().endsWith('.pdf');
                     return (
-                      <div key={i} style={styles.attachmentCard}>
-                        <div style={{ display: 'flex', alignItems: 'center' }}>
-                          <span style={styles.attachIcon}>{isPdf ? '📄' : '📁'}</span>
+                      <div key={i} style={s.attCard}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{ fontSize: 20 }}>{isPdf ? '📄' : '📁'}</span>
                           <div>
-                            <div style={{ color: '#f8fafc', fontSize: 14, fontWeight: 'bold' }}>{att.name}</div>
+                            <div style={{ color: '#f8fafc', fontSize: 13, fontWeight: 'bold' }}>{att.name}</div>
                             <div style={{ color: '#64748b', fontSize: 11 }}>
                               {(att.size / 1024).toFixed(1)} KB
-                              {isPdf && <span style={{ ...styles.badge, ...styles.badgePdf }}>PDF</span>}
+                              {isPdf && <span style={{ ...s.badge, backgroundColor: '#dc2626', color: '#fff' }}>PDF</span>}
                             </div>
                           </div>
                         </div>
                         <div style={{ display: 'flex', gap: 8 }}>
-                          <button style={{ ...styles.btn, ...styles.btnBlue, fontSize: 12, padding: '6px 12px' }} onClick={() => handleDownload(att)}>
-                            ⬇ Download
-                          </button>
+                          <button style={{ ...s.btn, ...s.btnBlue, fontSize: 12, padding: '6px 12px' }} onClick={() => handleDownload(att)}>⬇ Download</button>
                           {isPdf && (
-                            <button
-                              style={{ ...styles.btn, ...styles.btnSuccess, fontSize: 12, padding: '6px 12px' }}
-                              onClick={() => handleProcessPayStub(att)}
-                              disabled={processing}
-                            >
-                              {processing ? '⏳ Processing...' : '🧾 Process Pay Stubs'}
+                            <button style={{ ...s.btn, ...s.btnGreen, fontSize: 12, padding: '6px 12px' }} onClick={() => handleProcessPayStub(att)} disabled={processing}>
+                              {processing ? '⏳' : '🧾 Process Pay Stubs'}
                             </button>
                           )}
                         </div>
@@ -359,10 +353,8 @@ export default function EmailInbox() {
                   })}
                 </>
               )}
-
-              {/* Process Result */}
               {processResult && (
-                <div style={processResult.success ? styles.success : styles.error}>
+                <div style={processResult.success ? s.success : s.error}>
                   {processResult.success ? '✅ ' : '❌ '}{processResult.message}
                 </div>
               )}
