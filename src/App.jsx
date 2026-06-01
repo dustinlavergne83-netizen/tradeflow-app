@@ -70,6 +70,7 @@ import PendingJobs from "./pages/PendingJobs";
 import DesktopHeader from "./Components/DesktopHeader";
 import WebsiteManager from "./pages/WebsiteManager";
 import Communications from "./pages/Communications";
+import EmailInbox from "./pages/EmailInbox";
 import TwilioSettings from "./pages/TwilioSettings";
 import SuperAdmin from "./pages/SuperAdmin";
 import TimeclockAdmin from "./pages/TimeclockAdmin";
@@ -110,7 +111,7 @@ const KNOWN_APP_PATHS = new Set([
   "/expenses", "/accounting", "/customers", "/vendors", "/employees", "/timeclock",
   "/company-locations", "/scheduled-notifications", "/admin", "/assemblies",
   "/base-materials", "/check-stubs", "/employee-locations", "/geofence-events",
-  "/communications", "/website-manager", "/twilio-settings", "/super-admin",
+  "/communications", "/email-inbox", "/website-manager", "/twilio-settings", "/super-admin",
   "/invoice", "/proposal", "/estimate", "/weekly", "/time-off", "/pending-jobs",
   "/profile-setup", "/reports", "/welcome", "/project", "/timeclock-admin",
 ]);
@@ -502,6 +503,14 @@ function AppContent() {
             element={
               <ProtectedRoute>
                 <Communications />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/email-inbox"
+            element={
+              <ProtectedRoute>
+                <EmailInbox />
               </ProtectedRoute>
             }
           />

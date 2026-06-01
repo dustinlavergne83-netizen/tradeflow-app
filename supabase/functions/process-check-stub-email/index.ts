@@ -73,15 +73,22 @@ Deno.serve(async (req) => {
       pdfBytes = new Uint8Array(buf);
       console.log("Mailgun PDF bytes:", pdfBytes.length);
 
-    // ── 1b. Postmark inbound (JSON with Attachments array, capital keys) ──
-    // ── 1c. Resend inbound (JSON with data.attachments, lowercase keys) ───
+    // ── 1b. Direct upload from Email Inbox (JSON with source: 'email-inbox') ──
+    // ── 1c. Postmark inbound (JSON with Attachments array, capital keys) ──
+    // ── 1d. Resend inbound (JSON with data.attachments, lowercase keys) ───
     } else {
       const body = await req.json();
 
-      // Detect Postmark: has "MailboxHash" or "Attachments" (capital A) at root
-      const isPostmark = body.MailboxHash !== undefined || Array.isArray(body.Attachments);
+      // Detect Email Inbox direct upload: has source: 'email-inbox' and contentBase64
+      if (body.source === 'email-inbox' && body.contentBase64) {
+        from = body.from ?? "admin-upload";
+        const filename = body.filename ?? "paystubs.pdf";
+        console.log("Email Inbox direct upload from:", from, "filename:", filename);
+        pdfBytes = base64ToUint8Array(body.contentBase64);
+        console.log("Email Inbox PDF bytes:", pdfBytes.length);
 
-      if (isPostmark) {
+      // Detect Postmark: has "MailboxHash" or "Attachments" (capital A) at root
+      } else if (body.MailboxHash !== undefined || Array.isArray(body.Attachments)) {
         // ── Postmark format ───────────────────────────────────────────────
         from = body.From ?? body.from ?? "";
         const toRaw: string = body.To ?? body.to ?? body.OriginalRecipient ?? "";
