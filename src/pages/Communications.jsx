@@ -70,7 +70,7 @@ export default function Communications() {
   const [emailProcessResult, setEmailProcessResult] = useState(null);
 
   // ── Effects ───────────────────────────────────────────────────────────────
-  useEffect(() => { init(); }, []);
+  useEffect(() => { init(); initMsal(); }, []);
   useEffect(() => { if (selected) loadThread(selected.contactNumber); }, [selected]);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
@@ -121,9 +121,6 @@ export default function Communications() {
     } catch (err) {
       console.error("Communications init error:", err);
     }
-
-    // Initialize MSAL in parallel
-    initMsal();
   }
 
   // ── MSAL init ─────────────────────────────────────────────────────────────
