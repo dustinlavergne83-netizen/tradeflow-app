@@ -68,6 +68,8 @@ export default function Communications() {
   const [emailError, setEmailError]       = useState(null);
   const [emailProcessing, setEmailProcessing] = useState(false);
   const [emailProcessResult, setEmailProcessResult] = useState(null);
+  const [emailFullBody, setEmailFullBody] = useState(null);
+  const [emailBodyLoading, setEmailBodyLoading] = useState(false);
 
   // Compose / Reply state
   const [showCompose, setShowCompose]             = useState(false);
@@ -232,14 +234,31 @@ export default function Communications() {
     setSelectedEmail(email);
     setEmailAttachments([]);
     setEmailProcessResult(null);
-    if (email.hasAttachments) {
-      try {
-        const data = await graphFetch(`https://graph.microsoft.com/v1.0/me/messages/${email.id}/attachments`);
-        setEmailAttachments(data.value || []);
-      } catch (err) {
-        console.error("Failed to load attachments:", err);
-      }
-    }
+    setEmailFullBody(null);
+    setEmailBodyLoading(true);
+    // Fetch full body + attachments in parallel
+    await Promise.all([
+      (async () => {
+        try {
+          const data = await graphFetch(
+            `https://graph.microsoft.com/v1.0/me/messages/${email.id}?$select=id,body`
+          );
+          setEmailFullBody(data.body || null);
+        } catch (err) {
+          console.error("Failed to load full body:", err);
+        }
+      })(),
+      (async () => {
+        if (!email.hasAttachments) return;
+        try {
+          const data = await graphFetch(`https://graph.microsoft.com/v1.0/me/messages/${email.id}/attachments`);
+          setEmailAttachments(data.value || []);
+        } catch (err) {
+          console.error("Failed to load attachments:", err);
+        }
+      })(),
+    ]);
+    setEmailBodyLoading(false);
   }
 
   function handleDownloadAttachment(att) {
@@ -705,12 +724,34 @@ export default function Communications() {
                 </div>
 
                 <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
-                  <div style={{ backgroundColor: "#fff", borderRadius: 12, padding: "20px 24px", marginBottom: 16, border: "1px solid #e5e7eb", fontSize: 14, color: "#374151", lineHeight: 1.8, whiteSpace: "pre-wrap" }}>
-                    {selectedEmail.bodyPreview || "(no preview available)"}
-                    {selectedEmail.bodyPreview && (
-                      <p style={{ marginTop: 16, fontSize: 12, color: "#9ca3af", fontStyle: "italic" }}>
-                        Showing preview only. Open Outlook to read the full email.
-                      </p>
+                  <div style={{ backgroundColor: "#fff", borderRadius: 12, marginBottom: 16, border: "1px solid #e5e7eb", overflow: "hidden" }}>
+                    {emailBodyLoading ? (
+                      <div style={{ padding: "32px 24px", textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
+                        ⏳ Loading email...
+                      </div>
+                    ) : emailFullBody ? (
+                      emailFullBody.contentType === "html" ? (
+                        <iframe
+                          srcDoc={emailFullBody.content}
+                          sandbox="allow-same-origin"
+                          style={{ width: "100%", minHeight: 400, border: "none", display: "block" }}
+                          onLoad={e => {
+                            try {
+                              const h = e.target.contentDocument?.documentElement?.scrollHeight;
+                              if (h) e.target.style.height = Math.min(h + 20, 800) + "px";
+                            } catch (_) {}
+                          }}
+                          title="email-body"
+                        />
+                      ) : (
+                        <div style={{ padding: "20px 24px", fontSize: 14, color: "#374151", lineHeight: 1.8, whiteSpace: "pre-wrap" }}>
+                          {emailFullBody.content}
+                        </div>
+                      )
+                    ) : (
+                      <div style={{ padding: "20px 24px", fontSize: 14, color: "#374151", lineHeight: 1.8, whiteSpace: "pre-wrap" }}>
+                        {selectedEmail.bodyPreview || "(no content)"}
+                      </div>
                     )}
                   </div>
 
