@@ -70,6 +70,8 @@ export default function Communications() {
   const [emailProcessResult, setEmailProcessResult] = useState(null);
   const [emailFullBody, setEmailFullBody] = useState(null);
   const [emailBodyLoading, setEmailBodyLoading] = useState(false);
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const printIframeRef = useRef(null);
 
   // Compose / Reply state
   const [showCompose, setShowCompose]             = useState(false);
@@ -554,6 +556,8 @@ export default function Communications() {
                       <div
                         key={email.id}
                         onClick={() => handleSelectEmail(email)}
+                        onDoubleClick={() => { handleSelectEmail(email); setEmailModalOpen(true); }}
+                        title="Single click to preview · Double-click to open full screen"
                         style={{
                           padding: "12px 16px",
                           borderBottom: "1px solid #f3f4f6",
@@ -712,6 +716,13 @@ export default function Communications() {
                       style={{ padding: "6px 14px", backgroundColor: BLUE, color: "#fff", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", border: "none", whiteSpace: "nowrap" }}
                     >
                       ✏️ New
+                    </button>
+                    <button
+                      onClick={() => setEmailModalOpen(true)}
+                      title="Pop out (or double-click email)"
+                      style={{ padding: "6px 12px", backgroundColor: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, cursor: "pointer", color: "#374151" }}
+                    >
+                      ⛶
                     </button>
                     <button
                       onClick={loadEmails}
@@ -1017,6 +1028,105 @@ export default function Communications() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* EMAIL POP-OUT MODAL */}
+      {emailModalOpen && selectedEmail && (
+        <div
+          style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.65)", zIndex: 10000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+          onClick={e => { if (e.target === e.currentTarget) setEmailModalOpen(false); }}
+        >
+          <div style={{ backgroundColor: "#fff", borderRadius: 16, width: "100%", maxWidth: 860, maxHeight: "92vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.4)" }}>
+            {/* Modal Header */}
+            <div style={{ padding: "14px 20px", backgroundColor: BLUE, borderRadius: "16px 16px 0 0", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 800, fontSize: 16, color: "#fff", marginBottom: 3, lineHeight: 1.3 }}>
+                  {selectedEmail.subject || "(no subject)"}
+                </div>
+                <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)" }}>
+                  From: {selectedEmail.from?.emailAddress?.name || selectedEmail.from?.emailAddress?.address}
+                  &nbsp;&middot;&nbsp;
+                  {new Date(selectedEmail.receivedDateTime).toLocaleString()}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                <button
+                  onClick={() => {
+                    // Open print window with email content
+                    const content = emailFullBody?.contentType === "html"
+                      ? emailFullBody.content
+                      : `<pre style="font-family:sans-serif;font-size:14px;line-height:1.6;white-space:pre-wrap">${(emailFullBody?.content || selectedEmail.bodyPreview || "").replace(/</g,"&lt;")}</pre>`;
+                    const printWin = window.open("", "_blank", "width=900,height=700");
+                    printWin.document.write(`<!DOCTYPE html><html><head><title>${selectedEmail.subject || "Email"}</title><style>body{margin:20px;font-family:sans-serif}@media print{body{margin:0}}</style></head><body><h2 style="margin-bottom:4px">${selectedEmail.subject || "(no subject)"}</h2><p style="color:#666;font-size:13px;margin-bottom:16px">From: ${selectedEmail.from?.emailAddress?.name || ""} &lt;${selectedEmail.from?.emailAddress?.address || ""}&gt;<br>Date: ${new Date(selectedEmail.receivedDateTime).toLocaleString()}</p><hr style="margin-bottom:16px">${content}</body></html>`);
+                    printWin.document.close();
+                    printWin.focus();
+                    setTimeout(() => printWin.print(), 400);
+                  }}
+                  style={{ padding: "7px 16px", backgroundColor: "rgba(255,255,255,0.2)", border: "1px solid rgba(255,255,255,0.4)", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", color: "#fff", whiteSpace: "nowrap" }}
+                >
+                  🖨️ Print / Save PDF
+                </button>
+                <button
+                  onClick={() => openCompose("reply", selectedEmail?.from?.emailAddress?.address || "", "Re: " + (selectedEmail?.subject || ""))}
+                  style={{ padding: "7px 14px", backgroundColor: GREEN, border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", color: "#fff", whiteSpace: "nowrap" }}
+                >
+                  ↩️ Reply
+                </button>
+                <button
+                  onClick={() => setEmailModalOpen(false)}
+                  style={{ padding: "7px 12px", backgroundColor: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 8, fontSize: 18, cursor: "pointer", color: "#fff", lineHeight: 1 }}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              {emailBodyLoading ? (
+                <div style={{ padding: "60px 24px", textAlign: "center", color: "#9ca3af", fontSize: 14 }}>⏳ Loading email...</div>
+              ) : emailFullBody ? (
+                emailFullBody.contentType === "html" ? (
+                  <iframe
+                    srcDoc={emailFullBody.content}
+                    sandbox="allow-same-origin"
+                    style={{ width: "100%", minHeight: 500, border: "none", display: "block" }}
+                    onLoad={e => {
+                      try {
+                        const h = e.target.contentDocument?.documentElement?.scrollHeight;
+                        if (h) e.target.style.height = Math.min(h + 24, 700) + "px";
+                      } catch (_) {}
+                    }}
+                    title="email-body-modal"
+                  />
+                ) : (
+                  <div style={{ padding: "24px 28px", fontSize: 14, color: "#374151", lineHeight: 1.8, whiteSpace: "pre-wrap", fontFamily: "inherit" }}>
+                    {emailFullBody.content}
+                  </div>
+                )
+              ) : (
+                <div style={{ padding: "24px 28px", fontSize: 14, color: "#374151", lineHeight: 1.8, whiteSpace: "pre-wrap" }}>
+                  {selectedEmail.bodyPreview || "(no content)"}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Attachments */}
+            {emailAttachments.length > 0 && (
+              <div style={{ padding: "12px 20px", borderTop: "1px solid #e5e7eb", backgroundColor: "#f9fafb", display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {emailAttachments.map((att, i) => (
+                  <button
+                    key={i}
+                    onClick={() => handleDownloadAttachment(att)}
+                    style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 12, cursor: "pointer", color: "#374151" }}
+                  >
+                    📎 {att.name} ({(att.size / 1024).toFixed(0)} KB)
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
