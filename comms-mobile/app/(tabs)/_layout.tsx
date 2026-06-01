@@ -24,18 +24,20 @@ export default function TabsLayout() {
         tabBarInactiveTintColor: "#9ca3af",
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: any = "ellipse";
-          if (route.name === "inbox") iconName = focused ? "chatbubbles" : "chatbubbles-outline";
-          else if (route.name === "recents") iconName = focused ? "call" : "call-outline";
-          else if (route.name === "dialpad") iconName = focused ? "keypad" : "keypad-outline";
-          else if (route.name === "ai") iconName = focused ? "sparkles" : "sparkles-outline";
+          if (route.name === "inbox")   iconName = focused ? "chatbubbles"   : "chatbubbles-outline";
+          else if (route.name === "recents") iconName = focused ? "call"     : "call-outline";
+          else if (route.name === "dialpad") iconName = focused ? "keypad"   : "keypad-outline";
+          else if (route.name === "email")   iconName = focused ? "mail"     : "mail-outline";
+          else if (route.name === "ai")      iconName = focused ? "sparkles" : "sparkles-outline";
           else if (route.name === "settings") iconName = focused ? "settings" : "settings-outline";
           return <Ionicons name={iconName} size={size ?? 24} color={color} />;
         },
       })}
     >
-      <Tabs.Screen name="inbox" options={{ title: "Inbox" }} />
+      <Tabs.Screen name="inbox"   options={{ title: "Inbox" }} />
       <Tabs.Screen name="recents" options={{ title: "Recents" }} />
       <Tabs.Screen name="dialpad" options={{ title: "Dial Pad" }} />
+      <Tabs.Screen name="email"   options={{ title: "Email" }} />
       <Tabs.Screen
         name="ai"
         options={{
