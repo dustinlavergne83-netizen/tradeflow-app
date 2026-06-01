@@ -78,12 +78,15 @@ export default function Communications() {
   const [attachmentPreview, setAttachmentPreview] = useState(null); // { att, blobUrl, type }
   const printIframeRef = useRef(null);
   const markReadTimerRef = useRef(null);
+  const markedReadIds = useRef(new Set()); // persists across auto-refreshes
 
   // Folder / search / delete state
   const [emailFolder, setEmailFolder]     = useState("inbox"); // inbox | sent | drafts | trash
   const [emailFolderMap, setEmailFolderMap] = useState({}); // { inbox: id, sent: id, ... }
   const [emailSearch, setEmailSearch]     = useState("");
   const [emailDeleting, setEmailDeleting] = useState(false);
+  const [selectedEmailIds, setSelectedEmailIds] = useState(new Set());
+  const [bulkOperating, setBulkOperating] = useState(false);
 
   // Compose / Reply state
   const [showCompose, setShowCompose]             = useState(false);
@@ -242,7 +245,8 @@ export default function Communications() {
       const data = await graphFetch(
         `https://graph.microsoft.com/v1.0/me/mailFolders/${folder}/messages?$top=50&$orderby=receivedDateTime desc&$select=id,subject,from,toRecipients,receivedDateTime,hasAttachments,bodyPreview,isRead`
       );
-      setEmails(data.value || []);
+      // Apply locally-marked-read overrides so auto-refresh doesn't revert them
+      setEmails((data.value || []).map(e => markedReadIds.current.has(e.id) ? { ...e, isRead: true } : e));
     } catch (err) {
       setEmailError("Failed to load emails: " + err.message);
     }
@@ -279,6 +283,87 @@ export default function Communications() {
     setEmailDeleting(false);
   }
 
+  // Multi-select helpers
+  function handleToggleEmailSelect(e, emailId) {
+    e.stopPropagation();
+    setSelectedEmailIds(prev => {
+      const next = new Set(prev);
+      if (next.has(emailId)) next.delete(emailId); else next.add(emailId);
+      return next;
+    });
+  }
+
+  function handleSelectAll(visibleIds) {
+    if (selectedEmailIds.size === visibleIds.length) {
+      setSelectedEmailIds(new Set());
+    } else {
+      setSelectedEmailIds(new Set(visibleIds));
+    }
+  }
+
+  async function handleBulkMarkRead() {
+    if (selectedEmailIds.size === 0) return;
+    setBulkOperating(true);
+    try {
+      const token = await getEmailToken();
+      await Promise.all([...selectedEmailIds].map(id =>
+        fetch(`https://graph.microsoft.com/v1.0/me/messages/${id}`, {
+          method: "PATCH",
+          headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ isRead: true }),
+        }).catch(() => {})
+      ));
+      selectedEmailIds.forEach(id => markedReadIds.current.add(id));
+      setEmails(prev => prev.map(e => selectedEmailIds.has(e.id) ? { ...e, isRead: true } : e));
+      setSelectedEmailIds(new Set());
+    } catch (err) { alert("Failed: " + err.message); }
+    setBulkOperating(false);
+  }
+
+  async function handleBulkMarkUnread() {
+    if (selectedEmailIds.size === 0) return;
+    setBulkOperating(true);
+    try {
+      const token = await getEmailToken();
+      await Promise.all([...selectedEmailIds].map(id =>
+        fetch(`https://graph.microsoft.com/v1.0/me/messages/${id}`, {
+          method: "PATCH",
+          headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ isRead: false }),
+        }).catch(() => {})
+      ));
+      selectedEmailIds.forEach(id => markedReadIds.current.delete(id));
+      setEmails(prev => prev.map(e => selectedEmailIds.has(e.id) ? { ...e, isRead: false } : e));
+      setSelectedEmailIds(new Set());
+    } catch (err) { alert("Failed: " + err.message); }
+    setBulkOperating(false);
+  }
+
+  async function handleBulkDelete() {
+    if (selectedEmailIds.size === 0) return;
+    const inTrash = emailFolder === "trash";
+    const confirmed = window.confirm(`${inTrash ? "Permanently delete" : "Move to Trash"} ${selectedEmailIds.size} email(s)?`);
+    if (!confirmed) return;
+    setBulkOperating(true);
+    try {
+      const token = await getEmailToken();
+      await Promise.all([...selectedEmailIds].map(id =>
+        inTrash
+          ? fetch(`https://graph.microsoft.com/v1.0/me/messages/${id}`, { method: "DELETE", headers: { "Authorization": `Bearer ${token}` } }).catch(() => {})
+          : fetch(`https://graph.microsoft.com/v1.0/me/messages/${id}/move`, {
+              method: "POST",
+              headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ destinationId: "deleteditems" }),
+            }).catch(() => {})
+      ));
+      const deletedIds = new Set(selectedEmailIds);
+      setEmails(prev => prev.filter(e => !deletedIds.has(e.id)));
+      if (deletedIds.has(selectedEmail?.id)) setSelectedEmail(null);
+      setSelectedEmailIds(new Set());
+    } catch (err) { alert("Failed: " + err.message); }
+    setBulkOperating(false);
+  }
+
   async function handleSelectEmail(email) {
     setSelectedEmail(email);
     setEmailAttachments([]);
@@ -290,8 +375,12 @@ export default function Communications() {
     if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current);
 
     // After 2 seconds, mark as read via Graph API + update local state
-    if (!email.isRead) {
+    if (!email.isRead && !markedReadIds.current.has(email.id)) {
       markReadTimerRef.current = setTimeout(async () => {
+        // Add to local set immediately so refresh doesn't revert it
+        markedReadIds.current.add(email.id);
+        setEmails(prev => prev.map(e => e.id === email.id ? { ...e, isRead: true } : e));
+        setSelectedEmail(prev => prev?.id === email.id ? { ...prev, isRead: true } : prev);
         try {
           const token = await getEmailToken();
           await fetch(`https://graph.microsoft.com/v1.0/me/messages/${email.id}`, {
@@ -299,11 +388,8 @@ export default function Communications() {
             headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
             body: JSON.stringify({ isRead: true }),
           });
-          // Update local emails list so bold/dot disappears immediately
-          setEmails(prev => prev.map(e => e.id === email.id ? { ...e, isRead: true } : e));
-          setSelectedEmail(prev => prev?.id === email.id ? { ...prev, isRead: true } : prev);
         } catch (err) {
-          console.warn("Failed to mark as read:", err.message);
+          console.warn("Mark as read API call failed (local state already updated):", err.message);
         }
       }, 2000);
     }
@@ -666,6 +752,45 @@ export default function Communications() {
                 </div>
               )}
 
+              {/* Bulk action bar / Select All — shown when signed in and emails loaded */}
+              {emailSignedIn && emails.length > 0 && (() => {
+                const visibleIds = emails.filter(email => {
+                  if (!emailSearch.trim()) return true;
+                  const q = emailSearch.toLowerCase();
+                  return (email.subject || "").toLowerCase().includes(q) || (email.from?.emailAddress?.name || "").toLowerCase().includes(q) || (email.from?.emailAddress?.address || "").toLowerCase().includes(q) || (email.bodyPreview || "").toLowerCase().includes(q);
+                }).map(e => e.id);
+                const allSelected = visibleIds.length > 0 && visibleIds.every(id => selectedEmailIds.has(id));
+                return selectedEmailIds.size > 0 ? (
+                  /* BULK ACTION BAR */
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", backgroundColor: "#eff6ff", borderBottom: "1px solid #bfdbfe", flexWrap: "wrap" }}>
+                    <input type="checkbox" checked={allSelected} onChange={() => handleSelectAll(visibleIds)} title="Select / Deselect all" style={{ width: 15, height: 15, cursor: "pointer", flexShrink: 0 }} />
+                    <span style={{ fontSize: 12, fontWeight: 700, color: BLUE, marginRight: 2 }}>{selectedEmailIds.size} selected</span>
+                    <button onClick={handleBulkMarkRead} disabled={bulkOperating}
+                      style={{ padding: "4px 9px", backgroundColor: "#fff", border: "1px solid #bfdbfe", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: bulkOperating ? "not-allowed" : "pointer", color: BLUE }}>
+                      {bulkOperating ? "⏳" : "✓ Read"}
+                    </button>
+                    <button onClick={handleBulkMarkUnread} disabled={bulkOperating}
+                      style={{ padding: "4px 9px", backgroundColor: "#fff", border: "1px solid #bfdbfe", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: bulkOperating ? "not-allowed" : "pointer", color: "#374151" }}>
+                      ○ Unread
+                    </button>
+                    <button onClick={handleBulkDelete} disabled={bulkOperating}
+                      style={{ padding: "4px 9px", backgroundColor: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: bulkOperating ? "not-allowed" : "pointer", color: "#ef4444" }}>
+                      🗑️ Trash
+                    </button>
+                    <button onClick={() => setSelectedEmailIds(new Set())}
+                      style={{ marginLeft: "auto", padding: "4px 8px", backgroundColor: "transparent", border: "none", fontSize: 11, cursor: "pointer", color: "#9ca3af" }}>
+                      ✕ Clear
+                    </button>
+                  </div>
+                ) : (
+                  /* SELECT ALL ROW */
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", borderBottom: "1px solid #f3f4f6", backgroundColor: "#fafafa" }}>
+                    <input type="checkbox" checked={false} onChange={() => handleSelectAll(visibleIds)} style={{ width: 14, height: 14, cursor: "pointer" }} />
+                    <span style={{ fontSize: 11, color: "#9ca3af" }}>Select all</span>
+                  </div>
+                );
+              })()}
+
               <div style={{ flex: 1, overflowY: "auto" }}>
                 {msalLoading ? (
                   <div style={{ padding: 32, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
@@ -711,31 +836,41 @@ export default function Communications() {
                         onDoubleClick={() => { handleSelectEmail(email); setEmailModalOpen(true); }}
                         title="Single click to preview · Double-click to open full screen"
                         style={{
-                          padding: "12px 16px",
+                          padding: "10px 12px 10px 10px",
                           borderBottom: "1px solid #f3f4f6",
                           cursor: "pointer",
-                          backgroundColor: isActive ? "#eff6ff" : "#fff",
-                          borderLeft: isActive ? `3px solid ${BLUE}` : "3px solid transparent",
+                          backgroundColor: selectedEmailIds.has(email.id) ? "#f0f9ff" : isActive ? "#eff6ff" : "#fff",
+                          borderLeft: isActive ? `3px solid ${BLUE}` : selectedEmailIds.has(email.id) ? `3px solid #93c5fd` : "3px solid transparent",
                         }}
                       >
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <div style={{ width: 36, height: 36, borderRadius: "50%", backgroundColor: isActive ? BLUE : "#e0e7ff", color: isActive ? "#fff" : BLUE, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 800, flexShrink: 0 }}>
-                              {senderName[0].toUpperCase()}
-                            </div>
-                            <div>
-                              <div style={{ fontWeight: email.isRead ? 600 : 800, fontSize: 13, color: "#111", display: "flex", alignItems: "center", gap: 5 }}>
-                                {senderName}
-                                {!email.isRead && <span style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: BLUE, display: "inline-block", flexShrink: 0 }} />}
-                                {email.hasAttachments && <span style={{ fontSize: 11 }}>📎</span>}
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginBottom: 4 }}>
+                          {/* Checkbox */}
+                          <input
+                            type="checkbox"
+                            checked={selectedEmailIds.has(email.id)}
+                            onChange={e => handleToggleEmailSelect(e, email.id)}
+                            onClick={e => e.stopPropagation()}
+                            style={{ width: 14, height: 14, cursor: "pointer", flexShrink: 0, marginTop: 11 }}
+                          />
+                          <div style={{ flex: 1, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <div style={{ width: 32, height: 32, borderRadius: "50%", backgroundColor: isActive ? BLUE : "#e0e7ff", color: isActive ? "#fff" : BLUE, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, flexShrink: 0 }}>
+                                {senderName[0].toUpperCase()}
+                              </div>
+                              <div>
+                                <div style={{ fontWeight: email.isRead ? 600 : 800, fontSize: 13, color: "#111", display: "flex", alignItems: "center", gap: 5 }}>
+                                  {senderName}
+                                  {!email.isRead && <span style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: BLUE, display: "inline-block", flexShrink: 0 }} />}
+                                  {email.hasAttachments && <span style={{ fontSize: 11 }}>📎</span>}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                          <div style={{ fontSize: 11, color: "#9ca3af", flexShrink: 0, paddingTop: 2 }}>
-                            {formatTime(email.receivedDateTime)}
+                            <div style={{ fontSize: 11, color: "#9ca3af", flexShrink: 0, paddingTop: 2 }}>
+                              {formatTime(email.receivedDateTime)}
+                            </div>
                           </div>
                         </div>
-                        <div style={{ paddingLeft: 44 }}>
+                        <div style={{ paddingLeft: 22 }}>
                           <div style={{ fontSize: 12, fontWeight: email.isRead ? 400 : 700, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginBottom: 2 }}>
                             {email.subject || "(no subject)"}
                           </div>
@@ -841,60 +976,48 @@ export default function Communications() {
             ) : (
               /* Email detail */
               <>
-                <div style={{ padding: "14px 20px", backgroundColor: "#fff", borderBottom: "1px solid #e5e7eb", display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 800, fontSize: 16, color: "#111", marginBottom: 4, lineHeight: 1.3 }}>
+                <div style={{ padding: "12px 20px", backgroundColor: "#fff", borderBottom: "1px solid #e5e7eb" }}>
+                  {/* Subject / From / Date */}
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontWeight: 800, fontSize: 15, color: "#111", marginBottom: 3, lineHeight: 1.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {selectedEmail.subject || "(no subject)"}
                     </div>
-                    <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>
                       <strong>From:</strong> {selectedEmail.from?.emailAddress?.name}{" "}
                       {selectedEmail.from?.emailAddress?.address && (
                         <span style={{ color: "#9ca3af" }}>&lt;{selectedEmail.from.emailAddress.address}&gt;</span>
                       )}
-                    </div>
-                    <div style={{ fontSize: 11, color: "#9ca3af" }}>
-                      {new Date(selectedEmail.receivedDateTime).toLocaleString()}
+                      <span style={{ marginLeft: 12, color: "#9ca3af", fontSize: 11 }}>
+                        {new Date(selectedEmail.receivedDateTime).toLocaleString()}
+                      </span>
                     </div>
                   </div>
-                  <div style={{ display: "flex", gap: 8, flexShrink: 0, marginLeft: 12 }}>
-                    <button
-                      onClick={() => openCompose("reply", selectedEmail?.from?.emailAddress?.address || "", "Re: " + (selectedEmail?.subject || ""))}
-                      style={{ padding: "6px 14px", backgroundColor: GREEN, color: "#fff", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", border: "none", whiteSpace: "nowrap" }}
-                    >
+                  {/* Action buttons — own row so nothing gets cut off */}
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <button onClick={() => openCompose("reply", selectedEmail?.from?.emailAddress?.address || "", "Re: " + (selectedEmail?.subject || ""))}
+                      style={{ padding: "5px 12px", backgroundColor: GREEN, color: "#fff", borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: "pointer", border: "none" }}>
                       ↩️ Reply
                     </button>
-                    <button
-                      onClick={handleForwardEmail}
-                      style={{ padding: "6px 14px", backgroundColor: "#f3f4f6", color: "#374151", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", border: "1px solid #e5e7eb", whiteSpace: "nowrap" }}
-                    >
+                    <button onClick={handleForwardEmail}
+                      style={{ padding: "5px 12px", backgroundColor: "#f3f4f6", color: "#374151", borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: "pointer", border: "1px solid #e5e7eb" }}>
                       ↗️ Forward
                     </button>
-                    <button
-                      onClick={() => openCompose("compose")}
-                      style={{ padding: "6px 14px", backgroundColor: BLUE, color: "#fff", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", border: "none", whiteSpace: "nowrap" }}
-                    >
+                    <button onClick={() => openCompose("compose")}
+                      style={{ padding: "5px 12px", backgroundColor: BLUE, color: "#fff", borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: "pointer", border: "none" }}>
                       ✏️ New
                     </button>
-                    <button
-                      onClick={() => setEmailModalOpen(true)}
-                      title="Pop out (or double-click email)"
-                      style={{ padding: "6px 12px", backgroundColor: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, cursor: "pointer", color: "#374151" }}
-                    >
+                    <button onClick={() => setEmailModalOpen(true)} title="Pop out full screen"
+                      style={{ padding: "5px 10px", backgroundColor: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: 7, fontSize: 13, cursor: "pointer", color: "#374151" }}>
                       ⛶
                     </button>
                     <button
-                      onClick={() => handleDeleteEmail(selectedEmail)}
-                      disabled={emailDeleting}
+                      onClick={() => handleDeleteEmail(selectedEmail)} disabled={emailDeleting}
                       title={emailFolder === "trash" ? "Permanently Delete" : "Move to Trash"}
-                      style={{ padding: "6px 12px", backgroundColor: emailDeleting ? "#f3f4f6" : "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, fontSize: 13, cursor: emailDeleting ? "not-allowed" : "pointer", color: "#ef4444", opacity: emailDeleting ? 0.6 : 1 }}
-                    >
-                      {emailDeleting ? "⏳" : "🗑️"}
+                      style={{ padding: "5px 10px", backgroundColor: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: emailDeleting ? "not-allowed" : "pointer", color: "#ef4444", opacity: emailDeleting ? 0.6 : 1 }}>
+                      {emailDeleting ? "⏳" : "🗑️ Trash"}
                     </button>
-                    <button
-                      onClick={loadEmails}
-                      disabled={emailsLoading}
-                      style={{ padding: "6px 12px", backgroundColor: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, cursor: emailsLoading ? "not-allowed" : "pointer", color: "#374151" }}
-                    >
+                    <button onClick={loadEmails} disabled={emailsLoading}
+                      style={{ padding: "5px 10px", backgroundColor: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: 7, fontSize: 12, cursor: emailsLoading ? "not-allowed" : "pointer", color: "#6b7280" }}>
                       🔄
                     </button>
                   </div>
