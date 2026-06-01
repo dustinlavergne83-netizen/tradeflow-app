@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { useNavigate } from "react-router-dom";
+import EmailInbox from "./EmailInbox";
 
 const BLUE  = "#0b3ea8";
 const ORANGE = "#fc6b04";
@@ -38,6 +39,7 @@ export default function Communications() {
   const [sending, setSending]          = useState(false);
   const [unreadCount, setUnreadCount]  = useState(0);
   const [showTranscript, setShowTranscript] = useState(null);
+  const [activeTab, setActiveTab]      = useState("messages"); // "messages" | "email"
   const messagesEndRef = useRef(null);
 
   useEffect(() => { init(); }, []);
@@ -174,7 +176,50 @@ export default function Communications() {
   });
 
   return (
-    <div style={{ display: "flex", height: "calc(100vh - 96px)", background: "#f3f4f6", overflow: "hidden" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 96px)", background: "#f3f4f6", overflow: "hidden" }}>
+
+      {/* ===== TAB BAR ===== */}
+      <div style={{ display: "flex", background: "#fff", borderBottom: "2px solid #e5e7eb", flexShrink: 0 }}>
+        {[
+          { key: "messages", icon: "💬", label: "Messages", badge: unreadCount },
+          { key: "email",    icon: "📧", label: "Email" },
+        ].map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            style={{
+              padding: "12px 24px",
+              fontSize: 14,
+              fontWeight: 700,
+              border: "none",
+              cursor: "pointer",
+              background: "none",
+              color: activeTab === tab.key ? BLUE : "#6b7280",
+              borderBottom: activeTab === tab.key ? `3px solid ${BLUE}` : "3px solid transparent",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            {tab.icon} {tab.label}
+            {tab.badge > 0 && (
+              <span style={{ backgroundColor: ORANGE, color: "#fff", borderRadius: 10, fontSize: 11, fontWeight: 800, padding: "1px 7px" }}>
+                {tab.badge}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* ===== EMAIL TAB ===== */}
+      {activeTab === "email" && (
+        <div style={{ flex: 1, overflowY: "auto", background: "#1a3a8f" }}>
+          <EmailInbox />
+        </div>
+      )}
+
+      {/* ===== MESSAGES TAB ===== */}
+      {activeTab === "messages" && <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
 
       {/* ===== LEFT PANEL — Thread List ===== */}
       <div style={{ width: 320, flexShrink: 0, background: "#fff", borderRight: "1px solid #e5e7eb", display: "flex", flexDirection: "column" }}>
@@ -391,6 +436,9 @@ export default function Communications() {
           </>
         )}
       </div>
+
+      </div>}
+      {/* ===== end messages tab ===== */}
 
       {/* ===== AI CALL TRANSCRIPT MODAL ===== */}
       {showTranscript && (
