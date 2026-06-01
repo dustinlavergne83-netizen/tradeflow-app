@@ -71,6 +71,7 @@ export default function Communications() {
   const [emailFullBody, setEmailFullBody] = useState(null);
   const [emailBodyLoading, setEmailBodyLoading] = useState(false);
   const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [attachmentPreview, setAttachmentPreview] = useState(null); // { att, blobUrl, type }
   const printIframeRef = useRef(null);
 
   // Compose / Reply state
@@ -272,6 +273,39 @@ export default function Communications() {
     const a    = document.createElement("a");
     a.href = url; a.download = att.name; a.click();
     URL.revokeObjectURL(url);
+  }
+
+  function handlePreviewAttachment(att) {
+    const ct = att.contentType || "";
+    const name = (att.name || "").toLowerCase();
+    const isImage = ct.startsWith("image/") || /\.(png|jpg|jpeg|gif|webp|svg|bmp)$/.test(name);
+    const isPdf   = ct === "application/pdf" || name.endsWith(".pdf");
+    const isText  = ct.startsWith("text/") || /\.(txt|csv|log|md|json|xml|html|htm)$/.test(name);
+
+    if (isImage) {
+      setAttachmentPreview({ att, type: "image", dataUrl: `data:${ct};base64,${att.contentBytes}` });
+    } else if (isPdf) {
+      const byteChars = atob(att.contentBytes);
+      const byteArr = new Uint8Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) byteArr[i] = byteChars.charCodeAt(i);
+      const blob = new Blob([byteArr], { type: "application/pdf" });
+      const blobUrl = URL.createObjectURL(blob);
+      setAttachmentPreview({ att, type: "pdf", blobUrl });
+    } else if (isText) {
+      try {
+        const text = atob(att.contentBytes);
+        setAttachmentPreview({ att, type: "text", text });
+      } catch {
+        setAttachmentPreview({ att, type: "unsupported" });
+      }
+    } else {
+      setAttachmentPreview({ att, type: "unsupported" });
+    }
+  }
+
+  function closeAttachmentPreview() {
+    if (attachmentPreview?.blobUrl) URL.revokeObjectURL(attachmentPreview.blobUrl);
+    setAttachmentPreview(null);
   }
 
   async function handleProcessPayStub(att) {
@@ -787,6 +821,12 @@ export default function Communications() {
                             </div>
                             <div style={{ display: "flex", gap: 8 }}>
                               <button
+                                onClick={() => handlePreviewAttachment(att)}
+                                style={{ padding: "6px 12px", backgroundColor: "#f3f4f6", color: "#374151", border: "1px solid #e5e7eb", borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                              >
+                                👁️ Preview
+                              </button>
+                              <button
                                 onClick={() => handleDownloadAttachment(att)}
                                 style={{ padding: "6px 12px", backgroundColor: BLUE, color: "#fff", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
                               >
@@ -1127,6 +1167,76 @@ export default function Communications() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ATTACHMENT PREVIEW MODAL */}
+      {attachmentPreview && (
+        <div
+          style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.75)", zIndex: 10001, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+          onClick={e => { if (e.target === e.currentTarget) closeAttachmentPreview(); }}
+        >
+          <div style={{ backgroundColor: "#fff", borderRadius: 16, width: "100%", maxWidth: 900, maxHeight: "92vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.5)" }}>
+            {/* Preview Header */}
+            <div style={{ padding: "12px 20px", backgroundColor: BLUE, borderRadius: "16px 16px 0 0", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <div style={{ fontWeight: 800, fontSize: 14, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                📎 {attachmentPreview.att.name}
+                <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 400, opacity: 0.7 }}>
+                  ({(attachmentPreview.att.size / 1024).toFixed(0)} KB)
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                <button
+                  onClick={() => handleDownloadAttachment(attachmentPreview.att)}
+                  style={{ padding: "6px 14px", backgroundColor: "rgba(255,255,255,0.2)", border: "1px solid rgba(255,255,255,0.4)", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", color: "#fff" }}
+                >
+                  ⬇ Download
+                </button>
+                <button
+                  onClick={closeAttachmentPreview}
+                  style={{ padding: "6px 12px", backgroundColor: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 8, fontSize: 18, cursor: "pointer", color: "#fff", lineHeight: 1 }}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Preview Body */}
+            <div style={{ flex: 1, overflow: "auto", display: "flex", alignItems: "flex-start", justifyContent: "center", backgroundColor: "#f9fafb", padding: 24 }}>
+              {attachmentPreview.type === "image" && (
+                <img
+                  src={attachmentPreview.dataUrl}
+                  alt={attachmentPreview.att.name}
+                  style={{ maxWidth: "100%", maxHeight: "70vh", objectFit: "contain", borderRadius: 8, boxShadow: "0 4px 20px rgba(0,0,0,0.15)" }}
+                />
+              )}
+              {attachmentPreview.type === "pdf" && (
+                <iframe
+                  src={attachmentPreview.blobUrl}
+                  style={{ width: "100%", height: "70vh", border: "none", borderRadius: 8 }}
+                  title="PDF Preview"
+                />
+              )}
+              {attachmentPreview.type === "text" && (
+                <pre style={{ width: "100%", margin: 0, padding: "16px 20px", fontSize: 13, lineHeight: 1.7, color: "#374151", fontFamily: "monospace", whiteSpace: "pre-wrap", wordBreak: "break-word", backgroundColor: "#fff", borderRadius: 8, border: "1px solid #e5e7eb", maxHeight: "70vh", overflow: "auto" }}>
+                  {attachmentPreview.text}
+                </pre>
+              )}
+              {attachmentPreview.type === "unsupported" && (
+                <div style={{ textAlign: "center", padding: 48, color: "#9ca3af" }}>
+                  <div style={{ fontSize: 56, marginBottom: 16 }}>📁</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#374151", marginBottom: 8 }}>No preview available</div>
+                  <div style={{ fontSize: 13, marginBottom: 20 }}>This file type can't be previewed in the browser.</div>
+                  <button
+                    onClick={() => handleDownloadAttachment(attachmentPreview.att)}
+                    style={{ padding: "10px 24px", backgroundColor: BLUE, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+                  >
+                    ⬇ Download to Open
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
