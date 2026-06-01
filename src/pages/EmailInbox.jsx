@@ -30,27 +30,31 @@ export default function EmailInbox() {
   useEffect(() => {
     const init = async () => {
       try {
-        // Clear any stale MSAL locks from sessionStorage
-        Object.keys(sessionStorage).forEach((key) => {
-          if (key.includes('msal') || key.includes('login.windows')) {
-            sessionStorage.removeItem(key);
-          }
-        });
-
         const instance = new PublicClientApplication(MSAL_CONFIG);
         await instance.initialize();
-        
-        // Handle any pending redirect response
+
+        // IMPORTANT: Handle redirect FIRST before doing anything else.
+        // If Edge blocked the popup and fell back to redirect flow, the
+        // auth code is in the URL and must be processed before we clear state.
+        let redirectResult = null;
         try {
-          await instance.handleRedirectPromise();
+          redirectResult = await instance.handleRedirectPromise();
         } catch (e) {
           console.warn('MSAL redirect promise error (non-fatal):', e.message);
+          // Only clear stale state if redirect processing fails
+          Object.keys(sessionStorage).forEach((key) => {
+            if (key.includes('msal') || key.includes('login.windows')) {
+              sessionStorage.removeItem(key);
+            }
+          });
         }
 
         msalRef.current = instance;
 
         const accounts = instance.getAllAccounts();
         if (accounts.length > 0) {
+          setSignedIn(true);
+        } else if (redirectResult?.account) {
           setSignedIn(true);
         }
       } catch (err) {
@@ -94,14 +98,15 @@ export default function EmailInbox() {
     return res.json();
   }, [getAccessToken]);
 
-  // ── Sign In ──────────────────────────────────────────────────────
+  // ── Sign In (uses redirect, not popup — more reliable) ──────────
   const handleSignIn = async () => {
     const instance = msalRef.current;
     if (!instance) { setError('MSAL not ready. Please refresh the page.'); return; }
     try {
       setError(null);
-      await instance.loginPopup(LOGIN_REQUEST);
-      setSignedIn(true);
+      // Use redirect flow — no popup required, works in all browsers/modes
+      await instance.loginRedirect(LOGIN_REQUEST);
+      // Page will navigate away; on return, handleRedirectPromise() handles sign-in
     } catch (err) {
       setError('Sign in failed: ' + err.message);
     }
