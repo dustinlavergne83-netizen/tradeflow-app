@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { PublicClientApplication } from '@azure/msal-browser';
-import { supabase } from '../supabaseClient';
+import { supabase } from '../lib/supabase';
 
 // ── MSAL Config ──────────────────────────────────────────────────────
 const msalConfig = {
