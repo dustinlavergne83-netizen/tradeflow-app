@@ -7,14 +7,17 @@ const msalConfig = {
   auth: {
     clientId: '1101ddc0-5dc1-4275-beb6-34b2ef897452',
     authority: 'https://login.microsoftonline.com/9bd3d089-ecc6-4777-9198-41f0d40f95d6',
-    redirectUri: window.location.origin,
+    redirectUri: window.location.origin + '/email-inbox',
   },
   cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false },
 };
 
 const loginRequest = { scopes: ['Mail.Read', 'Mail.ReadBasic'] };
 const msalInstance = new PublicClientApplication(msalConfig);
-const msalReady = msalInstance.initialize();
+const msalReady = msalInstance.initialize().then(() => {
+  // Handle redirect response if we came back from Microsoft login
+  return msalInstance.handleRedirectPromise();
+});
 
 // ── Graph API helpers ────────────────────────────────────────────────
 async function getAccessToken() {
