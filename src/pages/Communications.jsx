@@ -347,7 +347,7 @@ export default function Communications() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 96px)", background: "#f3f4f6", overflow: "hidden" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 96px)", background: "#f3f4f6", overflow: "hidden", paddingTop: 16, boxSizing: "border-box" }}>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
 
         {/* ══════════════ LEFT PANEL ══════════════ */}
