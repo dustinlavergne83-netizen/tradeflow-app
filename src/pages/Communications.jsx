@@ -73,6 +73,7 @@ export default function Communications() {
   const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [attachmentPreview, setAttachmentPreview] = useState(null); // { att, blobUrl, type }
   const printIframeRef = useRef(null);
+  const markReadTimerRef = useRef(null);
 
   // Compose / Reply state
   const [showCompose, setShowCompose]             = useState(false);
@@ -239,6 +240,29 @@ export default function Communications() {
     setEmailProcessResult(null);
     setEmailFullBody(null);
     setEmailBodyLoading(true);
+
+    // Cancel any pending mark-as-read from previous email
+    if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current);
+
+    // After 2 seconds, mark as read via Graph API + update local state
+    if (!email.isRead) {
+      markReadTimerRef.current = setTimeout(async () => {
+        try {
+          const token = await getEmailToken();
+          await fetch(`https://graph.microsoft.com/v1.0/me/messages/${email.id}`, {
+            method: "PATCH",
+            headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ isRead: true }),
+          });
+          // Update local emails list so bold/dot disappears immediately
+          setEmails(prev => prev.map(e => e.id === email.id ? { ...e, isRead: true } : e));
+          setSelectedEmail(prev => prev?.id === email.id ? { ...prev, isRead: true } : prev);
+        } catch (err) {
+          console.warn("Failed to mark as read:", err.message);
+        }
+      }, 2000);
+    }
+
     // Fetch full body + attachments in parallel
     await Promise.all([
       (async () => {
