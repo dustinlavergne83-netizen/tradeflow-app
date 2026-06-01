@@ -372,7 +372,13 @@ export default function EmailScreen() {
         </Text>
         <TouchableOpacity
           style={[styles.btn, styles.btnBlue, { paddingHorizontal: 40, paddingVertical: 14 }]}
-          onPress={() => promptAsync()}
+          onPress={async () => {
+            // Save PKCE verifier so app/auth.tsx can complete the exchange on web
+            if (request?.codeVerifier) {
+              await SecureStore.setItemAsync("ms_pkce_verifier", request.codeVerifier);
+            }
+            promptAsync();
+          }}
           disabled={!request}
         >
           <Text style={styles.btnText}>🔑 Sign In with Microsoft</Text>
