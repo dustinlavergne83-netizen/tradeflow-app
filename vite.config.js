@@ -30,6 +30,8 @@ export default defineConfig({
       workbox: {
         navigateFallback: "/index.html",
         maximumFileSizeToCacheInBytes: 10000000,
+        skipWaiting: true,
+        clientsClaim: true,
       },
     }),
   ],
