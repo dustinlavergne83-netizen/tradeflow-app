@@ -5,10 +5,26 @@
  * then navigates back to the Email tab.
  */
 import { useEffect, useState } from "react";
-import { View, Text, ActivityIndicator, StyleSheet } from "react-native";
+import { View, Text, ActivityIndicator, StyleSheet, Platform } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import * as AuthSession from "expo-auth-session";
+
+// Web-safe storage (same pattern as email.tsx)
+const storage = {
+  getItem: (key: string): Promise<string | null> =>
+    Platform.OS === "web"
+      ? Promise.resolve(localStorage.getItem(key))
+      : SecureStore.getItemAsync(key),
+  setItem: (key: string, value: string): Promise<void> =>
+    Platform.OS === "web"
+      ? (localStorage.setItem(key, value), Promise.resolve())
+      : SecureStore.setItemAsync(key, value),
+  deleteItem: (key: string): Promise<void> =>
+    Platform.OS === "web"
+      ? (localStorage.removeItem(key), Promise.resolve())
+      : SecureStore.deleteItemAsync(key),
+};
 
 const BLUE   = "#0b3ea8";
 const TENANT = "9bd3d089-ecc6-4777-9198-41f0d40f95d6";
@@ -44,7 +60,7 @@ export default function AuthCallback() {
       setStatus("Exchanging code for tokens...");
 
       // Read PKCE verifier saved by email.tsx before promptAsync()
-      const codeVerifier = await SecureStore.getItemAsync("ms_pkce_verifier");
+      const codeVerifier = await storage.getItem("ms_pkce_verifier");
 
       // Build the redirect URI the same way email.tsx does
       const redirectUri = AuthSession.makeRedirectUri({ scheme: "dmlcomms", path: "auth" });
@@ -67,11 +83,11 @@ export default function AuthCallback() {
 
       if (data.access_token) {
         const expiry = (Date.now() + data.expires_in * 1000 - 60000).toString();
-        await SecureStore.setItemAsync("ms_access_token", data.access_token);
-        if (data.refresh_token) await SecureStore.setItemAsync("ms_refresh_token", data.refresh_token);
-        await SecureStore.setItemAsync("ms_token_expiry", expiry);
+        await storage.setItem("ms_access_token", data.access_token);
+        if (data.refresh_token) await storage.setItem("ms_refresh_token", data.refresh_token);
+        await storage.setItem("ms_token_expiry", expiry);
         // Clean up verifier
-        await SecureStore.deleteItemAsync("ms_pkce_verifier").catch(() => {});
+        await storage.deleteItem("ms_pkce_verifier").catch(() => {});
         setStatus("✅ Signed in! Loading email...");
         router.replace("/(tabs)/email");
       } else {

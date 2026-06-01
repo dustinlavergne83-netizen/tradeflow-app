@@ -10,6 +10,22 @@ import * as SecureStore from "expo-secure-store";
 import { useFocusEffect } from "@react-navigation/native";
 import { supabase } from "../../lib/supabase";
 
+// Web-safe storage: localStorage on browser, SecureStore on native
+const storage = {
+  getItem: (key: string): Promise<string | null> =>
+    Platform.OS === "web"
+      ? Promise.resolve(localStorage.getItem(key))
+      : SecureStore.getItemAsync(key),
+  setItem: (key: string, value: string): Promise<void> =>
+    Platform.OS === "web"
+      ? (localStorage.setItem(key, value), Promise.resolve())
+      : SecureStore.setItemAsync(key, value),
+  deleteItem: (key: string): Promise<void> =>
+    Platform.OS === "web"
+      ? (localStorage.removeItem(key), Promise.resolve())
+      : SecureStore.deleteItemAsync(key),
+};
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 const BLUE   = "#0b3ea8";
 const ORANGE = "#fc6b04";
@@ -81,14 +97,14 @@ export default function EmailScreen() {
   useEffect(() => {
     (async () => {
       try {
-        const token  = await SecureStore.getItemAsync(STORE_ACCESS);
-        const expiry = await SecureStore.getItemAsync(STORE_EXPIRY);
+        const token  = await storage.getItem(STORE_ACCESS);
+        const expiry = await storage.getItem(STORE_EXPIRY);
         if (token && expiry && Date.now() < parseInt(expiry)) {
           setAccessToken(token);
           setSignedIn(true);
         } else {
           // Try to refresh
-          const refresh = await SecureStore.getItemAsync(STORE_REFRESH);
+          const refresh = await storage.getItem(STORE_REFRESH);
           if (refresh) {
             await refreshAccessToken(refresh);
           }
@@ -184,16 +200,16 @@ export default function EmailScreen() {
   async function saveTokens(token: string, refresh: string, expiresIn: number) {
     const expiry = (Date.now() + expiresIn * 1000 - 60000).toString();
     setAccessToken(token);
-    await SecureStore.setItemAsync(STORE_ACCESS, token);
-    if (refresh) await SecureStore.setItemAsync(STORE_REFRESH, refresh);
-    await SecureStore.setItemAsync(STORE_EXPIRY, expiry);
+    await storage.setItem(STORE_ACCESS, token);
+    if (refresh) await storage.setItem(STORE_REFRESH, refresh);
+    await storage.setItem(STORE_EXPIRY, expiry);
   }
 
   // ── Get valid token (refresh if needed) ──────────────────────────────────
   async function getToken(): Promise<string> {
-    const expiry = await SecureStore.getItemAsync(STORE_EXPIRY);
+    const expiry = await storage.getItem(STORE_EXPIRY);
     if (!expiry || Date.now() >= parseInt(expiry)) {
-      const refresh = await SecureStore.getItemAsync(STORE_REFRESH);
+      const refresh = await storage.getItem(STORE_REFRESH);
       if (refresh) {
         const newToken = await refreshAccessToken(refresh);
         if (newToken) return newToken;
@@ -315,9 +331,9 @@ export default function EmailScreen() {
       { text: "Cancel", style: "cancel" },
       {
         text: "Sign Out", style: "destructive", onPress: async () => {
-          await SecureStore.deleteItemAsync(STORE_ACCESS);
-          await SecureStore.deleteItemAsync(STORE_REFRESH);
-          await SecureStore.deleteItemAsync(STORE_EXPIRY);
+          await storage.deleteItem(STORE_ACCESS);
+          await storage.deleteItem(STORE_REFRESH);
+          await storage.deleteItem(STORE_EXPIRY);
           setAccessToken(null);
           setSignedIn(false);
           setEmails([]);
@@ -375,7 +391,7 @@ export default function EmailScreen() {
           onPress={async () => {
             // Save PKCE verifier so app/auth.tsx can complete the exchange on web
             if (request?.codeVerifier) {
-              await SecureStore.setItemAsync("ms_pkce_verifier", request.codeVerifier);
+              await storage.setItem("ms_pkce_verifier", request.codeVerifier);
             }
             promptAsync();
           }}
