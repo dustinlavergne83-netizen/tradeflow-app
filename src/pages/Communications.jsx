@@ -800,12 +800,12 @@ export default function Communications() {
                     )}
                   </div>
 
-                  {emailAttachments.length > 0 && (
+                  {emailAttachments.filter(a => !a.isInline).length > 0 && (
                     <div style={{ backgroundColor: "#fff", borderRadius: 12, padding: "16px 20px", border: "1px solid #e5e7eb" }}>
                       <div style={{ fontWeight: 800, fontSize: 13, color: BLUE, marginBottom: 12 }}>
-                        📎 Attachments ({emailAttachments.length})
+                        📎 Attachments ({emailAttachments.filter(a => !a.isInline).length})
                       </div>
-                      {emailAttachments.map((att, i) => {
+                      {emailAttachments.filter(a => !a.isInline).map((att, i) => {
                         const isPdf = att.contentType === "application/pdf" || att.name?.toLowerCase().endsWith(".pdf");
                         return (
                           <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", backgroundColor: "#f9fafb", borderRadius: 8, marginBottom: 8, border: "1px solid #e5e7eb" }}>
@@ -1154,9 +1154,9 @@ export default function Communications() {
             </div>
 
             {/* Modal Attachments */}
-            {emailAttachments.length > 0 && (
+            {emailAttachments.filter(a => !a.isInline).length > 0 && (
               <div style={{ padding: "12px 20px", borderTop: "1px solid #e5e7eb", backgroundColor: "#f9fafb", display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {emailAttachments.map((att, i) => (
+                {emailAttachments.filter(a => !a.isInline).map((att, i) => (
                   <button
                     key={i}
                     onClick={() => handleDownloadAttachment(att)}
