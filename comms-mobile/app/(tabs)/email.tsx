@@ -7,6 +7,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import * as AuthSession from "expo-auth-session";
 import * as SecureStore from "expo-secure-store";
+import * as Notifications from "expo-notifications";
 import { useFocusEffect } from "@react-navigation/native";
 import { supabase } from "../../lib/supabase";
 
@@ -203,6 +204,32 @@ export default function EmailScreen() {
     await storage.setItem(STORE_ACCESS, token);
     if (refresh) await storage.setItem(STORE_REFRESH, refresh);
     await storage.setItem(STORE_EXPIRY, expiry);
+    // Register Expo push token for server-side email polling (native only)
+    if (refresh) registerEmailPushSubscription(refresh);
+  }
+
+  // ── Register push subscription for new-email notifications ───────────────
+  async function registerEmailPushSubscription(refreshToken: string) {
+    if (Platform.OS === "web") return; // localStorage only, no Expo push on web
+    try {
+      const { status } = await Notifications.requestPermissionsAsync();
+      if (status !== "granted") return;
+      const tokenData = await Notifications.getExpoPushTokenAsync();
+      const expoPushToken = tokenData.data;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) return;
+      await supabase.from("email_push_subscriptions").upsert(
+        {
+          user_id:          session.user.id,
+          expo_push_token:  expoPushToken,
+          ms_refresh_token: refreshToken,
+          updated_at:       new Date().toISOString(),
+        },
+        { onConflict: "user_id" }
+      );
+    } catch (e) {
+      console.log("Push subscription skipped:", e);
+    }
   }
 
   // ── Get valid token (refresh if needed) ──────────────────────────────────
