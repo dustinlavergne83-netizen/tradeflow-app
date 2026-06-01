@@ -15,6 +15,7 @@
     "ios": "expo run:ios"
   },
   "dependencies": {
+    "@azure/msal-browser": "^5.11.0",
     "@supabase/supabase-js": "^2.87.3",
     "expo": "~54.0.33",
     "fabric": "^7.1.0",
