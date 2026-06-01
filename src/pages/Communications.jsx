@@ -7,7 +7,7 @@ const BLUE   = "#0b3ea8";
 const ORANGE = "#fc6b04";
 const GREEN  = "#22c55e";
 
-// ── MSAL (Microsoft Outlook) config ─────────────────────────────────────────
+// MSAL (Microsoft Outlook) config
 const MSAL_CONFIG = {
   auth: {
     clientId: "1101ddc0-5dc1-4275-beb6-34b2ef897452",
@@ -16,9 +16,9 @@ const MSAL_CONFIG = {
   },
   cache: { cacheLocation: "localStorage", storeAuthStateInCookie: false },
 };
-const EMAIL_SCOPES = { scopes: ["Mail.Read", "Mail.ReadBasic"] };
+const EMAIL_SCOPES = { scopes: ["Mail.Read", "Mail.ReadBasic", "Mail.Send"] };
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// Helpers
 function formatPhone(num = "") {
   const d = num.replace(/\D/g, "").slice(-10);
   if (d.length === 10) return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
@@ -39,11 +39,11 @@ function formatTime(ts) {
 const TYPE_ICONS  = { sms: "💬", call: "📞", ai_call: "🤖" };
 const TYPE_LABELS = { sms: "Text", call: "Call", ai_call: "AI Call" };
 
-// ── Component ────────────────────────────────────────────────────────────────
+// Component
 export default function Communications() {
   const navigate = useNavigate();
 
-  // ── SMS / call state ──────────────────────────────────────────────────────
+  // SMS / call state
   const [companyId, setCompanyId]     = useState(null);
   const [bizPhone, setBizPhone]        = useState(null);
   const [threads, setThreads]          = useState([]);
@@ -57,7 +57,7 @@ export default function Communications() {
   const [showTranscript, setShowTranscript] = useState(null);
   const messagesEndRef = useRef(null);
 
-  // ── Email / MSAL state ────────────────────────────────────────────────────
+  // Email / MSAL state
   const msalRef                           = useRef(null);
   const [msalLoading, setMsalLoading]     = useState(true);
   const [emailSignedIn, setEmailSignedIn] = useState(false);
@@ -69,19 +69,29 @@ export default function Communications() {
   const [emailProcessing, setEmailProcessing] = useState(false);
   const [emailProcessResult, setEmailProcessResult] = useState(null);
 
-  // ── Effects ───────────────────────────────────────────────────────────────
+  // Compose / Reply state
+  const [showCompose, setShowCompose]             = useState(false);
+  const [composeMode, setComposeMode]             = useState("compose");
+  const [composeTo, setComposeTo]                 = useState("");
+  const [composeSubject, setComposeSubject]       = useState("");
+  const [composeBody, setComposeBody]             = useState("");
+  const [composeFiles, setComposeFiles]           = useState([]);
+  const [composeSending, setComposeSending]       = useState(false);
+  const [composeSendResult, setComposeSendResult] = useState(null);
+  const composeFileInputRef                       = useRef(null);
+
+  // Effects
   useEffect(() => { init(); initMsal(); }, []);
   useEffect(() => { if (selected) loadThread(selected.contactNumber); }, [selected]);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
-  // Load emails when email tab becomes active and user is signed in
   useEffect(() => {
     if (filter === "email" && emailSignedIn && !msalLoading && emails.length === 0) {
       loadEmails();
     }
   }, [filter, emailSignedIn, msalLoading]);
 
-  // ── SMS / call init ───────────────────────────────────────────────────────
+  // SMS / call init
   async function init() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -123,7 +133,7 @@ export default function Communications() {
     }
   }
 
-  // ── MSAL init ─────────────────────────────────────────────────────────────
+  // MSAL init
   async function initMsal() {
     try {
       const instance = new PublicClientApplication(MSAL_CONFIG);
@@ -133,9 +143,7 @@ export default function Communications() {
       } catch (e) {
         console.warn("MSAL redirect promise error (non-fatal):", e.message);
         Object.keys(sessionStorage).forEach(key => {
-          if (key.includes("msal") || key.includes("login.windows")) {
-            sessionStorage.removeItem(key);
-          }
+          if (key.includes("msal") || key.includes("login.windows")) sessionStorage.removeItem(key);
         });
       }
       msalRef.current = instance;
@@ -148,7 +156,7 @@ export default function Communications() {
     }
   }
 
-  // ── Email helpers ─────────────────────────────────────────────────────────
+  // Email helpers
   const getEmailToken = useCallback(async () => {
     const instance = msalRef.current;
     if (!instance) throw new Error("MSAL not initialized");
@@ -191,9 +199,7 @@ export default function Communications() {
 
   async function handleEmailSignOut() {
     const instance = msalRef.current;
-    if (instance) {
-      try { await instance.logoutPopup(); } catch (_) {}
-    }
+    if (instance) { try { await instance.logoutPopup(); } catch (_) {} }
     setEmailSignedIn(false);
     setEmails([]);
     setSelectedEmail(null);
@@ -221,9 +227,7 @@ export default function Communications() {
     setEmailProcessResult(null);
     if (email.hasAttachments) {
       try {
-        const data = await graphFetch(
-          `https://graph.microsoft.com/v1.0/me/messages/${email.id}/attachments`
-        );
+        const data = await graphFetch(`https://graph.microsoft.com/v1.0/me/messages/${email.id}/attachments`);
         setEmailAttachments(data.value || []);
       } catch (err) {
         console.error("Failed to load attachments:", err);
@@ -270,7 +274,74 @@ export default function Communications() {
     setEmailProcessing(false);
   }
 
-  // ── SMS helpers ───────────────────────────────────────────────────────────
+  // Compose helpers
+  async function handleComposeFileChange(e) {
+    const files = Array.from(e.target.files);
+    const processed = await Promise.all(files.map(f => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = reader.result.split(",")[1];
+        resolve({ name: f.name, contentType: f.type || "application/octet-stream", contentBytes: base64, size: f.size });
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(f);
+    })));
+    setComposeFiles(prev => [...prev, ...processed]);
+    e.target.value = "";
+  }
+
+  function handleRemoveComposeFile(idx) {
+    setComposeFiles(prev => prev.filter((_, i) => i !== idx));
+  }
+
+  function openCompose(mode, to = "", subject = "") {
+    setComposeMode(mode);
+    setComposeTo(to);
+    setComposeSubject(subject);
+    setComposeBody("");
+    setComposeFiles([]);
+    setComposeSendResult(null);
+    setShowCompose(true);
+  }
+
+  async function handleSendEmail() {
+    if (!composeTo.trim() || !composeBody.trim()) return;
+    setComposeSending(true);
+    setComposeSendResult(null);
+    try {
+      const token = await getEmailToken();
+      const message = {
+        subject: composeSubject || "(no subject)",
+        body: { contentType: "Text", content: composeBody },
+        toRecipients: composeTo.split(",").map(addr => ({ emailAddress: { address: addr.trim() } })).filter(r => r.emailAddress.address),
+      };
+      if (composeFiles.length > 0) {
+        message.attachments = composeFiles.map(f => ({
+          "@odata.type": "#microsoft.graph.fileAttachment",
+          name: f.name,
+          contentType: f.contentType,
+          contentBytes: f.contentBytes,
+        }));
+      }
+      const res = await fetch("https://graph.microsoft.com/v1.0/me/sendMail", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ message, saveToSentItems: true }),
+      });
+      if (!res.ok) {
+        let errMsg = `HTTP ${res.status}`;
+        try { const j = await res.json(); errMsg = j.error?.message || errMsg; } catch (_) {}
+        throw new Error(errMsg);
+      }
+      setComposeSendResult({ success: true, message: "Email sent!" });
+      setTimeout(() => { setShowCompose(false); setComposeSendResult(null); }, 2000);
+    } catch (err) {
+      setComposeSendResult({ success: false, message: "Failed: " + err.message });
+    }
+    setComposeSending(false);
+  }
+
+  // SMS helpers
   async function loadThreads(cid) {
     const { data } = await supabase
       .from("communications")
@@ -345,12 +416,12 @@ export default function Communications() {
     return true;
   });
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // Render
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 96px)", background: "#f3f4f6", overflow: "hidden", paddingTop: 16, boxSizing: "border-box" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 112px)", background: "#f3f4f6", overflow: "hidden", marginTop: 16 }}>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
 
-        {/* ══════════════ LEFT PANEL ══════════════ */}
+        {/* LEFT PANEL */}
         <div style={{ width: 320, flexShrink: 0, background: "#fff", borderRight: "1px solid #e5e7eb", display: "flex", flexDirection: "column" }}>
 
           {/* Header */}
@@ -372,7 +443,6 @@ export default function Communications() {
               </button>
             </div>
 
-            {/* Search (only for messages mode) */}
             {filter !== "email" && (
               <input
                 value={search}
@@ -382,7 +452,6 @@ export default function Communications() {
               />
             )}
 
-            {/* Filter tabs */}
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {["all", "sms", "call", "ai_call", "email"].map(f => (
                 <button key={f} onClick={() => { setFilter(f); setSelected(null); setSelectedEmail(null); }} style={{
@@ -397,21 +466,26 @@ export default function Communications() {
             </div>
           </div>
 
-          {/* ── EMAIL list OR SMS/Call thread list ── */}
           {filter === "email" ? (
-
-            /* ─── EMAIL LIST ─── */
+            /* EMAIL LIST */
             <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-              {/* Email toolbar */}
               {emailSignedIn && (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderBottom: "1px solid #f3f4f6" }}>
-                  <button
-                    onClick={loadEmails}
-                    disabled={emailsLoading}
-                    style={{ background: "none", border: "1px solid #e5e7eb", borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: emailsLoading ? "not-allowed" : "pointer", color: "#6b7280" }}
-                  >
-                    {emailsLoading ? "⏳" : "🔄"} Refresh
-                  </button>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      onClick={loadEmails}
+                      disabled={emailsLoading}
+                      style={{ background: "none", border: "1px solid #e5e7eb", borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: emailsLoading ? "not-allowed" : "pointer", color: "#6b7280" }}
+                    >
+                      {emailsLoading ? "⏳" : "🔄"} Refresh
+                    </button>
+                    <button
+                      onClick={() => openCompose("compose")}
+                      style={{ background: "none", border: "1px solid #e5e7eb", borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer", color: BLUE, fontWeight: 700 }}
+                    >
+                      ✏️ Compose
+                    </button>
+                  </div>
                   <button
                     onClick={handleEmailSignOut}
                     style={{ background: "none", border: "none", fontSize: 11, cursor: "pointer", color: "#9ca3af" }}
@@ -426,7 +500,6 @@ export default function Communications() {
                   <div style={{ padding: 32, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
                     ⏳ Connecting to Outlook...
                   </div>
-
                 ) : !emailSignedIn ? (
                   <div style={{ padding: 32, textAlign: "center", color: "#9ca3af" }}>
                     <div style={{ fontSize: 40, marginBottom: 10 }}>📬</div>
@@ -440,18 +513,13 @@ export default function Communications() {
                     </button>
                     {emailError && <div style={{ color: "#ef4444", fontSize: 11, marginTop: 10 }}>{emailError}</div>}
                   </div>
-
                 ) : emailsLoading ? (
-                  <div style={{ padding: 32, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
-                    ⏳ Loading emails...
-                  </div>
-
+                  <div style={{ padding: 32, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>⏳ Loading emails...</div>
                 ) : emails.length === 0 ? (
                   <div style={{ padding: 32, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
                     No emails found.
                     {emailError && <div style={{ color: "#ef4444", fontSize: 11, marginTop: 8 }}>{emailError}</div>}
                   </div>
-
                 ) : (
                   emails.map(email => {
                     const senderName = email.from?.emailAddress?.name || email.from?.emailAddress?.address || "Unknown";
@@ -499,15 +567,13 @@ export default function Communications() {
                 )}
               </div>
             </div>
-
           ) : (
-
-            /* ─── SMS / CALL THREAD LIST ─── */
+            /* SMS / CALL THREAD LIST */
             <div style={{ flex: 1, overflowY: "auto" }}>
               {filteredThreads.length === 0 ? (
                 <div style={{ padding: 24, textAlign: "center", color: "#9ca3af", fontSize: 14 }}>
                   No conversations yet.<br />
-                  <span style={{ fontSize: 12 }}>Configure Twilio to start receiving calls & texts.</span>
+                  <span style={{ fontSize: 12 }}>Configure Twilio to start receiving calls &amp; texts.</span>
                 </div>
               ) : (
                 filteredThreads.map(t => (
@@ -549,15 +615,14 @@ export default function Communications() {
             </div>
           )}
         </div>
-        {/* ══ end LEFT PANEL ══ */}
+        {/* end LEFT PANEL */}
 
-        {/* ══════════════ RIGHT PANEL ══════════════ */}
+        {/* RIGHT PANEL */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f3f4f6" }}>
 
           {filter === "email" ? (
-            /* ─── EMAIL DETAIL PANE ─── */
             !emailSignedIn ? (
-              /* Sign-in prompt (right panel) */
+              /* Sign-in prompt */
               <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 32, color: "#9ca3af" }}>
                 <div style={{ fontSize: 72, marginBottom: 16 }}>📬</div>
                 <div style={{ fontSize: 20, fontWeight: 800, color: "#374151", marginBottom: 8 }}>Connect Your Outlook</div>
@@ -581,6 +646,12 @@ export default function Communications() {
                 <div style={{ fontSize: 64, marginBottom: 16 }}>📨</div>
                 <div style={{ fontSize: 18, fontWeight: 700, color: "#374151", marginBottom: 8 }}>Select an email</div>
                 <div style={{ fontSize: 14 }}>Your Outlook inbox appears on the left.</div>
+                <button
+                  onClick={() => openCompose("compose")}
+                  style={{ marginTop: 20, padding: "10px 24px", backgroundColor: BLUE, color: "#fff", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer" }}
+                >
+                  ✏️ Compose New Email
+                </button>
                 {emailsLoading && <div style={{ marginTop: 16, fontSize: 13, color: "#9ca3af" }}>⏳ Loading emails...</div>}
                 {emailError && <div style={{ color: "#ef4444", fontSize: 13, marginTop: 12 }}>{emailError}</div>}
               </div>
@@ -588,7 +659,6 @@ export default function Communications() {
             ) : (
               /* Email detail */
               <>
-                {/* Email header */}
                 <div style={{ padding: "14px 20px", backgroundColor: "#fff", borderBottom: "1px solid #e5e7eb", display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 800, fontSize: 16, color: "#111", marginBottom: 4, lineHeight: 1.3 }}>
@@ -605,12 +675,18 @@ export default function Communications() {
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 8, flexShrink: 0, marginLeft: 12 }}>
-                    <a
-                      href={`mailto:${selectedEmail.from?.emailAddress?.address}`}
-                      style={{ padding: "6px 14px", backgroundColor: GREEN, color: "#fff", borderRadius: 8, fontSize: 13, fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap" }}
+                    <button
+                      onClick={() => openCompose("reply", selectedEmail?.from?.emailAddress?.address || "", "Re: " + (selectedEmail?.subject || ""))}
+                      style={{ padding: "6px 14px", backgroundColor: GREEN, color: "#fff", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", border: "none", whiteSpace: "nowrap" }}
                     >
-                      ✉️ Reply
-                    </a>
+                      ↩️ Reply
+                    </button>
+                    <button
+                      onClick={() => openCompose("compose")}
+                      style={{ padding: "6px 14px", backgroundColor: BLUE, color: "#fff", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", border: "none", whiteSpace: "nowrap" }}
+                    >
+                      ✏️ New
+                    </button>
                     <button
                       onClick={loadEmails}
                       disabled={emailsLoading}
@@ -621,10 +697,7 @@ export default function Communications() {
                   </div>
                 </div>
 
-                {/* Email body + attachments */}
                 <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
-
-                  {/* Body preview */}
                   <div style={{ backgroundColor: "#fff", borderRadius: 12, padding: "20px 24px", marginBottom: 16, border: "1px solid #e5e7eb", fontSize: 14, color: "#374151", lineHeight: 1.8, whiteSpace: "pre-wrap" }}>
                     {selectedEmail.bodyPreview || "(no preview available)"}
                     {selectedEmail.bodyPreview && (
@@ -634,7 +707,6 @@ export default function Communications() {
                     )}
                   </div>
 
-                  {/* Attachments */}
                   {emailAttachments.length > 0 && (
                     <div style={{ backgroundColor: "#fff", borderRadius: 12, padding: "16px 20px", border: "1px solid #e5e7eb" }}>
                       <div style={{ fontWeight: 800, fontSize: 13, color: BLUE, marginBottom: 12 }}>
@@ -643,10 +715,7 @@ export default function Communications() {
                       {emailAttachments.map((att, i) => {
                         const isPdf = att.contentType === "application/pdf" || att.name?.toLowerCase().endsWith(".pdf");
                         return (
-                          <div
-                            key={i}
-                            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", backgroundColor: "#f9fafb", borderRadius: 8, marginBottom: 8, border: "1px solid #e5e7eb" }}
-                          >
+                          <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", backgroundColor: "#f9fafb", borderRadius: 8, marginBottom: 8, border: "1px solid #e5e7eb" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                               <span style={{ fontSize: 22 }}>{isPdf ? "📄" : "📁"}</span>
                               <div>
@@ -689,7 +758,7 @@ export default function Communications() {
             )
 
           ) : (
-            /* ─── SMS / CALL THREAD VIEW ─── */
+            /* SMS / CALL THREAD VIEW */
             !selected ? (
               <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#9ca3af" }}>
                 <div style={{ fontSize: 64, marginBottom: 16 }}>💬</div>
@@ -706,7 +775,6 @@ export default function Communications() {
               </div>
             ) : (
               <>
-                {/* Thread Header */}
                 <div style={{ padding: "14px 20px", backgroundColor: "#fff", borderBottom: "1px solid #e5e7eb", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                     <div style={{ width: 42, height: 42, borderRadius: "50%", backgroundColor: BLUE, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 800 }}>
@@ -735,7 +803,6 @@ export default function Communications() {
                   </div>
                 </div>
 
-                {/* Messages */}
                 <div style={{ flex: 1, overflowY: "auto", padding: "20px", display: "flex", flexDirection: "column", gap: 12 }}>
                   {messages.map((msg, i) => {
                     const isOutbound = msg.direction === "outbound";
@@ -754,9 +821,9 @@ export default function Communications() {
                                 {msg.type === "ai_call" ? "AI After-Hours Call" : msg.direction === "inbound" ? "Inbound Call" : "Outbound Call"}
                                 {msg.status === "missed" && <span style={{ color: "#ef4444", marginLeft: 6 }}>• Missed</span>}
                               </div>
-                              {msg.ai_summary    && <div style={{ fontSize: 12, color: "#6b7280", maxWidth: 300 }}>{msg.ai_summary}</div>}
+                              {msg.ai_summary && <div style={{ fontSize: 12, color: "#6b7280", maxWidth: 300 }}>{msg.ai_summary}</div>}
                               {msg.duration_seconds && <div style={{ fontSize: 11, color: "#9ca3af" }}>{Math.floor(msg.duration_seconds / 60)}:{String(msg.duration_seconds % 60).padStart(2, "0")}</div>}
-                              {msg.transcript    && <div style={{ fontSize: 11, color: BLUE, fontWeight: 600, marginTop: 2 }}>View transcript →</div>}
+                              {msg.transcript && <div style={{ fontSize: 11, color: BLUE, fontWeight: 600, marginTop: 2 }}>View transcript →</div>}
                             </div>
                             <div style={{ fontSize: 11, color: "#9ca3af", marginLeft: 8 }}>{formatTime(msg.created_at)}</div>
                           </div>
@@ -786,7 +853,6 @@ export default function Communications() {
                   <div ref={messagesEndRef} />
                 </div>
 
-                {/* Send Box */}
                 <div style={{ padding: "12px 20px", backgroundColor: "#fff", borderTop: "1px solid #e5e7eb" }}>
                   <div style={{ display: "flex", gap: 10 }}>
                     <input
@@ -814,11 +880,100 @@ export default function Communications() {
             )
           )}
         </div>
-        {/* ══ end RIGHT PANEL ══ */}
+        {/* end RIGHT PANEL */}
 
       </div>
 
-      {/* ── AI CALL TRANSCRIPT MODAL ─────────────────────────────────────── */}
+      {/* COMPOSE / REPLY MODAL */}
+      {showCompose && (
+        <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.55)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div style={{ backgroundColor: "#fff", borderRadius: 16, width: "100%", maxWidth: 560, display: "flex", flexDirection: "column", maxHeight: "90vh", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+            <div style={{ padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", backgroundColor: BLUE, borderRadius: "16px 16px 0 0" }}>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: "#fff" }}>
+                {composeMode === "reply" ? "↩️ Reply" : "✏️ New Email"}
+              </h3>
+              <button onClick={() => setShowCompose(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "rgba(255,255,255,0.8)", lineHeight: 1 }}>✕</button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5, display: "block", marginBottom: 4 }}>To</label>
+                <input
+                  value={composeTo}
+                  onChange={e => setComposeTo(e.target.value)}
+                  placeholder="recipient@example.com  (comma-separate multiple)"
+                  style={{ width: "100%", padding: "9px 12px", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, boxSizing: "border-box", outline: "none" }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5, display: "block", marginBottom: 4 }}>Subject</label>
+                <input
+                  value={composeSubject}
+                  onChange={e => setComposeSubject(e.target.value)}
+                  placeholder="Subject"
+                  style={{ width: "100%", padding: "9px 12px", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, boxSizing: "border-box", outline: "none" }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5, display: "block", marginBottom: 4 }}>Message</label>
+                <textarea
+                  value={composeBody}
+                  onChange={e => setComposeBody(e.target.value)}
+                  placeholder="Write your message here..."
+                  rows={8}
+                  style={{ width: "100%", padding: "9px 12px", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, boxSizing: "border-box", outline: "none", resize: "vertical", fontFamily: "inherit", lineHeight: 1.6 }}
+                />
+              </div>
+              {composeFiles.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {composeFiles.map((f, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 5, backgroundColor: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 20, padding: "4px 10px", fontSize: 12, color: BLUE }}>
+                      <span>📎</span>
+                      <span style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+                      <span style={{ fontSize: 10, color: "#9ca3af" }}>({(f.size / 1024).toFixed(0)}KB)</span>
+                      <button onClick={() => handleRemoveComposeFile(i)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1 }}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{ padding: "12px 20px", borderTop: "1px solid #e5e7eb", display: "flex", alignItems: "center", justifyContent: "space-between", backgroundColor: "#f9fafb", borderRadius: "0 0 16px 16px" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input type="file" ref={composeFileInputRef} multiple onChange={handleComposeFileChange} style={{ display: "none" }} />
+                <button
+                  onClick={() => composeFileInputRef.current?.click()}
+                  style={{ padding: "8px 14px", backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, cursor: "pointer", color: "#374151", fontWeight: 600 }}
+                >
+                  📎 Attach
+                </button>
+                {composeSendResult && (
+                  <div style={{ fontSize: 12, fontWeight: 600, color: composeSendResult.success ? "#166534" : "#991b1b" }}>
+                    {composeSendResult.success ? "✅ " : "❌ "}{composeSendResult.message}
+                  </div>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={() => setShowCompose(false)}
+                  style={{ padding: "8px 16px", backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, cursor: "pointer", color: "#374151" }}
+                >
+                  Discard
+                </button>
+                <button
+                  onClick={handleSendEmail}
+                  disabled={composeSending || !composeTo.trim() || !composeBody.trim()}
+                  style={{ padding: "8px 20px", backgroundColor: BLUE, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 800, cursor: composeSending || !composeTo.trim() || !composeBody.trim() ? "not-allowed" : "pointer", opacity: composeSending || !composeTo.trim() || !composeBody.trim() ? 0.6 : 1 }}
+                >
+                  {composeSending ? "⏳ Sending..." : "Send ➤"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI CALL TRANSCRIPT MODAL */}
       {showTranscript && (
         <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
           <div style={{ backgroundColor: "#fff", borderRadius: 16, maxWidth: 600, width: "100%", maxHeight: "80vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
