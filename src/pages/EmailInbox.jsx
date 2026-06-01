@@ -70,15 +70,45 @@ export default function EmailInbox() {
     })();
   }, []);
 
+  // ── Clear stale MSAL interaction locks ──────────────────────────
+  const clearMsalState = () => {
+    // MSAL stores interaction lock in sessionStorage
+    Object.keys(sessionStorage).forEach((key) => {
+      if (key.includes('msal') || key.includes('login.windows')) {
+        sessionStorage.removeItem(key);
+      }
+    });
+    // Also clear localStorage MSAL keys
+    Object.keys(localStorage).forEach((key) => {
+      if (key.includes('msal') || key.includes('login.windows')) {
+        localStorage.removeItem(key);
+      }
+    });
+  };
+
   // ── Sign In ──────────────────────────────────────────────────────
   const handleSignIn = async () => {
     try {
       setError(null);
+      // Clear any stale MSAL state/locks first
+      clearMsalState();
       await msalReady;
       await msalInstance.loginPopup(loginRequest);
       setSignedIn(true);
       loadEmails();
     } catch (err) {
+      if (err.message?.includes('interaction_in_progress')) {
+        clearMsalState();
+        try {
+          await msalInstance.loginPopup(loginRequest);
+          setSignedIn(true);
+          loadEmails();
+          return;
+        } catch (retryErr) {
+          setError('Sign in failed. Please do a hard refresh (Ctrl+Shift+R) and try again.');
+          return;
+        }
+      }
       setError('Sign in failed: ' + err.message);
     }
   };
