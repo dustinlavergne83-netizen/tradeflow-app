@@ -38,6 +38,14 @@ const PROJECT_TYPES = [
     desc: "Working directly with the homeowner",
     color: "#059669",
   },
+  {
+    value: "lighting-project",
+    icon: "💡",
+    label: "Lighting Project",
+    desc: "Out-of-town lighting jobs — OT Bank enabled automatically (pay 40 hrs now, bonus later)",
+    color: "#f59e0b",
+    ot_bank_auto: true,
+  },
 ];
 
 function AutocompleteInput({ name, value, onChange, options, placeholder, label, required }) {
@@ -146,7 +154,7 @@ export default function ProjectSetup() {
     start_date: new Date().toISOString().split("T")[0],
     percent_complete: "0",
     project_type: typeFromUrl,
-    ot_bank_enabled: false,
+    ot_bank_enabled: typeFromUrl === "lighting-project",
   });
 
   useEffect(() => {

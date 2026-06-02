@@ -47,7 +47,7 @@ export default function OvertimeBank() {
       const [{ data: entries }, { data: emps }, { data: projs }] = await Promise.all([
         supabase.from("ot_bank_entries").select("*, employees(first_name, last_name, hourly_rate), projects(name)").eq("company_id", user.id).order("week_start", { ascending: false }),
         supabase.from("employees").select("user_id, first_name, last_name, hourly_rate").order("first_name"),
-        supabase.from("projects").select("id, name").not("status", "ilike", "%complete%").order("name"),
+        supabase.from("projects").select("id, name, project_type, ot_bank_enabled").not("status", "ilike", "%complete%").order("name"),
       ]);
       const all = entries || [];
       setBankRecords(all.filter(e => e.status === "banked"));
@@ -466,11 +466,33 @@ export default function OvertimeBank() {
               </div>
 
               <div style={{ marginBottom: 16 }}>
-                <label style={labelStyle}>Project (optional)</label>
+                <label style={labelStyle}>Select Job / Project *</label>
+                {/* OT Bank projects (lighting or ot_bank_enabled) shown first */}
                 <select value={addForm.project_id} onChange={e => setAddForm(f => ({ ...f, project_id: e.target.value }))} style={{ ...inputStyle, backgroundColor: "#fff" }}>
-                  <option value="">— No specific project —</option>
-                  {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  <option value="">— Choose the job —</option>
+                  {/* OT Bank jobs first */}
+                  {projects.filter(p => p.ot_bank_enabled || p.project_type === "lighting-project").length > 0 && (
+                    <optgroup label="💡 OT Bank Jobs (Lighting Projects)">
+                      {projects
+                        .filter(p => p.ot_bank_enabled || p.project_type === "lighting-project")
+                        .map(p => <option key={p.id} value={p.id}>💡 {p.name}</option>)}
+                    </optgroup>
+                  )}
+                  {/* Other active projects */}
+                  {projects.filter(p => !p.ot_bank_enabled && p.project_type !== "lighting-project").length > 0 && (
+                    <optgroup label="Other Projects">
+                      {projects
+                        .filter(p => !p.ot_bank_enabled && p.project_type !== "lighting-project")
+                        .map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </optgroup>
+                  )}
                 </select>
+                {/* Show OT Bank badge if a lighting/ot-bank project is selected */}
+                {addForm.project_id && projects.find(p => p.id === addForm.project_id && (p.ot_bank_enabled || p.project_type === "lighting-project")) && (
+                  <div style={{ marginTop: 8, padding: "8px 12px", backgroundColor: "#fffbeb", border: "2px solid #f59e0b", borderRadius: 8, fontSize: 13, color: "#92400e", fontWeight: 600 }}>
+                    💡 This is a Lighting Project — OT Bank is active. Hours above 40/wk will be banked automatically.
+                  </div>
+                )}
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>

@@ -38,6 +38,13 @@ const PROJECT_TYPES = [
     desc: "Working directly with the homeowner",
     color: "#059669",
   },
+  {
+    value: "lighting-project",
+    icon: "💡",
+    label: "Lighting Project",
+    desc: "Out-of-town lighting jobs — OT Bank auto-enabled (pay 40 hrs now, bonus on collection)",
+    color: "#f59e0b",
+  },
 ];
 
 export default function ProjectsList() {
