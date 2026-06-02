@@ -2023,8 +2023,8 @@ async function handleAddContractor() {
           </div>
         </div>
 
-        {/* Contractors Card - hidden for residential-contractor type */}
-        {!["residential-contractor", "commercial-private", "residential-owner"].includes(project.project_type) && (
+        {/* Contractors Card - hidden for residential/lighting types */}
+        {!["residential-contractor", "commercial-private", "residential-owner", "lighting-project"].includes(project.project_type) && (
         <div style={{...styles.card, order: 1}}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
             <h2 style={{ ...styles.cardTitle, marginBottom: 0 }}>Proposal Contractors</h2>
@@ -2436,7 +2436,10 @@ async function handleAddContractor() {
                     <button
                       onClick={() => {
                         const projectType = project?.project_type || 'commercial-public';
-                        navigate(`/project/${id}/proposal?estimateId=${estimate.id}&type=${projectType}`);
+                        const contractorParam = project?.project_type === 'lighting-project' && project?.contractor
+                          ? `&contractor=${encodeURIComponent(project.contractor)}`
+                          : '';
+                        navigate(`/project/${id}/proposal?estimateId=${estimate.id}&type=${projectType}${contractorParam}`);
                       }}
                       style={{...styles.estimateButton, backgroundColor: "#10b981"}}
                     >
