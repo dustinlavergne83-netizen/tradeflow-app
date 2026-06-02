@@ -36,7 +36,16 @@ const PROJECT_TYPES = [
     value: "residential-owner",
     icon: "🏡",
     label: "Residential Owner",
+    desc: "Working directly with the homeowner",
     color: "#059669",
+  },
+  {
+    value: "lighting-project",
+    icon: "💡",
+    label: "Lighting Project",
+    desc: "Out-of-town lighting jobs — OT Bank auto-enabled",
+    color: "#f59e0b",
+    ot_bank_auto: true,
   },
 ];
 
@@ -2990,6 +2999,7 @@ async function handleAddContractor() {
                 <option value="commercial-private">Commercial Private</option>
                 <option value="residential-contractor">Residential Contractor</option>
                 <option value="residential-owner">Residential Owner</option>
+                <option value="lighting-project">💡 Lighting Project</option>
               </select>
             </div>
 
@@ -3631,7 +3641,12 @@ async function handleAddContractor() {
                   return (
                     <div
                       key={type.value}
-                      onClick={() => setEditProjectForm({...editProjectForm, project_type: type.value})}
+                      onClick={() => setEditProjectForm({
+                        ...editProjectForm,
+                        project_type: type.value,
+                        // Auto-enable OT Bank when Lighting Project is selected
+                        ot_bank_enabled: type.ot_bank_auto ? true : editProjectForm.ot_bank_enabled,
+                      })}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -4544,6 +4559,7 @@ async function handleAddContractor() {
                 <option value="commercial-private">Commercial Private</option>
                 <option value="residential-contractor">Residential Contractor</option>
                 <option value="residential-owner">Residential Owner</option>
+                <option value="lighting-project">💡 Lighting Project</option>
               </select>
             </div>
 
