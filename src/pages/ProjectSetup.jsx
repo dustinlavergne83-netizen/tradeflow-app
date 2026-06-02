@@ -146,6 +146,7 @@ export default function ProjectSetup() {
     start_date: new Date().toISOString().split("T")[0],
     percent_complete: "0",
     project_type: typeFromUrl,
+    ot_bank_enabled: false,
   });
 
   useEffect(() => {
@@ -264,6 +265,7 @@ export default function ProjectSetup() {
       if (formData.sq_ft) {
         projectData.sq_ft = parseFloat(formData.sq_ft);
       }
+      projectData.ot_bank_enabled = !!formData.ot_bank_enabled;
 
       const { data, error} = await supabase
         .from("projects")
@@ -483,6 +485,54 @@ export default function ProjectSetup() {
                 step="1"
                 min="0"
               />
+            </div>
+          </div>
+
+          {/* ── OT Bank Toggle ── */}
+          <div
+            onClick={() => setFormData(prev => ({ ...prev, ot_bank_enabled: !prev.ot_bank_enabled }))}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 16,
+              padding: "16px 20px",
+              borderRadius: 12,
+              border: `2px solid ${formData.ot_bank_enabled ? "#f59e0b" : "#e5e7eb"}`,
+              backgroundColor: formData.ot_bank_enabled ? "#fffbeb" : "#f9fafb",
+              cursor: "pointer",
+              marginTop: 8,
+              transition: "all 0.2s",
+            }}
+          >
+            <div style={{
+              width: 48,
+              height: 28,
+              borderRadius: 14,
+              backgroundColor: formData.ot_bank_enabled ? "#f59e0b" : "#d1d5db",
+              position: "relative",
+              flexShrink: 0,
+              transition: "background-color 0.2s",
+            }}>
+              <div style={{
+                width: 22,
+                height: 22,
+                borderRadius: "50%",
+                backgroundColor: "#fff",
+                position: "absolute",
+                top: 3,
+                left: formData.ot_bank_enabled ? 23 : 3,
+                transition: "left 0.2s",
+                boxShadow: "0 1px 4px rgba(0,0,0,0.2)",
+              }} />
+            </div>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: "#111" }}>
+                🏦 OT Bank Job
+              </div>
+              <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>
+                Employees work full hours on-site but are only paid 40 hrs/week during the job.
+                Overtime is banked and paid out at 1.5× when the project is invoiced and collected.
+              </div>
             </div>
           </div>
         </div>

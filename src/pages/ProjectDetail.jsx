@@ -84,6 +84,7 @@ export default function ProjectDetail() {
     percent_complete: 0,
     project_type: 'commercial-public',
     sq_ft: '',
+    ot_bank_enabled: false,
   });
   const [showChangeOrderModal, setShowChangeOrderModal] = useState(false);
   const [changeOrderForm, setChangeOrderForm] = useState({
@@ -382,6 +383,7 @@ export default function ProjectDetail() {
           percent_complete: parseInt(editProjectForm.percent_complete) || 0,
           project_type: editProjectForm.project_type || 'commercial-public',
           sq_ft: editProjectForm.sq_ft ? parseFloat(editProjectForm.sq_ft) : null,
+          ot_bank_enabled: !!editProjectForm.ot_bank_enabled,
         })
         .eq("id", id);
 
@@ -1526,6 +1528,7 @@ async function handleAddContractor() {
                 labor_rate: project.labor_rate || 50,
                 percent_complete: project.percent_complete || 0,
                 project_type: project.project_type || 'commercial-public',
+                ot_bank_enabled: project.ot_bank_enabled || false,
                 sq_ft: project.sq_ft || '',
               });
               setShowEditProjectModal(true);
@@ -3679,6 +3682,42 @@ async function handleAddContractor() {
                 <input type="number" value={editProjectForm.sq_ft}
                   onChange={(e) => setEditProjectForm({...editProjectForm, sq_ft: e.target.value})}
                   style={{...styles.select, padding: '10px'}} placeholder="e.g., 2500" min="0" step="1" />
+              </div>
+            </div>
+
+            {/* ── OT Bank Toggle (Edit Modal) ── */}
+            <div
+              onClick={() => setEditProjectForm(prev => ({ ...prev, ot_bank_enabled: !prev.ot_bank_enabled }))}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 16,
+                padding: "16px 20px",
+                borderRadius: 12,
+                border: `2px solid ${editProjectForm.ot_bank_enabled ? "#f59e0b" : "#e5e7eb"}`,
+                backgroundColor: editProjectForm.ot_bank_enabled ? "#fffbeb" : "#f9fafb",
+                cursor: "pointer",
+                marginBottom: 20,
+                transition: "all 0.2s",
+              }}
+            >
+              <div style={{
+                width: 48, height: 28, borderRadius: 14,
+                backgroundColor: editProjectForm.ot_bank_enabled ? "#f59e0b" : "#d1d5db",
+                position: "relative", flexShrink: 0, transition: "background-color 0.2s",
+              }}>
+                <div style={{
+                  width: 22, height: 22, borderRadius: "50%", backgroundColor: "#fff",
+                  position: "absolute", top: 3,
+                  left: editProjectForm.ot_bank_enabled ? 23 : 3,
+                  transition: "left 0.2s", boxShadow: "0 1px 4px rgba(0,0,0,0.2)",
+                }} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 15, color: "#111" }}>🏦 OT Bank Job</div>
+                <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>
+                  Bank overtime hours (over 40/wk) and pay out at 1.5× when project is collected.
+                </div>
               </div>
             </div>
 

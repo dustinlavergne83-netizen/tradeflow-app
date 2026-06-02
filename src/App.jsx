@@ -10,6 +10,7 @@ import Landing from "./pages/Landing";
 import TimeClock from "./pages/TimeClock";
 import WeeklyTotals from "./pages/WeeklyTotals";
 import EmployeeTimesheets from "./pages/EmployeeTimesheets";
+import OvertimeBank from "./pages/OvertimeBank";
 import Customers from "./pages/Customers";
 import Vendors from "./pages/Vendors";
 import Estimate from "./pages/Estimate";
@@ -280,6 +281,22 @@ function AppContent() {
             element={
               <ProtectedRoute>
                 <EmployeeTimesheets />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/employee-timesheets"
+            element={
+              <ProtectedRoute>
+                <EmployeeTimesheets />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/overtime-bank"
+            element={
+              <ProtectedRoute>
+                <OvertimeBank />
               </ProtectedRoute>
             }
           />

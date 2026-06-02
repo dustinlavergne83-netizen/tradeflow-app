@@ -95,7 +95,7 @@ export default function EmployeeTimesheets() {
   const [saving, setSaving] = useState(false);
 
   // ── email CPA modal ───────────────────────────────────────────────────────
-  const [emailModal, setEmailModal] = useState({ show: false, to: "dustin@dmlelectrical.com", cc: "", subject: "", sending: false });
+  const [emailModal, setEmailModal] = useState({ show: false, to: "dustin@dmlelectrical.com", cc: "", subject: "", sending: false, capAt40: false });
 
   // ── reports modal ─────────────────────────────────────────────────────────
   const [showReportsModal, setShowReportsModal] = useState(false);
@@ -333,7 +333,7 @@ export default function EmployeeTimesheets() {
   }
 
   // ── build timesheet PDF (shared by print + email) ────────────────────────
-  async function buildTimesheetPDF() {
+  async function buildTimesheetPDF(capAt40 = false) {
     const logoBase64 = await getLogoBase64();
     const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "letter" });
     const pageW = doc.internal.pageSize.width;
@@ -378,17 +378,24 @@ export default function EmployeeTimesheets() {
 
     // ── Employee table (hours) ───────────────────────────────────────────
     const empBody = regularEmps.map((emp) => {
-      const days = weekDays.map((d) => {
+      const days = weekDays.map((d, dayIdx) => {
+        if (capAt40) {
+          // Mon(0)–Fri(4) = 8.00, Sat(5)–Sun(6) = "—"
+          return dayIdx < 5 ? "8.00" : "—";
+        }
         const h = calcDayHours(getSegsForDay(emp.uid, d));
         return h > 0 ? h.toFixed(2) : "—";
       });
-      return [emp.name, ...days, getWeekTotal(emp.uid).toFixed(2)];
+      const total = capAt40 ? "40.00" : getWeekTotal(emp.uid).toFixed(2);
+      return [emp.name, ...days, total];
     });
 
-    const empDayTotals = weekDays.map((d) =>
-      regularEmps.reduce((sum, emp) => sum + calcDayHours(getSegsForDay(emp.uid, d)), 0)
-    );
-    empBody.push(["WEEK TOTAL", ...empDayTotals.map((h) => h > 0 ? h.toFixed(2) : "—"), grandTotal.toFixed(2)]);
+    const empDayTotals = weekDays.map((d, dayIdx) => {
+      if (capAt40) return dayIdx < 5 ? regularEmps.length * 8 : 0;
+      return regularEmps.reduce((sum, emp) => sum + calcDayHours(getSegsForDay(emp.uid, d)), 0);
+    });
+    const empGrandTotal = capAt40 ? regularEmps.length * 40 : grandTotal;
+    empBody.push(["WEEK TOTAL", ...empDayTotals.map((h) => h > 0 ? h.toFixed(2) : "—"), empGrandTotal.toFixed(2)]);
 
     doc.autoTable({
       head,
@@ -666,7 +673,7 @@ export default function EmployeeTimesheets() {
   async function sendTimesheetEmail() {
     setEmailModal(m => ({ ...m, sending: true }));
     try {
-      const doc = await buildTimesheetPDF();
+      const doc = await buildTimesheetPDF(emailModal.capAt40);
       const pdfBase64 = doc.output("datauristring").split(",")[1];
 
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -790,6 +797,10 @@ export default function EmployeeTimesheets() {
           <button onClick={() => { setAddForm(blankAdd); setShowAddModal(true); }}
             style={{ padding: "10px 18px", backgroundColor: BRAND.accent, border: "none", borderRadius: 8, cursor: "pointer", color: "#fff", fontWeight: 700, fontSize: 14 }}>
             ➕ Add Manual Punch
+          </button>
+          <button onClick={() => navigate("/overtime-bank")}
+            style={{ padding: "10px 18px", backgroundColor: "#f59e0b", border: "none", borderRadius: 8, cursor: "pointer", color: "#fff", fontWeight: 700, fontSize: 14 }}>
+            🏦 OT Bank
           </button>
           <button onClick={() => navigate("/time-off")}
             style={{ padding: "10px 18px", backgroundColor: "#10b981", border: "none", borderRadius: 8, cursor: "pointer", color: "#fff", fontWeight: 700, fontSize: 14 }}>
@@ -1618,6 +1629,39 @@ export default function EmployeeTimesheets() {
                   placeholder={`Weekly Timesheet — ${weekLabel}`}
                   style={inputStyle}
                 />
+              </div>
+
+              {/* ── OT Bank: Cap at 40 hrs toggle ── */}
+              <div
+                onClick={() => !emailModal.sending && setEmailModal(m => ({ ...m, capAt40: !m.capAt40 }))}
+                style={{
+                  display: "flex", alignItems: "center", gap: 14,
+                  padding: "14px 18px", borderRadius: 12, marginBottom: 20,
+                  border: `2px solid ${emailModal.capAt40 ? "#f59e0b" : "#e5e7eb"}`,
+                  backgroundColor: emailModal.capAt40 ? "#fffbeb" : "#f9fafb",
+                  cursor: emailModal.sending ? "not-allowed" : "pointer",
+                  transition: "all 0.2s",
+                }}
+              >
+                <div style={{
+                  width: 44, height: 26, borderRadius: 13,
+                  backgroundColor: emailModal.capAt40 ? "#f59e0b" : "#d1d5db",
+                  position: "relative", flexShrink: 0, transition: "background-color 0.2s",
+                }}>
+                  <div style={{
+                    width: 20, height: 20, borderRadius: "50%", backgroundColor: "#fff",
+                    position: "absolute", top: 3,
+                    left: emailModal.capAt40 ? 21 : 3,
+                    transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                  }} />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: "#111" }}>🏦 OT Bank — Cap at 40 hrs/wk</div>
+                  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+                    PDF will show <strong>8 hrs Mon–Fri</strong> per employee (actual OT is tracked internally).
+                    Use this for CPA payroll on OT-bank jobs.
+                  </div>
+                </div>
               </div>
 
               {/* Send */}
