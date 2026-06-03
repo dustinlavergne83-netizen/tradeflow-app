@@ -5,7 +5,7 @@ import { useAuth } from "../contexts/AuthContext";
 
 const BRAND = { bg: "#0b3ea8", accent: "#fc6b04ff" };
 
-const TABS = ["🏦 Banked OT", "💸 Pay Out", "📋 History"];
+const TABS = ["🏦 Banked OT", "💸 Pay Out", "📋 History", "👥 Enrolled Crew"];
 
 export default function OvertimeBank() {
   const navigate = useNavigate();
@@ -14,10 +14,11 @@ export default function OvertimeBank() {
   const [loading, setLoading] = useState(true);
 
   // Data
-  const [bankRecords, setBankRecords] = useState([]);   // ot_bank_entries with status='banked'
-  const [paidRecords, setPaidRecords] = useState([]);   // ot_bank_entries with status='paid'
+  const [bankRecords, setBankRecords] = useState([]);
+  const [paidRecords, setPaidRecords] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [projects, setProjects] = useState([]);
+  const [enrollments, setEnrollments] = useState([]); // { project_id, employee_id }
 
   // Pay Out modal
   const [showPayoutModal, setShowPayoutModal] = useState(false);
@@ -39,21 +40,27 @@ export default function OvertimeBank() {
     notes: "",
   });
 
+  // Enrolled Crew tab
+  const [enrollProject, setEnrollProject] = useState(""); // selected project for enrollment management
+  const [enrollSaving, setEnrollSaving] = useState(false);
+
   useEffect(() => { loadData(); }, []); // eslint-disable-line
 
   async function loadData() {
     setLoading(true);
     try {
-      const [{ data: entries }, { data: emps }, { data: projs }] = await Promise.all([
+      const [{ data: entries }, { data: emps }, { data: projs }, { data: enrolls }] = await Promise.all([
         supabase.from("ot_bank_entries").select("*, employees(first_name, last_name, hourly_rate), projects(name)").eq("company_id", user.id).order("week_start", { ascending: false }),
         supabase.from("employees").select("user_id, first_name, last_name, hourly_rate").order("first_name"),
         supabase.from("projects").select("id, name, project_type, ot_bank_enabled").not("status", "ilike", "%complete%").order("name"),
+        supabase.from("ot_bank_enrollments").select("project_id, employee_id").eq("company_id", user.id),
       ]);
       const all = entries || [];
       setBankRecords(all.filter(e => e.status === "banked"));
       setPaidRecords(all.filter(e => e.status === "paid"));
       setEmployees(emps || []);
       setProjects(projs || []);
+      setEnrollments(enrolls || []);
     } catch (err) {
       console.error("OT Bank load error:", err);
     } finally {
@@ -61,7 +68,50 @@ export default function OvertimeBank() {
     }
   }
 
-  // ── totals per employee for banked records ──────────────────────────────
+  // ── OT Bank projects (lighting or ot_bank_enabled) ─────────────────────────
+  const otBankProjects = projects.filter(p => p.ot_bank_enabled || p.project_type === "lighting-project");
+
+  // ── Enrollment helpers ──────────────────────────────────────────────────────
+  function isEnrolled(projectId, employeeId) {
+    return enrollments.some(e => e.project_id === projectId && e.employee_id === employeeId);
+  }
+
+  function enrolledEmployeesForProject(projectId) {
+    const enrolledIds = enrollments.filter(e => e.project_id === projectId).map(e => e.employee_id);
+    return employees.filter(e => enrolledIds.includes(e.user_id));
+  }
+
+  async function toggleEnrollment(projectId, employeeId) {
+    if (!projectId || !employeeId) return;
+    setEnrollSaving(true);
+    try {
+      if (isEnrolled(projectId, employeeId)) {
+        // Remove enrollment
+        const { error } = await supabase
+          .from("ot_bank_enrollments")
+          .delete()
+          .eq("project_id", projectId)
+          .eq("employee_id", employeeId);
+        if (error) throw error;
+        setEnrollments(prev => prev.filter(e => !(e.project_id === projectId && e.employee_id === employeeId)));
+      } else {
+        // Add enrollment
+        const { data, error } = await supabase
+          .from("ot_bank_enrollments")
+          .insert([{ company_id: user.id, project_id: projectId, employee_id: employeeId }])
+          .select("project_id, employee_id")
+          .single();
+        if (error) throw error;
+        setEnrollments(prev => [...prev, data]);
+      }
+    } catch (err) {
+      alert("Enrollment error: " + err.message);
+    } finally {
+      setEnrollSaving(false);
+    }
+  }
+
+  // ── totals per employee for banked records ──────────────────────────────────
   function getBankedByEmployee() {
     const map = {};
     bankRecords.forEach(r => {
@@ -84,7 +134,7 @@ export default function OvertimeBank() {
 
   const bankedByEmp = getBankedByEmployee();
 
-  // ── Pay Out: mark all banked entries for selected employee as paid ───────
+  // ── Pay Out ─────────────────────────────────────────────────────────────────
   async function handlePayout() {
     if (!selectedEmpId) { alert("Please select an employee"); return; }
     setSaving(true);
@@ -115,7 +165,7 @@ export default function OvertimeBank() {
     }
   }
 
-  // ── Add manual bank entry ────────────────────────────────────────────────
+  // ── Add manual bank entry ───────────────────────────────────────────────────
   async function handleAddEntry() {
     if (!addForm.employee_id) { alert("Select an employee"); return; }
     if (!addForm.week_start) { alert("Enter the week start date"); return; }
@@ -155,11 +205,17 @@ export default function OvertimeBank() {
     }
   }
 
+  // Enrolled employees for the selected project in Add Entry modal
+  const addModalEnrolledEmps = addForm.project_id
+    ? enrolledEmployeesForProject(addForm.project_id)
+    : employees; // if no project selected, show all
+
   const totalBankedHours = bankRecords.reduce((s, r) => s + (r.ot_hours || 0), 0);
   const totalBankedPay = bankRecords.reduce((s, r) => s + (r.ot_pay_owed || 0), 0);
 
   return (
     <div style={{ backgroundColor: BRAND.bg, minHeight: "100vh", padding: "24px 16px" }}>
+
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
         <div>
@@ -188,7 +244,7 @@ export default function OvertimeBank() {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 20 }}>
+      <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap" }}>
         {TABS.map((t, i) => (
           <button key={t} onClick={() => setTab(i)}
             style={{
@@ -436,14 +492,140 @@ export default function OvertimeBank() {
             )}
           </>
         )}
+
+        {/* ── Tab 3: Enrolled Crew ── */}
+        {tab === 3 && (
+          <>
+            <div style={{ marginBottom: 24 }}>
+              <h2 style={{ margin: "0 0 6px", fontSize: 20, fontWeight: 800, color: "#111" }}>👥 Enrolled Crew</h2>
+              <p style={{ margin: 0, color: "#6b7280", fontSize: 14 }}>
+                Select which employees are enrolled in the OT Bank for each project. Only enrolled employees can have OT banked.
+              </p>
+            </div>
+
+            {otBankProjects.length === 0 ? (
+              <div style={{ textAlign: "center", color: "#999", padding: 40 }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>💡</div>
+                <div style={{ fontSize: 16 }}>No OT Bank projects found.</div>
+                <div style={{ fontSize: 14, marginTop: 8 }}>Create a Lighting Project to get started.</div>
+              </div>
+            ) : (
+              <>
+                {/* Project selector */}
+                <div style={{ marginBottom: 24 }}>
+                  <label style={labelStyle}>Select Project</label>
+                  <select
+                    value={enrollProject}
+                    onChange={e => setEnrollProject(e.target.value)}
+                    style={{ ...inputStyle, maxWidth: 480, backgroundColor: "#fff" }}
+                  >
+                    <option value="">— Choose a project —</option>
+                    {otBankProjects.map(p => (
+                      <option key={p.id} value={p.id}>
+                        💡 {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Employee checklist for selected project */}
+                {enrollProject ? (
+                  <>
+                    {/* Summary badge */}
+                    {(() => {
+                      const count = enrollments.filter(e => e.project_id === enrollProject).length;
+                      const proj = projects.find(p => p.id === enrollProject);
+                      return (
+                        <div style={{ marginBottom: 20, padding: "12px 16px", backgroundColor: "#eff6ff", border: "2px solid #3b82f6", borderRadius: 10, display: "flex", alignItems: "center", gap: 12 }}>
+                          <span style={{ fontSize: 24 }}>💡</span>
+                          <div>
+                            <div style={{ fontWeight: 700, color: "#1e40af", fontSize: 15 }}>{proj?.name}</div>
+                            <div style={{ fontSize: 13, color: "#3b82f6" }}>
+                              {count === 0
+                                ? "No employees enrolled yet — check the boxes below to enroll crew members."
+                                : `${count} employee${count !== 1 ? "s" : ""} enrolled in OT Bank for this project`}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Employee list */}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
+                      {employees.map(emp => {
+                        const enrolled = isEnrolled(enrollProject, emp.user_id);
+                        return (
+                          <div
+                            key={emp.user_id}
+                            onClick={() => !enrollSaving && toggleEnrollment(enrollProject, emp.user_id)}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 14,
+                              padding: "14px 16px",
+                              borderRadius: 10,
+                              border: enrolled ? "2px solid #10b981" : "2px solid #e5e7eb",
+                              backgroundColor: enrolled ? "#f0fdf4" : "#fff",
+                              cursor: enrollSaving ? "not-allowed" : "pointer",
+                              transition: "all 0.15s",
+                            }}
+                          >
+                            {/* Checkbox */}
+                            <div style={{
+                              width: 24,
+                              height: 24,
+                              borderRadius: 6,
+                              border: enrolled ? "none" : "2px solid #d1d5db",
+                              backgroundColor: enrolled ? "#10b981" : "#fff",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              flexShrink: 0,
+                              fontSize: 14,
+                              color: "#fff",
+                              fontWeight: 800,
+                            }}>
+                              {enrolled ? "✓" : ""}
+                            </div>
+
+                            {/* Employee info */}
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontWeight: 700, fontSize: 15, color: "#111" }}>
+                                {emp.first_name} {emp.last_name}
+                              </div>
+                              <div style={{ fontSize: 12, color: "#6b7280" }}>
+                                {emp.hourly_rate ? `$${emp.hourly_rate}/hr` : "Rate not set"}
+                                {enrolled && <span style={{ marginLeft: 8, color: "#10b981", fontWeight: 600 }}>✅ OT Bank enrolled</span>}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {enrollSaving && (
+                      <div style={{ marginTop: 16, color: "#6b7280", fontSize: 13, textAlign: "center" }}>Saving...</div>
+                    )}
+                  </>
+                ) : (
+                  <div style={{ textAlign: "center", color: "#9ca3af", padding: "40px 20px" }}>
+                    <div style={{ fontSize: 40, marginBottom: 12 }}>👆</div>
+                    <div>Select a project above to manage its enrolled crew</div>
+                  </div>
+                )}
+              </>
+            )}
+          </>
+        )}
+
       </div>
 
-      {/* ── Add OT Entry Modal ──────────────────────────────────────────── */}
+      {/* ── Add OT Entry Modal ──────────────────────────────────────────────────── */}
       {showAddModal && (
         <>
           <div onClick={() => setShowAddModal(false)} style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.6)", zIndex: 3000 }} />
-          <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: 500, maxWidth: "95vw", backgroundColor: "#fff", borderRadius: 16, zIndex: 3001, overflow: "hidden", boxShadow: "0 24px 64px rgba(0,0,0,0.4)" }}>
-            <div style={{ backgroundColor: BRAND.bg, padding: "18px 24px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: 500, maxWidth: "95vw", backgroundColor: "#fff", borderRadius: 16, zIndex: 3001, overflow: "hidden", boxShadow: "0 24px 64px rgba(0,0,0,0.4)", maxHeight: "92vh", overflowY: "auto" }}>
+            <div style={{ backgroundColor: BRAND.bg, padding: "18px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 1 }}>
               <div style={{ color: BRAND.accent, fontWeight: 800, fontSize: 18 }}>🏦 Bank Overtime Hours</div>
               <button onClick={() => setShowAddModal(false)} style={{ background: "none", border: "none", color: "#fff", fontSize: 22, cursor: "pointer" }}>✕</button>
             </div>
@@ -452,33 +634,16 @@ export default function OvertimeBank() {
                 Record overtime hours earned but not yet paid. The employee will receive 1.5× their regular rate when paid out.
               </p>
 
-              <div style={{ marginBottom: 16 }}>
-                <label style={labelStyle}>Employee *</label>
-                <select value={addForm.employee_id} onChange={e => {
-                  const emp = employees.find(x => x.user_id === e.target.value);
-                  setAddForm(f => ({ ...f, employee_id: e.target.value, hourly_rate: emp?.hourly_rate || "" }));
-                }} style={{ ...inputStyle, backgroundColor: "#fff" }}>
-                  <option value="">— Select employee —</option>
-                  {employees.map(emp => (
-                    <option key={emp.user_id} value={emp.user_id}>{emp.first_name} {emp.last_name} {emp.hourly_rate ? `($${emp.hourly_rate}/hr)` : ""}</option>
-                  ))}
-                </select>
-              </div>
-
+              {/* Step 1: Select Project first */}
               <div style={{ marginBottom: 16 }}>
                 <label style={labelStyle}>Select Job / Project *</label>
-                {/* OT Bank projects (lighting or ot_bank_enabled) shown first */}
-                <select value={addForm.project_id} onChange={e => setAddForm(f => ({ ...f, project_id: e.target.value }))} style={{ ...inputStyle, backgroundColor: "#fff" }}>
+                <select value={addForm.project_id} onChange={e => setAddForm(f => ({ ...f, project_id: e.target.value, employee_id: "" }))} style={{ ...inputStyle, backgroundColor: "#fff" }}>
                   <option value="">— Choose the job —</option>
-                  {/* OT Bank jobs first */}
-                  {projects.filter(p => p.ot_bank_enabled || p.project_type === "lighting-project").length > 0 && (
+                  {otBankProjects.length > 0 && (
                     <optgroup label="💡 OT Bank Jobs (Lighting Projects)">
-                      {projects
-                        .filter(p => p.ot_bank_enabled || p.project_type === "lighting-project")
-                        .map(p => <option key={p.id} value={p.id}>💡 {p.name}</option>)}
+                      {otBankProjects.map(p => <option key={p.id} value={p.id}>💡 {p.name}</option>)}
                     </optgroup>
                   )}
-                  {/* Other active projects */}
                   {projects.filter(p => !p.ot_bank_enabled && p.project_type !== "lighting-project").length > 0 && (
                     <optgroup label="Other Projects">
                       {projects
@@ -487,11 +652,47 @@ export default function OvertimeBank() {
                     </optgroup>
                   )}
                 </select>
-                {/* Show OT Bank badge if a lighting/ot-bank project is selected */}
-                {addForm.project_id && projects.find(p => p.id === addForm.project_id && (p.ot_bank_enabled || p.project_type === "lighting-project")) && (
+                {addForm.project_id && otBankProjects.find(p => p.id === addForm.project_id) && (
                   <div style={{ marginTop: 8, padding: "8px 12px", backgroundColor: "#fffbeb", border: "2px solid #f59e0b", borderRadius: 8, fontSize: 13, color: "#92400e", fontWeight: 600 }}>
-                    💡 This is a Lighting Project — OT Bank is active. Hours above 40/wk will be banked automatically.
+                    💡 This is a Lighting Project — OT Bank is active.
                   </div>
+                )}
+              </div>
+
+              {/* Step 2: Select Employee — filtered to enrolled crew if project selected */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={labelStyle}>
+                  Employee *
+                  {addForm.project_id && otBankProjects.find(p => p.id === addForm.project_id) && (
+                    <span style={{ marginLeft: 8, color: "#10b981", fontWeight: 600, textTransform: "none" }}>
+                      — showing enrolled crew only
+                    </span>
+                  )}
+                </label>
+
+                {/* Warning if project is OT Bank but no one enrolled */}
+                {addForm.project_id && otBankProjects.find(p => p.id === addForm.project_id) && addModalEnrolledEmps.length === 0 ? (
+                  <div style={{ padding: "12px 16px", backgroundColor: "#fef2f2", border: "2px solid #ef4444", borderRadius: 8, fontSize: 13, color: "#b91c1c" }}>
+                    ⚠️ No employees enrolled for this project yet.{" "}
+                    <span
+                      style={{ textDecoration: "underline", cursor: "pointer", fontWeight: 700 }}
+                      onClick={() => { setShowAddModal(false); setTab(3); setEnrollProject(addForm.project_id); }}
+                    >
+                      Go to Enrolled Crew tab to add crew members.
+                    </span>
+                  </div>
+                ) : (
+                  <select value={addForm.employee_id} onChange={e => {
+                    const emp = employees.find(x => x.user_id === e.target.value);
+                    setAddForm(f => ({ ...f, employee_id: e.target.value, hourly_rate: emp?.hourly_rate || "" }));
+                  }} style={{ ...inputStyle, backgroundColor: "#fff" }}>
+                    <option value="">— Select employee —</option>
+                    {addModalEnrolledEmps.map(emp => (
+                      <option key={emp.user_id} value={emp.user_id}>
+                        {emp.first_name} {emp.last_name} {emp.hourly_rate ? `($${emp.hourly_rate}/hr)` : ""}
+                      </option>
+                    ))}
+                  </select>
                 )}
               </div>
 
@@ -550,7 +751,7 @@ export default function OvertimeBank() {
         </>
       )}
 
-      {/* ── Pay Out Modal ────────────────────────────────────────────────── */}
+      {/* ── Pay Out Modal ─────────────────────────────────────────────────────── */}
       {showPayoutModal && (
         <>
           <div onClick={() => setShowPayoutModal(false)} style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.6)", zIndex: 3000 }} />
