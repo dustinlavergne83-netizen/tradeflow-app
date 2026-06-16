@@ -16,6 +16,8 @@ export default function Expenses() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState(null); // { type: 'success'|'error', text: string }
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 50;
   const [thisMonthTotal, setThisMonthTotal] = useState(null); // server-side this-month total
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -219,7 +221,8 @@ export default function Expenses() {
       const { data, error } = await supabase
         .from("bank_transactions")
         .select("id, linked_expense_id")
-        .not("linked_expense_id", "is", null);
+        .not("linked_expense_id", "is", null)
+        .limit(1000);
 
       if (error) throw error;
       setBankTransactions(data || []);
@@ -320,7 +323,8 @@ export default function Expenses() {
         `)
         .eq("journal_entries.is_posted", true)
         .gte("journal_entries.entry_date", startDate)
-        .lte("journal_entries.entry_date", endDate);
+        .lte("journal_entries.entry_date", endDate)
+        .limit(2000);
 
       let total = 0;
       const bankTxIdsInJE = new Set();
@@ -497,16 +501,23 @@ export default function Expenses() {
         // For cash: Debit: Expense Account, Credit: Cash Account (1000)
         // For bank: Debit: Expense Account, Credit: Selected Bank Account
         // For income: Debit: Expense Account, Credit: Selected Income Account
-        const journalResult = await createExpenseJournalEntry(
-          newExpense,
-          user.id,
-          user.id, // Using user.id as company_id for now
-          newExpense.bank_account_id || newExpense.income_account_id, // Pass either bank or income account ID
-          newExpense.payment_method // Pass payment method to determine credit account
-        );
-        
+        // Wrap journal entry creation in a 8-second timeout so a hanging
+        // Supabase query never locks up the browser indefinitely
+        const journalResult = await Promise.race([
+          createExpenseJournalEntry(
+            newExpense,
+            user.id,
+            user.id,
+            newExpense.bank_account_id || newExpense.income_account_id,
+            newExpense.payment_method
+          ),
+          new Promise(resolve =>
+            setTimeout(() => resolve({ success: false, error: 'timeout' }), 8000)
+          )
+        ]);
+
         if (!journalResult.success) {
-          console.warn('Journal entry failed:', journalResult.error);
+          console.warn('Journal entry failed or timed out:', journalResult.error);
         }
       }
 
@@ -581,6 +592,11 @@ export default function Expenses() {
 
     return matchesSearch && matchesCategory && matchesSource;
   });
+
+  // Pagination — only render PAGE_SIZE rows at a time
+  const totalPages = Math.max(1, Math.ceil(filteredExpenses.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const pagedExpenses = filteredExpenses.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   // Calculate summary statistics using combined list
   const stats = {
@@ -684,12 +700,12 @@ export default function Expenses() {
           type="text"
           placeholder="Search by vendor, description, category, or project..."
           value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
+          onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
           style={styles.searchInput}
         />
         <select
           value={categoryFilter}
-          onChange={(e) => setCategoryFilter(e.target.value)}
+          onChange={(e) => { setCategoryFilter(e.target.value); setCurrentPage(1); }}
           style={styles.filterSelect}
         >
           <option value="all">All Categories</option>
@@ -709,7 +725,7 @@ export default function Expenses() {
         </select>
         <select
           value={sourceFilter}
-          onChange={(e) => setSourceFilter(e.target.value)}
+          onChange={(e) => { setSourceFilter(e.target.value); setCurrentPage(1); }}
           style={styles.filterSelect}
         >
           <option value="all">All Sources</option>
@@ -753,7 +769,7 @@ export default function Expenses() {
               </tr>
             </thead>
             <tbody>
-              {filteredExpenses.map(expense => (
+              {pagedExpenses.map(expense => (
                 <tr 
                   key={expense.id} 
                   style={{
@@ -843,10 +859,41 @@ export default function Expenses() {
         </div>
       )}
 
+      {/* Pagination controls */}
+      {totalPages > 1 && (
+        <div style={{display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 16}}>
+          <button
+            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+            disabled={safePage <= 1}
+            style={{
+              padding: '8px 18px', borderRadius: 6, border: '2px solid #e5e7eb',
+              background: safePage <= 1 ? '#f3f4f6' : '#fff', cursor: safePage <= 1 ? 'default' : 'pointer',
+              color: safePage <= 1 ? '#aaa' : '#333', fontWeight: 600, fontSize: 14
+            }}
+          >
+            ← Prev
+          </button>
+          <span style={{color: '#fff', fontWeight: 600, fontSize: 14}}>
+            Page {safePage} of {totalPages} &nbsp;·&nbsp; {filteredExpenses.length} total
+          </span>
+          <button
+            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+            disabled={safePage >= totalPages}
+            style={{
+              padding: '8px 18px', borderRadius: 6, border: '2px solid #e5e7eb',
+              background: safePage >= totalPages ? '#f3f4f6' : '#fff', cursor: safePage >= totalPages ? 'default' : 'pointer',
+              color: safePage >= totalPages ? '#aaa' : '#333', fontWeight: 600, fontSize: 14
+            }}
+          >
+            Next →
+          </button>
+        </div>
+      )}
+
       <div style={styles.footer}>
         <p style={styles.footerText}>
-          Showing {filteredExpenses.length} of {allExpenses.length} expense{allExpenses.length !== 1 ? 's' : ''}
-          {' '}({expenses.length} manual + {clearedBankExpenses.length} cleared bank transactions)
+          Showing {pagedExpenses.length} of {filteredExpenses.length} filtered ({allExpenses.length} total:
+          {' '}{expenses.length} manual + {clearedBankExpenses.length} cleared bank transactions)
         </p>
       </div>
 
