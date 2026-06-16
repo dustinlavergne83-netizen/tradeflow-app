@@ -81,7 +81,8 @@ export default function Expenses() {
           )
         `)
         .eq("created_by", user.id)
-        .order("expense_date", { ascending: false });
+        .order("expense_date", { ascending: false })
+        .limit(500);
 
       if (error) throw error;
       
@@ -497,28 +498,16 @@ export default function Expenses() {
 
         if (error) throw error;
         
-        // Auto-create journal entry for the expense
-        // For cash: Debit: Expense Account, Credit: Cash Account (1000)
-        // For bank: Debit: Expense Account, Credit: Selected Bank Account
-        // For income: Debit: Expense Account, Credit: Selected Income Account
-        // Wrap journal entry creation in a 8-second timeout so a hanging
-        // Supabase query never locks up the browser indefinitely
-        const journalResult = await Promise.race([
-          createExpenseJournalEntry(
-            newExpense,
-            user.id,
-            user.id,
-            newExpense.bank_account_id || newExpense.income_account_id,
-            newExpense.payment_method
-          ),
-          new Promise(resolve =>
-            setTimeout(() => resolve({ success: false, error: 'timeout' }), 8000)
-          )
-        ]);
-
-        if (!journalResult.success) {
-          console.warn('Journal entry failed or timed out:', journalResult.error);
-        }
+        // Fire-and-forget journal entry creation — do NOT await it.
+        // This prevents any slow/hanging DB query in the journal creation
+        // from blocking the UI. The expense is saved; the JE runs in background.
+        createExpenseJournalEntry(
+          newExpense,
+          user.id,
+          user.id,
+          newExpense.bank_account_id || newExpense.income_account_id,
+          newExpense.payment_method
+        ).catch(err => console.warn('Background journal entry failed:', err));
       }
 
       setShowExpenseModal(false);
