@@ -123,6 +123,7 @@ export default function ProjectDetail() {
   const [showReportsModal, setShowReportsModal] = useState(false);
   const [timeEntriesExpanded, setTimeEntriesExpanded] = useState(false);
   const [expensesExpanded, setExpensesExpanded] = useState(false);
+  const [expenseCategoryFilter, setExpenseCategoryFilter] = useState('all');
   const [showAddDepositModal, setShowAddDepositModal] = useState(false);
   const [depositForm, setDepositForm] = useState({
     deposit_amount: '',
@@ -1213,6 +1214,15 @@ async function handleAddContractor() {
   // Calculate material costs from project_expenses
   const expensesCost = projectExpenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
 
+  // Unique categories present on this project (for dynamic filter buttons)
+  const expenseCategories = ['all', ...Array.from(new Set(
+    projectExpenses.map(e => e.category).filter(Boolean)
+  )).sort()];
+  const filteredProjectExpenses = expenseCategoryFilter === 'all'
+    ? projectExpenses
+    : projectExpenses.filter(e => e.category === expenseCategoryFilter);
+  const filteredExpensesCost = filteredProjectExpenses.reduce((s, e) => s + (e.amount || 0), 0);
+
   // Materials allocated to the job via negative extra items on progress billing invoices.
   // e.g. "Material Coburns Ticket -$3,684.29" is a credit given to the customer but
   // represents a real cost to the company — show it in cost tracking.
@@ -2177,6 +2187,27 @@ async function handleAddContractor() {
             <button onClick={handleAddExpense} style={styles.addEstimateButton}>+ Add Expense</button>
           </div>
 
+          {/* Category filter buttons — only shown when there are 2+ categories */}
+          {projectExpenses.length > 0 && expenseCategories.length > 2 && (
+            <div style={{display:'flex', flexWrap:'wrap', gap:8, marginBottom:12}}>
+              {expenseCategories.map(cat => {
+                const catTotal = cat === 'all' ? expensesCost : projectExpenses.filter(e => e.category === cat).reduce((s,e) => s+(e.amount||0), 0);
+                return (
+                  <button key={cat} onClick={() => setExpenseCategoryFilter(cat)} style={{
+                    padding: '5px 14px', borderRadius: 20, border: '2px solid',
+                    borderColor: expenseCategoryFilter === cat ? '#0b3ea8' : '#e5e7eb',
+                    backgroundColor: expenseCategoryFilter === cat ? '#0b3ea8' : '#fff',
+                    color: expenseCategoryFilter === cat ? '#fff' : '#555',
+                    fontWeight: 600, fontSize: 13, cursor: 'pointer', textTransform: 'capitalize',
+                  }}>
+                    {cat === 'all' ? '📋 All' : cat}
+                    <span style={{marginLeft:6, opacity:0.8}}>${catTotal.toFixed(0)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {projectExpenses.length === 0 ? (
             <p style={styles.emptyText}>No expenses yet. Click "+ Add Expense" to track materials and costs!</p>
           ) : (
@@ -2190,7 +2221,7 @@ async function handleAddContractor() {
                   </tr>
                 </thead>
                 <tbody>
-                  {projectExpenses.map((expense, idx) => (
+                  {filteredProjectExpenses.map((expense, idx) => (
                     <tr key={expense.id} style={{backgroundColor: idx % 2 === 0 ? '#fff' : '#f9fafb', borderBottom:'1px solid #e5e7eb'}}>
                       <td style={{padding:'4px 10px', color:'#555', whiteSpace:'nowrap', fontSize:13}}>{formatDate(expense.expense_date) || '—'}</td>
                       <td style={{padding:'4px 10px', fontWeight:'600', color:'#111', maxWidth: 320, fontSize:13}}>{expense.description}</td>
@@ -2228,8 +2259,12 @@ async function handleAddContractor() {
                 </tbody>
                 <tfoot>
                   <tr style={{backgroundColor:'#0b3ea8'}}>
-                    <td colSpan={4} style={{padding:'12px', color:'#fff', fontWeight:'700', fontSize:14}}>TOTAL ({projectExpenses.length} items)</td>
-                    <td style={{padding:'12px', color:'#f97316', fontWeight:'700', fontSize:15, textAlign:'right'}}>${expensesCost.toFixed(2)}</td>
+                    <td colSpan={4} style={{padding:'12px', color:'#fff', fontWeight:'700', fontSize:14}}>
+                      {expenseCategoryFilter === 'all'
+                        ? `TOTAL (${filteredProjectExpenses.length} items)`
+                        : `${expenseCategoryFilter.toUpperCase()} (${filteredProjectExpenses.length} of ${projectExpenses.length})`}
+                    </td>
+                    <td style={{padding:'12px', color:'#f97316', fontWeight:'700', fontSize:15, textAlign:'right'}}>${filteredExpensesCost.toFixed(2)}</td>
                     <td></td>
                   </tr>
                 </tfoot>
