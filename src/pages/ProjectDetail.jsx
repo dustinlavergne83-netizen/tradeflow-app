@@ -73,6 +73,9 @@ export default function ProjectDetail() {
     expense_date: new Date().toISOString().split('T')[0],
   });
   const [savingExpense, setSavingExpense] = useState(false);
+  const [showMaterialFilterModal, setShowMaterialFilterModal] = useState(false);
+  const [materialReportCategories, setMaterialReportCategories] = useState([]);
+  const [includeLaborInMaterialReport, setIncludeLaborInMaterialReport] = useState(false);
   const [showProposalTypeModal, setShowProposalTypeModal] = useState(false);
   const [selectedEstimateForProposal, setSelectedEstimateForProposal] = useState(null);
   const [proposalType, setProposalType] = useState("commercial-public");
@@ -1485,54 +1488,215 @@ async function handleAddContractor() {
     doc.save(`${safeName}_Labor_Report.pdf`);
   }
 
-  function generateMaterialReport() {
+  function generateMaterialReport(categoriesToInclude) {
+    // categoriesToInclude: array of category strings, or null/empty = all
+    const filteredExps = (categoriesToInclude && categoriesToInclude.length > 0)
+      ? projectExpenses.filter(e => categoriesToInclude.includes(e.category || 'material'))
+      : projectExpenses;
+    const filteredTotal = filteredExps.reduce((s, e) => s + (e.amount || 0), 0);
+
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const margin = 20;
     let y = margin;
     const safeName = project.name.replace(/[^a-zA-Z0-9]/g, '_');
+    const catLabel = (categoriesToInclude && categoriesToInclude.length > 0 && categoriesToInclude.length < expenseCategories.length - 1)
+      ? categoriesToInclude.map(c => c.charAt(0).toUpperCase() + c.slice(1)).join(', ')
+      : 'All Categories';
 
     doc.setFillColor(11,62,168); doc.rect(0,0,pageWidth,28,'F');
     doc.setTextColor(249,115,22); doc.setFontSize(16); doc.setFont('helvetica','bold');
     doc.text('DML ELECTRICAL SERVICE LLC', margin, 12);
     doc.setTextColor(255,255,255); doc.setFontSize(10); doc.setFont('helvetica','normal');
-    doc.text('Material & Expense Report', margin, 20);
+    doc.text(`Material & Expense Report — ${catLabel}`, margin, 20);
 
     y = 38;
     doc.setTextColor(11,62,168); doc.setFontSize(14); doc.setFont('helvetica','bold');
     doc.text(project.name, margin, y); y += 8;
     doc.setTextColor(80,80,80); doc.setFontSize(10); doc.setFont('helvetica','normal');
-    doc.text(`Generated: ${new Date().toLocaleDateString()}  |  Total: $${expensesCost.toFixed(2)}  |  ${projectExpenses.length} item(s)`, margin, y); y += 14;
+    doc.text(`Generated: ${new Date().toLocaleDateString()}  |  Total: $${filteredTotal.toFixed(2)}  |  ${filteredExps.length} item(s)`, margin, y); y += 14;
 
-    if (projectExpenses.length === 0) {
-      doc.setTextColor(150,150,150); doc.text('No expenses recorded for this project.', margin, y);
+    if (filteredExps.length === 0) {
+      doc.setTextColor(150,150,150); doc.text('No expenses match the selected filters.', margin, y);
     } else {
       doc.setFillColor(11,62,168); doc.rect(margin,y-5,pageWidth-margin*2,10,'F');
       doc.setTextColor(255,255,255); doc.setFontSize(10); doc.setFont('helvetica','bold');
       doc.text('Date', margin+1, y+1);
-      doc.text('Description', margin+28, y+1);
-      doc.text('Vendor', margin+110, y+1);
+      doc.text('Category', margin+22, y+1);
+      doc.text('Description', margin+52, y+1);
+      doc.text('Vendor', margin+118, y+1);
       doc.text('Amount', pageWidth-margin-2, y+1, {align:'right'}); y += 10;
       doc.setFont('helvetica','normal'); doc.setFontSize(10);
 
-      projectExpenses.forEach((exp, idx) => {
+      filteredExps.forEach((exp, idx) => {
         if (y > pageHeight-margin-10) { doc.addPage(); y = margin; }
         if (idx%2===0) { doc.setFillColor(248,250,252); doc.rect(margin,y-5,pageWidth-margin*2,8,'F'); }
         doc.setTextColor(50,50,50);
         doc.text(exp.expense_date||'', margin+1, y);
-        doc.text(doc.splitTextToSize(exp.description||'',78)[0], margin+28, y);
-        doc.text(doc.splitTextToSize(exp.vendor||'—',50)[0], margin+110, y);
+        doc.text(doc.splitTextToSize(exp.category||'—',26)[0], margin+22, y);
+        doc.text(doc.splitTextToSize(exp.description||'',62)[0], margin+52, y);
+        doc.text(doc.splitTextToSize(exp.vendor||'—',40)[0], margin+118, y);
         doc.text(`$${(exp.amount||0).toFixed(2)}`, pageWidth-margin-2, y, {align:'right'}); y += 8;
       });
 
       y += 4;
       doc.setFillColor(252,107,4); doc.rect(margin,y-5,pageWidth-margin*2,10,'F');
       doc.setTextColor(255,255,255); doc.setFontSize(11); doc.setFont('helvetica','bold');
-      doc.text(`${projectExpenses.length} items`, margin+1, y+1);
-      doc.text(`TOTAL: $${expensesCost.toFixed(2)}`, pageWidth-margin-2, y+1, {align:'right'});
+      doc.text(`${filteredExps.length} items`, margin+1, y+1);
+      doc.text(`TOTAL: $${filteredTotal.toFixed(2)}`, pageWidth-margin-2, y+1, {align:'right'});
     }
-    doc.save(`${safeName}_Material_Report.pdf`);
+    const catSuffix = (categoriesToInclude && categoriesToInclude.length > 0 && categoriesToInclude.length < expenseCategories.length - 1)
+      ? '_' + categoriesToInclude.join('-')
+      : '';
+    doc.save(`${safeName}_Material_Report${catSuffix}.pdf`);
+  }
+
+  // ── Combined Labor + Selected Expense Categories PDF ─────────────────────
+  function generateLaborAndExpensesReport(categoriesToInclude) {
+    const filteredExps = (categoriesToInclude && categoriesToInclude.length > 0)
+      ? projectExpenses.filter(e => categoriesToInclude.includes(e.category || 'material'))
+      : projectExpenses;
+    const expTotal = filteredExps.reduce((s, e) => s + (e.amount || 0), 0);
+    const combinedTotal = laborCost + expTotal;
+
+    const doc = new jsPDF('l', 'mm', 'letter');
+    const pageWidth  = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 20;
+    let y = margin;
+    const safeName = project.name.replace(/[^a-zA-Z0-9]/g, '_');
+    const catLabel = (categoriesToInclude && categoriesToInclude.length > 0)
+      ? categoriesToInclude.map(c => c.charAt(0).toUpperCase() + c.slice(1)).join(', ')
+      : 'All Categories';
+
+    const checkPage = (needed) => {
+      if (y + needed > pageHeight - margin) { doc.addPage(); y = margin; }
+    };
+
+    // ─── Header ───
+    doc.setFillColor(11, 62, 168); doc.rect(0, 0, pageWidth, 28, 'F');
+    doc.setTextColor(249, 115, 22); doc.setFontSize(16); doc.setFont('helvetica', 'bold');
+    doc.text('DML ELECTRICAL SERVICE LLC', margin, 12);
+    doc.setTextColor(255, 255, 255); doc.setFontSize(10); doc.setFont('helvetica', 'normal');
+    doc.text(`Labor & Expense Report — ${catLabel}`, margin, 20);
+
+    y = 38;
+    doc.setTextColor(11, 62, 168); doc.setFontSize(14); doc.setFont('helvetica', 'bold');
+    doc.text(project.name, margin, y); y += 8;
+    doc.setTextColor(80, 80, 80); doc.setFontSize(10); doc.setFont('helvetica', 'normal');
+    doc.text(
+      `Generated: ${new Date().toLocaleDateString()}  |  Labor: $${laborCost.toFixed(2)}  |  Expenses: $${expTotal.toFixed(2)}  |  Combined: $${combinedTotal.toFixed(2)}`,
+      margin, y
+    ); y += 14;
+
+    // ─── LABOR SECTION ───
+    doc.setFillColor(11, 62, 168); doc.rect(margin, y - 5, pageWidth - margin * 2, 12, 'F');
+    doc.setTextColor(255, 255, 255); doc.setFontSize(12); doc.setFont('helvetica', 'bold');
+    doc.text(`👷 LABOR  (${laborHours.toFixed(2)} hrs · $${laborCost.toFixed(2)})`, margin + 2, y + 3); y += 14;
+
+    if (timeEntries.length === 0) {
+      doc.setTextColor(150, 150, 150); doc.setFontSize(10); doc.setFont('helvetica', 'italic');
+      doc.text('No time entries for this project.', margin, y); y += 12;
+    } else {
+      // Column headers
+      const lColX = [margin, margin + 52, margin + 95, margin + 125, margin + 155, margin + 178, margin + 210];
+      const lCols = ['Employee', 'Date', 'Clock In', 'Clock Out', 'Hours', 'Rate', 'Cost'];
+      doc.setFillColor(230, 237, 255); doc.rect(margin, y - 5, pageWidth - margin * 2, 10, 'F');
+      doc.setTextColor(11, 62, 168); doc.setFontSize(9); doc.setFont('helvetica', 'bold');
+      lCols.forEach((c, i) => doc.text(c, lColX[i] + 1, y + 1)); y += 10;
+
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+      timeEntries.forEach((entry, idx) => {
+        if (!entry.clock_out) return;
+        checkPage(10);
+        const ci = new Date(entry.clock_in), co = new Date(entry.clock_out);
+        let hrs = (co - ci) / (1000 * 60 * 60); if (entry.is_lunch) hrs = Math.max(0, hrs - 0.5);
+        const empRate = entry.employees?.hourly_rate;
+        const costRate = empRate > 0 ? empRate * 1.4 : fallbackRate;
+        const cost = hrs * costRate;
+        const empName = entry.employees ? `${entry.employees.first_name} ${entry.employees.last_name}` : 'Unknown';
+        if (idx % 2 === 0) { doc.setFillColor(248, 250, 252); doc.rect(margin, y - 5, pageWidth - margin * 2, 8, 'F'); }
+        doc.setTextColor(50, 50, 50);
+        const vals = [
+          empName,
+          ci.toLocaleDateString(),
+          ci.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          co.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          hrs.toFixed(2),
+          `$${costRate.toFixed(0)}/hr`,
+          `$${cost.toFixed(2)}`,
+        ];
+        vals.forEach((v, i) => doc.text(String(v), lColX[i] + 1, y)); y += 8;
+      });
+
+      // Labor subtotal row
+      checkPage(12);
+      doc.setFillColor(11, 62, 168); doc.rect(margin, y - 4, pageWidth - margin * 2, 10, 'F');
+      doc.setTextColor(255, 255, 255); doc.setFontSize(10); doc.setFont('helvetica', 'bold');
+      doc.text(`Labor Total: ${laborHours.toFixed(2)} hrs`, margin + 2, y + 2);
+      doc.text(`$${laborCost.toFixed(2)}`, pageWidth - margin - 2, y + 2, { align: 'right' });
+      y += 18;
+    }
+
+    // ─── EXPENSE SECTION ───
+    checkPage(20);
+    doc.setFillColor(252, 107, 4); doc.rect(margin, y - 5, pageWidth - margin * 2, 12, 'F');
+    doc.setTextColor(255, 255, 255); doc.setFontSize(12); doc.setFont('helvetica', 'bold');
+    doc.text(
+      `📦 EXPENSES — ${catLabel}  (${filteredExps.length} items · $${expTotal.toFixed(2)})`,
+      margin + 2, y + 3
+    ); y += 14;
+
+    if (filteredExps.length === 0) {
+      doc.setTextColor(150, 150, 150); doc.setFontSize(10); doc.setFont('helvetica', 'italic');
+      doc.text('No expenses match the selected categories.', margin, y); y += 12;
+    } else {
+      const eColX = [margin, margin + 22, margin + 52, margin + 118, margin + 198];
+      const eCols = ['Date', 'Category', 'Description', 'Vendor', 'Amount'];
+      doc.setFillColor(255, 243, 230); doc.rect(margin, y - 5, pageWidth - margin * 2, 10, 'F');
+      doc.setTextColor(180, 80, 0); doc.setFontSize(9); doc.setFont('helvetica', 'bold');
+      eCols.forEach((c, i) => doc.text(c, eColX[i] + 1, y + 1)); y += 10;
+
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+      filteredExps.forEach((exp, idx) => {
+        checkPage(10);
+        if (idx % 2 === 0) { doc.setFillColor(255, 248, 240); doc.rect(margin, y - 5, pageWidth - margin * 2, 8, 'F'); }
+        doc.setTextColor(50, 50, 50);
+        doc.text(exp.expense_date || '', eColX[0] + 1, y);
+        doc.text(doc.splitTextToSize(exp.category || '—', 28)[0], eColX[1] + 1, y);
+        doc.text(doc.splitTextToSize(exp.description || '', 62)[0], eColX[2] + 1, y);
+        doc.text(doc.splitTextToSize(exp.vendor || '—', 76)[0], eColX[3] + 1, y);
+        doc.text(`$${(exp.amount || 0).toFixed(2)}`, pageWidth - margin - 2, y, { align: 'right' }); y += 8;
+      });
+
+      checkPage(12);
+      doc.setFillColor(252, 107, 4); doc.rect(margin, y - 4, pageWidth - margin * 2, 10, 'F');
+      doc.setTextColor(255, 255, 255); doc.setFontSize(10); doc.setFont('helvetica', 'bold');
+      doc.text(`${filteredExps.length} items`, margin + 2, y + 2);
+      doc.text(`$${expTotal.toFixed(2)}`, pageWidth - margin - 2, y + 2, { align: 'right' });
+      y += 18;
+    }
+
+    // ─── Grand Total ───
+    checkPage(16);
+    doc.setFillColor(16, 185, 129); doc.rect(margin, y - 5, pageWidth - margin * 2, 14, 'F');
+    doc.setTextColor(255, 255, 255); doc.setFontSize(13); doc.setFont('helvetica', 'bold');
+    doc.text('COMBINED TOTAL', margin + 2, y + 4);
+    doc.text(`$${combinedTotal.toFixed(2)}`, pageWidth - margin - 2, y + 4, { align: 'right' });
+
+    // ─── Footer ───
+    const totalPages = doc.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      doc.setFontSize(8); doc.setTextColor(150, 150, 150); doc.setFont('helvetica', 'normal');
+      doc.text(`Page ${p} of ${totalPages}`, pageWidth / 2, pageHeight - 8, { align: 'center' });
+    }
+
+    const catSuffix = categoriesToInclude && categoriesToInclude.length > 0
+      ? '_' + categoriesToInclude.join('-')
+      : '_All';
+    doc.save(`${safeName}_Labor_Expenses${catSuffix}.pdf`);
   }
 
   return (
@@ -4185,14 +4349,20 @@ async function handleAddContractor() {
               </button>
 
               <button
-                onClick={() => { setShowReportsModal(false); generateMaterialReport(); }}
+                onClick={() => {
+                  // Pre-check all available categories
+                  const cats = [...new Set(projectExpenses.map(e => e.category).filter(Boolean))].sort();
+                  setMaterialReportCategories(cats.length > 0 ? cats : ['material']);
+                  setShowReportsModal(false);
+                  setShowMaterialFilterModal(true);
+                }}
                 style={styles.toolButton}
                 onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f5f3ff'; e.currentTarget.style.borderColor = '#8b5cf6'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#f9fafb'; e.currentTarget.style.borderColor = '#e5e7eb'; }}>
                 <span style={styles.toolButtonIcon}>📦</span>
                 <div>
                   <div style={styles.toolButtonTitle}>Material Report</div>
-                  <div style={styles.toolButtonDesc}>All expenses & materials with vendor & date</div>
+                  <div style={styles.toolButtonDesc}>Choose which expense categories to include in the PDF</div>
                 </div>
                 <span style={styles.toolButtonArrow}>↓ PDF</span>
               </button>
@@ -4200,6 +4370,168 @@ async function handleAddContractor() {
             </div>
             <div style={{...styles.modalActions, marginTop: 20}}>
               <button onClick={() => setShowReportsModal(false)} style={styles.cancelButton}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Material Report Filter Modal ─────────────────────────────────── */}
+      {showMaterialFilterModal && (
+        <div style={styles.modalOverlay} onClick={() => setShowMaterialFilterModal(false)}>
+          <div style={{...styles.modal, maxWidth: 500}} onClick={(e) => e.stopPropagation()}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 6}}>
+              <h2 style={{...styles.modalTitle, marginBottom: 0}}>📦 Report Filter</h2>
+              <button onClick={() => setShowMaterialFilterModal(false)} style={{background:'none', border:'none', fontSize:22, cursor:'pointer', color:'#666'}}>×</button>
+            </div>
+            <p style={{fontSize: 14, color: '#666', marginBottom: 20}}>Choose what to include in the PDF report:</p>
+
+            {/* ── Include Labor toggle ── */}
+            <div
+              onClick={() => setIncludeLaborInMaterialReport(v => !v)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 14,
+                padding: '14px 16px', marginBottom: 16, borderRadius: 10,
+                border: `2px solid ${includeLaborInMaterialReport ? '#0b3ea8' : '#e5e7eb'}`,
+                backgroundColor: includeLaborInMaterialReport ? '#e0f0ff' : '#f9fafb',
+                cursor: 'pointer', transition: 'all 0.15s',
+              }}
+            >
+              <div style={{
+                width: 42, height: 24, borderRadius: 12, flexShrink: 0, position: 'relative', transition: 'background 0.2s',
+                backgroundColor: includeLaborInMaterialReport ? '#0b3ea8' : '#d1d5db',
+              }}>
+                <div style={{
+                  width: 18, height: 18, borderRadius: '50%', backgroundColor: '#fff',
+                  position: 'absolute', top: 3,
+                  left: includeLaborInMaterialReport ? 21 : 3,
+                  transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                }} />
+              </div>
+              <div style={{flex: 1}}>
+                <div style={{fontSize: 14, fontWeight: 700, color: '#111'}}>👷 Include Labor Section</div>
+                <div style={{fontSize: 12, color: '#666', marginTop: 2}}>
+                  {laborHours.toFixed(2)} hrs · ${laborCost.toFixed(2)} · {timeEntries.length} entries
+                </div>
+              </div>
+            </div>
+
+            {/* ── Expense category header + select all/none ── */}
+            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10}}>
+              <span style={{fontSize: 14, fontWeight: 700, color: '#111'}}>📦 Expense Categories</span>
+              <div style={{display: 'flex', gap: 8}}>
+                <button
+                  onClick={() => {
+                    const allCats = [...new Set(projectExpenses.map(e => e.category).filter(Boolean))].sort();
+                    setMaterialReportCategories(allCats);
+                  }}
+                  style={{padding: '4px 12px', background: '#e0f2fe', border: '1px solid #93c5fd', borderRadius: 5, cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#0369a1'}}
+                >
+                  ✓ All
+                </button>
+                <button
+                  onClick={() => setMaterialReportCategories([])}
+                  style={{padding: '4px 12px', background: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: 5, cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#374151'}}
+                >
+                  ✕ None
+                </button>
+              </div>
+            </div>
+
+            {/* ── Category checkboxes ── */}
+            <div style={{maxHeight: 260, overflowY: 'auto', marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 8}}>
+              {[...new Set(projectExpenses.map(e => e.category).filter(Boolean))].sort().map(cat => {
+                const catTotal = projectExpenses.filter(e => e.category === cat).reduce((s, e) => s + (e.amount || 0), 0);
+                const catCount = projectExpenses.filter(e => e.category === cat).length;
+                const isChecked = materialReportCategories.includes(cat);
+                return (
+                  <div
+                    key={cat}
+                    onClick={() => {
+                      if (isChecked) {
+                        setMaterialReportCategories(materialReportCategories.filter(c => c !== cat));
+                      } else {
+                        setMaterialReportCategories([...materialReportCategories, cat]);
+                      }
+                    }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 12,
+                      padding: '10px 14px', borderRadius: 8,
+                      border: `2px solid ${isChecked ? '#0b3ea8' : '#e5e7eb'}`,
+                      backgroundColor: isChecked ? '#e0f0ff' : '#f9fafb',
+                      cursor: 'pointer', transition: 'all 0.12s',
+                    }}
+                  >
+                    <div style={{
+                      width: 20, height: 20, borderRadius: 4, border: `2px solid ${isChecked ? '#0b3ea8' : '#d1d5db'}`,
+                      backgroundColor: isChecked ? '#0b3ea8' : '#fff', flexShrink: 0,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      {isChecked && <span style={{color: '#fff', fontSize: 13, fontWeight: 800}}>✓</span>}
+                    </div>
+                    <span style={{flex: 1, fontSize: 14, fontWeight: 600, color: '#111', textTransform: 'capitalize'}}>{cat}</span>
+                    <span style={{fontSize: 12, color: '#888', marginRight: 4}}>{catCount} item{catCount !== 1 ? 's' : ''}</span>
+                    <span style={{fontSize: 14, fontWeight: 700, color: '#f97316'}}>${catTotal.toFixed(2)}</span>
+                  </div>
+                );
+              })}
+              {projectExpenses.length === 0 && (
+                <div style={{padding: 20, textAlign: 'center', color: '#999', fontSize: 13, border: '2px dashed #e5e7eb', borderRadius: 8}}>
+                  No expenses recorded for this project yet.
+                </div>
+              )}
+            </div>
+
+            {/* ── Summary totals ── */}
+            {(materialReportCategories.length > 0 || includeLaborInMaterialReport) && (
+              <div style={{padding: 12, backgroundColor: '#f0fdf4', borderRadius: 8, marginBottom: 16, border: '1px solid #d1fae5'}}>
+                {includeLaborInMaterialReport && (
+                  <div style={{display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 5}}>
+                    <span style={{color: '#555'}}>👷 Labor ({laborHours.toFixed(1)} hrs):</span>
+                    <span style={{fontWeight: 700, color: '#0b3ea8'}}>${laborCost.toFixed(2)}</span>
+                  </div>
+                )}
+                {materialReportCategories.length > 0 && (
+                  <div style={{display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 5}}>
+                    <span style={{color: '#555'}}>
+                      📦 Expenses ({materialReportCategories.length} {materialReportCategories.length === 1 ? 'category' : 'categories'}):
+                    </span>
+                    <span style={{fontWeight: 700, color: '#f97316'}}>
+                      ${projectExpenses.filter(e => materialReportCategories.includes(e.category)).reduce((s, e) => s + (e.amount || 0), 0).toFixed(2)}
+                    </span>
+                  </div>
+                )}
+                {(includeLaborInMaterialReport && materialReportCategories.length > 0) && (
+                  <div style={{display: 'flex', justifyContent: 'space-between', fontSize: 14, borderTop: '1px solid #d1fae5', paddingTop: 7, marginTop: 4}}>
+                    <span style={{fontWeight: 700, color: '#111'}}>Total in Report:</span>
+                    <span style={{fontWeight: 700, color: '#10b981', fontSize: 16}}>
+                      ${(laborCost + projectExpenses.filter(e => materialReportCategories.includes(e.category)).reduce((s, e) => s + (e.amount || 0), 0)).toFixed(2)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div style={styles.modalActions}>
+              <button onClick={() => setShowMaterialFilterModal(false)} style={styles.cancelButton}>Cancel</button>
+              <button
+                onClick={() => {
+                  setShowMaterialFilterModal(false);
+                  if (includeLaborInMaterialReport) {
+                    // Generate combined labor + expenses PDF
+                    generateLaborAndExpensesReport(materialReportCategories);
+                  } else {
+                    generateMaterialReport(materialReportCategories);
+                  }
+                }}
+                disabled={materialReportCategories.length === 0 && !includeLaborInMaterialReport}
+                style={{
+                  ...styles.submitButton,
+                  opacity: (materialReportCategories.length === 0 && !includeLaborInMaterialReport) ? 0.4 : 1,
+                  cursor: (materialReportCategories.length === 0 && !includeLaborInMaterialReport) ? 'not-allowed' : 'pointer',
+                }}
+              >
+                ↓ Generate PDF
+              </button>
             </div>
           </div>
         </div>
