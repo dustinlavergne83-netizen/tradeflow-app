@@ -354,21 +354,22 @@ export default function ProjectDetail() {
     if (id) loadProjectData();
   }, [id]);
 
-  // Add effect to refresh data when page becomes visible (user returns from estimate)
+  // Refresh data when the tab becomes visible again (user navigates back from estimate/invoice).
+  // We intentionally do NOT listen to the window 'focus' event because prompt() dialogs
+  // cause focus to fire on every dialog dismiss, which would trigger multiple simultaneous
+  // loadProjectData() calls and freeze the browser.
   useEffect(() => {
-    const handleFocus = () => {
+    const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
-        console.log('🔄 Page became visible, refreshing project data...');
+        console.log('🔄 Tab became visible, refreshing project data...');
         loadProjectData();
       }
     };
 
-    document.addEventListener('visibilitychange', handleFocus);
-    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
-      document.removeEventListener('visibilitychange', handleFocus);
-      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [id]);
 
