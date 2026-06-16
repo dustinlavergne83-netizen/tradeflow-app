@@ -65,6 +65,14 @@ export default function ProjectDetail() {
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [projectExpenses, setProjectExpenses] = useState([]);
   const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
+  const [expenseForm, setExpenseForm] = useState({
+    description: '',
+    vendor: '',
+    amount: '',
+    category: 'material',
+    expense_date: new Date().toISOString().split('T')[0],
+  });
+  const [savingExpense, setSavingExpense] = useState(false);
   const [showProposalTypeModal, setShowProposalTypeModal] = useState(false);
   const [selectedEstimateForProposal, setSelectedEstimateForProposal] = useState(null);
   const [proposalType, setProposalType] = useState("commercial-public");
@@ -493,41 +501,50 @@ async function handleAddContractor() {
   }
 }
 
-  async function handleAddExpense() {
-  const description = prompt("What was purchased? (e.g., '100ft 12/2 Romex')");
-  if (!description) return;
-  
-  const vendor = prompt("Vendor (e.g., 'Home Depot'):") || null;
-  const amountStr = prompt("Amount ($):");
-  if (!amountStr) return;
-  
-  const amount = parseFloat(amountStr);
-  if (isNaN(amount)) {
-    alert("Invalid amount");
-    return;
+  function handleAddExpense() {
+    setExpenseForm({
+      description: '',
+      vendor: '',
+      amount: '',
+      category: 'material',
+      expense_date: new Date().toISOString().split('T')[0],
+    });
+    setShowAddExpenseModal(true);
   }
 
-  try {
-    const { error } = await supabase
-      .from("project_expenses")
-      .insert([{
-        project_id: id,
-        expense_date: new Date().toISOString().split('T')[0],
-        description: description,
-        vendor: vendor,
-        amount: amount,
-        category: 'material',
-        created_by: user.id
-      }]);
-
-    if (error) throw error;
-    
-    loadProjectData();
-  } catch (err) {
-    console.error("Error adding expense:", err);
-    alert("Failed to add expense");
+  async function handleSaveExpense() {
+    if (!expenseForm.description.trim()) {
+      alert('Please enter a description');
+      return;
+    }
+    const amount = parseFloat(expenseForm.amount);
+    if (!expenseForm.amount || isNaN(amount) || amount <= 0) {
+      alert('Please enter a valid amount');
+      return;
+    }
+    setSavingExpense(true);
+    try {
+      const { error } = await supabase
+        .from('project_expenses')
+        .insert([{
+          project_id: id,
+          expense_date: expenseForm.expense_date || new Date().toISOString().split('T')[0],
+          description: expenseForm.description.trim(),
+          vendor: expenseForm.vendor.trim() || null,
+          amount: amount,
+          category: expenseForm.category || 'material',
+          created_by: user.id,
+        }]);
+      if (error) throw error;
+      setShowAddExpenseModal(false);
+      loadProjectData();
+    } catch (err) {
+      console.error('Error adding expense:', err);
+      alert('Failed to add expense: ' + err.message);
+    } finally {
+      setSavingExpense(false);
+    }
   }
-}
 
   async function handleCreateInvoice(changeOrderId = null) {
     console.log("🔵 handleCreateInvoice called with changeOrderId:", changeOrderId);
@@ -4575,6 +4592,110 @@ async function handleAddContractor() {
             <div style={styles.modalActions}>
               <button onClick={() => setShowInvoicePayModal(false)} style={styles.cancelButton}>Cancel</button>
               <button onClick={handleInvoicePayment} style={styles.submitButton}>💰 Record Payment</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Add Expense Modal ─────────────────────────────────────────── */}
+      {showAddExpenseModal && (
+        <div style={styles.modalOverlay} onClick={() => setShowAddExpenseModal(false)}>
+          <div style={{...styles.modal, maxWidth: 520}} onClick={(e) => e.stopPropagation()}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 20}}>
+              <h2 style={{...styles.modalTitle, marginBottom: 0}}>➕ Add Expense</h2>
+              <button onClick={() => setShowAddExpenseModal(false)} style={{background:'none', border:'none', fontSize:22, cursor:'pointer', color:'#666'}}>×</button>
+            </div>
+
+            {/* Category Selector */}
+            <div style={styles.field}>
+              <label style={styles.modalLabel}>Category *</label>
+              <div style={{display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8}}>
+                {[
+                  {value:'material',    icon:'🧱', label:'Material'},
+                  {value:'tool',        icon:'🔧', label:'Tool / Equipment'},
+                  {value:'subcontractor', icon:'👷', label:'Subcontractor'},
+                  {value:'fuel',        icon:'⛽', label:'Fuel'},
+                  {value:'permit',      icon:'📋', label:'Permit / Fee'},
+                  {value:'other',       icon:'📦', label:'Other'},
+                ].map(cat => {
+                  const selected = expenseForm.category === cat.value;
+                  return (
+                    <button key={cat.value} type="button"
+                      onClick={() => setExpenseForm({...expenseForm, category: cat.value})}
+                      style={{
+                        padding:'10px 6px', borderRadius:8, border:'2px solid',
+                        borderColor: selected ? '#0b3ea8' : '#e5e7eb',
+                        backgroundColor: selected ? '#e0f0ff' : '#f9fafb',
+                        color: selected ? '#0b3ea8' : '#555',
+                        fontWeight: selected ? 700 : 500,
+                        fontSize:12, cursor:'pointer', textAlign:'center',
+                        transition:'all 0.12s',
+                      }}>
+                      <div style={{fontSize:20, marginBottom:3}}>{cat.icon}</div>
+                      {cat.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.modalLabel}>Description *</label>
+              <input
+                type="text"
+                value={expenseForm.description}
+                onChange={(e) => setExpenseForm({...expenseForm, description: e.target.value})}
+                style={{...styles.select, padding:'10px'}}
+                placeholder="e.g., 100ft 12/2 Romex, Fuel for job site, Permit fee"
+                autoFocus
+                onKeyDown={(e) => { if (e.key === 'Enter') handleSaveExpense(); }}
+              />
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.modalLabel}>Vendor</label>
+              <input
+                type="text"
+                value={expenseForm.vendor}
+                onChange={(e) => setExpenseForm({...expenseForm, vendor: e.target.value})}
+                style={{...styles.select, padding:'10px'}}
+                placeholder="e.g., Home Depot, Coburn's, Fastenal"
+              />
+            </div>
+
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:16}}>
+              <div style={styles.field}>
+                <label style={styles.modalLabel}>Amount *</label>
+                <input
+                  type="number"
+                  value={expenseForm.amount}
+                  onChange={(e) => setExpenseForm({...expenseForm, amount: e.target.value})}
+                  style={{...styles.select, padding:'10px'}}
+                  placeholder="0.00"
+                  min="0"
+                  step="0.01"
+                />
+              </div>
+              <div style={styles.field}>
+                <label style={styles.modalLabel}>Date</label>
+                <input
+                  type="date"
+                  value={expenseForm.expense_date}
+                  onChange={(e) => setExpenseForm({...expenseForm, expense_date: e.target.value})}
+                  style={{...styles.select, padding:'10px'}}
+                />
+              </div>
+            </div>
+
+            <div style={styles.modalActions}>
+              <button onClick={() => setShowAddExpenseModal(false)} style={styles.cancelButton}>Cancel</button>
+              <button
+                onClick={handleSaveExpense}
+                style={{...styles.submitButton, opacity: savingExpense ? 0.6 : 1}}
+                disabled={savingExpense}
+              >
+                {savingExpense ? '⏳ Saving...' : '💾 Save Expense'}
+              </button>
             </div>
           </div>
         </div>
