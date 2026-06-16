@@ -14,6 +14,8 @@ export default function Expenses() {
   const [vendors, setVendors] = useState([]);
   const [bankTransactions, setBankTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState(null); // { type: 'success'|'error', text: string }
   const [thisMonthTotal, setThisMonthTotal] = useState(null); // server-side this-month total
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -36,6 +38,7 @@ export default function Expenses() {
   });
 
   useEffect(() => {
+    if (!user?.id) return;
     loadExpenses();
     loadProjects();
     loadBankAccounts();
@@ -44,10 +47,11 @@ export default function Expenses() {
     loadBankTransactions();
     loadClearedBankExpenses();
     loadThisMonthTotal();
-  }, [user]);
+  }, [user?.id]);
 
   // Listen for custom event from BankTransactions when expense is created
   useEffect(() => {
+    if (!user?.id) return;
     const handleExpenseCreated = () => {
       console.log('📢 Received expenseCreated event - reloading expenses...');
       loadExpenses();
@@ -61,7 +65,7 @@ export default function Expenses() {
     return () => {
       window.removeEventListener('expenseCreated', handleExpenseCreated);
     };
-  }, [user]);
+  }, [user?.id]);
 
   async function loadExpenses() {
     try {
@@ -88,7 +92,6 @@ export default function Expenses() {
       setExpenses(mappedExpenses);
     } catch (err) {
       console.error("Error loading expenses:", err);
-      alert("Failed to load expenses");
     } finally {
       setLoading(false);
     }
@@ -257,7 +260,8 @@ export default function Expenses() {
         .or("is_cleared.eq.true,is_reconciled.eq.true")
         .lt("amount", 0)
         .is("linked_expense_id", null)
-        .order("transaction_date", { ascending: false });
+        .order("transaction_date", { ascending: false })
+        .limit(500);
 
       if (error) {
         console.error("❌ Error loading cleared bank expenses:", error);
@@ -412,21 +416,24 @@ export default function Expenses() {
 
   async function handleSaveExpense() {
     if (!expenseForm.amount || expenseForm.amount <= 0) {
-      alert('Please enter a valid amount');
+      setSaveMessage({ type: 'error', text: 'Please enter a valid amount' });
       return;
     }
 
     if (!expenseForm.category) {
-      alert('Please select a category');
+      setSaveMessage({ type: 'error', text: 'Please select a category' });
       return;
     }
 
     // For cash payments, bank_account_id is not needed (uses Cash account 1000)
     // For other payment methods, bank_account_id is required
     if (expenseForm.payment_method !== 'cash' && !expenseForm.bank_account_id) {
-      alert('Please select a bank account for this payment method');
+      setSaveMessage({ type: 'error', text: 'Please select a bank account for this payment method' });
       return;
     }
+
+    setSaving(true);
+    setSaveMessage(null);
 
     try {
       // Determine if selected account is a real bank account (from bank_accounts table)
@@ -471,7 +478,11 @@ export default function Expenses() {
           .eq('id', editingExpense.id);
 
         if (error) throw error;
-        alert('Expense updated successfully!');
+        // Update success — close modal and reload
+        setShowExpenseModal(false);
+        setEditingExpense(null);
+        loadExpenses();
+        return;
       } else {
         // Create new expense and get the ID back
         const { data: newExpense, error } = await supabase
@@ -494,10 +505,8 @@ export default function Expenses() {
           newExpense.payment_method // Pass payment method to determine credit account
         );
         
-        if (journalResult.success) {
-          alert('Expense added successfully! Journal entry created automatically.');
-        } else {
-          alert('Expense added, but journal entry failed: ' + journalResult.error);
+        if (!journalResult.success) {
+          console.warn('Journal entry failed:', journalResult.error);
         }
       }
 
@@ -506,12 +515,14 @@ export default function Expenses() {
       loadExpenses();
     } catch (err) {
       console.error('Error saving expense:', err);
-      alert(`Failed to save expense: ${err.message}`);
+      setSaveMessage({ type: 'error', text: `Failed to save expense: ${err.message}` });
+    } finally {
+      setSaving(false);
     }
   }
 
   async function handleDelete(expense) {
-    if (!confirm(`Are you sure you want to delete this ${expense.category} expense for ${formatCurrency(expense.amount)}?`)) {
+    if (!window.confirm(`Are you sure you want to delete this ${expense.category} expense for ${formatCurrency(expense.amount)}?`)) {
       return;
     }
 
@@ -536,11 +547,9 @@ export default function Expenses() {
 
       if (error) throw error;
 
-      alert('Expense and journal entry deleted successfully!');
       loadExpenses();
     } catch (err) {
       console.error('Error deleting expense:', err);
-      alert(`Failed to delete expense: ${err.message}`);
     }
   }
 
@@ -850,7 +859,7 @@ export default function Expenses() {
                 {editingExpense ? 'Edit Expense' : 'Add New Expense'}
               </h2>
               <button 
-                onClick={() => setShowExpenseModal(false)} 
+                onClick={() => { setShowExpenseModal(false); setSaveMessage(null); }} 
                 style={styles.closeButton}
               >
                 ×
@@ -1032,17 +1041,33 @@ export default function Expenses() {
             </div>
 
             <div style={styles.modalFooter}>
+              {saveMessage && (
+                <div style={{
+                  flex: 1,
+                  padding: '10px 14px',
+                  borderRadius: 6,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  backgroundColor: saveMessage.type === 'error' ? '#fef2f2' : '#f0fdf4',
+                  color: saveMessage.type === 'error' ? '#dc2626' : '#16a34a',
+                  border: `1px solid ${saveMessage.type === 'error' ? '#fca5a5' : '#86efac'}`,
+                }}>
+                  {saveMessage.type === 'error' ? '⚠️ ' : '✅ '}{saveMessage.text}
+                </div>
+              )}
               <button 
-                onClick={() => setShowExpenseModal(false)} 
+                onClick={() => { setShowExpenseModal(false); setSaveMessage(null); }} 
                 style={styles.cancelButton}
+                disabled={saving}
               >
                 Cancel
               </button>
               <button 
                 onClick={handleSaveExpense} 
-                style={styles.saveButton}
+                style={{...styles.saveButton, opacity: saving ? 0.6 : 1, cursor: saving ? 'not-allowed' : 'pointer'}}
+                disabled={saving}
               >
-                {editingExpense ? '💾 Update' : '💰 Save Expense'}
+                {saving ? '⏳ Saving...' : editingExpense ? '💾 Update' : '💰 Save Expense'}
               </button>
             </div>
           </div>
