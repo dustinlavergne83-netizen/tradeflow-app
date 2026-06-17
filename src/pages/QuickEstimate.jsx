@@ -413,16 +413,15 @@ export default function QuickEstimate() {
 
           if (updateError) throw updateError;
 
-          // Delete existing items
-          const { error: deleteError } = await supabase
+          // Fetch old item IDs BEFORE deleting (safe insert-first pattern)
+          const { data: oldCoItems } = await supabase
             .from("estimate_items")
-            .delete()
+            .select("id")
             .eq("change_order_id", coId);
+          const oldCoItemIds = (oldCoItems || []).map(r => r.id);
 
-          if (deleteError) throw deleteError;
-
-          // Create new change order items
-          const items = lineItems.map((item, index) => {
+          // Insert new items FIRST — if this fails, old items are still intact
+          const coItems = lineItems.map((item, index) => {
             const extMat = Number(item.quantity) * Number(item.material);
             const lbrExt = Number(item.quantity) * Number(item.lbrHrs);
             const lbrCost = lbrExt * Number(hourlyRate);
@@ -445,9 +444,18 @@ export default function QuickEstimate() {
 
           const { error: itemsError } = await supabase
             .from("estimate_items")
-            .insert(items);
+            .insert(coItems);
 
           if (itemsError) throw itemsError;
+
+          // Only delete old items AFTER new ones are safely inserted
+          if (oldCoItemIds.length > 0) {
+            const { error: deleteError } = await supabase
+              .from("estimate_items")
+              .delete()
+              .in("id", oldCoItemIds);
+            if (deleteError) throw deleteError;
+          }
 
           alert(`Quick Change Order updated successfully!`);
         } else {
@@ -574,15 +582,14 @@ export default function QuickEstimate() {
 
           if (updateError) throw updateError;
 
-          // Delete existing items
-          const { error: deleteError } = await supabase
+          // Fetch old item IDs BEFORE deleting (safe insert-first pattern)
+          const { data: oldEstItems } = await supabase
             .from("estimate_items")
-            .delete()
+            .select("id")
             .eq("estimate_id", estimateId);
+          const oldEstItemIds = (oldEstItems || []).map(r => r.id);
 
-          if (deleteError) throw deleteError;
-
-          // Create new estimate items
+          // Insert new items FIRST — if this fails, old items are still intact
           const items = lineItems.map((item, index) => {
             const extMat = Number(item.quantity) * Number(item.material);
             const lbrExt = Number(item.quantity) * Number(item.lbrHrs);
@@ -609,6 +616,15 @@ export default function QuickEstimate() {
             .insert(items);
 
           if (itemsError) throw itemsError;
+
+          // Only delete old items AFTER new ones are safely inserted
+          if (oldEstItemIds.length > 0) {
+            const { error: deleteError } = await supabase
+              .from("estimate_items")
+              .delete()
+              .in("id", oldEstItemIds);
+            if (deleteError) throw deleteError;
+          }
 
           alert(`Quick Estimate updated successfully!`);
         } else {
