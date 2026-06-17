@@ -130,15 +130,23 @@ export default function QuickEstimate() {
       // Populate form
       setCustomerName(estimate.customer_name || "");
       setProjectName(estimate.project_name || "");
-      setDescription(estimate.notes || "");
+      // Support both 'notes' and 'description' column names
+      setDescription(estimate.notes || estimate.description || "");
+      if (estimate.estimate_date) setEstimateDate(estimate.estimate_date);
 
       // Get hourly rate from first item with labor
       const firstItemWithLabor = items.find(item => item.labor_rate > 0);
       setHourlyRate(firstItemWithLabor?.labor_rate || 0);
 
       // Restore markup values
-      setMaterialMarkup(estimate.material_markup || 0);
-      setLaborMarkup(estimate.labor_markup || 0);
+      setMaterialMarkup(estimate.material_markup ?? 0);
+      setLaborMarkup(estimate.labor_markup ?? 0);
+
+      console.log("[QuickEstimate] Loaded estimate:", {
+        id, notes: estimate.notes, description: estimate.description,
+        material_markup: estimate.material_markup, labor_markup: estimate.labor_markup,
+        items: items?.length
+      });
 
       // Map items to line items
       if (items && items.length > 0) {
