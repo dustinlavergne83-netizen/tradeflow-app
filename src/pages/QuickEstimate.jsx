@@ -26,12 +26,12 @@ export default function QuickEstimate() {
 
   const [projectId, setProjectId] = useState(null);
   const [showEmailModal, setShowEmailModal] = useState(false);
-  const [showEmailViewModal, setShowEmailViewModal] = useState(false);
-  const [emailViewFormat, setEmailViewFormat] = useState(null);
   const [emailTo, setEmailTo] = useState("");
   const [emailMessage, setEmailMessage] = useState("");
   const [showViewChoiceModal, setShowViewChoiceModal] = useState(false);
   const [sending, setSending] = useState(false);
+  // The chosen view format — saved permanently with the estimate
+  const [viewFormat, setViewFormat] = useState("summary");
   
   // Change Order specific state
   const [isChangeOrder, setIsChangeOrder] = useState(false);
@@ -148,6 +148,7 @@ export default function QuickEstimate() {
       // Restore markup values
       setMaterialMarkup(estimate.material_markup ?? 0);
       setLaborMarkup(estimate.labor_markup ?? 0);
+      setViewFormat(estimate.view_format || 'summary');
 
       console.log("[QuickEstimate] Loaded estimate:", {
         id, notes: estimate.notes, description: estimate.description,
@@ -574,6 +575,7 @@ export default function QuickEstimate() {
             material_markup: Number(materialMarkup) || 0,
             labor_markup: Number(laborMarkup) || 0,
             estimate_type: 'quick',
+            view_format: viewFormat,
             ...(projectId ? { project_id: projectId } : {}),
           };
 
@@ -683,6 +685,7 @@ export default function QuickEstimate() {
             material_markup: Number(materialMarkup) || 0,
             labor_markup: Number(laborMarkup) || 0,
             estimate_type: 'quick',
+            view_format: viewFormat,
             ...(projectId ? { project_id: projectId } : {}),
           };
 
@@ -750,14 +753,14 @@ export default function QuickEstimate() {
           {estimateId && (
             <>
               <button
-                onClick={() => setShowViewChoiceModal(true)}
+                onClick={() => window.open(`/estimate/quick/view?estimateId=${estimateId}&view=${viewFormat}`, '_blank')}
                 style={styles.previewButton}
                 title="Preview estimate"
               >
                 👁️ Preview
               </button>
               <button
-                onClick={() => window.open(`/estimate/quick/view?estimateId=${estimateId}&print=true`, '_blank')}
+                onClick={() => window.open(`/estimate/quick/view?estimateId=${estimateId}&view=${viewFormat}&print=true`, '_blank')}
                 style={styles.printButton}
                 title="Print estimate"
               >
@@ -765,11 +768,9 @@ export default function QuickEstimate() {
               </button>
               <button
                 onClick={() => {
-                  // Look up customer email first, then show format picker
                   const cust = customers.find(c => c.customer === customerName);
                   if (cust?.email) setEmailTo(cust.email);
-                  setEmailViewFormat(null);
-                  setShowEmailViewModal(true);
+                  setShowEmailModal(true);
                 }}
                 style={styles.emailButton}
                 title="Email estimate"
@@ -786,66 +787,6 @@ export default function QuickEstimate() {
           </button>
         </div>
       </div>
-
-      {/* ── Email View Format Picker (shown before email modal) ── */}
-      {showEmailViewModal && (
-        <div style={{
-          position:"fixed", inset:0, background:"rgba(0,0,0,0.6)",
-          display:"flex", alignItems:"center", justifyContent:"center",
-          zIndex:10001, padding:16
-        }}>
-          <div style={{
-            background:"#fff", borderRadius:14, padding:"32px 28px",
-            maxWidth:480, width:"100%", boxShadow:"0 8px 32px rgba(0,0,0,0.25)"
-          }}>
-            <h2 style={{margin:"0 0 4px", fontSize:20, color:"#111", textAlign:"center"}}>
-              📧 Email Estimate
-            </h2>
-            <p style={{margin:"0 0 20px", fontSize:13, color:"#888", textAlign:"center"}}>
-              How should the customer see this estimate?
-            </p>
-
-            {[
-              { key:"summary",           icon:"📄", title:"Summary Only",                    desc:"Scope of work description + Total Investment — no line items" },
-              { key:"itemized",          icon:"💰", title:"Itemized with Pricing",            desc:"Every line item listed with individual prices + Total Investment" },
-              { key:"itemized-no-price", icon:"📋", title:"Itemized (No Individual Prices)",  desc:"All items listed so customer sees what's included — only Total Investment shown" },
-            ].map(opt => (
-              <button
-                key={opt.key}
-                onClick={() => {
-                  setEmailViewFormat(opt.key);
-                  setShowEmailViewModal(false);
-                  setShowEmailModal(true);
-                }}
-                style={{
-                  display:"flex", alignItems:"center", gap:14,
-                  width:"100%", background:"#f9fafb",
-                  border:"2px solid #e5e7eb", borderRadius:10,
-                  padding:"14px 16px", marginBottom:10,
-                  cursor:"pointer", textAlign:"left",
-                }}
-              >
-                <span style={{fontSize:26, flexShrink:0}}>{opt.icon}</span>
-                <div>
-                  <div style={{fontSize:15, fontWeight:700, color:"#111", marginBottom:2}}>{opt.title}</div>
-                  <div style={{fontSize:12, color:"#888", lineHeight:1.4}}>{opt.desc}</div>
-                </div>
-              </button>
-            ))}
-
-            <button
-              onClick={() => setShowEmailViewModal(false)}
-              style={{
-                width:"100%", padding:"10px", marginTop:4,
-                background:"transparent", border:"1px solid #ddd",
-                borderRadius:8, cursor:"pointer", color:"#888", fontSize:14
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Email Modal */}
       {showEmailModal && (
@@ -930,7 +871,7 @@ export default function QuickEstimate() {
                         projectName: projectName || 'Quick Estimate',
                         total: calculateTotal(),
                         notes: estRecord.notes,
-                        viewFormat: emailViewFormat || 'summary',
+                        viewFormat: viewFormat,
                         lineItems: (savedItems || []).map(item => ({
                           description: item.description,
                           quantity: item.quantity,
@@ -982,13 +923,16 @@ export default function QuickEstimate() {
             </p>
 
             {[
-              { key:"summary",           icon:"📄", title:"Summary Only",                    desc:"Scope of work description + Total Investment — no line items" },
-              { key:"itemized",          icon:"💰", title:"Itemized with Pricing",            desc:"Every line item listed with individual prices + Total Investment" },
-              { key:"itemized-no-price", icon:"📋", title:"Itemized (No Individual Prices)",  desc:"All items listed so customer sees what's included — only Total Investment shown" },
+              { key:"summary",           icon:"📄", title:"Summary Only",                    desc:"Description/notes + Total Investment — no line items listed" },
+              { key:"itemized-no-price", icon:"📋", title:"Items — No Line Pricing",          desc:"Checked items listed as scope, no per-item prices — only Total shown" },
+              { key:"itemized",          icon:"💰", title:"Items — With Pricing",             desc:"Checked items listed with individual prices + Total" },
             ].map(opt => (
               <button
                 key={opt.key}
-                onClick={() => {
+                onClick={async () => {
+                  setViewFormat(opt.key);
+                  // Save chosen format to DB permanently
+                  await supabase.from("estimates").update({ view_format: opt.key }).eq("id", estimateId);
                   window.open(`/estimate/quick/view?estimateId=${estimateId}&view=${opt.key}`, "_blank");
                   setShowViewChoiceModal(false);
                   navigate("/estimates");
@@ -1108,6 +1052,43 @@ export default function QuickEstimate() {
               placeholder="Enter any additional details"
             />
           </div>
+
+          {/* View Format selector — shown when editing an existing estimate */}
+          {estimateId && (
+            <div style={{
+              padding: '14px 16px', backgroundColor: '#f0f9ff',
+              border: '2px solid #bae6fd', borderRadius: 8, marginBottom: 8
+            }}>
+              <label style={{fontSize: 13, fontWeight: '700', color: '#0369a1', display: 'block', marginBottom: 10}}>
+                📄 Customer View Format
+                <span style={{fontSize: 12, fontWeight: '400', color: '#666', marginLeft: 8}}>
+                  (changes how the estimate looks when viewed / printed / emailed)
+                </span>
+              </label>
+              <div style={{display: 'flex', gap: 10, flexWrap: 'wrap'}}>
+                {[
+                  { key: 'summary',           label: '📄 Summary Only',       desc: 'Notes + Total, no items' },
+                  { key: 'itemized-no-price', label: '📋 Items — No Pricing', desc: 'Checked items, total only' },
+                  { key: 'itemized',          label: '💰 Items + Pricing',    desc: 'Checked items with prices' },
+                ].map(opt => (
+                  <button
+                    key={opt.key}
+                    onClick={() => setViewFormat(opt.key)}
+                    style={{
+                      padding: '10px 16px', borderRadius: 8, cursor: 'pointer',
+                      border: viewFormat === opt.key ? '2px solid #0369a1' : '2px solid #e5e7eb',
+                      backgroundColor: viewFormat === opt.key ? '#0369a1' : '#fff',
+                      color: viewFormat === opt.key ? '#fff' : '#333',
+                      fontWeight: '600', fontSize: 13, textAlign: 'left',
+                    }}
+                  >
+                    <div>{opt.label}</div>
+                    <div style={{fontSize: 11, fontWeight: '400', opacity: 0.8, marginTop: 2}}>{opt.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Line Items */}

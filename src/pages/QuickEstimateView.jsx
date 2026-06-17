@@ -93,6 +93,11 @@ export default function QuickEstimateView() {
       if (error) throw error;
       setEstimate(data);
 
+      // If no ?view= param in URL, use the saved view_format from the estimate
+      if (!viewParam && data.view_format) {
+        setChosenView(data.view_format);
+      }
+
       const { data: itemsData } = await supabase
         .from("estimate_items").select("*").eq("estimate_id", estimateId).order("sequence");
       setItems(itemsData || []);
@@ -205,7 +210,7 @@ export default function QuickEstimateView() {
           )}
         </div>
 
-        {/* ── SUMMARY ONLY view ── */}
+        {/* ── SUMMARY ONLY view — just description/notes + total, no items ── */}
         {chosenView === "summary" && (
           <>
             <div style={{
@@ -217,31 +222,11 @@ export default function QuickEstimateView() {
               </span>
             </div>
 
-            {/* Intro notes/description (if any) */}
-            {(estimate.description || estimate.notes) && (
-              <p style={{fontSize:13, color:"#444", lineHeight:1.6, margin:"0 0 10px", whiteSpace:"pre-wrap"}}>
+            {(estimate.description || estimate.notes) ? (
+              <p style={{fontSize:13, color:"#444", lineHeight:1.7, margin:"0 0 16px", whiteSpace:"pre-wrap"}}>
                 {estimate.description || estimate.notes}
               </p>
-            )}
-
-            {/* Bullet points — only items with show_in_scope checked */}
-            {items.filter(i => i.show_in_scope !== false).length > 0 ? (
-              <ul style={{margin:"0 0 16px", padding:0, listStyle:"none", textAlign:"left"}}>
-                {items.filter(i => i.show_in_scope !== false).map(item => (
-                  <li key={item.id} style={{
-                    display:"flex", alignItems:"flex-start",
-                    fontSize:14, color:"#222", lineHeight:1.7,
-                    marginBottom:3, textAlign:"left",
-                  }}>
-                    <span style={{
-                      color:ACCENT, fontWeight:"bold", fontSize:16,
-                      flexShrink:0, marginRight:8, lineHeight:1.7,
-                    }}>•</span>
-                    <span>{item.description}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : !(estimate.description || estimate.notes) && (
+            ) : (
               <p style={{fontSize:13, color:"#555", margin:"0 0 16px", textAlign:"center", fontStyle:"italic"}}>
                 No scope description provided.
               </p>
@@ -249,7 +234,7 @@ export default function QuickEstimateView() {
           </>
         )}
 
-        {/* ── ITEMIZED views (with or without price) ── */}
+        {/* ── ITEMIZED views — only show_in_scope items ── */}
         {(chosenView === "itemized" || chosenView === "itemized-no-price") && (
           <>
             <div style={{
@@ -263,7 +248,7 @@ export default function QuickEstimateView() {
               )}
             </div>
 
-            {items.map((item, i) => (
+            {items.filter(i => i.show_in_scope !== false).map((item, i) => (
               <div key={item.id} style={{
                 display:"flex", justifyContent:"space-between", alignItems:"flex-start",
                 padding:"10px 0",
@@ -299,8 +284,8 @@ export default function QuickEstimateView() {
           <span style={{fontSize:22, fontWeight:"bold", color: ACCENT}}>{fmtMoney(total)}</span>
         </div>
 
-        {/* Notes - hide in summary view if notes is already shown as scope */}
-        {estimate.notes && (chosenView !== "summary" || estimate.description) && (
+        {/* Notes - hide in summary view (already shown above) */}
+        {estimate.notes && chosenView !== "summary" && (
           <div style={{
             background:"#f9fafb", borderRadius:8, padding:12,
             marginTop:12, marginBottom:12

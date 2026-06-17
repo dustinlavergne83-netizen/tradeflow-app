@@ -5,6 +5,7 @@ import { supabase } from "../lib/supabase";
 interface Company {
   id: string;
   name: string;
+  logo_url: string | null;
   subscription_tier: string;
   subscription_status: string;
   trial_ends_at: string | null;
@@ -17,6 +18,7 @@ interface AuthContextValue {
   session: Session | null;
   company: Company | null;
   employeeRole: string | null;
+  employeeName: string | null;   // first_name + last_name
   loading: boolean;
   isPro: boolean;
   signOut: () => Promise<void>;
@@ -29,6 +31,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession]         = useState<Session | null>(null);
   const [company, setCompany]         = useState<Company | null>(null);
   const [employeeRole, setRole]       = useState<string | null>(null);
+  const [employeeName, setName]       = useState<string | null>(null);
   const [loading, setLoading]         = useState(true);
 
   useEffect(() => {
@@ -56,7 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Use maybeSingle() so it safely returns null (no error) when 0 rows found
       const { data: emp } = await supabase
         .from("employees")
-        .select("company_id, role")
+        .select("company_id, role, first_name, last_name")
         .eq("user_id", userId)
         .order("created_at", { ascending: true })
         .limit(1)
@@ -64,11 +67,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (!emp) { setLoading(false); return; }
       setRole(emp.role);
+      const fullName = [emp.first_name, emp.last_name].filter(Boolean).join(" ");
+      setName(fullName || null);
 
       // Get company record
       const { data: co } = await supabase
         .from("companies")
-        .select("id, name, subscription_tier, subscription_status, trial_ends_at, primary_color, settings")
+        .select("id, name, logo_url, subscription_tier, subscription_status, trial_ends_at, primary_color, settings")
         .eq("id", emp.company_id)
         .single();
 
@@ -87,7 +92,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, session, company, employeeRole, loading, isPro, signOut }}>
+    <AuthContext.Provider value={{ user, session, company, employeeRole, employeeName, loading, isPro, signOut }}>
       {children}
     </AuthContext.Provider>
   );

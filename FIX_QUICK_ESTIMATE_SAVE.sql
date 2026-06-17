@@ -29,9 +29,24 @@ ALTER TABLE change_orders
 ALTER TABLE estimates
   ADD COLUMN IF NOT EXISTS project_id UUID REFERENCES projects(id) ON DELETE SET NULL;
 
+-- 6. Add view_format column to estimates (controls how the customer-facing PDF looks)
+--    Values: 'summary' | 'itemized' | 'itemized-no-price'
+ALTER TABLE estimates
+  ADD COLUMN IF NOT EXISTS view_format TEXT DEFAULT 'summary';
+
+-- 7. Add show_in_scope to estimate_items (whether a line item appears in the scope/itemized view)
+ALTER TABLE estimate_items
+  ADD COLUMN IF NOT EXISTS show_in_scope BOOLEAN DEFAULT true;
+
 -- Verify columns were added
 SELECT column_name, data_type, column_default
 FROM information_schema.columns
 WHERE table_name IN ('estimates', 'change_orders')
-  AND column_name IN ('material_markup', 'labor_markup', 'notes', 'description', 'project_id')
+  AND column_name IN ('material_markup', 'labor_markup', 'notes', 'description', 'project_id', 'view_format')
 ORDER BY table_name, column_name;
+
+-- Also verify estimate_items columns
+SELECT column_name, data_type, column_default
+FROM information_schema.columns
+WHERE table_name = 'estimate_items'
+  AND column_name IN ('show_in_scope', 'material_total', 'labor_total', 'labor_rate', 'labor_hours', 'material_unit_cost', 'sequence');

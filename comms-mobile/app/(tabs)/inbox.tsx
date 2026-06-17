@@ -7,6 +7,7 @@ import { router } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
+import { useUnread } from "../../lib/UnreadContext";
 
 const BLUE = "#0b3ea8";
 const ORANGE = "#fc6b04";
@@ -31,6 +32,7 @@ function formatTime(ts: string) {
 const TYPE_ICONS: Record<string, string> = { sms: "💬", call: "📞", ai_call: "🤖", voicemail: "🎙️" };
 
 export default function InboxScreen() {
+  const { setSmsCount } = useUnread();
   const [threads, setThreads] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [companyId, setCompanyId] = useState<string | null>(null);
@@ -96,7 +98,10 @@ export default function InboxScreen() {
         threadMap.get(contactNum).unread++;
       }
     }
-    setThreads(Array.from(threadMap.values()));
+    const built = Array.from(threadMap.values());
+    setThreads(built);
+    // Update badge count
+    setSmsCount(built.reduce((sum, t) => sum + (t.unread || 0), 0));
   }
 
   const onRefresh = async () => {

@@ -47,42 +47,83 @@ Deno.serve(async (req) => {
     const chosenView = viewFormat || 'summary'
     const viewLink = `${baseUrl}/estimate/quick/view?estimateId=${estimateId}&view=${chosenView}`
 
-    // ── Scope bullets (only for summary view, only show_in_scope items) ──
+    // ── Scope / description section — respects view format ──
     const scopeItems: any[] = (lineItems || []).filter((i: any) => i.show_in_scope !== false)
 
     let scopeSection = ''
-    if (chosenView === 'summary' && scopeItems.length > 0) {
-      const bullets = scopeItems.map((item: any) =>
-        `<li style="padding: 5px 0; font-size: 14px; color: #222; line-height: 1.6;">
-          <span style="color: #fc6b04; font-weight: bold; margin-right: 6px;">•</span>${item.description || ''}
-        </li>`
-      ).join('')
-      scopeSection = `
-        <div style="margin: 20px 0;">
-          <div style="border-top: 2px solid #fc6b04; border-bottom: 2px solid #fc6b04; padding: 8px 0; margin-bottom: 12px;">
-            <span style="font-size: 11px; font-weight: bold; color: #444; text-transform: uppercase; letter-spacing: 1px;">
-              Scope of Work
-            </span>
-          </div>
-          ${notes ? `<p style="font-size: 13px; color: #444; margin: 0 0 10px; line-height: 1.6; white-space: pre-wrap;">${notes}</p>` : ''}
-          <ul style="margin: 0; padding: 0; list-style: none;">
-            ${bullets}
-          </ul>
-        </div>`
-    } else if (chosenView !== 'summary') {
-      // Itemized — just a brief note, full details are behind the button
-      const viewLabel = chosenView === 'itemized' ? 'Itemized with Pricing' : 'Itemized (No Individual Prices)'
-      scopeSection = `
-        <div style="margin: 20px 0; padding: 14px 16px; background: #f9fafb; border-left: 4px solid #fc6b04; border-radius: 4px;">
-          <p style="margin: 0; font-size: 14px; color: #444; line-height: 1.6;">
-            The full itemized estimate (<strong>${viewLabel}</strong>) is available via the button below.
-          </p>
-        </div>`
-    } else if (notes) {
-      scopeSection = `
-        <div style="margin: 20px 0; padding: 14px 16px; background: #f9fafb; border-left: 4px solid #fc6b04; border-radius: 4px;">
-          <p style="margin: 0; font-size: 14px; color: #444; line-height: 1.6; white-space: pre-wrap;">${notes}</p>
-        </div>`
+
+    if (chosenView === 'summary') {
+      // Summary Only: show notes/description only — no line items (that's the whole point)
+      if (notes) {
+        scopeSection = `
+          <div style="margin: 20px 0;">
+            <div style="border-top: 2px solid #fc6b04; border-bottom: 2px solid #fc6b04; padding: 8px 0; margin-bottom: 12px;">
+              <span style="font-size: 11px; font-weight: bold; color: #444; text-transform: uppercase; letter-spacing: 1px;">
+                Scope of Work
+              </span>
+            </div>
+            <p style="font-size: 14px; color: #444; margin: 0; line-height: 1.7; white-space: pre-wrap;">${notes}</p>
+          </div>`
+      }
+    } else if (chosenView === 'itemized-no-price') {
+      // Itemized (no prices): show all in-scope items as bullets, no amounts
+      if (scopeItems.length > 0) {
+        const bullets = scopeItems.map((item: any) =>
+          `<li style="padding: 5px 0; font-size: 14px; color: #222; line-height: 1.6;">
+            <span style="color: #fc6b04; font-weight: bold; margin-right: 6px;">•</span>${item.description || ''}
+          </li>`
+        ).join('')
+        scopeSection = `
+          <div style="margin: 20px 0;">
+            <div style="border-top: 2px solid #fc6b04; border-bottom: 2px solid #fc6b04; padding: 8px 0; margin-bottom: 12px;">
+              <span style="font-size: 11px; font-weight: bold; color: #444; text-transform: uppercase; letter-spacing: 1px;">
+                Scope of Work
+              </span>
+            </div>
+            ${notes ? `<p style="font-size: 13px; color: #444; margin: 0 0 12px; line-height: 1.6; white-space: pre-wrap;">${notes}</p>` : ''}
+            <ul style="margin: 0; padding: 0; list-style: none;">
+              ${bullets}
+            </ul>
+          </div>`
+      } else if (notes) {
+        scopeSection = `
+          <div style="margin: 20px 0; padding: 14px 16px; background: #f9fafb; border-left: 4px solid #fc6b04; border-radius: 4px;">
+            <p style="margin: 0; font-size: 14px; color: #444; line-height: 1.6; white-space: pre-wrap;">${notes}</p>
+          </div>`
+      }
+    } else if (chosenView === 'itemized') {
+      // Itemized with pricing: show items + amounts
+      if (scopeItems.length > 0) {
+        const rows = scopeItems.map((item: any) =>
+          `<tr>
+            <td style="padding: 8px 12px; font-size: 14px; color: #222; border-bottom: 1px solid #f0f0f0;">${item.description || ''}</td>
+            <td style="padding: 8px 12px; font-size: 14px; color: #111; font-weight: 600; text-align: right; border-bottom: 1px solid #f0f0f0; white-space: nowrap;">
+              $${((item.line_total || 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </td>
+          </tr>`
+        ).join('')
+        scopeSection = `
+          <div style="margin: 20px 0;">
+            <div style="border-top: 2px solid #fc6b04; border-bottom: 2px solid #fc6b04; padding: 8px 0; margin-bottom: 12px;">
+              <span style="font-size: 11px; font-weight: bold; color: #444; text-transform: uppercase; letter-spacing: 1px;">
+                Itemized Scope of Work
+              </span>
+            </div>
+            ${notes ? `<p style="font-size: 13px; color: #444; margin: 0 0 12px; line-height: 1.6; white-space: pre-wrap;">${notes}</p>` : ''}
+            <table width="100%" cellpadding="0" cellspacing="0" style="border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden;">
+              <tr style="background: #f9fafb;">
+                <th style="padding: 8px 12px; font-size: 12px; color: #555; text-align: left; text-transform: uppercase; border-bottom: 2px solid #e5e7eb;">Description</th>
+                <th style="padding: 8px 12px; font-size: 12px; color: #555; text-align: right; text-transform: uppercase; border-bottom: 2px solid #e5e7eb;">Amount</th>
+              </tr>
+              ${rows}
+            </table>
+          </div>`
+      } else if (notes) {
+        scopeSection = `
+          <div style="margin: 20px 0; padding: 14px 16px; background: #f9fafb; border-left: 4px solid #fc6b04; border-radius: 4px;">
+            <p style="margin: 0; font-size: 14px; color: #444; line-height: 1.6; white-space: pre-wrap;">${notes}</p>
+          </div>`
+      }
     }
 
     const html = `

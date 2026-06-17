@@ -1,11 +1,14 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { UnreadProvider, useUnread } from "../../lib/UnreadContext";
 
 const BLUE = "#0b3ea8";
 
-export default function TabsLayout() {
+// Inner component — reads context after provider mounts
+function TabsWithBadges() {
   const insets = useSafeAreaInsets();
+  const { counts } = useUnread();
 
   return (
     <Tabs
@@ -24,20 +27,38 @@ export default function TabsLayout() {
         tabBarInactiveTintColor: "#9ca3af",
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: any = "ellipse";
-          if (route.name === "inbox")   iconName = focused ? "chatbubbles"   : "chatbubbles-outline";
-          else if (route.name === "recents") iconName = focused ? "call"     : "call-outline";
-          else if (route.name === "dialpad") iconName = focused ? "keypad"   : "keypad-outline";
-          else if (route.name === "email")   iconName = focused ? "mail"     : "mail-outline";
-          else if (route.name === "ai")      iconName = focused ? "sparkles" : "sparkles-outline";
+          if (route.name === "inbox")    iconName = focused ? "chatbubbles"   : "chatbubbles-outline";
+          else if (route.name === "recents") iconName = focused ? "call"      : "call-outline";
+          else if (route.name === "dialpad") iconName = focused ? "keypad"    : "keypad-outline";
+          else if (route.name === "email")   iconName = focused ? "mail"      : "mail-outline";
+          else if (route.name === "ai")      iconName = focused ? "sparkles"  : "sparkles-outline";
           else if (route.name === "settings") iconName = focused ? "settings" : "settings-outline";
           return <Ionicons name={iconName} size={size ?? 24} color={color} />;
         },
       })}
     >
-      <Tabs.Screen name="inbox"   options={{ title: "Inbox" }} />
-      <Tabs.Screen name="recents" options={{ title: "Recents" }} />
+      <Tabs.Screen
+        name="inbox"
+        options={{
+          title: "Inbox",
+          tabBarBadge: counts.sms > 0 ? counts.sms : undefined,
+        }}
+      />
+      <Tabs.Screen
+        name="recents"
+        options={{
+          title: "Recents",
+          tabBarBadge: counts.missed > 0 ? counts.missed : undefined,
+        }}
+      />
       <Tabs.Screen name="dialpad" options={{ title: "Dial Pad" }} />
-      <Tabs.Screen name="email"   options={{ title: "Email" }} />
+      <Tabs.Screen
+        name="email"
+        options={{
+          title: "Email",
+          tabBarBadge: counts.email > 0 ? counts.email : undefined,
+        }}
+      />
       <Tabs.Screen
         name="ai"
         options={{
@@ -48,5 +69,13 @@ export default function TabsLayout() {
       />
       <Tabs.Screen name="settings" options={{ title: "Settings" }} />
     </Tabs>
+  );
+}
+
+export default function TabsLayout() {
+  return (
+    <UnreadProvider>
+      <TabsWithBadges />
+    </UnreadProvider>
   );
 }

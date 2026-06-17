@@ -315,8 +315,8 @@ $$;
 -- ==========================================
 -- VERIFICATION: Check the setup
 -- ==========================================
--- SELECT * FROM companies;
--- SELECT id, email, first_name, last_name, company_id FROM employees LIMIT 10;
--- SELECT id, clock_in, company_id FROM shifts LIMIT 5;
--- SELECT id, start_at, company_id FROM shift_segments LIMIT 5;
--- SELECT id, name, company_id FROM projects LIMIT 5;
+SELECT * FROM companies;
+SELECT id, email, first_name, last_name, company_id FROM employees LIMIT 10;
+SELECT id, clock_in, company_id FROM shifts LIMIT 5;
+SELECT id, start_at, company_id FROM shift_segments LIMIT 5;
+SELECT id, name, company_id FROM projects LIMIT 5;

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { createExpenseJournalEntry } from "../utils/accountingJournals";
@@ -553,19 +553,26 @@ export default function Expenses() {
     }
   }
 
+  // ── Memoized computed values ─────────────────────────────────────────────
+  // IMPORTANT: These must be memoized so that typing in the expense modal
+  // (which calls setExpenseForm on every keystroke) does NOT re-run these
+  // expensive O(n) operations. Without useMemo, 1000+ expense records cause
+  // noticeable UI freezes on every keystroke in the add/edit modal.
+
   // Combine manually-entered expenses + cleared bank transactions, sorted by date descending
-  const allExpenses = [
+  const allExpenses = useMemo(() => [
     ...expenses.map(e => ({ ...e, _isBankTransaction: false })),
     ...clearedBankExpenses
   ].sort((a, b) => {
-    const dateA = new Date(a.expense_date || 0);
-    const dateB = new Date(b.expense_date || 0);
+    // Pre-parse dates outside the comparator for better sort performance
+    const dateA = a.expense_date ? new Date(a.expense_date) : new Date(0);
+    const dateB = b.expense_date ? new Date(b.expense_date) : new Date(0);
     return dateB - dateA;
-  });
+  }), [expenses, clearedBankExpenses]);
 
-  const filteredExpenses = allExpenses.filter(expense => {
+  const filteredExpenses = useMemo(() => allExpenses.filter(expense => {
     const searchLower = searchTerm.toLowerCase();
-    const matchesSearch = (
+    const matchesSearch = !searchLower || (
       expense.vendor?.toLowerCase().includes(searchLower) ||
       expense.description?.toLowerCase().includes(searchLower) ||
       expense.category?.toLowerCase().includes(searchLower) ||
@@ -580,33 +587,38 @@ export default function Expenses() {
       (sourceFilter === "bank" && expense._isBankTransaction);
 
     return matchesSearch && matchesCategory && matchesSource;
-  });
+  }), [allExpenses, searchTerm, categoryFilter, sourceFilter]);
 
   // Pagination — only render PAGE_SIZE rows at a time
   const totalPages = Math.max(1, Math.ceil(filteredExpenses.length / PAGE_SIZE));
   const safePage = Math.min(currentPage, totalPages);
-  const pagedExpenses = filteredExpenses.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const pagedExpenses = useMemo(
+    () => filteredExpenses.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [filteredExpenses, safePage]
+  );
 
-  // Calculate summary statistics using combined list
-  const stats = {
-    total: allExpenses.length,
-    totalAmount: allExpenses.reduce((sum, e) => sum + (e.amount || 0), 0),
-    byCategory: allExpenses.reduce((acc, e) => {
-      acc[e.category] = (acc[e.category] || 0) + e.amount;
-      return acc;
-    }, {}),
-    taxDeductible: allExpenses.filter(e => e.tax_deductible).reduce((sum, e) => sum + e.amount, 0),
-    thisMonth: allExpenses.filter(e => {
-      // Use string comparison (YYYY-MM) to avoid UTC timezone shift:
-      // new Date("2026-04-01") parses as midnight UTC = March 31 in CST,
-      // which would wrongly count April 1 expenses as March.
-      if (!e.expense_date) return false;
-      const yearMonth = String(e.expense_date).substring(0, 7); // "YYYY-MM"
-      const now = new Date();
-      const currentYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-      return yearMonth === currentYearMonth;
-    }).reduce((sum, e) => sum + e.amount, 0)
-  };
+  // Calculate summary statistics using combined list.
+  // currentYearMonth is computed once outside the filter (not on every item).
+  const stats = useMemo(() => {
+    const now = new Date();
+    const currentYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    return {
+      total: allExpenses.length,
+      totalAmount: allExpenses.reduce((sum, e) => sum + (e.amount || 0), 0),
+      byCategory: allExpenses.reduce((acc, e) => {
+        acc[e.category] = (acc[e.category] || 0) + e.amount;
+        return acc;
+      }, {}),
+      taxDeductible: allExpenses.filter(e => e.tax_deductible).reduce((sum, e) => sum + e.amount, 0),
+      thisMonth: allExpenses.filter(e => {
+        // Use string comparison (YYYY-MM) to avoid UTC timezone shift:
+        // new Date("2026-04-01") parses as midnight UTC = March 31 in CST,
+        // which would wrongly count April 1 expenses as March.
+        if (!e.expense_date) return false;
+        return String(e.expense_date).substring(0, 7) === currentYearMonth;
+      }).reduce((sum, e) => sum + e.amount, 0)
+    };
+  }, [allExpenses]);
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';

@@ -10,6 +10,7 @@ import * as SecureStore from "expo-secure-store";
 import * as Notifications from "expo-notifications";
 import { useFocusEffect } from "@react-navigation/native";
 import { supabase } from "../../lib/supabase";
+import { useUnread } from "../../lib/UnreadContext";
 
 // Web-safe storage: localStorage on browser, SecureStore on native
 const storage = {
@@ -69,6 +70,8 @@ export default function EmailScreen() {
     },
     discovery
   );
+
+  const { setEmailCount } = useUnread();
 
   // Auth state
   const [accessToken, setAccessToken]   = useState<string | null>(null);
@@ -262,7 +265,9 @@ export default function EmailScreen() {
       const data = await graphFetch(
         "https://graph.microsoft.com/v1.0/me/messages?$top=30&$orderby=receivedDateTime desc&$select=id,subject,from,receivedDateTime,hasAttachments,bodyPreview,isRead"
       );
-      setEmails(data.value || []);
+      const loaded = data.value || [];
+      setEmails(loaded);
+      setEmailCount(loaded.filter((e: any) => !e.isRead).length);
     } catch (e: any) {
       if (!silent) setError("Failed to load emails: " + e.message);
     }

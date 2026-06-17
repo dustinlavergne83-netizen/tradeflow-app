@@ -12,6 +12,9 @@ ios/Pods/
 # Node modules (EAS installs these on the build server)
 node_modules/
 
+# Expo cache
+.expo/
+
 # Git history
 .git/
 

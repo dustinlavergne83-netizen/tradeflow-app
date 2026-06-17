@@ -687,6 +687,21 @@ export default function Communications() {
                   border: "none",
                 }}>
                   {f === "all" ? "All" : f === "email" ? "📧 Email" : TYPE_LABELS[f]}
+                  {f === "email" && emails.filter(e => !e.isRead).length > 0 && (
+                    <span style={{ marginLeft: 5, backgroundColor: ORANGE, color: "#fff", borderRadius: 10, fontSize: 10, fontWeight: 800, padding: "1px 5px" }}>
+                      {emails.filter(e => !e.isRead).length}
+                    </span>
+                  )}
+                  {f === "sms" && threads.filter(t => t.type === "sms" && t.unread > 0).reduce((s, t) => s + (t.unread || 0), 0) > 0 && (
+                    <span style={{ marginLeft: 5, backgroundColor: ORANGE, color: "#fff", borderRadius: 10, fontSize: 10, fontWeight: 800, padding: "1px 5px" }}>
+                      {threads.filter(t => t.type === "sms" && t.unread > 0).reduce((s, t) => s + (t.unread || 0), 0)}
+                    </span>
+                  )}
+                  {f === "call" && threads.filter(t => (t.type === "call" || t.type === "ai_call") && t.unread > 0).reduce((s, t) => s + (t.unread || 0), 0) > 0 && (
+                    <span style={{ marginLeft: 5, backgroundColor: ORANGE, color: "#fff", borderRadius: 10, fontSize: 10, fontWeight: 800, padding: "1px 5px" }}>
+                      {threads.filter(t => (t.type === "call" || t.type === "ai_call") && t.unread > 0).reduce((s, t) => s + (t.unread || 0), 0)}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -735,6 +750,11 @@ export default function Communications() {
                       }}
                     >
                       {label}
+                      {key === "inbox" && emails.filter(e => !e.isRead).length > 0 && (
+                        <span style={{ marginLeft: 5, backgroundColor: ORANGE, color: "#fff", borderRadius: 10, fontSize: 10, fontWeight: 800, padding: "1px 5px" }}>
+                          {emails.filter(e => !e.isRead).length}
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>
