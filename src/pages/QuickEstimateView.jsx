@@ -118,6 +118,16 @@ export default function QuickEstimateView() {
     <div style={pg}><p style={{textAlign:"center",padding:"60px",color:"#ef4444",fontSize:16}}>Estimate not found</p></div>
   );
 
+  const materialMarkup = Number(estimate.material_markup || 0);
+  const laborMarkup    = Number(estimate.labor_markup    || 0);
+
+  // Apply markup to each item's displayed amount
+  const itemDisplayAmount = (item) => {
+    const matPart = (item.material_total || 0) * (1 + materialMarkup / 100);
+    const lbrPart = (item.labor_total    || 0) * (1 + laborMarkup    / 100);
+    return matPart + lbrPart;
+  };
+
   const subtotal = items.reduce((s,i) => s + (i.line_total||0), 0);
   const total = estimate.total || subtotal;
 
@@ -250,7 +260,7 @@ export default function QuickEstimateView() {
                     fontSize:14, fontWeight:"bold", color:"#111",
                     whiteSpace:"nowrap", flexShrink:0
                   }}>
-                    {fmtMoney(item.line_total || item.material_total)}
+                    {fmtMoney(itemDisplayAmount(item))}
                   </span>
                 )}
               </div>
