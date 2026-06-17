@@ -25,6 +25,7 @@ Deno.serve(async (req) => {
       message,
       estimateId,
       siteUrl,
+      viewFormat,
       companyName = "DML Electrical Service, LLC"
     } = await req.json()
 
@@ -48,9 +49,9 @@ Deno.serve(async (req) => {
       return (amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     };
 
-    // Generate view link
+    // Generate view link — append chosen format so customer lands directly on the right view
     const baseUrl = siteUrl || Deno.env.get('SITE_URL') || 'http://localhost:5173';
-    const viewLink = `${baseUrl}/estimate/quick/view?estimateId=${estimateId}`;
+    const viewLink = `${baseUrl}/estimate/quick/view?estimateId=${estimateId}${viewFormat ? `&view=${viewFormat}` : ''}`;
 
     // Build line items HTML
     let lineItemsHtml = '';
