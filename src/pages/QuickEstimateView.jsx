@@ -217,7 +217,7 @@ export default function QuickEstimateView() {
               </span>
             </div>
             {(estimate.description || estimate.notes) ? (
-              <p style={{fontSize:14, color:"#333", lineHeight:1.7, margin:"0 0 16px", textAlign:"center"}}>
+              <p style={{fontSize:14, color:"#333", lineHeight:1.7, margin:"0 0 16px", textAlign:"center", whiteSpace:"pre-wrap"}}>
                 {estimate.description || estimate.notes}
               </p>
             ) : (
