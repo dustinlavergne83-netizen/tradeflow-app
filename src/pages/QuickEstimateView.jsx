@@ -226,17 +226,18 @@ export default function QuickEstimateView() {
 
             {/* Bullet points — only items with show_in_scope checked */}
             {items.filter(i => i.show_in_scope !== false).length > 0 ? (
-              <ul style={{margin:"0 0 16px", padding:0, listStyle:"none"}}>
+              <ul style={{margin:"0 0 16px", padding:0, listStyle:"none", textAlign:"left"}}>
                 {items.filter(i => i.show_in_scope !== false).map(item => (
                   <li key={item.id} style={{
+                    display:"flex", alignItems:"flex-start",
                     fontSize:14, color:"#222", lineHeight:1.7,
-                    paddingLeft:20, position:"relative", marginBottom:3,
+                    marginBottom:3, textAlign:"left",
                   }}>
                     <span style={{
-                      position:"absolute", left:0, top:0,
-                      color:ACCENT, fontWeight:"bold", fontSize:16
+                      color:ACCENT, fontWeight:"bold", fontSize:16,
+                      flexShrink:0, marginRight:8, lineHeight:1.7,
                     }}>•</span>
-                    {item.description}
+                    <span>{item.description}</span>
                   </li>
                 ))}
               </ul>
