@@ -499,7 +499,9 @@ export default function QuickEstimate() {
             total: total,
             notes: description || null,
             material_markup: Number(materialMarkup) || 0,
-            labor_markup: Number(laborMarkup) || 0
+            labor_markup: Number(laborMarkup) || 0,
+            estimate_type: 'quick',
+            ...(projectId ? { project_id: projectId } : {}),
           };
 
           const { error: updateError } = await supabase
@@ -597,7 +599,9 @@ export default function QuickEstimate() {
             status: 'draft',
             notes: description || null,
             material_markup: Number(materialMarkup) || 0,
-            labor_markup: Number(laborMarkup) || 0
+            labor_markup: Number(laborMarkup) || 0,
+            estimate_type: 'quick',
+            ...(projectId ? { project_id: projectId } : {}),
           };
 
           const { data: estimate, error: estimateError } = await supabase
