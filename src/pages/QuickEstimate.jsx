@@ -136,6 +136,10 @@ export default function QuickEstimate() {
       const firstItemWithLabor = items.find(item => item.labor_rate > 0);
       setHourlyRate(firstItemWithLabor?.labor_rate || 0);
 
+      // Restore markup values
+      setMaterialMarkup(estimate.material_markup || 0);
+      setLaborMarkup(estimate.labor_markup || 0);
+
       // Map items to line items
       if (items && items.length > 0) {
         const mappedItems = items.map((item, index) => ({
@@ -183,6 +187,10 @@ export default function QuickEstimate() {
       // Get hourly rate from first item with labor
       const firstItemWithLabor = items.find(item => item.labor_rate > 0);
       setHourlyRate(firstItemWithLabor?.labor_rate || 0);
+
+      // Restore markup values
+      setMaterialMarkup(changeOrder.material_markup || 0);
+      setLaborMarkup(changeOrder.labor_markup || 0);
 
       // Map items to line items
       if (items && items.length > 0) {
@@ -328,7 +336,9 @@ export default function QuickEstimate() {
               project_name: projectName || "Quick Change Order",
               description: description || null,
               total: total,
-              change_order_date: estimateDate
+              change_order_date: estimateDate,
+              material_markup: Number(materialMarkup) || 0,
+              labor_markup: Number(laborMarkup) || 0
             })
             .eq("id", coId);
 
@@ -427,7 +437,9 @@ export default function QuickEstimate() {
             change_order_date: estimateDate,
             total: total,
             status: 'draft',
-            created_by: user.id
+            created_by: user.id,
+            material_markup: Number(materialMarkup) || 0,
+            labor_markup: Number(laborMarkup) || 0
           };
 
           const { data: changeOrder, error: coError } = await supabase
@@ -477,7 +489,9 @@ export default function QuickEstimate() {
             estimate_date: estimateDate,
             subtotal: total,
             total: total,
-            notes: description || null
+            notes: description || null,
+            material_markup: Number(materialMarkup) || 0,
+            labor_markup: Number(laborMarkup) || 0
           };
 
           const { error: updateError } = await supabase
@@ -573,7 +587,9 @@ export default function QuickEstimate() {
             subtotal: total,
             total: total,
             status: 'draft',
-            notes: description || null
+            notes: description || null,
+            material_markup: Number(materialMarkup) || 0,
+            labor_markup: Number(laborMarkup) || 0
           };
 
           const { data: estimate, error: estimateError } = await supabase
