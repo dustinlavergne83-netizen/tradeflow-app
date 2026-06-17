@@ -137,11 +137,10 @@ export default function EstimatesList() {
           .from("estimates")
           .select("*")
           .not("estimate_number", "is", null)
-          .is("project_id", null)  // Only show quick estimates — project bids live inside the project
           .order("created_at", { ascending: false });
 
         if (!estimatesError && estimatesData) {
-          // Only quick estimates (no project_id) show here
+          // Show ALL quick estimates — including those tied to a project
           const mappedEstimates = estimatesData.map(est => ({
             ...est,
             type: 'quick_estimate',
@@ -407,22 +406,8 @@ export default function EstimatesList() {
                             🗑️
                           </button>
                         </>
-                      ) : estimate.project_id ? (
-                        <>
-                          <button
-                            onClick={() => navigate(`/project/${estimate.project_id}/estimate?estimateId=${estimate.id}`)}
-                            style={{...styles.actionButton, ...styles.viewButton}}
-                          >
-                            View
-                          </button>
-                          <button
-                            onClick={() => handleDelete(estimate)}
-                            style={{...styles.actionButton, ...styles.deleteButton}}
-                          >
-                            Delete
-                          </button>
-                        </>
                       ) : (
+                        // All quick estimates (with or without project) — same actions
                         <>
                           <button
                             onClick={() => navigate(`/estimate/quick?estimateId=${estimate.id}`)}
