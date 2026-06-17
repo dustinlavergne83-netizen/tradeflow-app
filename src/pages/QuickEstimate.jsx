@@ -44,8 +44,13 @@ export default function QuickEstimate() {
   const [materialMarkup, setMaterialMarkup] = useState(0);
   const [laborMarkup, setLaborMarkup] = useState(0);
 
+  // Material autocomplete state
+  const [materialsDB, setMaterialsDB] = useState([]);
+  const [activeDescDropdown, setActiveDescDropdown] = useState(null); // line item id with open dropdown
+
   useEffect(() => {
     loadCustomers();
+    loadMaterials();
     
     // Check if we're coming from a project
     const projectIdParam = searchParams.get('projectId');
@@ -260,6 +265,60 @@ export default function QuickEstimate() {
       console.error("Exception loading customers:", err);
       setCustomers([]);
     }
+  }
+
+  async function loadMaterials() {
+    try {
+      // Load base materials
+      const { data: baseMats } = await supabase
+        .from('base_materials')
+        .select('id, name, price, unit_cost, category')
+        .order('name')
+        .range(0, 49999);
+
+      // Load custom materials
+      const { data: customMats } = await supabase
+        .from('custom_materials')
+        .select('id, name, price, unit_cost, category');
+
+      const format = (m) => ({
+        id: m.id,
+        name: m.name,
+        price: Number(m.price || m.unit_cost || 0),
+        category: m.category || '',
+      });
+
+      const all = [
+        ...(baseMats || []).map(format),
+        ...(customMats || []).map(format),
+      ];
+      setMaterialsDB(all);
+    } catch (err) {
+      console.error('Error loading materials for autocomplete:', err);
+    }
+  }
+
+  // Returns up to 10 materials matching the typed text (min 2 chars)
+  function getMaterialSuggestions(text) {
+    if (!text || text.trim().length < 2) return [];
+    const q = text.trim().toLowerCase();
+    return materialsDB
+      .filter(m => m.name.toLowerCase().includes(q))
+      .slice(0, 10);
+  }
+
+  // Select a material suggestion for a line item
+  function selectMaterial(itemId, mat, isDetailedMode) {
+    setLineItems(prev => prev.map(item => {
+      if (item.id !== itemId) return item;
+      return {
+        ...item,
+        description: mat.name,
+        // Only fill in unit material cost in detailed mode
+        ...(isDetailedMode && mat.price > 0 ? { material: mat.price } : {}),
+      };
+    }));
+    setActiveDescDropdown(null);
   }
 
   const addLineItem = () => {
@@ -1073,27 +1132,66 @@ export default function QuickEstimate() {
                           />
                         </td>
                         <td style={styles.td}>
-                          <textarea
-                            value={item.description}
-                            onChange={(e) => {
-                              updateLineItem(item.id, "description", e.target.value);
-                              e.target.style.height = "auto";
-                              e.target.style.height = e.target.scrollHeight + "px";
-                            }}
-                            onInput={(e) => {
-                              e.target.style.height = "auto";
-                              e.target.style.height = e.target.scrollHeight + "px";
-                            }}
-                            ref={(el) => {
-                              if (el) {
-                                el.style.height = "auto";
-                                el.style.height = el.scrollHeight + "px";
-                              }
-                            }}
-                            style={{...styles.tableInput, resize: "none", overflow: "hidden", minHeight: 36, lineHeight: "1.4"}}
-                            placeholder="Item description"
-                            rows={1}
-                          />
+                          <div style={{position: 'relative'}}>
+                            <textarea
+                              value={item.description}
+                              onChange={(e) => {
+                                updateLineItem(item.id, "description", e.target.value);
+                                setActiveDescDropdown(item.id);
+                                e.target.style.height = "auto";
+                                e.target.style.height = e.target.scrollHeight + "px";
+                              }}
+                              onFocus={() => {
+                                if (item.description.trim().length >= 2) setActiveDescDropdown(item.id);
+                              }}
+                              onBlur={() => setTimeout(() => setActiveDescDropdown(null), 200)}
+                              onKeyDown={(e) => { if (e.key === 'Escape') setActiveDescDropdown(null); }}
+                              onInput={(e) => {
+                                e.target.style.height = "auto";
+                                e.target.style.height = e.target.scrollHeight + "px";
+                              }}
+                              ref={(el) => {
+                                if (el) {
+                                  el.style.height = "auto";
+                                  el.style.height = el.scrollHeight + "px";
+                                }
+                              }}
+                              style={{...styles.tableInput, resize: "none", overflow: "hidden", minHeight: 36, lineHeight: "1.4"}}
+                              placeholder="Type to search materials..."
+                              rows={1}
+                            />
+                            {activeDescDropdown === item.id && getMaterialSuggestions(item.description).length > 0 && (
+                              <div style={{
+                                position: 'absolute', top: '100%', left: 0, right: 0,
+                                backgroundColor: '#fff', border: '2px solid #fc6b04',
+                                borderTop: 'none', borderRadius: '0 0 6px 6px',
+                                maxHeight: 220, overflowY: 'auto', zIndex: 2000,
+                                boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                              }}>
+                                {getMaterialSuggestions(item.description).map(mat => (
+                                  <div
+                                    key={mat.id}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => selectMaterial(item.id, mat, true)}
+                                    style={{
+                                      padding: '8px 10px', cursor: 'pointer',
+                                      borderBottom: '1px solid #f3f4f6',
+                                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fff7ed'}
+                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}
+                                  >
+                                    <span style={{fontSize: 13, color: '#333'}}>{mat.name}</span>
+                                    {mat.price > 0 && (
+                                      <span style={{fontSize: 12, color: '#10b981', fontWeight: '600', marginLeft: 8}}>
+                                        ${mat.price.toFixed(2)}
+                                      </span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         </td>
                         <td style={styles.td}>
                           <input
@@ -1167,27 +1265,61 @@ export default function QuickEstimate() {
                     return (
                       <tr key={item.id} style={styles.tableRow}>
                         <td style={styles.td}>
-                          <textarea
-                            value={item.description}
-                            onChange={(e) => {
-                              updateLineItem(item.id, "description", e.target.value);
-                              e.target.style.height = "auto";
-                              e.target.style.height = e.target.scrollHeight + "px";
-                            }}
-                            onInput={(e) => {
-                              e.target.style.height = "auto";
-                              e.target.style.height = e.target.scrollHeight + "px";
-                            }}
-                            ref={(el) => {
-                              if (el) {
-                                el.style.height = "auto";
-                                el.style.height = el.scrollHeight + "px";
-                              }
-                            }}
-                            style={{...styles.tableInput, resize: "none", overflow: "hidden", minHeight: 36, lineHeight: "1.4"}}
-                            placeholder="Item description"
-                            rows={1}
-                          />
+                          <div style={{position: 'relative'}}>
+                            <textarea
+                              value={item.description}
+                              onChange={(e) => {
+                                updateLineItem(item.id, "description", e.target.value);
+                                setActiveDescDropdown(item.id);
+                                e.target.style.height = "auto";
+                                e.target.style.height = e.target.scrollHeight + "px";
+                              }}
+                              onFocus={() => {
+                                if (item.description.trim().length >= 2) setActiveDescDropdown(item.id);
+                              }}
+                              onBlur={() => setTimeout(() => setActiveDescDropdown(null), 200)}
+                              onKeyDown={(e) => { if (e.key === 'Escape') setActiveDescDropdown(null); }}
+                              onInput={(e) => {
+                                e.target.style.height = "auto";
+                                e.target.style.height = e.target.scrollHeight + "px";
+                              }}
+                              ref={(el) => {
+                                if (el) {
+                                  el.style.height = "auto";
+                                  el.style.height = el.scrollHeight + "px";
+                                }
+                              }}
+                              style={{...styles.tableInput, resize: "none", overflow: "hidden", minHeight: 36, lineHeight: "1.4"}}
+                              placeholder="Type to search materials..."
+                              rows={1}
+                            />
+                            {activeDescDropdown === item.id && getMaterialSuggestions(item.description).length > 0 && (
+                              <div style={{
+                                position: 'absolute', top: '100%', left: 0, right: 0,
+                                backgroundColor: '#fff', border: '2px solid #fc6b04',
+                                borderTop: 'none', borderRadius: '0 0 6px 6px',
+                                maxHeight: 220, overflowY: 'auto', zIndex: 2000,
+                                boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                              }}>
+                                {getMaterialSuggestions(item.description).map(mat => (
+                                  <div
+                                    key={mat.id}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => selectMaterial(item.id, mat, false)}
+                                    style={{
+                                      padding: '8px 10px', cursor: 'pointer',
+                                      borderBottom: '1px solid #f3f4f6',
+                                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fff7ed'}
+                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}
+                                  >
+                                    <span style={{fontSize: 13, color: '#333'}}>{mat.name}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         </td>
                         <td style={styles.td}>
                           <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
