@@ -216,11 +216,31 @@ export default function QuickEstimateView() {
                 Scope of Work
               </span>
             </div>
-            {(estimate.description || estimate.notes) ? (
-              <p style={{fontSize:14, color:"#333", lineHeight:1.7, margin:"0 0 16px", textAlign:"center", whiteSpace:"pre-wrap"}}>
+
+            {/* Intro notes/description (if any) */}
+            {(estimate.description || estimate.notes) && (
+              <p style={{fontSize:13, color:"#444", lineHeight:1.6, margin:"0 0 10px", whiteSpace:"pre-wrap"}}>
                 {estimate.description || estimate.notes}
               </p>
-            ) : (
+            )}
+
+            {/* Bullet points — only items with show_in_scope checked */}
+            {items.filter(i => i.show_in_scope !== false).length > 0 ? (
+              <ul style={{margin:"0 0 16px", padding:0, listStyle:"none"}}>
+                {items.filter(i => i.show_in_scope !== false).map(item => (
+                  <li key={item.id} style={{
+                    fontSize:14, color:"#222", lineHeight:1.7,
+                    paddingLeft:20, position:"relative", marginBottom:3,
+                  }}>
+                    <span style={{
+                      position:"absolute", left:0, top:0,
+                      color:ACCENT, fontWeight:"bold", fontSize:16
+                    }}>•</span>
+                    {item.description}
+                  </li>
+                ))}
+              </ul>
+            ) : !(estimate.description || estimate.notes) && (
               <p style={{fontSize:13, color:"#555", margin:"0 0 16px", textAlign:"center", fontStyle:"italic"}}>
                 No scope description provided.
               </p>

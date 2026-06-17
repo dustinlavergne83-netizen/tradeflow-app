@@ -17,7 +17,7 @@ export default function QuickEstimate() {
   const [description, setDescription] = useState("");
   const [hourlyRate, setHourlyRate] = useState(0);
   const [lineItems, setLineItems] = useState([
-    { id: 1, description: "", quantity: 1, material: 0, lbrHrs: 0 }
+    { id: 1, description: "", quantity: 1, material: 0, lbrHrs: 0, showInScope: true }
   ]);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -160,7 +160,8 @@ export default function QuickEstimate() {
           description: item.description || "",
           quantity: item.quantity || 1,
           material: item.material_unit_cost || 0,
-          lbrHrs: item.labor_hours || 0
+          lbrHrs: item.labor_hours || 0,
+          showInScope: item.show_in_scope !== false,
         }));
         setLineItems(mappedItems);
       }
@@ -212,7 +213,8 @@ export default function QuickEstimate() {
           description: item.description || "",
           quantity: item.quantity || 1,
           material: item.material_unit_cost || 0,
-          lbrHrs: item.labor_hours || 0
+          lbrHrs: item.labor_hours || 0,
+          showInScope: item.show_in_scope !== false,
         }));
         setLineItems(mappedItems);
       }
@@ -323,7 +325,7 @@ export default function QuickEstimate() {
 
   const addLineItem = () => {
     const newId = Math.max(...lineItems.map(item => item.id)) + 1;
-    setLineItems([...lineItems, { id: newId, description: "", quantity: 1, material: 0, lbrHrs: 0 }]);
+    setLineItems([...lineItems, { id: newId, description: "", quantity: 1, material: 0, lbrHrs: 0, showInScope: true }]);
   };
 
   const removeLineItem = (id) => {
@@ -436,6 +438,7 @@ export default function QuickEstimate() {
               labor_rate: hourlyRate,
               labor_total: lbrCost,
               line_total: extMat + lbrCost,
+              show_in_scope: item.showInScope !== false,
               sequence: index
             };
           });
@@ -534,6 +537,7 @@ export default function QuickEstimate() {
               labor_rate: hourlyRate,
               labor_total: lbrCost,
               line_total: extMat + lbrCost,
+              show_in_scope: item.showInScope !== false,
               sequence: index
             };
           });
@@ -595,6 +599,7 @@ export default function QuickEstimate() {
               labor_rate: hourlyRate,
               labor_total: lbrCost,
               line_total: extMat + lbrCost,
+              show_in_scope: item.showInScope !== false,
               sequence: index
             };
           });
@@ -687,6 +692,7 @@ export default function QuickEstimate() {
               labor_rate: hourlyRate,
               labor_total: lbrCost,
               line_total: extMat + lbrCost,
+              show_in_scope: item.showInScope !== false,
               sequence: index
             };
           });
@@ -1109,6 +1115,7 @@ export default function QuickEstimate() {
                     <th style={{...styles.th, width: "8%", textAlign: "center"}}>Lbr Ext</th>
                     <th style={{...styles.th, width: "9%", textAlign: "right"}}>Lbr Cost</th>
                     <th style={{...styles.th, width: "9%", textAlign: "right"}}>Total</th>
+                    <th style={{...styles.th, width: "5%", textAlign: "center", fontSize: 11}}>Scope</th>
                     <th style={{...styles.th, width: "4%"}}></th>
                   </tr>
                 </thead>
@@ -1233,6 +1240,15 @@ export default function QuickEstimate() {
                             ${lineTotal.toFixed(2)}
                           </span>
                         </td>
+                        <td style={{...styles.td, textAlign: "center", verticalAlign: "middle"}}>
+                          <input
+                            type="checkbox"
+                            checked={item.showInScope !== false}
+                            onChange={(e) => updateLineItem(item.id, "showInScope", e.target.checked)}
+                            style={{width: 18, height: 18, cursor: "pointer", accentColor: "#fc6b04"}}
+                            title="Show in Scope of Work"
+                          />
+                        </td>
                         <td style={styles.td}>
                           {lineItems.length > 1 && (
                             <button
@@ -1254,9 +1270,10 @@ export default function QuickEstimate() {
               <table style={styles.table}>
                 <thead>
                   <tr style={styles.tableHeaderRow}>
-                    <th style={{...styles.th, width: "70%"}}>Description</th>
-                    <th style={{...styles.th, width: "20%", textAlign: "right"}}>Total Cost</th>
-                    <th style={{...styles.th, width: "10%"}}></th>
+                    <th style={{...styles.th, width: "60%"}}>Description</th>
+                    <th style={{...styles.th, width: "18%", textAlign: "right"}}>Total Cost</th>
+                    <th style={{...styles.th, width: "8%", textAlign: "center", fontSize: 11}}>Scope</th>
+                    <th style={{...styles.th, width: "8%"}}></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1334,6 +1351,15 @@ export default function QuickEstimate() {
                               placeholder="0.00"
                             />
                           </div>
+                        </td>
+                        <td style={{...styles.td, textAlign: "center", verticalAlign: "middle"}}>
+                          <input
+                            type="checkbox"
+                            checked={item.showInScope !== false}
+                            onChange={(e) => updateLineItem(item.id, "showInScope", e.target.checked)}
+                            style={{width: 18, height: 18, cursor: "pointer", accentColor: "#fc6b04"}}
+                            title="Show in Scope of Work"
+                          />
                         </td>
                         <td style={styles.td}>
                           {lineItems.length > 1 && (
