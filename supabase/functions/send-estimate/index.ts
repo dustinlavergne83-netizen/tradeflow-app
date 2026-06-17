@@ -1,20 +1,16 @@
 import { corsHeaders } from '../_shared/cors.ts'
 
 Deno.serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
   try {
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
-    
-    if (!RESEND_API_KEY) {
-      throw new Error('RESEND_API_KEY is not set')
-    }
+    if (!RESEND_API_KEY) throw new Error('RESEND_API_KEY is not set')
 
-    const { 
-      to, 
+    const {
+      to,
       customerName,
       projectName,
       estimateNumber,
@@ -37,60 +33,56 @@ Deno.serve(async (req) => {
     }
 
     const formatDate = (dateStr: string) => {
-      if (!dateStr) return 'N/A';
-      return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric' 
-      });
-    };
+      if (!dateStr) return 'N/A'
+      return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', {
+        year: 'numeric', month: 'long', day: 'numeric'
+      })
+    }
 
-    const fmtMoney = (amount: number) => {
-      return (amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    };
+    const fmtMoney = (amount: number) =>
+      (amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-    // Generate view link — append chosen format so customer lands directly on the right view
-    const baseUrl = siteUrl || Deno.env.get('SITE_URL') || 'http://localhost:5173';
-    const viewLink = `${baseUrl}/estimate/quick/view?estimateId=${estimateId}${viewFormat ? `&view=${viewFormat}` : ''}`;
+    // View link — goes directly to chosen format
+    const baseUrl = siteUrl || Deno.env.get('SITE_URL') || 'http://localhost:5173'
+    const chosenView = viewFormat || 'summary'
+    const viewLink = `${baseUrl}/estimate/quick/view?estimateId=${estimateId}&view=${chosenView}`
 
-    // Build line items HTML
-    let lineItemsHtml = '';
-    if (lineItems && lineItems.length > 0) {
-      const hasLabor = lineItems.some((item: any) => (item.labor_total || 0) > 0);
-      
-      if (hasLabor) {
-        lineItemsHtml = `
-          <tr style="background-color: #0b3ea8;">
-            <td style="padding: 10px 8px; font-size: 12px; color: #fff; font-weight: bold; text-transform: uppercase;">Description</td>
-            <td style="padding: 10px 8px; font-size: 12px; color: #fff; font-weight: bold; text-transform: uppercase; text-align: center;">Qty</td>
-            <td style="padding: 10px 8px; font-size: 12px; color: #fff; font-weight: bold; text-transform: uppercase; text-align: right;">Material</td>
-            <td style="padding: 10px 8px; font-size: 12px; color: #fff; font-weight: bold; text-transform: uppercase; text-align: right;">Labor</td>
-            <td style="padding: 10px 8px; font-size: 12px; color: #fff; font-weight: bold; text-transform: uppercase; text-align: right;">Total</td>
-          </tr>`;
-        lineItems.forEach((item: any) => {
-          lineItemsHtml += `
-            <tr>
-              <td style="padding: 12px 8px; border-bottom: 1px solid #e5e7eb; font-size: 14px; color: #111; font-weight: 600;">${item.description || ''}</td>
-              <td style="padding: 12px 8px; border-bottom: 1px solid #e5e7eb; font-size: 14px; color: #666; text-align: center;">${item.quantity || 1}</td>
-              <td style="padding: 12px 8px; border-bottom: 1px solid #e5e7eb; font-size: 14px; color: #666; text-align: right;">$${fmtMoney(item.material_total)}</td>
-              <td style="padding: 12px 8px; border-bottom: 1px solid #e5e7eb; font-size: 14px; color: #666; text-align: right;">$${fmtMoney(item.labor_total)}</td>
-              <td style="padding: 12px 8px; border-bottom: 1px solid #e5e7eb; font-size: 14px; color: #111; text-align: right; font-weight: 600;">$${fmtMoney(item.line_total)}</td>
-            </tr>`;
-        });
-      } else {
-        lineItemsHtml = `
-          <tr style="background-color: #0b3ea8;">
-            <td style="padding: 10px 8px; font-size: 12px; color: #fff; font-weight: bold; text-transform: uppercase;">Description</td>
-            <td style="padding: 10px 8px; font-size: 12px; color: #fff; font-weight: bold; text-transform: uppercase; text-align: right;">Amount</td>
-          </tr>`;
-        lineItems.forEach((item: any) => {
-          lineItemsHtml += `
-            <tr>
-              <td style="padding: 12px 8px; border-bottom: 1px solid #e5e7eb; font-size: 14px; color: #111; font-weight: 600;">${item.description || ''}</td>
-              <td style="padding: 12px 8px; border-bottom: 1px solid #e5e7eb; font-size: 14px; color: #111; text-align: right; font-weight: 600;">$${fmtMoney(item.line_total || item.material_total)}</td>
-            </tr>`;
-        });
-      }
+    // ── Scope bullets (only for summary view, only show_in_scope items) ──
+    const scopeItems: any[] = (lineItems || []).filter((i: any) => i.show_in_scope !== false)
+
+    let scopeSection = ''
+    if (chosenView === 'summary' && scopeItems.length > 0) {
+      const bullets = scopeItems.map((item: any) =>
+        `<li style="padding: 5px 0; font-size: 14px; color: #222; line-height: 1.6;">
+          <span style="color: #fc6b04; font-weight: bold; margin-right: 6px;">•</span>${item.description || ''}
+        </li>`
+      ).join('')
+      scopeSection = `
+        <div style="margin: 20px 0;">
+          <div style="border-top: 2px solid #fc6b04; border-bottom: 2px solid #fc6b04; padding: 8px 0; margin-bottom: 12px;">
+            <span style="font-size: 11px; font-weight: bold; color: #444; text-transform: uppercase; letter-spacing: 1px;">
+              Scope of Work
+            </span>
+          </div>
+          ${notes ? `<p style="font-size: 13px; color: #444; margin: 0 0 10px; line-height: 1.6; white-space: pre-wrap;">${notes}</p>` : ''}
+          <ul style="margin: 0; padding: 0; list-style: none;">
+            ${bullets}
+          </ul>
+        </div>`
+    } else if (chosenView !== 'summary') {
+      // Itemized — just a brief note, full details are behind the button
+      const viewLabel = chosenView === 'itemized' ? 'Itemized with Pricing' : 'Itemized (No Individual Prices)'
+      scopeSection = `
+        <div style="margin: 20px 0; padding: 14px 16px; background: #f9fafb; border-left: 4px solid #fc6b04; border-radius: 4px;">
+          <p style="margin: 0; font-size: 14px; color: #444; line-height: 1.6;">
+            The full itemized estimate (<strong>${viewLabel}</strong>) is available via the button below.
+          </p>
+        </div>`
+    } else if (notes) {
+      scopeSection = `
+        <div style="margin: 20px 0; padding: 14px 16px; background: #f9fafb; border-left: 4px solid #fc6b04; border-radius: 4px;">
+          <p style="margin: 0; font-size: 14px; color: #444; line-height: 1.6; white-space: pre-wrap;">${notes}</p>
+        </div>`
     }
 
     const html = `
@@ -101,148 +93,110 @@ Deno.serve(async (req) => {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Estimate #${estimateNumber}</title>
 </head>
-<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f5f5f5;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 20px;">
-    <tr>
-      <td align="center">
-        <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-          
-          <!-- Header -->
-          <tr>
-            <td style="background-color: #0b3ea8; padding: 30px; text-align: center;">
-              <h1 style="color: #f97316; margin: 0; font-size: 28px;">ESTIMATE</h1>
-              <p style="color: #ffffff; margin: 10px 0 0 0; font-size: 14px;">${companyName}</p>
-            </td>
-          </tr>
+<body style="margin:0;padding:0;font-family:Arial,sans-serif;background:#f5f5f5;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:20px;">
+  <tr><td align="center">
+    <table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.12);">
 
-          <!-- Content -->
-          <tr>
-            <td style="padding: 40px 30px;">
-              <p style="margin: 0 0 20px 0; font-size: 16px; color: #333;">
-                Dear ${customerName || 'Valued Customer'},
-              </p>
-              
-              ${message ? `
-              <p style="margin: 0 0 20px 0; font-size: 16px; color: #333; line-height: 1.6;">
-                ${message}
-              </p>
-              ` : `
-              <p style="margin: 0 0 20px 0; font-size: 16px; color: #333; line-height: 1.6;">
-                Thank you for the opportunity to provide an estimate for${projectName && projectName !== 'Quick Estimate' ? ` <strong>"${projectName}"</strong>` : ' your project'}. Please find the estimate details below.
-              </p>
-              `}
+      <!-- Header -->
+      <tr>
+        <td style="background:#0b3ea8;padding:28px 30px;text-align:center;">
+          <h1 style="color:#f97316;margin:0;font-size:26px;letter-spacing:2px;">ESTIMATE</h1>
+          <p style="color:#fff;margin:8px 0 0;font-size:13px;">${companyName}</p>
+        </td>
+      </tr>
 
-              <!-- Estimate Summary -->
-              <table width="100%" cellpadding="0" cellspacing="0" style="margin: 20px 0; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden;">
-                <tr style="background-color: #f9fafb;">
-                  <td colspan="2" style="padding: 15px; border-bottom: 2px solid #e5e7eb;">
-                    <h3 style="margin: 0; color: #0b3ea8; font-size: 18px;">ESTIMATE SUMMARY</h3>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding: 15px; border-bottom: 1px solid #e5e7eb; color: #666;">
-                    <strong>Estimate #:</strong>
-                  </td>
-                  <td style="padding: 15px; border-bottom: 1px solid #e5e7eb; text-align: right; color: #111;">
-                    ${estimateNumber}
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding: 15px; border-bottom: 1px solid #e5e7eb; color: #666;">
-                    <strong>Date:</strong>
-                  </td>
-                  <td style="padding: 15px; border-bottom: 1px solid #e5e7eb; text-align: right; color: #111;">
-                    ${formatDate(estimateDate)}
-                  </td>
-                </tr>
-                ${projectName && projectName !== 'Quick Estimate' ? `
-                <tr>
-                  <td style="padding: 15px; border-bottom: 1px solid #e5e7eb; color: #666;">
-                    <strong>Project:</strong>
-                  </td>
-                  <td style="padding: 15px; border-bottom: 1px solid #e5e7eb; text-align: right; color: #111;">
-                    ${projectName}
-                  </td>
-                </tr>
-                ` : ''}
-              </table>
+      <!-- Body -->
+      <tr>
+        <td style="padding:32px 30px;">
 
-              <!-- Line Items -->
-              ${lineItemsHtml ? `
-              <table width="100%" cellpadding="0" cellspacing="0" style="margin: 20px 0; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
-                ${lineItemsHtml}
-              </table>
-              ` : ''}
+          <!-- Greeting -->
+          <p style="margin:0 0 16px;font-size:16px;color:#333;">
+            Dear ${customerName || 'Valued Customer'},
+          </p>
 
-              <!-- Total -->
-              <table width="100%" cellpadding="0" cellspacing="0" style="margin: 20px 0;">
-                <tr>
-                  <td width="50%"></td>
-                  <td width="50%">
-                    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f9fafb; border-radius: 8px; overflow: hidden;">
-                      <tr>
-                        <td style="padding: 16px; font-size: 18px; color: #111; font-weight: bold;">TOTAL ESTIMATE:</td>
-                        <td style="padding: 16px; text-align: right; color: #fc6b04; font-weight: bold; font-size: 24px;">$${fmtMoney(total)}</td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-              </table>
+          ${message ? `
+          <p style="margin:0 0 20px;font-size:15px;color:#333;line-height:1.6;">${message}</p>
+          ` : `
+          <p style="margin:0 0 20px;font-size:15px;color:#333;line-height:1.6;">
+            Thank you for the opportunity to provide an estimate${projectName && projectName !== 'Quick Estimate' ? ` for <strong>"${projectName}"</strong>` : ''}.
+            Please review the details below.
+          </p>
+          `}
 
-              ${notes ? `
-              <div style="margin: 24px 0; padding: 16px; background-color: #f9fafb; border-radius: 6px; border-left: 3px solid #0b3ea8;">
-                <p style="margin: 0 0 4px 0; font-size: 12px; color: #666; font-weight: bold; text-transform: uppercase;">Notes:</p>
-                <p style="margin: 0; font-size: 14px; color: #333; line-height: 1.6;">${notes}</p>
-              </div>
-              ` : ''}
+          <!-- Estimate Summary Box -->
+          <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;margin:0 0 20px;">
+            <tr style="background:#f9fafb;">
+              <td colspan="2" style="padding:12px 16px;border-bottom:2px solid #e5e7eb;">
+                <span style="font-size:13px;font-weight:bold;color:#0b3ea8;text-transform:uppercase;letter-spacing:1px;">
+                  Estimate Summary
+                </span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:12px 16px;border-bottom:1px solid #f0f0f0;color:#666;font-size:14px;width:40%;">Estimate #</td>
+              <td style="padding:12px 16px;border-bottom:1px solid #f0f0f0;color:#111;font-size:14px;font-weight:600;text-align:right;">${estimateNumber}</td>
+            </tr>
+            <tr>
+              <td style="padding:12px 16px;border-bottom:1px solid #f0f0f0;color:#666;font-size:14px;">Date</td>
+              <td style="padding:12px 16px;border-bottom:1px solid #f0f0f0;color:#111;font-size:14px;font-weight:600;text-align:right;">${formatDate(estimateDate)}</td>
+            </tr>
+            ${projectName && projectName !== 'Quick Estimate' ? `
+            <tr>
+              <td style="padding:12px 16px;border-bottom:1px solid #f0f0f0;color:#666;font-size:14px;">Project</td>
+              <td style="padding:12px 16px;border-bottom:1px solid #f0f0f0;color:#111;font-size:14px;font-weight:600;text-align:right;">${projectName}</td>
+            </tr>
+            ` : ''}
+            <tr style="background:#fff7ed;">
+              <td style="padding:14px 16px;color:#ea580c;font-size:15px;font-weight:bold;">Total Investment</td>
+              <td style="padding:14px 16px;color:#fc6b04;font-size:22px;font-weight:800;text-align:right;">$${fmtMoney(total)}</td>
+            </tr>
+          </table>
 
-              <!-- View & Print Button -->
-              <table width="100%" cellpadding="0" cellspacing="0" style="margin: 30px 0;">
-                <tr>
-                  <td align="center">
-                    <a href="${viewLink}" style="display: inline-block; padding: 16px 40px; background-color: #fc6b04; color: #ffffff; text-decoration: none; border-radius: 8px; font-size: 18px; font-weight: bold; box-shadow: 0 2px 4px rgba(252, 107, 4, 0.3);">
-                      📄 View & Print Estimate
-                    </a>
-                  </td>
-                </tr>
-              </table>
+          <!-- Scope / Items section -->
+          ${scopeSection}
 
-              <p style="margin: 20px 0 10px 0; font-size: 14px; color: #666; text-align: center; line-height: 1.6;">
-                Click the button above to view the complete estimate and print a copy for your records.
-              </p>
+          <!-- CTA Button -->
+          <table width="100%" cellpadding="0" cellspacing="0" style="margin:28px 0 16px;">
+            <tr>
+              <td align="center">
+                <a href="${viewLink}"
+                   style="display:inline-block;padding:16px 44px;background:#fc6b04;color:#fff;text-decoration:none;border-radius:8px;font-size:17px;font-weight:bold;box-shadow:0 2px 6px rgba(252,107,4,0.35);">
+                  📄 View &amp; Print Estimate
+                </a>
+              </td>
+            </tr>
+          </table>
 
-              <p style="margin: 20px 0; font-size: 14px; color: #666; line-height: 1.6; text-align: center;">
-                This estimate is valid for 30 days. If you have questions or would like to proceed, please contact us.
-              </p>
+          <p style="margin:0 0 20px;font-size:13px;color:#888;text-align:center;line-height:1.5;">
+            Click the button above to view the complete estimate and print a copy for your records.<br>
+            This estimate is valid for 30 days. Contact us if you have any questions.
+          </p>
 
-              <p style="margin: 20px 0 0 0; font-size: 16px; color: #333; text-align: center;">
-                Thank you for the opportunity!<br>
-                <strong>${companyName}</strong>
-              </p>
-            </td>
-          </tr>
+          <p style="margin:20px 0 0;font-size:15px;color:#333;text-align:center;">
+            Thank you for the opportunity!<br>
+            <strong>${companyName}</strong>
+          </p>
+        </td>
+      </tr>
 
-          <!-- Footer -->
-          <tr>
-            <td style="background-color: #f9fafb; padding: 20px 30px; text-align: center; border-top: 1px solid #e5e7eb;">
-              <p style="margin: 0; font-size: 12px; color: #666;">
-                ${companyName}<br>
-                Phone: (337)288-0395 • Email: info@dmlelectrical.com
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
+      <!-- Footer -->
+      <tr>
+        <td style="background:#f9fafb;padding:18px 30px;text-align:center;border-top:1px solid #e5e7eb;">
+          <p style="margin:0;font-size:12px;color:#888;">
+            ${companyName}<br>
+            Phone: (337)288-0395 &nbsp;·&nbsp; Email: info@dmlelectrical.com
+          </p>
+        </td>
+      </tr>
+    </table>
+  </td></tr>
+</table>
 </body>
-</html>
-    `
+</html>`
 
-    // Handle multiple email addresses (comma or semicolon separated)
-    const emailAddresses = to.split(/[,;]/).map((email: string) => email.trim()).filter((email: string) => email.length > 0);
-    
-    // Send email via Resend
+    const emailAddresses = to.split(/[,;]/).map((e: string) => e.trim()).filter((e: string) => e.length > 0)
+
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
@@ -254,34 +208,26 @@ Deno.serve(async (req) => {
         reply_to: 'dustin@dmlelectrical.com',
         to: emailAddresses,
         bcc: ['dustin@dmlelectrical.com'],
-        subject: `Estimate #${estimateNumber}${projectName && projectName !== 'Quick Estimate' ? ` - ${projectName}` : ''} - $${fmtMoney(total)}`,
-        html: html,
+        subject: `Estimate #${estimateNumber}${projectName && projectName !== 'Quick Estimate' ? ` – ${projectName}` : ''} — $${fmtMoney(total)}`,
+        html,
       }),
     })
 
     const data = await res.json()
-
     if (!res.ok) {
       console.error('Resend API Error:', data)
       throw new Error(data.message || 'Failed to send email')
     }
 
     return new Response(
-      JSON.stringify({ 
-        success: true,
-        message: 'Estimate sent successfully',
-        emailId: data.id 
-      }),
+      JSON.stringify({ success: true, message: 'Estimate sent successfully', emailId: data.id }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 
   } catch (error) {
     console.error('Error sending estimate:', error)
     return new Response(
-      JSON.stringify({ 
-        error: error.message || 'Failed to send estimate',
-        details: error.toString()
-      }),
+      JSON.stringify({ error: error.message || 'Failed to send estimate', details: error.toString() }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
     )
   }

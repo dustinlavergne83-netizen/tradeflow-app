@@ -937,6 +937,7 @@ export default function QuickEstimate() {
                           material_total: item.material_total,
                           labor_total: item.labor_total,
                           line_total: item.line_total,
+                          show_in_scope: item.show_in_scope !== false,
                         })),
                       }
                     });
