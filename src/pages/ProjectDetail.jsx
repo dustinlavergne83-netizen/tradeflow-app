@@ -117,6 +117,11 @@ export default function ProjectDetail() {
   const [changeOrderProposalType, setChangeOrderProposalType] = useState("commercial-public");
   const [showAlternateTypeModal, setShowAlternateTypeModal] = useState(false);
   const [selectedEstimateForAlternate, setSelectedEstimateForAlternate] = useState(null);
+  // Attach existing quick estimate to this project
+  const [showAttachEstimateModal, setShowAttachEstimateModal] = useState(false);
+  const [unlinkedEstimates, setUnlinkedEstimates] = useState([]);
+  const [attachEstimateSearch, setAttachEstimateSearch] = useState('');
+  const [attachingEstimate, setAttachingEstimate] = useState(false);
   const [showInvoiceTypeModal, setShowInvoiceTypeModal] = useState(false);
   const [showApplyDepositsModal, setShowApplyDepositsModal] = useState(false);
   const [pendingInvoiceForDeposit, setPendingInvoiceForDeposit] = useState(null);
@@ -2464,6 +2469,22 @@ async function handleAddContractor() {
                 style={{...styles.addEstimateButton, backgroundColor: "#10b981"}}
               >
                 ⚡ Quick Estimate
+              </button>
+              <button
+                onClick={async () => {
+                  const { data } = await supabase
+                    .from("estimates")
+                    .select("id, estimate_number, customer_name, project_name, total, estimate_date")
+                    .is("project_id", null)
+                    .not("estimate_number", "is", null)
+                    .order("created_at", { ascending: false });
+                  setUnlinkedEstimates(data || []);
+                  setAttachEstimateSearch('');
+                  setShowAttachEstimateModal(true);
+                }}
+                style={{...styles.addEstimateButton, backgroundColor: "#6366f1"}}
+              >
+                📎 Attach Existing
               </button>
               <button 
                 onClick={() => navigate(`/project/${id}/estimate`)} 
@@ -5028,6 +5049,107 @@ async function handleAddContractor() {
               >
                 {savingExpense ? '⏳ Saving...' : '💾 Save Expense'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Attach Existing Quick Estimate Modal ─────────────────────── */}
+      {showAttachEstimateModal && (
+        <div style={styles.modalOverlay} onClick={() => setShowAttachEstimateModal(false)}>
+          <div style={{...styles.modal, maxWidth: 600}} onClick={(e) => e.stopPropagation()}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 16}}>
+              <h2 style={{...styles.modalTitle, marginBottom: 0}}>📎 Attach Existing Quick Estimate</h2>
+              <button onClick={() => setShowAttachEstimateModal(false)} style={{background:'none', border:'none', fontSize:22, cursor:'pointer', color:'#666'}}>×</button>
+            </div>
+            <p style={{fontSize: 14, color: '#666', marginBottom: 16}}>
+              Select an unlinked Quick Estimate to attach to <strong>{project.name}</strong>.
+            </p>
+
+            {/* Search */}
+            <input
+              type="text"
+              value={attachEstimateSearch}
+              onChange={(e) => setAttachEstimateSearch(e.target.value)}
+              placeholder="Search by estimate #, customer or project name..."
+              style={{...styles.select, padding: '10px', marginBottom: 16}}
+              autoFocus
+            />
+
+            {/* List */}
+            <div style={{maxHeight: 380, overflowY: 'auto', marginBottom: 16}}>
+              {unlinkedEstimates.length === 0 ? (
+                <div style={{textAlign:'center', padding: 32, color: '#999', fontSize: 14}}>
+                  No unlinked Quick Estimates found.
+                </div>
+              ) : (
+                unlinkedEstimates
+                  .filter(est => {
+                    const q = attachEstimateSearch.toLowerCase();
+                    return !q ||
+                      (est.estimate_number || '').toLowerCase().includes(q) ||
+                      (est.customer_name || '').toLowerCase().includes(q) ||
+                      (est.project_name || '').toLowerCase().includes(q);
+                  })
+                  .map(est => (
+                    <div
+                      key={est.id}
+                      style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '14px 16px', borderRadius: 8, marginBottom: 8,
+                        border: '2px solid #e5e7eb', backgroundColor: '#f9fafb',
+                        cursor: attachingEstimate ? 'default' : 'pointer',
+                        transition: 'all 0.15s',
+                      }}
+                      onMouseEnter={(e) => { if (!attachingEstimate) { e.currentTarget.style.borderColor = '#6366f1'; e.currentTarget.style.backgroundColor = '#eef2ff'; }}}
+                      onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e5e7eb'; e.currentTarget.style.backgroundColor = '#f9fafb'; }}
+                      onClick={async () => {
+                        if (attachingEstimate) return;
+                        setAttachingEstimate(true);
+                        try {
+                          const { error } = await supabase
+                            .from("estimates")
+                            .update({
+                              project_id: id,
+                              project_name: project.name,
+                            })
+                            .eq("id", est.id);
+                          if (error) throw error;
+                          setShowAttachEstimateModal(false);
+                          loadProjectData();
+                          alert(`✅ Estimate #${est.estimate_number} attached to ${project.name}!`);
+                        } catch (err) {
+                          console.error("Error attaching estimate:", err);
+                          alert("Failed to attach estimate: " + err.message);
+                        } finally {
+                          setAttachingEstimate(false);
+                        }
+                      }}
+                    >
+                      <div style={{flex: 1}}>
+                        <div style={{fontWeight: '700', fontSize: 15, color: '#111'}}>
+                          #{est.estimate_number}
+                          {est.customer_name && (
+                            <span style={{fontWeight: 400, fontSize: 13, color: '#666', marginLeft: 8}}>— {est.customer_name}</span>
+                          )}
+                        </div>
+                        {est.project_name && (
+                          <div style={{fontSize: 12, color: '#888', marginTop: 2}}>{est.project_name}</div>
+                        )}
+                        {est.estimate_date && (
+                          <div style={{fontSize: 11, color: '#aaa', marginTop: 2}}>{est.estimate_date}</div>
+                        )}
+                      </div>
+                      <div style={{fontSize: 16, fontWeight: '700', color: '#fc6b04', marginLeft: 16, whiteSpace: 'nowrap'}}>
+                        ${(est.total || 0).toFixed(2)}
+                      </div>
+                    </div>
+                  ))
+              )}
+            </div>
+
+            <div style={styles.modalActions}>
+              <button onClick={() => setShowAttachEstimateModal(false)} style={styles.cancelButton}>Cancel</button>
             </div>
           </div>
         </div>
