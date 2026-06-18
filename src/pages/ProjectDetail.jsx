@@ -122,6 +122,11 @@ export default function ProjectDetail() {
   const [unlinkedEstimates, setUnlinkedEstimates] = useState([]);
   const [attachEstimateSearch, setAttachEstimateSearch] = useState('');
   const [attachingEstimate, setAttachingEstimate] = useState(false);
+  // Set Active Estimate confirmation modal
+  const [showSetActiveModal, setShowSetActiveModal] = useState(false);
+  const [setActiveModalEstimate, setSetActiveModalEstimate] = useState(null);
+  const [setActiveEstWorthInput, setSetActiveEstWorthInput] = useState('');
+  const [setActiveEstBudgetInput, setSetActiveEstBudgetInput] = useState('');
   // Attach existing invoice to this project
   const [showAttachInvoiceModal, setShowAttachInvoiceModal] = useState(false);
   const [unlinkedInvoices, setUnlinkedInvoices] = useState([]);
@@ -921,22 +926,36 @@ async function handleAddContractor() {
     }
   }
 
-  // ── Set Active Estimate (drives active_worth + budget) ──────────────────
-  async function handleSetActiveEstimate(estimate) {
-    const newWorth = estimate.total || 0;
-    const newBudget = estimate.subtotal || Math.round(newWorth * 0.75);
+  // ── Set Active Estimate — opens confirmation modal so user can review/edit values ──
+  function handleSetActiveEstimate(estimate) {
+    const total = estimate.total || 0;
+    // Only use subtotal as budget if it's meaningfully less than total (markup was applied)
+    const hasMarkupDiff = estimate.subtotal > 0 && estimate.subtotal < total * 0.999;
+    const suggestedBudget = hasMarkupDiff ? estimate.subtotal : 0;
+    setSetActiveModalEstimate(estimate);
+    setSetActiveEstWorthInput(total.toFixed(2));
+    setSetActiveEstBudgetInput(suggestedBudget > 0 ? suggestedBudget.toFixed(2) : '');
+    setShowSetActiveModal(true);
+  }
+
+  async function confirmSetActiveEstimate() {
+    if (!setActiveModalEstimate) return;
+    const newWorth = parseFloat(setActiveEstWorthInput);
+    const newBudget = parseFloat(setActiveEstBudgetInput) || 0;
+    if (isNaN(newWorth) || newWorth < 0) { alert("Please enter a valid Contract Value."); return; }
     try {
       const { error } = await supabase
         .from("projects")
         .update({
-          active_estimate_id: estimate.id,
+          active_estimate_id: setActiveModalEstimate.id,
           active_worth: newWorth,
           budget: newBudget,
         })
         .eq("id", id);
       if (error) throw error;
-      setProject(prev => ({ ...prev, active_estimate_id: estimate.id, active_worth: newWorth, budget: newBudget }));
-      alert(`✅ Estimate #${estimate.estimate_number} set as active!\nContract Value: $${newWorth.toFixed(2)}\nBudget (Cost): $${newBudget.toFixed(2)}`);
+      setProject(prev => ({ ...prev, active_estimate_id: setActiveModalEstimate.id, active_worth: newWorth, budget: newBudget }));
+      setShowSetActiveModal(false);
+      setSetActiveModalEstimate(null);
     } catch (err) {
       console.error("Error setting active estimate:", err);
       alert("Failed to set active estimate: " + err.message);
@@ -5346,6 +5365,72 @@ async function handleAddContractor() {
 
             <div style={styles.modalActions}>
               <button onClick={() => setShowAttachInvoiceModal(false)} style={styles.cancelButton}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Set Active Estimate Confirmation Modal ───────────────────── */}
+      {showSetActiveModal && setActiveModalEstimate && (
+        <div style={styles.modalOverlay} onClick={() => setShowSetActiveModal(false)}>
+          <div style={{...styles.modal, maxWidth: 500}} onClick={(e) => e.stopPropagation()}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 16}}>
+              <h2 style={{...styles.modalTitle, marginBottom: 0}}>⭐ Set as Active Bid</h2>
+              <button onClick={() => setShowSetActiveModal(false)} style={{background:'none', border:'none', fontSize:22, cursor:'pointer', color:'#666'}}>×</button>
+            </div>
+            <p style={{fontSize: 14, color: '#666', marginBottom: 20}}>
+              Review and adjust the values pulled from estimate <strong>#{setActiveModalEstimate.estimate_number}</strong> before committing.
+            </p>
+
+            <div style={styles.field}>
+              <label style={styles.modalLabel}>📄 Contract Value (Active Worth)</label>
+              <p style={{fontSize: 12, color: '#888', margin: '0 0 6px'}}>What the customer pays — the selling price with markup.</p>
+              <input
+                type="number"
+                value={setActiveEstWorthInput}
+                onChange={(e) => setSetActiveEstWorthInput(e.target.value)}
+                style={{...styles.select, padding: '10px', fontWeight: '700', fontSize: 16, borderColor: '#0b3ea8'}}
+                placeholder="0.00"
+                min="0"
+                step="0.01"
+                autoFocus
+              />
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.modalLabel}>💰 Budget / Cost (Pre-Markup)</label>
+              <p style={{fontSize: 12, color: '#888', margin: '0 0 6px'}}>Your internal cost before markup — used for cost tracking and profit margin.</p>
+              <input
+                type="number"
+                value={setActiveEstBudgetInput}
+                onChange={(e) => setSetActiveEstBudgetInput(e.target.value)}
+                style={{...styles.select, padding: '10px', fontWeight: '700', fontSize: 16, borderColor: '#10b981'}}
+                placeholder="Enter your cost (before markup)"
+                min="0"
+                step="0.01"
+              />
+              {setActiveEstWorthInput && setActiveEstBudgetInput && parseFloat(setActiveEstWorthInput) > 0 && parseFloat(setActiveEstBudgetInput) > 0 && (
+                <div style={{marginTop: 8, padding: '10px 14px', backgroundColor: '#f0fdf4', borderRadius: 8, border: '1px solid #d1fae5'}}>
+                  <div style={{fontSize: 13, color: '#065f46', fontWeight: '600'}}>
+                    Profit: ${(parseFloat(setActiveEstWorthInput) - parseFloat(setActiveEstBudgetInput)).toFixed(2)}
+                    {' · '}
+                    Margin: {((1 - parseFloat(setActiveEstBudgetInput) / parseFloat(setActiveEstWorthInput)) * 100).toFixed(1)}%
+                    {' · '}
+                    Markup: {((parseFloat(setActiveEstWorthInput) / parseFloat(setActiveEstBudgetInput) - 1) * 100).toFixed(1)}%
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div style={styles.modalActions}>
+              <button onClick={() => setShowSetActiveModal(false)} style={styles.cancelButton}>Cancel</button>
+              <button
+                onClick={confirmSetActiveEstimate}
+                style={styles.submitButton}
+                disabled={!setActiveEstWorthInput || parseFloat(setActiveEstWorthInput) <= 0}
+              >
+                ⭐ Set as Active Bid
+              </button>
             </div>
           </div>
         </div>
