@@ -128,16 +128,16 @@ export default function Invoice() {
       let newInvoice = null;
       let createErr = null;
 
-      // Look up customer email
+      // Look up customer email (case-insensitive, safe with limit(1))
       let custEmail = "";
       const customerName = proj.contractor || proj.customer || "";
       if (customerName) {
-        const { data: custData } = await supabase
+        const { data: custRows } = await supabase
           .from("customers")
           .select("email")
-          .eq("customer", customerName)
-          .maybeSingle();
-        if (custData?.email) custEmail = custData.email;
+          .ilike("customer", customerName)
+          .limit(1);
+        if (custRows?.[0]?.email) custEmail = custRows[0].email;
       }
 
       const isTM = invoiceType === "tm";
@@ -485,9 +485,48 @@ export default function Invoice() {
       
       setInvoice(invoiceData);
       setInvoiceNumber(invoiceData.invoice_number || "");
-      setCustomerName(invoiceData.customer_name || "");
-      setCustomerEmail(invoiceData.customer_email || "");
       setInvoiceDate(invoiceData.invoice_date || "");
+
+      // ── Resolve customer name + email ──────────────────────────────────
+      // If the invoice was saved without customer info, try to fill from the
+      // linked project so the fields are never blank on a brand-new invoice.
+      let resolvedName = invoiceData.customer_name || "";
+      let resolvedEmail = invoiceData.customer_email || "";
+
+      if (!resolvedName && projectId) {
+        try {
+          const { data: projData } = await supabase
+            .from("projects")
+            .select("contractor, customer, name")
+            .eq("id", projectId)
+            .single();
+          if (projData) {
+            resolvedName = projData.contractor || projData.customer || projData.name || "";
+          }
+        } catch (_) {}
+      }
+
+      if (resolvedName && !resolvedEmail) {
+        try {
+          const { data: custRows } = await supabase
+            .from("customers")
+            .select("email")
+            .ilike("customer", resolvedName)
+            .limit(1);
+          if (custRows?.[0]?.email) resolvedEmail = custRows[0].email;
+        } catch (_) {}
+
+        // Patch the DB record so future loads don't repeat the lookup
+        if (resolvedName !== (invoiceData.customer_name || "") || resolvedEmail !== (invoiceData.customer_email || "")) {
+          supabase.from("invoices").update({
+            customer_name: resolvedName || undefined,
+            customer_email: resolvedEmail || undefined,
+          }).eq("id", invoiceId).then(() => {});
+        }
+      }
+
+      setCustomerName(resolvedName);
+      setCustomerEmail(resolvedEmail);
       setDueDate(invoiceData.due_date || "");
       setStatus(invoiceData.status || "draft");
       setNotes(invoiceData.notes || "");

@@ -663,10 +663,10 @@ async function handleAddContractor() {
           .from('customers')
           .select('email, phone, address')
           .ilike('customer', customerName)
-          .maybeSingle();
-        
-        if (customerData?.email) {
-          customerEmail = customerData.email;
+          .limit(1);
+
+        if (customerData?.[0]?.email) {
+          customerEmail = customerData[0].email;
           console.log("✅ Found customer email");
         } else {
           console.log("⚠️ Customer not found in database, continuing without email");
@@ -677,7 +677,7 @@ async function handleAddContractor() {
       const invoiceData = {
         invoice_number: invoiceNumber,
         project_name: project.name,
-        customer_name: customerName,
+        customer_name: customerName || project.name,
         customer_email: customerEmail || null,
         invoice_date: new Date().toISOString().split('T')[0],
         subtotal: 0,
