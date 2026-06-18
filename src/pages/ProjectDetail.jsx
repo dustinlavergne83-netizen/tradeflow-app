@@ -659,18 +659,17 @@ async function handleAddContractor() {
       console.log("👤 Looking up customer:", customerName);
       
       if (customerName) {
-        const { data: customerData, error: custError } = await supabase
+        const { data: customerData } = await supabase
           .from('customers')
-          .select('email')
-          .eq('customer', customerName)
-          .single();
+          .select('email, phone, address')
+          .ilike('customer', customerName)
+          .maybeSingle();
         
-        // Don't throw error if customer not found, just log it
-        if (custError) {
-          console.log("⚠️ Customer not found in database, continuing without email");
-        } else if (customerData && customerData.email) {
+        if (customerData?.email) {
           customerEmail = customerData.email;
           console.log("✅ Found customer email");
+        } else {
+          console.log("⚠️ Customer not found in database, continuing without email");
         }
       }
       
@@ -720,9 +719,9 @@ async function handleAddContractor() {
       } else {
         // No deposits, navigate directly
         if (changeOrderId) {
-          navigate(`/invoice?invoiceId=${newInvoice.id}&coId=${changeOrderId}`);
+          navigate(`/invoice?invoiceId=${newInvoice.id}&coId=${changeOrderId}&projectId=${id}`);
         } else {
-          navigate(`/invoice?invoiceId=${newInvoice.id}`);
+          navigate(`/invoice?invoiceId=${newInvoice.id}&projectId=${id}`);
         }
       }
     } catch (err) {
@@ -2627,7 +2626,7 @@ async function handleAddContractor() {
                         if (estimate.estimate_type === 'full') {
                           navigate(`/project/${id}/estimate?estimateId=${estimate.id}`);
                         } else {
-                          navigate(`/estimate/quick?estimateId=${estimate.id}`);
+                          navigate(`/estimate/quick?estimateId=${estimate.id}&projectId=${id}`);
                         }
                       }}
                       style={styles.estimateButton}
@@ -2789,12 +2788,12 @@ async function handleAddContractor() {
                         <div style={{...styles.td, display: 'flex', alignItems: 'center', gap: 8, gridColumn: '1 / 3'}}>
                           <span style={{ color: "#8b5cf6" }}>└─</span>
                           <span>{alternate.alternate_title || `Alt ${alternate.alternate_number}`}</span>
-                          <button
+                      <button
                             onClick={() => {
                               if (alternate.estimate_type === 'full') {
                                 navigate(`/project/${id}/estimate?estimateId=${alternate.id}`);
                               } else {
-                                navigate(`/estimate/quick?estimateId=${alternate.id}`);
+                                navigate(`/estimate/quick?estimateId=${alternate.id}&projectId=${id}`);
                               }
                             }}
                             style={{...styles.estimateButton, fontSize: 11, padding: '4px 8px'}}
@@ -3205,7 +3204,7 @@ async function handleAddContractor() {
                   <div style={styles.td}>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       <button
-                        onClick={() => navigate(`/invoice?invoiceId=${invoice.id}`)}
+                        onClick={() => navigate(`/invoice?invoiceId=${invoice.id}&projectId=${id}`)}
                         style={styles.estimateButton}
                       >
                         Edit
@@ -4365,9 +4364,9 @@ async function handleAddContractor() {
                   if (inv.tmProjectId) {
                     navigate(`/invoice?projectId=${inv.tmProjectId}&type=tm`);
                   } else if (inv.changeOrderId) {
-                    navigate(`/invoice?invoiceId=${inv.id}&coId=${inv.changeOrderId}`);
+                    navigate(`/invoice?invoiceId=${inv.id}&coId=${inv.changeOrderId}&projectId=${id}`);
                   } else {
-                    navigate(`/invoice?invoiceId=${inv.id}`);
+                    navigate(`/invoice?invoiceId=${inv.id}&projectId=${id}`);
                   }
                 }}
                 style={styles.cancelButton}
@@ -4398,9 +4397,9 @@ async function handleAddContractor() {
                     if (inv.tmProjectId) {
                       navigate(`/invoice?projectId=${inv.tmProjectId}&type=tm&depositApplied=${totalDeposit}`);
                     } else if (inv.changeOrderId) {
-                      navigate(`/invoice?invoiceId=${inv.id}&coId=${inv.changeOrderId}`);
+                      navigate(`/invoice?invoiceId=${inv.id}&coId=${inv.changeOrderId}&projectId=${id}`);
                     } else {
-                      navigate(`/invoice?invoiceId=${inv.id}`);
+                      navigate(`/invoice?invoiceId=${inv.id}&projectId=${id}`);
                     }
                   } catch (err) {
                     console.error('Error applying deposits:', err);
@@ -4908,7 +4907,7 @@ async function handleAddContractor() {
                     if (createError) throw createError;
                     
                     // Navigate to Quick Estimate to edit the new alternate
-                    navigate(`/estimate/quick?estimateId=${newAlt.id}`);
+                    navigate(`/estimate/quick?estimateId=${newAlt.id}&projectId=${id}`);
                   } catch (err) {
                     console.error("Error creating quick alternate:", err);
                     alert("Failed to create alternate: " + err.message);

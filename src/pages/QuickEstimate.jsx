@@ -94,6 +94,16 @@ export default function QuickEstimate() {
     }
   }, [user, searchParams]);
 
+  // Pre-populate email for the email modal whenever customerName is known and customers list is loaded
+  useEffect(() => {
+    if (customers.length > 0 && customerName.trim() && !emailTo) {
+      const cust = customers.find(c =>
+        c.customer.toLowerCase().trim() === customerName.toLowerCase().trim()
+      );
+      if (cust?.email) setEmailTo(cust.email);
+    }
+  }, [customers, customerName]);
+
   async function loadProjectCustomer(projectId) {
     try {
       const { data: project, error } = await supabase
@@ -106,7 +116,18 @@ export default function QuickEstimate() {
 
       if (project) {
         // Use contractor for commercial projects, customer for residential
-        setCustomerName(project.contractor || project.customer || "");
+        const custName = project.contractor || project.customer || "";
+        setCustomerName(custName);
+
+        // Also pre-populate customer email for the email modal
+        if (custName) {
+          const { data: custData } = await supabase
+            .from("customers")
+            .select("email")
+            .ilike("customer", custName)
+            .maybeSingle();
+          if (custData?.email) setEmailTo(custData.email);
+        }
       }
     } catch (err) {
       console.error("Error loading project customer:", err);
@@ -779,7 +800,7 @@ export default function QuickEstimate() {
               </button>
             </>
           )}
-          <button onClick={() => navigate("/estimates")} style={styles.cancelButton}>
+          <button onClick={() => navigate(projectId ? `/project/${projectId}` : "/estimates")} style={styles.cancelButton}>
             Cancel
           </button>
           <button onClick={handleSave} style={styles.saveButton} disabled={isSaving}>
@@ -935,7 +956,7 @@ export default function QuickEstimate() {
                   await supabase.from("estimates").update({ view_format: opt.key }).eq("id", estimateId);
                   window.open(`/estimate/quick/view?estimateId=${estimateId}&view=${opt.key}`, "_blank");
                   setShowViewChoiceModal(false);
-                  navigate("/estimates");
+                  navigate(projectId ? `/project/${projectId}` : "/estimates");
                 }}
                 style={{
                   display:"flex", alignItems:"center", gap:14,
@@ -954,14 +975,14 @@ export default function QuickEstimate() {
             ))}
 
             <button
-              onClick={() => { setShowViewChoiceModal(false); navigate("/estimates"); }}
+              onClick={() => { setShowViewChoiceModal(false); navigate(projectId ? `/project/${projectId}` : "/estimates"); }}
               style={{
                 width:"100%", padding:"10px", marginTop:4,
                 background:"transparent", border:"1px solid #ddd",
                 borderRadius:8, cursor:"pointer", color:"#888", fontSize:14
               }}
             >
-              Just go to estimates list
+              {projectId ? "← Back to Project" : "Just go to estimates list"}
             </button>
           </div>
         </div>

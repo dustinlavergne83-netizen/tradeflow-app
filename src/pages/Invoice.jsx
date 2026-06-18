@@ -147,7 +147,7 @@ export default function Invoice() {
         .from("invoices")
         .insert([{
           invoice_number: String(nextNum),
-          customer_name: customerName,
+          customer_name: customerName || proj.name,
           customer_email: custEmail,
           invoice_date: today,
           status: "draft",
@@ -1266,7 +1266,7 @@ export default function Invoice() {
     return (
       <div style={styles.container}>
         <div style={styles.error}>Invoice not found</div>
-        <button onClick={() => navigate(-1)} style={styles.button}>
+        <button onClick={() => navigate(projectId ? `/project/${projectId}` : -1)} style={styles.button}>
           Go Back
         </button>
       </div>
@@ -1330,8 +1330,8 @@ export default function Invoice() {
           <button onClick={handleSave} style={{...styles.button, background: BRAND.accent}}>
             💾 Save Changes
           </button>
-          <button onClick={() => navigate(-1)} style={styles.backButton}>
-            ← Back
+          <button onClick={() => navigate(projectId ? `/project/${projectId}` : -1)} style={styles.backButton}>
+            ← Back to {projectId ? 'Project' : 'Invoices'}
           </button>
         </div>
       </div>
