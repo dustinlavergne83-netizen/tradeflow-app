@@ -16,6 +16,7 @@ import Vendors from "./pages/Vendors";
 import Estimate from "./pages/Estimate";
 import EstimatesList from "./pages/EstimatesList";
 import InvoicesList from "./pages/InvoicesList";
+import ServiceCalls from "./pages/ServiceCalls";
 import QuickEstimate from "./pages/QuickEstimate";
 import QuickInvoice from "./pages/QuickInvoice";
 import QuickEstimateView from "./pages/QuickEstimateView";
@@ -114,7 +115,7 @@ const KNOWN_APP_PATHS = new Set([
   "/base-materials", "/check-stubs", "/employee-locations", "/geofence-events",
   "/communications", "/email-inbox", "/website-manager", "/twilio-settings", "/super-admin",
   "/invoice", "/proposal", "/estimate", "/weekly", "/time-off", "/pending-jobs",
-  "/profile-setup", "/reports", "/welcome", "/project", "/timeclock-admin",
+  "/profile-setup", "/reports", "/welcome", "/project", "/timeclock-admin", "/service-calls",
 ]);
 
 function isPortalPath(path) {
@@ -345,6 +346,14 @@ function AppContent() {
             element={
               <ProtectedRoute>
                 <InvoicesList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/service-calls"
+            element={
+              <ProtectedRoute>
+                <ServiceCalls />
               </ProtectedRoute>
             }
           />

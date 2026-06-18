@@ -122,6 +122,11 @@ export default function ProjectDetail() {
   const [unlinkedEstimates, setUnlinkedEstimates] = useState([]);
   const [attachEstimateSearch, setAttachEstimateSearch] = useState('');
   const [attachingEstimate, setAttachingEstimate] = useState(false);
+  // Attach existing invoice to this project
+  const [showAttachInvoiceModal, setShowAttachInvoiceModal] = useState(false);
+  const [unlinkedInvoices, setUnlinkedInvoices] = useState([]);
+  const [attachInvoiceSearch, setAttachInvoiceSearch] = useState('');
+  const [attachingInvoice, setAttachingInvoice] = useState(false);
   const [showInvoiceTypeModal, setShowInvoiceTypeModal] = useState(false);
   const [showApplyDepositsModal, setShowApplyDepositsModal] = useState(false);
   const [pendingInvoiceForDeposit, setPendingInvoiceForDeposit] = useState(null);
@@ -913,6 +918,48 @@ async function handleAddContractor() {
     } catch (err) {
       console.error('Error recording payment:', err);
       alert('Failed to record payment: ' + err.message);
+    }
+  }
+
+  // ── Set Active Estimate (drives active_worth + budget) ──────────────────
+  async function handleSetActiveEstimate(estimate) {
+    const newWorth = estimate.total || 0;
+    const newBudget = estimate.subtotal || Math.round(newWorth * 0.75);
+    try {
+      const { error } = await supabase
+        .from("projects")
+        .update({
+          active_estimate_id: estimate.id,
+          active_worth: newWorth,
+          budget: newBudget,
+        })
+        .eq("id", id);
+      if (error) throw error;
+      setProject(prev => ({ ...prev, active_estimate_id: estimate.id, active_worth: newWorth, budget: newBudget }));
+      alert(`✅ Estimate #${estimate.estimate_number} set as active!\nContract Value: $${newWorth.toFixed(2)}\nBudget (Cost): $${newBudget.toFixed(2)}`);
+    } catch (err) {
+      console.error("Error setting active estimate:", err);
+      alert("Failed to set active estimate: " + err.message);
+    }
+  }
+
+  // ── Set Active Invoice (drives active_worth from invoice total) ──────────
+  async function handleSetActiveInvoice(invoice) {
+    const newWorth = invoice.total || 0;
+    try {
+      const { error } = await supabase
+        .from("projects")
+        .update({
+          active_invoice_id: invoice.id,
+          active_worth: newWorth,
+        })
+        .eq("id", id);
+      if (error) throw error;
+      setProject(prev => ({ ...prev, active_invoice_id: invoice.id, active_worth: newWorth }));
+      alert(`✅ Invoice #${invoice.invoice_number} set as primary!\nContract Value: $${newWorth.toFixed(2)}`);
+    } catch (err) {
+      console.error("Error setting active invoice:", err);
+      alert("Failed to set active invoice: " + err.message);
     }
   }
 
@@ -2694,6 +2741,18 @@ async function handleAddContractor() {
                         📄 View Proposals ({proposals[estimate.id].length})
                       </button>
                     )}
+                    {/* ⭐ Set as Active Bid */}
+                    <button
+                      onClick={() => handleSetActiveEstimate(estimate)}
+                      title="Set this estimate as the active bid — updates Contract Value and Budget"
+                      style={{
+                        ...styles.estimateButton,
+                        backgroundColor: project.active_estimate_id === estimate.id ? '#f59e0b' : '#6b7280',
+                        border: project.active_estimate_id === estimate.id ? '2px solid #d97706' : '2px solid transparent',
+                      }}
+                    >
+                      {project.active_estimate_id === estimate.id ? '⭐ Active Bid' : '☆ Set Active'}
+                    </button>
                   </div>
 
                   {/* ALTERNATES ROWS (indented) */}
@@ -3044,12 +3103,30 @@ async function handleAddContractor() {
         <div style={{...styles.card, gridColumn: "1 / -1", order: 3}}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
             <h2 style={{ ...styles.cardTitle, marginBottom: 0 }}>Project Invoices</h2>
-            <button 
-              onClick={() => setShowInvoiceTypeModal(true)} 
-              style={styles.addEstimateButton}
-            >
-              + New Invoice
-            </button>
+            <div style={{ display: "flex", gap: 12 }}>
+              <button
+                onClick={async () => {
+                  // Load invoices not linked to any project (or linked to a different project)
+                  const { data } = await supabase
+                    .from("invoices")
+                    .select("id, invoice_number, customer_name, project_name, total, invoice_date, status")
+                    .or("project_name.is.null,project_name.eq.")
+                    .order("created_at", { ascending: false });
+                  setUnlinkedInvoices(data || []);
+                  setAttachInvoiceSearch('');
+                  setShowAttachInvoiceModal(true);
+                }}
+                style={{...styles.addEstimateButton, backgroundColor: "#6366f1"}}
+              >
+                📎 Link Existing Invoice
+              </button>
+              <button 
+                onClick={() => setShowInvoiceTypeModal(true)} 
+                style={styles.addEstimateButton}
+              >
+                + New Invoice
+              </button>
+            </div>
           </div>
           
           {invoices.length === 0 ? (
@@ -3139,6 +3216,18 @@ async function handleAddContractor() {
                           📧 Receipt
                         </button>
                       )}
+                      {/* ⭐ Set as Primary Invoice */}
+                      <button
+                        onClick={() => handleSetActiveInvoice(invoice)}
+                        title="Set this invoice as primary — updates Contract Value"
+                        style={{
+                          ...styles.estimateButton,
+                          backgroundColor: project.active_invoice_id === invoice.id ? '#f59e0b' : '#6b7280',
+                          border: project.active_invoice_id === invoice.id ? '2px solid #d97706' : '2px solid transparent',
+                        }}
+                      >
+                        {project.active_invoice_id === invoice.id ? '⭐ Primary' : '☆ Set Primary'}
+                      </button>
                       <button
                         onClick={async () => {
                           if (confirm(`Delete invoice ${invoice.invoice_number}? This cannot be undone.`)) {
@@ -5150,6 +5239,113 @@ async function handleAddContractor() {
 
             <div style={styles.modalActions}>
               <button onClick={() => setShowAttachEstimateModal(false)} style={styles.cancelButton}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Attach Existing Invoice Modal ───────────────────────────── */}
+      {showAttachInvoiceModal && (
+        <div style={styles.modalOverlay} onClick={() => setShowAttachInvoiceModal(false)}>
+          <div style={{...styles.modal, maxWidth: 660}} onClick={(e) => e.stopPropagation()}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 16}}>
+              <h2 style={{...styles.modalTitle, marginBottom: 0}}>📎 Link Existing Invoice</h2>
+              <button onClick={() => setShowAttachInvoiceModal(false)} style={{background:'none', border:'none', fontSize:22, cursor:'pointer', color:'#666'}}>×</button>
+            </div>
+            <p style={{fontSize: 14, color: '#666', marginBottom: 16}}>
+              Select an invoice to link to <strong>{project.name}</strong>. Only invoices not already linked to a project are shown.
+            </p>
+
+            {/* Search */}
+            <input
+              type="text"
+              value={attachInvoiceSearch}
+              onChange={(e) => setAttachInvoiceSearch(e.target.value)}
+              placeholder="Search by invoice #, customer name..."
+              style={{...styles.select, padding: '10px', marginBottom: 16}}
+              autoFocus
+            />
+
+            {/* List */}
+            <div style={{maxHeight: 400, overflowY: 'auto', marginBottom: 16}}>
+              {unlinkedInvoices.length === 0 ? (
+                <div style={{textAlign:'center', padding: 32, color: '#999', fontSize: 14}}>
+                  No unlinked invoices found. All invoices are already linked to a project.
+                </div>
+              ) : (
+                unlinkedInvoices
+                  .filter(inv => {
+                    const q = attachInvoiceSearch.toLowerCase();
+                    return !q ||
+                      (inv.invoice_number || '').toLowerCase().includes(q) ||
+                      (inv.customer_name || '').toLowerCase().includes(q);
+                  })
+                  .map(inv => (
+                    <div
+                      key={inv.id}
+                      style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '14px 16px', borderRadius: 8, marginBottom: 8,
+                        border: '2px solid #e5e7eb', backgroundColor: '#f9fafb',
+                        cursor: attachingInvoice ? 'default' : 'pointer',
+                        transition: 'all 0.15s',
+                      }}
+                      onMouseEnter={(e) => { if (!attachingInvoice) { e.currentTarget.style.borderColor = '#6366f1'; e.currentTarget.style.backgroundColor = '#eef2ff'; }}}
+                      onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e5e7eb'; e.currentTarget.style.backgroundColor = '#f9fafb'; }}
+                      onClick={async () => {
+                        if (attachingInvoice) return;
+                        setAttachingInvoice(true);
+                        try {
+                          const { error } = await supabase
+                            .from("invoices")
+                            .update({ project_name: project.name })
+                            .eq("id", inv.id);
+                          if (error) throw error;
+                          setShowAttachInvoiceModal(false);
+                          loadProjectData();
+                          alert(`✅ Invoice #${inv.invoice_number} linked to ${project.name}!`);
+                        } catch (err) {
+                          console.error("Error linking invoice:", err);
+                          alert("Failed to link invoice: " + err.message);
+                        } finally {
+                          setAttachingInvoice(false);
+                        }
+                      }}
+                    >
+                      <div style={{flex: 1}}>
+                        <div style={{fontWeight: '700', fontSize: 15, color: '#111', display: 'flex', alignItems: 'center', gap: 8}}>
+                          #{inv.invoice_number}
+                          <span style={{
+                            fontSize: 11, fontWeight: '700', borderRadius: 20, padding: '2px 8px',
+                            backgroundColor:
+                              inv.status === 'paid' ? '#d1fae5' :
+                              inv.status === 'sent' ? '#dbeafe' :
+                              inv.status === 'partial' ? '#fef3c7' : '#f3f4f6',
+                            color:
+                              inv.status === 'paid' ? '#065f46' :
+                              inv.status === 'sent' ? '#1e40af' :
+                              inv.status === 'partial' ? '#92400e' : '#6b7280',
+                          }}>
+                            {inv.status || 'draft'}
+                          </span>
+                        </div>
+                        {inv.customer_name && (
+                          <div style={{fontSize: 13, color: '#666', marginTop: 2}}>{inv.customer_name}</div>
+                        )}
+                        {inv.invoice_date && (
+                          <div style={{fontSize: 11, color: '#aaa', marginTop: 2}}>{inv.invoice_date}</div>
+                        )}
+                      </div>
+                      <div style={{fontSize: 16, fontWeight: '700', color: '#fc6b04', marginLeft: 16, whiteSpace: 'nowrap'}}>
+                        ${(inv.total || 0).toFixed(2)}
+                      </div>
+                    </div>
+                  ))
+              )}
+            </div>
+
+            <div style={styles.modalActions}>
+              <button onClick={() => setShowAttachInvoiceModal(false)} style={styles.cancelButton}>Cancel</button>
             </div>
           </div>
         </div>
