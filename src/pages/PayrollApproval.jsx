@@ -480,14 +480,14 @@ export default function PayrollApproval() {
           </div>
           {activeTab === "pending" && (
             <>
-              <p style={{ fontSize: 14, marginBottom: 20 }}>
-                When your CPA emails check stubs, go to Email Inbox → select the email → click "Process All Pay Stubs with AI". The parsed data will appear here for your review.
+              <p style={{ fontSize: 14, marginBottom: 20, color: "rgba(255,255,255,0.55)" }}>
+                Upload pay stub PDFs from SmartVault — AI will extract wages, taxes, and garnishments and they'll appear here for your approval.
               </p>
               <button
-                onClick={() => navigate("/email-inbox")}
+                onClick={() => navigate("/payroll-upload")}
                 style={{ ...styles.btnApprove, backgroundColor: BRAND.primary }}
               >
-                📧 Go to Email Inbox
+                📤 Upload Pay Stubs
               </button>
             </>
           )}
