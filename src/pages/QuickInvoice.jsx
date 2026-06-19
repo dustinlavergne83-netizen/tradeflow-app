@@ -1,16 +1,19 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 
 export default function QuickInvoice() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const [customerName, setCustomerName] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
   const [customers, setCustomers] = useState([]);
   const [filteredCustomers, setFilteredCustomers] = useState([]);
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [projectName, setProjectName] = useState("");
+  const [projectId, setProjectId] = useState(null);
   const [description, setDescription] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0]);
   const [invoiceNumber, setInvoiceNumber] = useState("");
@@ -19,6 +22,20 @@ export default function QuickInvoice() {
     { id: 1, description: "", quantity: 1, unitPrice: 0 }
   ]);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Pre-populate fields from URL params (when launched from a project)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const paramCustomerName = params.get('customerName');
+    const paramCustomerEmail = params.get('customerEmail');
+    const paramProjectName = params.get('projectName');
+    const paramProjectId = params.get('projectId');
+
+    if (paramCustomerName) setCustomerName(paramCustomerName);
+    if (paramCustomerEmail) setCustomerEmail(paramCustomerEmail);
+    if (paramProjectName) setProjectName(paramProjectName);
+    if (paramProjectId) setProjectId(paramProjectId);
+  }, [location.search]);
 
   useEffect(() => {
     loadCustomers();
@@ -134,6 +151,7 @@ export default function QuickInvoice() {
         invoice_number: finalInvoiceNumber,
         project_name: projectName || "Quick Invoice",
         customer_name: customerName,
+        customer_email: customerEmail || null,
         invoice_date: invoiceDate,
         subtotal: total,
         total: total,
@@ -189,7 +207,10 @@ export default function QuickInvoice() {
       <div style={styles.header}>
         <h1 style={styles.title}>Quick Invoice</h1>
         <div style={styles.headerButtons}>
-          <button onClick={() => navigate("/invoices")} style={styles.cancelButton}>
+          <button
+            onClick={() => projectId ? navigate(`/project/${projectId}`) : navigate("/invoices")}
+            style={styles.cancelButton}
+          >
             Cancel
           </button>
           <button onClick={handleSave} style={styles.saveButton} disabled={isSaving}>
@@ -228,7 +249,7 @@ export default function QuickInvoice() {
           </div>
           <div style={styles.row}>
             <div style={styles.field}>
-              <label style={styles.label}>Customer Name</label>
+              <label style={styles.label}>Customer Name *</label>
               <div style={{position: 'relative'}}>
                 <input
                   type="text"
@@ -264,12 +285,15 @@ export default function QuickInvoice() {
                         style={styles.dropdownItem}
                         onClick={() => {
                           setCustomerName(customer.customer);
+                          // Auto-fill email when customer is selected
+                          if (customer.email) setCustomerEmail(customer.email);
                           setShowCustomerDropdown(false);
                         }}
                         onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f3f4f6'}
                         onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}
                       >
-                        {customer.customer}
+                        <div style={{fontWeight: '600'}}>{customer.customer}</div>
+                        {customer.email && <div style={{fontSize: 12, color: '#888'}}>{customer.email}</div>}
                       </div>
                     ))}
                   </div>
@@ -285,6 +309,30 @@ export default function QuickInvoice() {
                 style={styles.input}
                 placeholder="Enter project name"
               />
+            </div>
+          </div>
+          <div style={styles.row}>
+            <div style={styles.field}>
+              <label style={styles.label}>Customer Email</label>
+              <input
+                type="email"
+                value={customerEmail}
+                onChange={(e) => setCustomerEmail(e.target.value)}
+                style={{
+                  ...styles.input,
+                  borderColor: customerEmail ? '#10b981' : '#e5e7eb',
+                  backgroundColor: customerEmail ? '#f0fdf4' : '#fff',
+                }}
+                placeholder="customer@email.com"
+              />
+              {customerEmail && (
+                <div style={{fontSize: 12, color: '#10b981', marginTop: 4, fontWeight: '600'}}>
+                  ✓ Email linked — invoice can be emailed to customer
+                </div>
+              )}
+            </div>
+            <div style={styles.field}>
+              {/* spacer */}
             </div>
           </div>
           <div style={styles.field}>

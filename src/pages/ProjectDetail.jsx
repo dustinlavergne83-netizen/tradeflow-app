@@ -4193,6 +4193,35 @@ async function handleAddContractor() {
               </button>
 
               <button
+                onClick={async () => {
+                  setShowInvoiceTypeModal(false);
+                  // Look up customer name and email from project
+                  const customerName = project.contractor || project.customer || "";
+                  let customerEmail = "";
+                  if (customerName) {
+                    const { data: customerData } = await supabase
+                      .from('customers')
+                      .select('email')
+                      .ilike('customer', customerName)
+                      .limit(1);
+                    if (customerData?.[0]?.email) customerEmail = customerData[0].email;
+                  }
+                  const params = new URLSearchParams();
+                  params.set('projectId', id);
+                  params.set('projectName', project.name);
+                  if (customerName) params.set('customerName', customerName);
+                  if (customerEmail) params.set('customerEmail', customerEmail);
+                  navigate(`/invoice/quick?${params.toString()}`);
+                }}
+                style={{padding: 20, backgroundColor: '#f9fafb', border: '2px solid #e5e7eb', borderRadius: 12, cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s'}}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#8b5cf6'; e.currentTarget.style.backgroundColor = '#f5f3ff'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e5e7eb'; e.currentTarget.style.backgroundColor = '#f9fafb'; }}
+              >
+                <div style={{fontSize: 18, fontWeight: 'bold', color: '#111', marginBottom: 4}}>⚡ Quick Invoice</div>
+                <div style={{fontSize: 13, color: '#666'}}>Simple invoice with custom line items — customer name &amp; email auto-filled from project</div>
+              </button>
+
+              <button
                 onClick={() => {
                   setShowInvoiceTypeModal(false);
                   // Check for unapplied deposits before navigating to T&M invoice
