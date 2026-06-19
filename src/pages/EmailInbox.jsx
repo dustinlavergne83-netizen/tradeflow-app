@@ -9,10 +9,52 @@ const MSAL_CONFIG = {
     authority: 'https://login.microsoftonline.com/9bd3d089-ecc6-4777-9198-41f0d40f95d6',
     redirectUri: window.location.origin + '/email-inbox',
   },
-  cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false },
+  cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: true },
+  system: {
+    allowNativeBroker: false,
+    allowRedirectInIframe: false,
+  },
 };
 
 const LOGIN_REQUEST = { scopes: ['Mail.Read', 'Mail.ReadBasic'] };
+
+// ── MODULE-LEVEL MSAL SINGLETON ──────────────────────────────────────────────
+// IMPORTANT: Must be created once outside the component so React re-renders /
+// StrictMode double-invocations never create a second PublicClientApplication.
+// A second instance causes "block_nested_popups" because both try to handle
+// the redirect simultaneously.
+let _msalInstance = null;
+let _msalReadyPromise = null;
+
+function clearMsalInteraction() {
+  // Remove any stale "interaction in progress" keys that block new sign-in calls
+  try {
+    Object.keys(sessionStorage).forEach((k) => {
+      if (
+        k.toLowerCase().includes('msal') ||
+        k.toLowerCase().includes('login.windows') ||
+        k.toLowerCase().includes('interaction')
+      ) {
+        sessionStorage.removeItem(k);
+      }
+    });
+  } catch (e) { /* ignore */ }
+}
+
+function getMsal() {
+  if (!_msalInstance) {
+    _msalInstance = new PublicClientApplication(MSAL_CONFIG);
+    _msalReadyPromise = _msalInstance
+      .initialize()
+      .then(() => _msalInstance.handleRedirectPromise())
+      .catch((e) => {
+        console.warn('MSAL init/redirect error (non-fatal):', e.message);
+        clearMsalInteraction();
+        return null;
+      });
+  }
+  return { instance: _msalInstance, ready: _msalReadyPromise };
+}
 
 // CPA email address — emails from this sender get flagged as payroll
 const CPA_EMAIL = 'cc@sass.tax';
@@ -33,28 +75,15 @@ export default function EmailInbox() {
   const [error, setError] = useState(null);
   const msalRef = useRef(null);
 
-  // ── Initialize MSAL inside useEffect ────────────────────────────
+  // ── Initialize MSAL using the module-level singleton ────────────
   useEffect(() => {
     const init = async () => {
       try {
-        const instance = new PublicClientApplication(MSAL_CONFIG);
-        await instance.initialize();
-
-        // Handle redirect FIRST — auth code may be in the URL from a redirect flow
-        let redirectResult = null;
-        try {
-          redirectResult = await instance.handleRedirectPromise();
-        } catch (e) {
-          console.warn('MSAL redirect promise error (non-fatal):', e.message);
-          // Clear stale MSAL session storage to prevent repeated errors
-          Object.keys(sessionStorage).forEach((key) => {
-            if (key.includes('msal') || key.includes('login.windows')) {
-              sessionStorage.removeItem(key);
-            }
-          });
-        }
-
+        const { instance, ready } = getMsal();
         msalRef.current = instance;
+
+        // Wait for initialize() + handleRedirectPromise() to finish
+        const redirectResult = await ready;
 
         const accounts = instance.getAllAccounts();
         if (accounts.length > 0) {
@@ -116,10 +145,23 @@ export default function EmailInbox() {
     if (!instance) { setError('MSAL not ready. Please refresh the page.'); return; }
     try {
       setError(null);
+      // Clear any stale interaction-in-progress state BEFORE redirecting.
+      // This is the primary cause of "block_nested_popups" — a previous redirect
+      // left a lock in sessionStorage that MSAL interprets as a nested popup attempt.
+      clearMsalInteraction();
+      // Reset the singleton so the next page load re-runs handleRedirectPromise cleanly
+      _msalInstance = null;
+      _msalReadyPromise = null;
       await instance.loginRedirect(LOGIN_REQUEST);
-      // Page will navigate away; on return, handleRedirectPromise() processes the auth code
+      // Page navigates away here. When it returns the URL will have #code=...
+      // getMsal() will create a fresh instance and handleRedirectPromise() will process it.
     } catch (err) {
-      setError('Sign in failed: ' + err.message);
+      console.error('loginRedirect error:', err);
+      // If it still fails, clear everything and show a plain error with retry instructions
+      clearMsalInteraction();
+      _msalInstance = null;
+      _msalReadyPromise = null;
+      setError('Sign in failed: ' + err.message + ' — Please try again or refresh the page.');
     }
   };
 
