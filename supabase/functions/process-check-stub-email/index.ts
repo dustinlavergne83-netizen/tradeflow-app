@@ -230,12 +230,11 @@ Deno.serve(async (req) => {
         singlePdf.addPage(copiedPage);
         const pageBytes = await singlePdf.save();
 
-        // Extract text
-        const pageText = extractTextFromPDFPage(pageBytes);
-        console.log("Text snippet:", pageText.substring(0, 200));
+        // Convert page bytes to base64 for GPT-4o Vision
+        const pageBase64 = uint8ArrayToBase64(pageBytes);
 
-        // AI: identify employee + extract all financial figures
-        const aiResult = await parsePaystubWithAI(pageText, employees ?? [], pageIndex + 1);
+        // AI: use GPT-4o Vision to read the PDF page directly (handles image-based PDFs)
+        const aiResult = await parsePaystubWithAIVision(pageBase64, employees ?? [], pageIndex + 1);
         console.log("AI result:", JSON.stringify(aiResult));
 
         // Allow unmatched employees — save with raw AI name so owner can review
@@ -431,6 +430,171 @@ async function createPayrollApprovalRecord(opts: {
     }
   } catch (e: any) {
     console.error("createPayrollApprovalRecord threw:", e.message);
+  }
+}
+
+// ─── Uint8Array → Base64 ─────────────────────────────────────────────────────
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+// ─── AI Vision: Read PDF page with GPT-4o (handles image-based PDFs) ─────────
+async function parsePaystubWithAIVision(
+  pageBase64: string,
+  employees: Array<{ id: string; first_name: string; last_name: string }>,
+  pageNum: number
+): Promise<{
+  employee_name?: string | null;
+  matched_employee_name?: string | null;
+  employee_id?: string | null;
+  pay_period_start?: string | null;
+  pay_period_end?: string | null;
+  pay_date?: string | null;
+  gross_wages?: number;
+  federal_tax?: number;
+  state_tax?: number;
+  social_security?: number;
+  medicare?: number;
+  garnishments?: number;
+  other_deductions?: number;
+  net_pay?: number;
+  confidence?: number;
+  error?: string;
+}> {
+  const openaiKey = Deno.env.get("OPENAI_API_KEY");
+  if (!openaiKey) return { error: "OPENAI_API_KEY not configured" };
+
+  const employeeListStr = employees
+    .map((e) => `${e.first_name} ${e.last_name}`)
+    .join(", ");
+
+  const systemPrompt = `You are a payroll data extraction assistant. You will be shown a paycheck stub PDF page.
+Extract all payroll information and return ONLY valid JSON with no markdown or code blocks.
+
+KNOWN EMPLOYEES IN THE SYSTEM: ${employeeListStr || "None on file — use exact name from stub"}
+
+Return exactly this JSON structure:
+{
+  "employee_name": "exact full name as shown on stub",
+  "matched_employee_name": "closest match from KNOWN EMPLOYEES list, or null if no close match",
+  "pay_period_start": "YYYY-MM-DD or null",
+  "pay_period_end": "YYYY-MM-DD or null",
+  "pay_date": "YYYY-MM-DD or null",
+  "gross_wages": 0.00,
+  "federal_tax": 0.00,
+  "state_tax": 0.00,
+  "social_security": 0.00,
+  "medicare": 0.00,
+  "garnishments": 0.00,
+  "other_deductions": 0.00,
+  "net_pay": 0.00,
+  "confidence": 0.95
+}
+
+Rules:
+- matched_employee_name must be EXACTLY one name from KNOWN EMPLOYEES, or null
+- All dollar amounts: positive numbers only, no $ or commas
+- gross_wages: total gross pay (look for Gross Pay, Gross Earnings, Current Gross)
+- federal_tax: federal income tax withheld
+- state_tax: state income tax withheld  
+- social_security: FICA/Social Security
+- medicare: Medicare tax
+- garnishments: wage garnishments, child support, levies
+- other_deductions: all other deductions not listed above
+- net_pay: final take-home (Net Pay, Net Amount, Check Amount)
+- confidence: 0.0-1.0 for employee name match certainty`;
+
+  try {
+    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${openaiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: systemPrompt,
+              },
+              {
+                type: "file",
+                file: {
+                  filename: `paystub_page_${pageNum}.pdf`,
+                  file_data: `data:application/pdf;base64,${pageBase64}`,
+                },
+              },
+            ],
+          },
+        ],
+        max_tokens: 800,
+        temperature: 0,
+      }),
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text();
+      console.warn("GPT-4o Vision failed, falling back to text extraction:", errText);
+      return { error: `OpenAI Vision error: ${errText}` };
+    }
+
+    const data = await resp.json();
+    const rawText = data.choices?.[0]?.message?.content ?? "";
+    console.log("GPT-4o Vision raw response:", rawText.substring(0, 500));
+
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return { error: `Could not parse AI response: ${rawText}` };
+
+    const parsed = JSON.parse(jsonMatch[0]);
+
+    // Match to known employee
+    let matchedEmployee: typeof employees[0] | undefined;
+    if (parsed.matched_employee_name) {
+      matchedEmployee = employees.find(
+        (e) => `${e.first_name} ${e.last_name}`.toLowerCase() ===
+          parsed.matched_employee_name?.toLowerCase()
+      );
+    }
+    if (!matchedEmployee && parsed.employee_name) {
+      const nl = (parsed.employee_name as string).toLowerCase().replace(/[^a-z\s]/g, "");
+      matchedEmployee = employees.find((e) => {
+        const fn = e.first_name.toLowerCase();
+        const ln = e.last_name.toLowerCase();
+        return ln.length > 2 && nl.includes(fn) && nl.includes(ln);
+      });
+    }
+
+    const toNum = (v: any) =>
+      typeof v === "number" ? v : parseFloat(String(v ?? "0").replace(/[$,]/g, "")) || 0;
+
+    return {
+      employee_name: parsed.employee_name ?? null,
+      matched_employee_name: matchedEmployee
+        ? `${matchedEmployee.first_name} ${matchedEmployee.last_name}`
+        : parsed.matched_employee_name ?? null,
+      employee_id: matchedEmployee?.id ?? null,
+      pay_period_start: parsed.pay_period_start ?? null,
+      pay_period_end: parsed.pay_period_end ?? null,
+      pay_date: parsed.pay_date ?? null,
+      gross_wages: toNum(parsed.gross_wages),
+      federal_tax: toNum(parsed.federal_tax),
+      state_tax: toNum(parsed.state_tax),
+      social_security: toNum(parsed.social_security),
+      medicare: toNum(parsed.medicare),
+      garnishments: toNum(parsed.garnishments),
+      other_deductions: toNum(parsed.other_deductions),
+      net_pay: toNum(parsed.net_pay),
+      confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0,
+    };
+  } catch (err: any) {
+    return { error: `AI Vision parsing failed: ${err.message}` };
   }
 }
 
