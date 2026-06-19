@@ -321,29 +321,9 @@ export default function PayrollApproval() {
         });
       }
 
-      const taxLines = [
-        { key: "federal_tax", label: "Federal Income Tax" },
-        { key: "state_tax", label: "State Income Tax" },
-        { key: "social_security", label: "Social Security (FICA)" },
-        { key: "medicare", label: "Medicare" },
-      ];
-      for (const tl of taxLines) {
-        const amt = parseFloat(record[tl.key]) || 0;
-        if (amt > 0) {
-          expenseLines.push({
-            expense_date: payDate || today,
-            amount: amt,
-            category: taxAccount?.account_name || "Payroll Taxes",
-            vendor: "IRS / Tax Authority",
-            description: `${tl.label} — ${empName} (${period})`,
-            payment_method: "check",
-            tax_deductible: true,
-            created_by: user.id,
-            receipt_notes: stubNote,
-            ...(clearingAccountId ? { bank_account_id: clearingAccountId } : {}),
-          });
-        }
-      }
+      // NOTE: Taxes (federal, state, SS, Medicare) are NOT added here.
+      // Use "🧾 Create Tax Deposit" button to generate ONE combined IRS deposit
+      // expense per pay period that matches your actual bank statement.
 
       if (parseFloat(record.garnishments) > 0) {
         expenseLines.push({
@@ -839,13 +819,9 @@ export default function PayrollApproval() {
               <>
                 <hr style={styles.divider} />
                 <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 10 }}>
-                  💡 Approving will create these expense entries:
-                  <strong style={{ color: "#111" }}> Wages ({formatCurrency(record.gross_wages)})</strong>
-                  {parseFloat(record.federal_tax) > 0 && <span>, Fed Tax ({formatCurrency(record.federal_tax)})</span>}
-                  {parseFloat(record.state_tax) > 0 && <span>, State Tax ({formatCurrency(record.state_tax)})</span>}
-                  {parseFloat(record.social_security) > 0 && <span>, FICA ({formatCurrency(record.social_security)})</span>}
-                  {parseFloat(record.medicare) > 0 && <span>, Medicare ({formatCurrency(record.medicare)})</span>}
+                💡 Approving posts: <strong style={{ color: "#111" }}>Gross Wages ({formatCurrency(record.gross_wages)})</strong>
                   {parseFloat(record.garnishments) > 0 && <span>, Garnishment ({formatCurrency(record.garnishments)})</span>}
+                  . <span style={{ color: "#d97706" }}>⚠️ Taxes are NOT posted here — use 🧾 Create Tax Deposit to generate the combined IRS payment expense.</span>
                 </div>
 
                 {/* Clearing account selector */}
