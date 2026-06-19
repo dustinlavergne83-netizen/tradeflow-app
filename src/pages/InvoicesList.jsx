@@ -16,6 +16,11 @@ export default function InvoicesList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [paymentFilter, setPaymentFilter] = useState("all");
+  // Date range filter
+  const [datePreset, setDatePreset] = useState('ytd');
+  const [dateYear, setDateYear] = useState(new Date().getFullYear());
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
   const [projectDepositsMap, setProjectDepositsMap] = useState({});
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showSplitPaymentModal, setShowSplitPaymentModal] = useState(false);
@@ -878,7 +883,38 @@ export default function InvoicesList() {
     }
   }
 
-  const filteredInvoices = invoices.filter(invoice => {
+  // ── Date range helper ───────────────────────────────────────────────────────
+  const getDateRange = () => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const pad = (n) => String(n).padStart(2, '0');
+    if (datePreset === 'ytd') return { from: `${y}-01-01`, to: null };
+    if (datePreset === 'thisMonth') {
+      const m = pad(now.getMonth() + 1);
+      return { from: `${y}-${m}-01`, to: null };
+    }
+    if (datePreset === 'lastMonth') {
+      const last = new Date(y, now.getMonth(), 0);
+      const lm = pad(last.getMonth() + 1);
+      const ly = last.getFullYear();
+      return { from: `${ly}-${lm}-01`, to: `${ly}-${lm}-${pad(last.getDate())}` };
+    }
+    if (datePreset === 'year') return { from: `${dateYear}-01-01`, to: `${dateYear}-12-31` };
+    if (datePreset === 'all') return { from: null, to: null };
+    return { from: customFrom || null, to: customTo || null };
+  };
+
+  const dateRange = getDateRange();
+
+  const dateFilteredInvoices = invoices.filter(inv => {
+    const d = inv.invoice_date;
+    if (!d) return true;
+    if (dateRange.from && d < dateRange.from) return false;
+    if (dateRange.to && d > dateRange.to) return false;
+    return true;
+  });
+
+  const filteredInvoices = dateFilteredInvoices.filter(invoice => {
     const searchLower = searchTerm.toLowerCase();
     const matchesSearch = (
       invoice.invoice_number?.toLowerCase().includes(searchLower) ||
@@ -913,19 +949,33 @@ export default function InvoicesList() {
     }
   };
 
-  // Calculate summary statistics
+  // ── Period label for stat cards ─────────────────────────────────────────────
+  const periodLabel = (() => {
+    const now = new Date();
+    if (datePreset === 'ytd') return `YTD ${now.getFullYear()}`;
+    if (datePreset === 'thisMonth') return now.toLocaleString('default', { month: 'long', year: 'numeric' });
+    if (datePreset === 'lastMonth') {
+      const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      return d.toLocaleString('default', { month: 'long', year: 'numeric' });
+    }
+    if (datePreset === 'year') return String(dateYear);
+    if (datePreset === 'all') return 'All Time';
+    return (customFrom || customTo) ? `${customFrom || '...'} → ${customTo || '...'}` : 'Custom';
+  })();
+
+  // Calculate summary statistics (filtered by selected date range)
   const stats = {
-    total: invoices.length,
-    draft: invoices.filter(i => i.status === 'draft').length,
-    sent: invoices.filter(i => i.status === 'sent').length,
-    paid: invoices.filter(i => i.status === 'paid').length,
-    overdue: invoices.filter(i => i.status === 'overdue').length,
-    partial: invoices.filter(i => i.status === 'partial').length,
-    totalAmount: invoices.reduce((sum, i) => sum + (i.total || 0), 0),
+    total: dateFilteredInvoices.length,
+    draft: dateFilteredInvoices.filter(i => i.status === 'draft').length,
+    sent: dateFilteredInvoices.filter(i => i.status === 'sent').length,
+    paid: dateFilteredInvoices.filter(i => i.status === 'paid').length,
+    overdue: dateFilteredInvoices.filter(i => i.status === 'overdue').length,
+    partial: dateFilteredInvoices.filter(i => i.status === 'partial').length,
+    totalAmount: dateFilteredInvoices.reduce((sum, i) => sum + (i.total || 0), 0),
     // Include both amount_paid AND deposits in totalPaid
-    totalPaid: invoices.reduce((sum, i) => sum + (i.amount_paid || 0) + (i.deposit_received || 0), 0),
+    totalPaid: dateFilteredInvoices.reduce((sum, i) => sum + (i.amount_paid || 0) + (i.deposit_received || 0), 0),
     // Calculate total outstanding accounting for both payments AND deposits
-    totalOutstanding: invoices.reduce((sum, i) => {
+    totalOutstanding: dateFilteredInvoices.reduce((sum, i) => {
       const totalDeductions = (i.amount_paid || 0) + (i.deposit_received || 0);
       return sum + Math.max(0, (i.total || 0) - totalDeductions);
     }, 0),
@@ -1011,23 +1061,68 @@ export default function InvoicesList() {
         </div>
       </div>
 
+      {/* Date Range Filter Bar */}
+      {(() => {
+        const curYear = new Date().getFullYear();
+        const years = [curYear - 2, curYear - 1, curYear, curYear + 1].filter(y => y >= 2023);
+        const btnStyle = (active) => ({
+          padding: '7px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
+          fontWeight: 700, fontSize: 13,
+          backgroundColor: active ? '#f97316' : 'rgba(255,255,255,0.15)',
+          color: '#fff', transition: 'background 0.15s',
+        });
+        return (
+          <div style={{display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', padding: '12px 16px', backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 10}}>
+            <span style={{fontSize: 13, fontWeight: 700, color: 'rgba(255,255,255,0.7)', marginRight: 4}}>Period:</span>
+            {[
+              { v: 'ytd', l: '📅 YTD' },
+              { v: 'thisMonth', l: 'This Month' },
+              { v: 'lastMonth', l: 'Last Month' },
+              { v: 'all', l: 'All Time' },
+            ].map(o => (
+              <button key={o.v} onClick={() => setDatePreset(o.v)} style={btnStyle(datePreset === o.v)}>{o.l}</button>
+            ))}
+            <select
+              value={datePreset === 'year' ? dateYear : ''}
+              onChange={e => { if (e.target.value) { setDateYear(parseInt(e.target.value)); setDatePreset('year'); } }}
+              style={{ ...btnStyle(datePreset === 'year'), paddingRight: 6 }}
+            >
+              <option value="">Year ▼</option>
+              {years.map(y => <option key={y} value={y} style={{ color: '#111' }}>{y}</option>)}
+            </select>
+            <span style={{ color: 'rgba(255,255,255,0.4)', margin: '0 4px' }}>|</span>
+            <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>Custom:</span>
+            <input type="date" value={customFrom}
+              onChange={e => { setCustomFrom(e.target.value); setDatePreset('custom'); }}
+              style={{ padding: '6px 8px', borderRadius: 6, border: 'none', fontSize: 13, backgroundColor: 'rgba(255,255,255,0.15)', color: '#fff' }} />
+            <span style={{ color: '#fff' }}>—</span>
+            <input type="date" value={customTo}
+              onChange={e => { setCustomTo(e.target.value); setDatePreset('custom'); }}
+              style={{ padding: '6px 8px', borderRadius: 6, border: 'none', fontSize: 13, backgroundColor: 'rgba(255,255,255,0.15)', color: '#fff' }} />
+            <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 700, color: 'rgba(255,255,255,0.55)' }}>
+              Showing: {periodLabel}
+            </span>
+          </div>
+        );
+      })()}
+
       {/* Summary Stats */}
       <div style={styles.statsContainer}>
         <div style={styles.statCard}>
           <div style={styles.statValue}>{stats.total}</div>
-          <div style={styles.statLabel}>Total Invoices</div>
+          <div style={styles.statLabel}>Invoices · {periodLabel}</div>
         </div>
         <div style={styles.statCard}>
           <div style={{...styles.statValue, color: '#10b981'}}>{formatCurrency(stats.totalPaid)}</div>
-          <div style={styles.statLabel}>Total Paid</div>
+          <div style={styles.statLabel}>Total Paid · {periodLabel}</div>
         </div>
         <div style={styles.statCard}>
           <div style={{...styles.statValue, color: '#ef4444'}}>{formatCurrency(stats.totalOutstanding)}</div>
-          <div style={styles.statLabel}>Outstanding</div>
+          <div style={styles.statLabel}>Outstanding · {periodLabel}</div>
         </div>
         <div style={styles.statCard}>
           <div style={styles.statValue}>{formatCurrency(stats.totalAmount)}</div>
-          <div style={styles.statLabel}>Total Invoiced</div>
+          <div style={styles.statLabel}>Total Invoiced · {periodLabel}</div>
         </div>
       </div>
 
