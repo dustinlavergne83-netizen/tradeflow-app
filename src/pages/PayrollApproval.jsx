@@ -40,9 +40,15 @@ export default function PayrollApproval() {
   const [selectedBankAccount, setSelectedBankAccount] = useState({}); // { [recordId]: bankAccountId }
   const DEFAULT_CLEARING_ID = "1a3dee07-21ac-4043-b1eb-ddae8dc52337"; // Clearing Account (3551)
   const [showTaxDeposit, setShowTaxDeposit] = useState(false);
-  const [taxDepositPeriods, setTaxDepositPeriods] = useState([]); // grouped pay periods
+  const [taxDepositPeriods, setTaxDepositPeriods] = useState([]); // IRS grouped pay periods
   const [taxDepositAccount, setTaxDepositAccount] = useState(DEFAULT_CLEARING_ID);
   const [creatingDeposit, setCreatingDeposit] = useState(false);
+  // State tax deposit
+  const [stateTaxTotal, setStateTaxTotal] = useState(0);
+  const [stateTaxStubs, setStateTaxStubs] = useState([]); // stub details for state deposit
+  const [stateTaxAccount, setStateTaxAccount] = useState(DEFAULT_CLEARING_ID);
+  const [stateTaxDate, setStateTaxDate] = useState(new Date().toISOString().split("T")[0]);
+  const [creatingStateDeposit, setCreatingStateDeposit] = useState(false);
 
   useEffect(() => {
     if (user?.id) {
@@ -99,18 +105,24 @@ export default function PayrollApproval() {
         groups[key].total_medicare_employee += parseFloat(row.medicare) || 0;
       }
 
-      // Add employer match totals
+      // Add employer match totals — IRS deposit does NOT include state tax
       const periods = Object.values(groups).map(g => ({
         ...g,
-        employer_ss: g.total_ss_employee,      // employer matches employee SS
-        employer_medicare: g.total_medicare_employee, // employer matches employee Medicare
-        grand_total: g.total_fed + g.total_state
-          + (g.total_ss_employee * 2)           // employee + employer SS
-          + (g.total_medicare_employee * 2),    // employee + employer Medicare
+        employer_ss: g.total_ss_employee,
+        employer_medicare: g.total_medicare_employee,
+        grand_total: g.total_fed
+          + (g.total_ss_employee * 2)     // employee + employer SS
+          + (g.total_medicare_employee * 2), // employee + employer Medicare
+        // state_tax is tracked separately via State Tax Deposit
         stub_ids: (data || [])
           .filter(r => (r.pay_period_end || r.pay_date) === g.pay_period_end)
           .map(r => r.id),
       }));
+
+      // Also compute total state tax across all approved stubs
+      const totalState = (data || []).reduce((sum, r) => sum + (parseFloat(r.state_tax) || 0), 0);
+      setStateTaxTotal(totalState);
+      setStateTaxStubs(data || []);
 
       setTaxDepositPeriods(periods.sort((a, b) => b.pay_period_end?.localeCompare(a.pay_period_end)));
     } catch (e) {
@@ -118,7 +130,44 @@ export default function PayrollApproval() {
     }
   }
 
-  // ── Create a single tax deposit expense for a pay period ─────────────────
+  // ── Create state tax deposit (all periods rolled into one) ───────────────
+  async function createStateTaxDeposit() {
+    if (stateTaxTotal <= 0) return;
+    setCreatingStateDeposit(true);
+    try {
+      // Summarize periods covered
+      const periods = [...new Set(stateTaxStubs.map(r => r.pay_period_end || r.pay_date).filter(Boolean))].sort();
+      const employees = [...new Set(stateTaxStubs.map(r => r.employee_name || "Unknown"))];
+      const periodRange = periods.length > 1
+        ? `${formatDate(periods[0])} – ${formatDate(periods[periods.length - 1])}`
+        : formatDate(periods[0]);
+
+      const expenseLine = {
+        expense_date: stateTaxDate,
+        amount: stateTaxTotal,
+        category: "Payroll Taxes",
+        vendor: "Louisiana / State Tax Authority",
+        description: `State Income Tax Deposit — ${periodRange} (${employees.length} employee${employees.length !== 1 ? "s" : ""}: ${employees.join(", ")})`,
+        payment_method: "check",
+        tax_deductible: true,
+        created_by: user.id,
+        receipt_notes: `State tax withholding covering ${periods.length} pay period(s). Employee state tax only.`,
+        ...(stateTaxAccount ? { bank_account_id: stateTaxAccount } : {}),
+      };
+
+      const { error: expError } = await supabase.from("expenses").insert([expenseLine]);
+      if (expError) throw expError;
+
+      setMessage({ type: "success", text: `✅ State tax deposit created: ${formatCurrency(stateTaxTotal)}` });
+      setShowTaxDeposit(false);
+    } catch (err) {
+      setMessage({ type: "error", text: "Failed to create state tax deposit: " + err.message });
+    } finally {
+      setCreatingStateDeposit(false);
+    }
+  }
+
+  // ── Create a single IRS tax deposit expense for a pay period ─────────────
   async function createTaxDeposit(period) {
     setCreatingDeposit(true);
     try {
@@ -130,7 +179,6 @@ export default function PayrollApproval() {
       const totalTax = period.grand_total;
       const breakdown = [
         `Fed: ${formatCurrency(period.total_fed)}`,
-        `State: ${formatCurrency(period.total_state)}`,
         `SS (×2): ${formatCurrency(period.total_ss_employee * 2)}`,
         `Medicare (×2): ${formatCurrency(period.total_medicare_employee * 2)}`,
       ].join(", ");
@@ -140,7 +188,7 @@ export default function PayrollApproval() {
         amount: totalTax,
         category: "Payroll Taxes",
         vendor: "IRS / State Tax Authority",
-        description: `Payroll Tax Deposit — ${periodLabel} (${period.employees.length} employee${period.employees.length !== 1 ? "s" : ""}: ${period.employees.join(", ")}). ${breakdown}`,
+        description: `IRS Payroll Tax Deposit — ${periodLabel} (${period.employees.length} employee${period.employees.length !== 1 ? "s" : ""}: ${period.employees.join(", ")}). ${breakdown}`,
         payment_method: "check",
         tax_deductible: true,
         created_by: user.id,
@@ -585,12 +633,17 @@ export default function PayrollApproval() {
               </select>
             </div>
 
-            {taxDepositPeriods.length === 0 ? (
-              <div style={{ textAlign: "center", padding: 40, color: "#6b7280" }}>
-                <div style={{ fontSize: 40, marginBottom: 12 }}>✅</div>
-                <div style={{ fontWeight: 700 }}>All approved pay periods already have tax deposits created!</div>
-              </div>
-            ) : (
+            {/* ── Section 1: IRS Federal Deposits ── */}
+            <div style={{ marginBottom: 28 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 800, color: "#dc2626", margin: "0 0 12px 0", borderBottom: "2px solid #fee2e2", paddingBottom: 8 }}>
+                🏛️ IRS Federal Deposit (Fed + SS×2 + Medicare×2)
+              </h3>
+              {taxDepositPeriods.length === 0 ? (
+                <div style={{ textAlign: "center", padding: 24, color: "#6b7280", backgroundColor: "#f9fafb", borderRadius: 8 }}>
+                  <div style={{ fontSize: 28, marginBottom: 8 }}>✅</div>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>All IRS deposits created!</div>
+                </div>
+              ) : (
               taxDepositPeriods.map((period, i) => {
                 const periodLabel = period.pay_period_start && period.pay_period_end
                   ? `${formatDate(period.pay_period_start)} – ${formatDate(period.pay_period_end)}`
@@ -638,7 +691,73 @@ export default function PayrollApproval() {
                   </div>
                 );
               })
-            )}
+              )}
+            </div>
+
+            {/* ── Section 2: State Tax Deposit ── */}
+            <div style={{ borderTop: "2px dashed #d1d5db", paddingTop: 24 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 800, color: "#7c3aed", margin: "0 0 12px 0", borderBottom: "2px solid #ede9fe", paddingBottom: 8 }}>
+                🏛️ State Income Tax Deposit
+              </h3>
+              <div style={{ backgroundColor: "#f5f3ff", border: "1px solid #c4b5fd", borderRadius: 8, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#5b21b6" }}>
+                This rolls up <strong>all approved state tax withholdings</strong> across every pay period into one expense. Create it whenever you actually make the state tax payment.
+              </div>
+
+              {stateTaxTotal <= 0 ? (
+                <div style={{ textAlign: "center", padding: 24, color: "#6b7280", backgroundColor: "#f9fafb", borderRadius: 8 }}>
+                  <div style={{ fontSize: 28, marginBottom: 8 }}>✅</div>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>No approved state tax to deposit yet.</div>
+                </div>
+              ) : (
+                <div style={{ border: "2px solid #c4b5fd", borderRadius: 12, padding: 18 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 16, color: "#111" }}>Total State Tax (All Periods)</div>
+                      <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+                        {[...new Set(stateTaxStubs.map(r => r.employee_name || "Unknown"))].join(", ")}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 28, fontWeight: 900, color: "#7c3aed" }}>{formatCurrency(stateTaxTotal)}</div>
+                      <div style={{ fontSize: 11, color: "#6b7280" }}>Total state withholding</div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginBottom: 4 }}>📅 Payment Date</label>
+                      <input
+                        type="date"
+                        value={stateTaxDate}
+                        onChange={e => setStateTaxDate(e.target.value)}
+                        style={{ padding: "8px 12px", borderRadius: 6, border: "2px solid #7c3aed", fontSize: 13, fontWeight: 600 }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginBottom: 4 }}>🏦 Paid from Account</label>
+                      <select
+                        value={stateTaxAccount}
+                        onChange={e => setStateTaxAccount(e.target.value)}
+                        style={{ padding: "8px 12px", borderRadius: 6, border: "2px solid #7c3aed", fontSize: 13, fontWeight: 600, backgroundColor: "#f5f3ff", color: "#5b21b6", cursor: "pointer", minWidth: 200 }}
+                      >
+                        <option value="">-- Select account --</option>
+                        {bankAccounts.map(acct => (
+                          <option key={acct.id} value={acct.id}>{acct.account_number} — {acct.account_name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <button
+                    style={{ ...styles.btnApprove, backgroundColor: "#7c3aed", fontSize: 14, padding: "10px 20px", opacity: creatingStateDeposit ? 0.6 : 1 }}
+                    onClick={createStateTaxDeposit}
+                    disabled={creatingStateDeposit || !stateTaxAccount || !stateTaxDate}
+                  >
+                    {creatingStateDeposit ? "⏳ Creating…" : `✅ Create ${formatCurrency(stateTaxTotal)} State Tax Deposit`}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
