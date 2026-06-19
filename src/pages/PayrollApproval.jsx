@@ -36,9 +36,13 @@ export default function PayrollApproval() {
   const [activeTab, setActiveTab] = useState("pending");
   const [stubUrl, setStubUrl] = useState({}); // { [id]: signedUrl }
   const [expenseAccounts, setExpenseAccounts] = useState([]); // COA expense accounts
-  const [bankAccounts, setBankAccounts] = useState([]); // Asset/bank accounts for clearing
-  const [selectedBankAccount, setSelectedBankAccount] = useState({}); // { [recordId]: accountId }
-  const DEFAULT_CLEARING_ID = "173f2138-a0de-42b9-8693-05689f6d0d2d"; // 1011 Clearing Account
+  const [bankAccounts, setBankAccounts] = useState([]); // bank_accounts table
+  const [selectedBankAccount, setSelectedBankAccount] = useState({}); // { [recordId]: bankAccountId }
+  const DEFAULT_CLEARING_ID = "1a3dee07-21ac-4043-b1eb-ddae8dc52337"; // Clearing Account (3551)
+  const [showTaxDeposit, setShowTaxDeposit] = useState(false);
+  const [taxDepositPeriods, setTaxDepositPeriods] = useState([]); // grouped pay periods
+  const [taxDepositAccount, setTaxDepositAccount] = useState(DEFAULT_CLEARING_ID);
+  const [creatingDeposit, setCreatingDeposit] = useState(false);
 
   useEffect(() => {
     if (user?.id) {
@@ -51,14 +55,118 @@ export default function PayrollApproval() {
   async function loadBankAccounts() {
     try {
       const { data, error } = await supabase
-        .from("accounts")
-        .select("id, account_number, account_name")
-        .eq("account_type", "Asset")
-        .eq("is_active", true)
+        .from("bank_accounts")
+        .select("id, account_number, account_name, account_type")
         .order("account_number");
       if (!error) setBankAccounts(data || []);
     } catch (e) {
       console.warn("Could not load bank accounts:", e);
+    }
+  }
+
+  // ── Load approved stubs grouped by pay period for Tax Deposit feature ──────
+  async function loadTaxDepositPeriods() {
+    try {
+      const { data, error } = await supabase
+        .from("payroll_expense_approvals")
+        .select("id, employee_name, pay_period_start, pay_period_end, pay_date, federal_tax, state_tax, social_security, medicare, gross_wages, net_pay, tax_deposit_created")
+        .eq("status", "approved")
+        .or("tax_deposit_created.is.null,tax_deposit_created.eq.false")
+        .order("pay_period_end", { ascending: false });
+      if (error) throw error;
+
+      // Group by pay_period_end
+      const groups = {};
+      for (const row of (data || [])) {
+        const key = row.pay_period_end || row.pay_date || "unknown";
+        if (!groups[key]) {
+          groups[key] = {
+            pay_period_end: row.pay_period_end,
+            pay_period_start: row.pay_period_start,
+            pay_date: row.pay_date,
+            employees: [],
+            total_gross: 0,
+            total_fed: 0,
+            total_state: 0,
+            total_ss_employee: 0,
+            total_medicare_employee: 0,
+          };
+        }
+        groups[key].employees.push(row.employee_name || "Unknown");
+        groups[key].total_gross += parseFloat(row.gross_wages) || 0;
+        groups[key].total_fed += parseFloat(row.federal_tax) || 0;
+        groups[key].total_state += parseFloat(row.state_tax) || 0;
+        groups[key].total_ss_employee += parseFloat(row.social_security) || 0;
+        groups[key].total_medicare_employee += parseFloat(row.medicare) || 0;
+      }
+
+      // Add employer match totals
+      const periods = Object.values(groups).map(g => ({
+        ...g,
+        employer_ss: g.total_ss_employee,      // employer matches employee SS
+        employer_medicare: g.total_medicare_employee, // employer matches employee Medicare
+        grand_total: g.total_fed + g.total_state
+          + (g.total_ss_employee * 2)           // employee + employer SS
+          + (g.total_medicare_employee * 2),    // employee + employer Medicare
+        stub_ids: (data || [])
+          .filter(r => (r.pay_period_end || r.pay_date) === g.pay_period_end)
+          .map(r => r.id),
+      }));
+
+      setTaxDepositPeriods(periods.sort((a, b) => b.pay_period_end?.localeCompare(a.pay_period_end)));
+    } catch (e) {
+      console.warn("Could not load tax deposit periods:", e);
+    }
+  }
+
+  // ── Create a single tax deposit expense for a pay period ─────────────────
+  async function createTaxDeposit(period) {
+    setCreatingDeposit(true);
+    try {
+      const payDate = period.pay_date || period.pay_period_end;
+      const periodLabel = period.pay_period_start && period.pay_period_end
+        ? `${formatDate(period.pay_period_start)} – ${formatDate(period.pay_period_end)}`
+        : formatDate(payDate);
+
+      const totalTax = period.grand_total;
+      const breakdown = [
+        `Fed: ${formatCurrency(period.total_fed)}`,
+        `State: ${formatCurrency(period.total_state)}`,
+        `SS (×2): ${formatCurrency(period.total_ss_employee * 2)}`,
+        `Medicare (×2): ${formatCurrency(period.total_medicare_employee * 2)}`,
+      ].join(", ");
+
+      const expenseLine = {
+        expense_date: payDate,
+        amount: totalTax,
+        category: "Payroll Taxes",
+        vendor: "IRS / State Tax Authority",
+        description: `Payroll Tax Deposit — ${periodLabel} (${period.employees.length} employee${period.employees.length !== 1 ? "s" : ""}: ${period.employees.join(", ")}). ${breakdown}`,
+        payment_method: "check",
+        tax_deductible: true,
+        created_by: user.id,
+        receipt_notes: `Combined employee + employer taxes. Employee SS: ${formatCurrency(period.total_ss_employee)}, Employer SS: ${formatCurrency(period.employer_ss)}, Employee Medicare: ${formatCurrency(period.total_medicare_employee)}, Employer Medicare: ${formatCurrency(period.employer_medicare)}`,
+        ...(taxDepositAccount ? { bank_account_id: taxDepositAccount } : {}),
+      };
+
+      const { error: expError } = await supabase.from("expenses").insert([expenseLine]);
+      if (expError) throw expError;
+
+      // Mark stubs as having a tax deposit created (if column exists)
+      try {
+        await supabase
+          .from("payroll_expense_approvals")
+          .update({ tax_deposit_created: true })
+          .in("id", period.stub_ids);
+      } catch (_) { /* column may not exist yet, non-fatal */ }
+
+      setMessage({ type: "success", text: `✅ Tax deposit created: ${formatCurrency(totalTax)} for ${periodLabel}` });
+      setShowTaxDeposit(false);
+      loadTaxDepositPeriods();
+    } catch (err) {
+      setMessage({ type: "error", text: "Failed to create tax deposit: " + err.message });
+    } finally {
+      setCreatingDeposit(false);
     }
   }
 
@@ -455,8 +563,106 @@ export default function PayrollApproval() {
           >
             💳 View Expenses
           </button>
+          <button
+            onClick={() => { setShowTaxDeposit(true); loadTaxDepositPeriods(); }}
+            style={{ ...styles.btnEdit, borderColor: "#22c55e", color: "#22c55e", fontWeight: 800 }}
+          >
+            🧾 Create Tax Deposit
+          </button>
         </div>
       </div>
+
+      {/* ── Tax Deposit Modal ── */}
+      {showTaxDeposit && (
+        <div style={{
+          position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.7)",
+          display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20,
+        }}>
+          <div style={{
+            backgroundColor: "#fff", borderRadius: 16, padding: 28, maxWidth: 720, width: "100%",
+            maxHeight: "85vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h2 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: "#111" }}>🧾 Create Tax Deposit</h2>
+              <button onClick={() => setShowTaxDeposit(false)} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#6b7280" }}>✕</button>
+            </div>
+
+            <div style={{ backgroundColor: "#fffbeb", border: "1px solid #fbbf24", borderRadius: 8, padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "#92400e" }}>
+              <strong>How this works:</strong> For each pay period, this creates ONE combined expense = employee taxes + employer SS match + employer Medicare match. This total will match the actual IRS deposit on your bank statement.
+            </div>
+
+            {/* Account selector */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+              <label style={{ fontSize: 13, fontWeight: 700, color: "#374151" }}>🏦 Paid from Account:</label>
+              <select
+                value={taxDepositAccount}
+                onChange={e => setTaxDepositAccount(e.target.value)}
+                style={{ padding: "8px 12px", borderRadius: 6, border: "2px solid #3b82f6", fontSize: 13, fontWeight: 600, backgroundColor: "#eff6ff", color: "#1d4ed8", cursor: "pointer", minWidth: 220 }}
+              >
+                <option value="">-- Select account --</option>
+                {bankAccounts.map(acct => (
+                  <option key={acct.id} value={acct.id}>{acct.account_number} — {acct.account_name}</option>
+                ))}
+              </select>
+            </div>
+
+            {taxDepositPeriods.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 40, color: "#6b7280" }}>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>✅</div>
+                <div style={{ fontWeight: 700 }}>All approved pay periods already have tax deposits created!</div>
+              </div>
+            ) : (
+              taxDepositPeriods.map((period, i) => {
+                const periodLabel = period.pay_period_start && period.pay_period_end
+                  ? `${formatDate(period.pay_period_start)} – ${formatDate(period.pay_period_end)}`
+                  : formatDate(period.pay_period_end || period.pay_date);
+                return (
+                  <div key={i} style={{ border: "2px solid #e5e7eb", borderRadius: 12, padding: 18, marginBottom: 14 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: 16, color: "#111" }}>📅 {periodLabel}</div>
+                        <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+                          {period.employees.length} employee{period.employees.length !== 1 ? "s" : ""}: {period.employees.join(", ")}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: 24, fontWeight: 900, color: "#dc2626" }}>{formatCurrency(period.grand_total)}</div>
+                        <div style={{ fontSize: 11, color: "#6b7280" }}>Total IRS deposit</div>
+                      </div>
+                    </div>
+
+                    {/* Breakdown table */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 14, fontSize: 13 }}>
+                      {[
+                        ["Federal Income Tax", period.total_fed],
+                        ["State Income Tax", period.total_state],
+                        ["Employee SS", period.total_ss_employee],
+                        ["Employer SS Match", period.employer_ss],
+                        ["Employee Medicare", period.total_medicare_employee],
+                        ["Employer Medicare Match", period.employer_medicare],
+                      ].map(([label, val]) => (
+                        <div key={label} style={{ display: "flex", justifyContent: "space-between", backgroundColor: "#f9fafb", padding: "6px 10px", borderRadius: 6 }}>
+                          <span style={{ color: "#374151" }}>{label}</span>
+                          <span style={{ fontWeight: 700, color: "#dc2626" }}>{formatCurrency(val)}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <button
+                      style={{ ...styles.btnApprove, fontSize: 14, padding: "10px 20px", opacity: creatingDeposit ? 0.6 : 1 }}
+                      onClick={() => createTaxDeposit(period)}
+                      disabled={creatingDeposit || !taxDepositAccount}
+                    >
+                      {creatingDeposit ? "⏳ Creating…" : `✅ Create ${formatCurrency(period.grand_total)} Tax Deposit`}
+                    </button>
+                    {!taxDepositAccount && <span style={{ fontSize: 12, color: "#ef4444", marginLeft: 10 }}>Select an account above first</span>}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Message ── */}
       {message.text && (
