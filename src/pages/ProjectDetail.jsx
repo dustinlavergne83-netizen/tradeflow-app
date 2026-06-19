@@ -133,6 +133,9 @@ export default function ProjectDetail() {
   const [attachInvoiceSearch, setAttachInvoiceSearch] = useState('');
   const [attachingInvoice, setAttachingInvoice] = useState(false);
   const [showInvoiceTypeModal, setShowInvoiceTypeModal] = useState(false);
+  const [showLinkEstimateModal, setShowLinkEstimateModal] = useState(false);
+  const [invoiceTypeForLink, setInvoiceTypeForLink] = useState(null); // 'regular' or 'progress'
+  const [selectedLinkItem, setSelectedLinkItem] = useState(null); // {type:'estimate'|'proposal', item}
   const [showApplyDepositsModal, setShowApplyDepositsModal] = useState(false);
   const [pendingInvoiceForDeposit, setPendingInvoiceForDeposit] = useState(null);
   const [editingBudget, setEditingBudget] = useState(false);
@@ -4179,62 +4182,42 @@ async function handleAddContractor() {
             <p style={{fontSize: 14, color: '#666', marginBottom: 24}}>What type of invoice do you want to create?</p>
             
             <div style={{display: 'flex', flexDirection: 'column', gap: 16}}>
+              {/* Regular Invoice */}
               <button
                 onClick={() => {
                   setShowInvoiceTypeModal(false);
-                  handleCreateInvoice();
+                  setInvoiceTypeForLink('regular');
+                  setSelectedLinkItem(null);
+                  setShowLinkEstimateModal(true);
                 }}
                 style={{padding: 20, backgroundColor: '#f9fafb', border: '2px solid #e5e7eb', borderRadius: 12, cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s'}}
                 onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.backgroundColor = '#e0f2fe'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e5e7eb'; e.currentTarget.style.backgroundColor = '#f9fafb'; }}
               >
                 <div style={{fontSize: 18, fontWeight: 'bold', color: '#111', marginBottom: 4}}>📋 Regular Invoice</div>
-                <div style={{fontSize: 13, color: '#666'}}>Create a blank invoice and add line items manually</div>
+                <div style={{fontSize: 13, color: '#666'}}>Create an invoice — optionally linked to an existing estimate or proposal</div>
               </button>
 
+              {/* Progress Invoice */}
               <button
-                onClick={async () => {
+                onClick={() => {
                   setShowInvoiceTypeModal(false);
-                  // Look up customer name and email from project
-                  const customerName = project.contractor || project.customer || "";
-                  let customerEmail = "";
-                  if (customerName) {
-                    const { data: customerData } = await supabase
-                      .from('customers')
-                      .select('email')
-                      .ilike('customer', customerName)
-                      .limit(1);
-                    if (customerData?.[0]?.email) customerEmail = customerData[0].email;
-                  }
-                  const params = new URLSearchParams();
-                  params.set('projectId', id);
-                  params.set('projectName', project.name);
-                  if (customerName) params.set('customerName', customerName);
-                  if (customerEmail) params.set('customerEmail', customerEmail);
-
-                  // Check for unapplied deposits — if any exist, show deposit modal first
-                  const availableDeposits = deposits.filter(d => d.status === 'received' || d.status === 'deposited');
-                  if (availableDeposits.length > 0) {
-                    // Pass deposit IDs as URL param so QuickInvoice can apply them on save
-                    params.set('depositIds', availableDeposits.map(d => d.id).join(','));
-                    const totalDeposit = availableDeposits.reduce((s, d) => s + (d.deposit_amount || 0), 0);
-                    params.set('depositTotal', totalDeposit.toFixed(2));
-                  }
-
-                  navigate(`/invoice/quick?${params.toString()}`);
+                  setInvoiceTypeForLink('progress');
+                  setSelectedLinkItem(null);
+                  setShowLinkEstimateModal(true);
                 }}
                 style={{padding: 20, backgroundColor: '#f9fafb', border: '2px solid #e5e7eb', borderRadius: 12, cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s'}}
                 onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#8b5cf6'; e.currentTarget.style.backgroundColor = '#f5f3ff'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e5e7eb'; e.currentTarget.style.backgroundColor = '#f9fafb'; }}
               >
-                <div style={{fontSize: 18, fontWeight: 'bold', color: '#111', marginBottom: 4}}>⚡ Quick Invoice</div>
-                <div style={{fontSize: 13, color: '#666'}}>Simple invoice with custom line items — customer name &amp; email auto-filled from project</div>
+                <div style={{fontSize: 18, fontWeight: 'bold', color: '#111', marginBottom: 4}}>📊 Progress Invoice</div>
+                <div style={{fontSize: 13, color: '#666'}}>Bill a percentage of the contract — links to a proposal for AIA-style billing</div>
               </button>
 
+              {/* T&M Invoice */}
               <button
                 onClick={() => {
                   setShowInvoiceTypeModal(false);
-                  // Check for unapplied deposits before navigating to T&M invoice
                   const availableDeposits = deposits.filter(d => d.status === 'received' || d.status === 'deposited');
                   if (availableDeposits.length > 0) {
                     setPendingInvoiceForDeposit({ id: null, invoice_number: 'T&M', tmProjectId: id });
@@ -4255,6 +4238,110 @@ async function handleAddContractor() {
 
             <div style={{...styles.modalActions, marginTop: 24}}>
               <button onClick={() => setShowInvoiceTypeModal(false)} style={styles.cancelButton}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Link to Estimate / Proposal Sub-Modal */}
+      {showLinkEstimateModal && (
+        <div style={styles.modalOverlay} onClick={() => setShowLinkEstimateModal(false)}>
+          <div style={{...styles.modal, maxWidth: 600}} onClick={(e) => e.stopPropagation()}>
+            <h2 style={styles.modalTitle}>
+              {invoiceTypeForLink === 'progress' ? '📊 Link to Estimate or Proposal' : '📋 Link to Estimate or Proposal'}
+            </h2>
+            <p style={{fontSize: 14, color: '#666', marginBottom: 20}}>
+              {invoiceTypeForLink === 'progress'
+                ? 'Select a proposal to use for progress billing, or skip to go to the progress billing page directly.'
+                : 'Select an estimate or proposal to link to this invoice, or skip to create a blank invoice.'}
+            </p>
+
+            {/* Estimates section */}
+            {estimates.filter(e => !e.parent_estimate_id).length > 0 && (
+              <>
+                <div style={{fontSize: 13, fontWeight: '700', color: '#555', textTransform: 'uppercase', marginBottom: 8, letterSpacing: 1}}>Estimates</div>
+                <div style={{display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16}}>
+                  {estimates.filter(e => !e.parent_estimate_id).map(est => (
+                    <div
+                      key={est.id}
+                      onClick={() => setSelectedLinkItem({ type: 'estimate', item: est })}
+                      style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '12px 16px', borderRadius: 8, cursor: 'pointer',
+                        border: selectedLinkItem?.item?.id === est.id ? '2px solid #3b82f6' : '2px solid #e5e7eb',
+                        backgroundColor: selectedLinkItem?.item?.id === est.id ? '#e0f2fe' : '#f9fafb',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      <div>
+                        <div style={{fontWeight: '700', fontSize: 14, color: '#111'}}>Estimate #{est.estimate_number}</div>
+                        <div style={{fontSize: 12, color: '#888'}}>{est.estimate_date} · {est.status}</div>
+                      </div>
+                      <div style={{fontWeight: '700', color: '#fc6b04'}}>${(est.total || 0).toFixed(2)}</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* Proposals section */}
+            {Object.values(proposals).flat().length > 0 && (
+              <>
+                <div style={{fontSize: 13, fontWeight: '700', color: '#555', textTransform: 'uppercase', marginBottom: 8, letterSpacing: 1}}>Proposals</div>
+                <div style={{display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16, maxHeight: 240, overflowY: 'auto'}}>
+                  {Object.values(proposals).flat().map(prop => (
+                    <div
+                      key={prop.id}
+                      onClick={() => setSelectedLinkItem({ type: 'proposal', item: prop })}
+                      style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '12px 16px', borderRadius: 8, cursor: 'pointer',
+                        border: selectedLinkItem?.item?.id === prop.id ? '2px solid #8b5cf6' : '2px solid #e5e7eb',
+                        backgroundColor: selectedLinkItem?.item?.id === prop.id ? '#f5f3ff' : '#f9fafb',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      <div>
+                        <div style={{fontWeight: '700', fontSize: 14, color: '#111'}}>{prop.contractor_name || 'No Contractor'}</div>
+                        <div style={{fontSize: 12, color: '#888'}}>{prop.contractor_email || 'No email'} · {prop.status}</div>
+                      </div>
+                      <div style={{fontWeight: '700', color: '#8b5cf6'}}>${(prop.total_amount || 0).toFixed(2)}</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {estimates.filter(e => !e.parent_estimate_id).length === 0 && Object.values(proposals).flat().length === 0 && (
+              <div style={{padding: 24, textAlign: 'center', color: '#999', fontSize: 14, border: '2px dashed #e5e7eb', borderRadius: 8, marginBottom: 20}}>
+                No estimates or proposals found for this project yet.
+              </div>
+            )}
+
+            <div style={{display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 8}}>
+              <button onClick={() => setShowLinkEstimateModal(false)} style={styles.cancelButton}>Cancel</button>
+              <button
+                onClick={() => {
+                  setShowLinkEstimateModal(false);
+                  if (invoiceTypeForLink === 'progress') {
+                    if (selectedLinkItem?.type === 'proposal') {
+                      navigate(`/project/${id}/progress-billing?proposalId=${selectedLinkItem.item.id}`);
+                    } else if (selectedLinkItem?.type === 'estimate') {
+                      navigate(`/project/${id}/progress-billing?estimateId=${selectedLinkItem.item.id}`);
+                    } else {
+                      navigate(`/project/${id}/progress-billing`);
+                    }
+                  } else {
+                    // Regular invoice — create it and optionally pass estimate/proposal ID
+                    const estId = selectedLinkItem?.type === 'estimate' ? selectedLinkItem.item.id : null;
+                    const propId = selectedLinkItem?.type === 'proposal' ? selectedLinkItem.item.id : null;
+                    handleCreateInvoice(null, estId, propId);
+                  }
+                }}
+                style={styles.submitButton}
+              >
+                {selectedLinkItem ? '✓ Continue with Selected' : 'Skip — No Link'}
+              </button>
             </div>
           </div>
         </div>
