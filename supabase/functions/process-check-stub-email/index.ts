@@ -41,6 +41,9 @@ Deno.serve(async (req) => {
     let subject = "";
     let filename = "paystubs.pdf";
     let pdfBytes: Uint8Array;
+    // Set to true for direct uploads (email-inbox, manual-upload, smartvault)
+    // so we don't send a result email — user reviews on the Payroll Approval page instead.
+    let skipResultEmail = false;
 
     // ── 1a. Mailgun inbound (multipart/form-data) ────────────────────────────
     if (contentType.includes("multipart/form-data")) {
@@ -91,11 +94,12 @@ Deno.serve(async (req) => {
     } else {
       const body = await req.json();
 
-      // Direct upload from Email Inbox (source: 'email-inbox' or 'email-inbox-batch')
+      // Direct upload from Email Inbox, manual upload, or SmartVault
       if (body.source?.startsWith("email-inbox") && body.contentBase64) {
         from = body.from ?? "admin-upload";
         subject = body.subject ?? "";
         filename = body.filename ?? "paystubs.pdf";
+        skipResultEmail = true; // review on Payroll Approval page, no email needed
         console.log("Email Inbox upload from:", from, "filename:", filename);
         pdfBytes = base64ToUint8Array(body.contentBase64);
 
@@ -122,6 +126,16 @@ Deno.serve(async (req) => {
         }
         filename = pdfAtt.Name ?? "paystubs.pdf";
         pdfBytes = base64ToUint8Array(pdfAtt.Content ?? "");
+
+      // SmartVault / manual upload
+      } else if (body.source === "smartvault" || body.source === "manual-upload") {
+        from = body.from ?? "admin-upload";
+        subject = body.subject ?? "";
+        filename = body.filename ?? "paystubs.pdf";
+        skipResultEmail = true; // review on Payroll Approval page, no email needed
+        console.log("Direct upload source:", body.source, "filename:", filename);
+        const b64 = body.contentBase64 ?? body.file_content ?? body.content ?? "";
+        pdfBytes = base64ToUint8Array(b64);
 
       // Resend
       } else {
@@ -317,7 +331,13 @@ Deno.serve(async (req) => {
     }
 
     // ── 5. Send result summary email back to CPA ──────────────────────────────
-    await sendResultEmail(from, results, null, supabase);
+    // Only for actual email submissions (Mailgun/Postmark/Resend).
+    // For direct uploads, the user reviews on the Payroll Approval page.
+    if (!skipResultEmail) {
+      await sendResultEmail(from, results, null, supabase);
+    } else {
+      console.log("Skipping result email — direct upload, review via Payroll Approval page.");
+    }
 
     const successCount = results.filter((r) => r.success).length;
     console.log(`\nDone: ${successCount}/${totalPages} pages processed`);
