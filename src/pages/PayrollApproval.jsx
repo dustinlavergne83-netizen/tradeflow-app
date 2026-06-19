@@ -36,13 +36,31 @@ export default function PayrollApproval() {
   const [activeTab, setActiveTab] = useState("pending");
   const [stubUrl, setStubUrl] = useState({}); // { [id]: signedUrl }
   const [expenseAccounts, setExpenseAccounts] = useState([]); // COA expense accounts
+  const [bankAccounts, setBankAccounts] = useState([]); // Asset/bank accounts for clearing
+  const [selectedBankAccount, setSelectedBankAccount] = useState({}); // { [recordId]: accountId }
+  const DEFAULT_CLEARING_ID = "173f2138-a0de-42b9-8693-05689f6d0d2d"; // 1011 Clearing Account
 
   useEffect(() => {
     if (user?.id) {
       loadRecords();
       loadExpenseAccounts();
+      loadBankAccounts();
     }
   }, [user?.id, activeTab]);
+
+  async function loadBankAccounts() {
+    try {
+      const { data, error } = await supabase
+        .from("accounts")
+        .select("id, account_number, account_name")
+        .eq("account_type", "Asset")
+        .eq("is_active", true)
+        .order("account_number");
+      if (!error) setBankAccounts(data || []);
+    } catch (e) {
+      console.warn("Could not load bank accounts:", e);
+    }
+  }
 
   async function loadExpenseAccounts() {
     try {
@@ -175,6 +193,9 @@ export default function PayrollApproval() {
       const taxAccount     = findAccount("6100") || findAccount("Payroll Tax");
       const garnishAccount = findAccount("6150") || findAccount("Wage Garnishment");
 
+      // Selected clearing/bank account for this record
+      const clearingAccountId = (selectedBankAccount[record.id] ?? DEFAULT_CLEARING_ID) || undefined;
+
       // Build the expense line items to insert
       const expenseLines = [];
 
@@ -189,6 +210,7 @@ export default function PayrollApproval() {
           tax_deductible: true,
           created_by: user.id,
           receipt_notes: stubNote,
+          ...(clearingAccountId ? { bank_account_id: clearingAccountId } : {}),
         });
       }
 
@@ -211,6 +233,7 @@ export default function PayrollApproval() {
             tax_deductible: true,
             created_by: user.id,
             receipt_notes: stubNote,
+            ...(clearingAccountId ? { bank_account_id: clearingAccountId } : {}),
           });
         }
       }
@@ -226,6 +249,7 @@ export default function PayrollApproval() {
           tax_deductible: false,
           created_by: user.id,
           receipt_notes: stubNote,
+          ...(clearingAccountId ? { bank_account_id: clearingAccountId } : {}),
         });
       }
 
@@ -240,6 +264,7 @@ export default function PayrollApproval() {
           tax_deductible: false,
           created_by: user.id,
           receipt_notes: stubNote,
+          ...(clearingAccountId ? { bank_account_id: clearingAccountId } : {}),
         });
       }
 
@@ -616,6 +641,29 @@ export default function PayrollApproval() {
                   {parseFloat(record.social_security) > 0 && <span>, FICA ({formatCurrency(record.social_security)})</span>}
                   {parseFloat(record.medicare) > 0 && <span>, Medicare ({formatCurrency(record.medicare)})</span>}
                   {parseFloat(record.garnishments) > 0 && <span>, Garnishment ({formatCurrency(record.garnishments)})</span>}
+                </div>
+
+                {/* Clearing account selector */}
+                <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <label style={{ fontSize: 13, fontWeight: 700, color: "#374151" }}>
+                    🏦 Clear from Account:
+                  </label>
+                  <select
+                    value={selectedBankAccount[record.id] ?? DEFAULT_CLEARING_ID}
+                    onChange={e => setSelectedBankAccount(prev => ({ ...prev, [record.id]: e.target.value }))}
+                    style={{
+                      padding: "8px 12px", borderRadius: 6, border: "2px solid #3b82f6",
+                      fontSize: 13, fontWeight: 600, backgroundColor: "#eff6ff", color: "#1d4ed8",
+                      cursor: "pointer", minWidth: 220,
+                    }}
+                  >
+                    <option value="">-- Select account --</option>
+                    {bankAccounts.map(acct => (
+                      <option key={acct.id} value={acct.id}>
+                        {acct.account_number} — {acct.account_name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div style={styles.actionsRow}>
