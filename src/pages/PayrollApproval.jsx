@@ -79,7 +79,6 @@ export default function PayrollApproval() {
           employees:employee_id (id, first_name, last_name, email),
           check_stubs:check_stub_id (id, file_path, file_name)
         `)
-        .eq("created_by", user.id)
         .eq("status", activeTab)
         .order("created_at", { ascending: false })
         .limit(100);
