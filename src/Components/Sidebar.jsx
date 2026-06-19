@@ -45,12 +45,25 @@ export default function Sidebar({ onNavigate }) {
       <NavLink to="/vendors" style={linkStyle} onClick={() => onNavigate?.()}>
         Vendors
       </NavLink>
-      <NavLink to="/employees" style={linkStyle} onClick={() => onNavigate?.()}>
-        Employees
-      </NavLink>
-      <NavLink to="/timeclock" style={linkStyle} onClick={() => onNavigate?.()}>
-        Time Clock
-      </NavLink>
+      {/* ── Payroll & Employees section ─────────────────────────────────── */}
+      <div style={{ marginTop: 10, marginBottom: 4 }}>
+        <div style={{ color: "rgba(255,255,255,0.45)", fontSize: 10, fontWeight: 800, letterSpacing: 1.2, textTransform: "uppercase", padding: "0 14px 4px" }}>
+          Payroll
+        </div>
+        <NavLink to="/employees" style={linkStyle} onClick={() => onNavigate?.()}>
+          👤 Employees
+        </NavLink>
+        <NavLink to="/timeclock" style={linkStyle} onClick={() => onNavigate?.()}>
+          🕐 Time Clock
+        </NavLink>
+        <NavLink to="/payroll-approval" style={linkStyle} onClick={() => onNavigate?.()}>
+          💰 Payroll Approval
+        </NavLink>
+        <NavLink to="/payroll-upload" style={linkStyle} onClick={() => onNavigate?.()}>
+          📤 Upload Stubs
+        </NavLink>
+      </div>
+
       <NavLink to="/company-locations" style={linkStyle} onClick={() => onNavigate?.()}>
         🏢 Company Locations
       </NavLink>
