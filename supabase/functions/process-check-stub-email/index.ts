@@ -204,7 +204,7 @@ Deno.serve(async (req) => {
     console.log("Loaded", employees?.length ?? 0, "employees");
 
     // ── 3. Load pdf-lib and split into individual pages ───────────────────────
-    const { PDFDocument } = await import("https://cdn.skypack.dev/pdf-lib@1.17.1");
+    const { PDFDocument } = await import("https://esm.sh/pdf-lib@1.17.1");
     const fullPdf = await PDFDocument.load(pdfBytes!);
     const totalPages = fullPdf.getPageCount();
     console.log("PDF pages:", totalPages);
