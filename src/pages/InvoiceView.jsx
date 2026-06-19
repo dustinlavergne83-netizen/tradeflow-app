@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-import logoImage from "../assets/LOGOD.jpg";
+// Logo served from /public so it's always available at a stable URL in production
+const logoImage = "/LOGOD.jpg";
 
 const ACCENT = "#fc6b04";
 const GREEN = "#16a34a";
