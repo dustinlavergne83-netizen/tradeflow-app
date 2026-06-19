@@ -12,6 +12,12 @@ export default function EstimatesList() {
   const [filterType, setFilterType] = useState("all"); // "all", "estimates", "proposals"
   const [viewModalEstimate, setViewModalEstimate] = useState(null); // estimate to view
 
+  // ── Date range filter state ──────────────────────────────────────────────────
+  const [datePreset, setDatePreset] = useState('ytd');
+  const [dateYear, setDateYear] = useState(new Date().getFullYear());
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+
   useEffect(() => {
     loadEstimates();
   }, [user]);
@@ -180,7 +186,69 @@ export default function EstimatesList() {
     }
   }
 
-  const filteredEstimates = estimates.filter(est => {
+  // ── Date range helper ────────────────────────────────────────────────────────
+  const getDateRange = () => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const pad = (n) => String(n).padStart(2, '0');
+    if (datePreset === 'ytd') return { from: `${y}-01-01`, to: null };
+    if (datePreset === 'thisMonth') {
+      const m = pad(now.getMonth() + 1);
+      return { from: `${y}-${m}-01`, to: null };
+    }
+    if (datePreset === 'lastMonth') {
+      const last = new Date(y, now.getMonth(), 0);
+      const lm = pad(last.getMonth() + 1);
+      const ly = last.getFullYear();
+      return { from: `${ly}-${lm}-01`, to: `${ly}-${lm}-${pad(last.getDate())}` };
+    }
+    if (datePreset === 'year') return { from: `${dateYear}-01-01`, to: `${dateYear}-12-31` };
+    if (datePreset === 'all') return { from: null, to: null };
+    return { from: customFrom || null, to: customTo || null };
+  };
+
+  const dateRange = getDateRange();
+
+  // ── Period label for stat cards ──────────────────────────────────────────────
+  const periodLabel = (() => {
+    const now = new Date();
+    if (datePreset === 'ytd') return `YTD ${now.getFullYear()}`;
+    if (datePreset === 'thisMonth') return now.toLocaleString('default', { month: 'long', year: 'numeric' });
+    if (datePreset === 'lastMonth') {
+      const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      return d.toLocaleString('default', { month: 'long', year: 'numeric' });
+    }
+    if (datePreset === 'year') return String(dateYear);
+    if (datePreset === 'all') return 'All Time';
+    return (customFrom || customTo) ? `${customFrom || '...'} → ${customTo || '...'}` : 'Custom';
+  })();
+
+  // ── Get the effective date for an estimate record ────────────────────────────
+  const getRecordDate = (est) => {
+    const d = est.estimate_date || est.created_at;
+    return d ? d.split('T')[0] : null;
+  };
+
+  // ── Date-filtered estimates ──────────────────────────────────────────────────
+  const dateFilteredEstimates = estimates.filter(est => {
+    const d = getRecordDate(est);
+    if (!d) return true;
+    if (dateRange.from && d < dateRange.from) return false;
+    if (dateRange.to && d > dateRange.to) return false;
+    return true;
+  });
+
+  // ── Stats from date-filtered estimates ───────────────────────────────────────
+  const stats = {
+    total: dateFilteredEstimates.length,
+    totalValue: dateFilteredEstimates.reduce((sum, e) => sum + (Number(e.total) || 0), 0),
+    estimates: dateFilteredEstimates.filter(e => e.type === 'quick_estimate').length,
+    proposals: dateFilteredEstimates.filter(e => e.type === 'proposal').length,
+    changeOrders: dateFilteredEstimates.filter(e => e.type === 'change_order').length,
+  };
+
+  // ── Final filtered list (type + search + date) ───────────────────────────────
+  const filteredEstimates = dateFilteredEstimates.filter(est => {
     // Filter by type first
     if (filterType === "estimates" && est.type === "proposal") return false;
     if (filterType === "proposals" && est.type !== "proposal") return false;
@@ -197,7 +265,7 @@ export default function EstimatesList() {
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
-    const date = new Date(dateString);
+    const date = new Date(dateString.includes('T') ? dateString : dateString + 'T00:00:00');
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     const year = date.getFullYear();
@@ -237,6 +305,79 @@ export default function EstimatesList() {
         </div>
       </div>
 
+      {/* ── Date Range Filter Bar ─────────────────────────────────────────────── */}
+      {(() => {
+        const curYear = new Date().getFullYear();
+        const years = [curYear - 2, curYear - 1, curYear, curYear + 1].filter(y => y >= 2023);
+        const btnStyle = (active) => ({
+          padding: '7px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
+          fontWeight: 700, fontSize: 13,
+          backgroundColor: active ? '#f97316' : 'rgba(255,255,255,0.15)',
+          color: '#fff', transition: 'background 0.15s',
+        });
+        return (
+          <div style={{
+            display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16,
+            flexWrap: 'wrap', padding: '12px 16px',
+            backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 10
+          }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'rgba(255,255,255,0.7)', marginRight: 4 }}>Period:</span>
+            {[
+              { v: 'ytd', l: '📅 YTD' },
+              { v: 'thisMonth', l: 'This Month' },
+              { v: 'lastMonth', l: 'Last Month' },
+              { v: 'all', l: 'All Time' },
+            ].map(o => (
+              <button key={o.v} onClick={() => setDatePreset(o.v)} style={btnStyle(datePreset === o.v)}>{o.l}</button>
+            ))}
+            <select
+              value={datePreset === 'year' ? dateYear : ''}
+              onChange={e => { if (e.target.value) { setDateYear(parseInt(e.target.value)); setDatePreset('year'); } }}
+              style={{ ...btnStyle(datePreset === 'year'), paddingRight: 6 }}
+            >
+              <option value="">Year ▼</option>
+              {years.map(y => <option key={y} value={y} style={{ color: '#111' }}>{y}</option>)}
+            </select>
+            <span style={{ color: 'rgba(255,255,255,0.4)', margin: '0 4px' }}>|</span>
+            <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>Custom:</span>
+            <input type="date" value={customFrom}
+              onChange={e => { setCustomFrom(e.target.value); setDatePreset('custom'); }}
+              style={{ padding: '6px 8px', borderRadius: 6, border: 'none', fontSize: 13, backgroundColor: 'rgba(255,255,255,0.15)', color: '#fff' }} />
+            <span style={{ color: '#fff' }}>—</span>
+            <input type="date" value={customTo}
+              onChange={e => { setCustomTo(e.target.value); setDatePreset('custom'); }}
+              style={{ padding: '6px 8px', borderRadius: 6, border: 'none', fontSize: 13, backgroundColor: 'rgba(255,255,255,0.15)', color: '#fff' }} />
+            <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 700, color: 'rgba(255,255,255,0.55)' }}>
+              Showing: {periodLabel}
+            </span>
+          </div>
+        );
+      })()}
+
+      {/* ── Stats Cards ──────────────────────────────────────────────────────── */}
+      <div style={styles.statsContainer}>
+        <div style={styles.statCard}>
+          <div style={styles.statValue}>{stats.total}</div>
+          <div style={styles.statLabel}>Total · {periodLabel}</div>
+        </div>
+        <div style={styles.statCard}>
+          <div style={{...styles.statValue, color: '#fc6b04'}}>{formatCurrency(stats.totalValue)}</div>
+          <div style={styles.statLabel}>Total Value · {periodLabel}</div>
+        </div>
+        <div style={styles.statCard}>
+          <div style={{...styles.statValue, color: '#3b82f6'}}>{stats.estimates}</div>
+          <div style={styles.statLabel}>Estimates · {periodLabel}</div>
+        </div>
+        <div style={styles.statCard}>
+          <div style={{...styles.statValue, color: '#10b981'}}>{stats.proposals}</div>
+          <div style={styles.statLabel}>Proposals · {periodLabel}</div>
+        </div>
+        <div style={styles.statCard}>
+          <div style={{...styles.statValue, color: '#f59e0b'}}>{stats.changeOrders}</div>
+          <div style={styles.statLabel}>Change Orders · {periodLabel}</div>
+        </div>
+      </div>
+
       <div style={styles.searchBar}>
         <input
           type="text"
@@ -257,7 +398,7 @@ export default function EstimatesList() {
               ...(filterType === "all" ? styles.activeFilterButton : {})
             }}
           >
-            All ({estimates.length})
+            All ({dateFilteredEstimates.length})
           </button>
           <button
             onClick={() => setFilterType("estimates")}
@@ -266,7 +407,7 @@ export default function EstimatesList() {
               ...(filterType === "estimates" ? styles.activeFilterButton : {})
             }}
           >
-            📋 Estimates ({estimates.filter(e => e.type !== "proposal").length})
+            📋 Estimates ({dateFilteredEstimates.filter(e => e.type !== "proposal" && e.type !== "change_order").length})
           </button>
           <button
             onClick={() => setFilterType("proposals")}
@@ -275,7 +416,7 @@ export default function EstimatesList() {
               ...(filterType === "proposals" ? styles.activeFilterButton : {})
             }}
           >
-            📄 Proposals ({estimates.filter(e => e.type === "proposal").length})
+            📄 Proposals ({dateFilteredEstimates.filter(e => e.type === "proposal").length})
           </button>
         </div>
       </div>
@@ -283,14 +424,14 @@ export default function EstimatesList() {
       {filteredEstimates.length === 0 ? (
         <div style={styles.empty}>
           <p style={styles.emptyText}>
-            {searchTerm ? "No estimates found matching your search." : "No estimates yet. Create your first estimate!"}
+            {searchTerm ? "No estimates found matching your search." : "No estimates found for the selected period."}
           </p>
           {!searchTerm && (
             <button 
-              onClick={() => navigate('/estimate/new')}
+              onClick={() => setDatePreset('all')}
               style={styles.emptyButton}
             >
-              Create Estimate
+              Show All Time
             </button>
           )}
         </div>
@@ -450,6 +591,7 @@ export default function EstimatesList() {
       <div style={styles.footer}>
         <p style={styles.footerText}>
           Showing {filteredEstimates.length} of {estimates.length} estimate{estimates.length !== 1 ? 's' : ''}
+          {datePreset !== 'all' && ` · ${periodLabel}`}
         </p>
       </div>
 
@@ -559,8 +701,37 @@ const styles = {
     cursor: "pointer",
     boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
   },
+  // ── Stats ──────────────────────────────────────────────────────────────────
+  statsContainer: {
+    display: "grid",
+    gridTemplateColumns: "repeat(5, 1fr)",
+    gap: 16,
+    marginBottom: 24,
+  },
+  statCard: {
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 12,
+    padding: "18px 16px",
+    textAlign: "center",
+    backdropFilter: "blur(4px)",
+    border: "1px solid rgba(255,255,255,0.15)",
+  },
+  statValue: {
+    fontSize: 26,
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.6)",
+    fontWeight: 600,
+    textTransform: "uppercase",
+    letterSpacing: "0.5px",
+  },
+  // ──────────────────────────────────────────────────────────────────────────
   searchBar: {
-    marginBottom: 30,
+    marginBottom: 20,
   },
   searchInput: {
     width: "100%",
@@ -571,6 +742,7 @@ const styles = {
     outline: "none",
     backgroundColor: "#fff",
     color: "#111",
+    boxSizing: "border-box",
   },
   tableContainer: {
     backgroundColor: "#fff",
@@ -704,7 +876,7 @@ const styles = {
     textAlign: "center",
   },
   footerText: {
-    color: "#666",
+    color: "rgba(255,255,255,0.6)",
     fontSize: 14,
   },
   loading: {
