@@ -69,9 +69,8 @@ export default function PayrollApproval() {
     try {
       const { data, error } = await supabase
         .from("payroll_expense_approvals")
-        .select("id, employee_name, pay_period_start, pay_period_end, pay_date, federal_tax, state_tax, social_security, medicare, gross_wages, net_pay, tax_deposit_created")
+        .select("id, employee_name, pay_period_start, pay_period_end, pay_date, federal_tax, state_tax, social_security, medicare, gross_wages, net_pay")
         .eq("status", "approved")
-        .or("tax_deposit_created.is.null,tax_deposit_created.eq.false")
         .order("pay_period_end", { ascending: false });
       if (error) throw error;
 
