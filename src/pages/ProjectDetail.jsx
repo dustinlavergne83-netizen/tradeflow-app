@@ -136,6 +136,10 @@ export default function ProjectDetail() {
   const [showLinkEstimateModal, setShowLinkEstimateModal] = useState(false);
   const [invoiceTypeForLink, setInvoiceTypeForLink] = useState(null); // 'regular' or 'progress'
   const [selectedLinkItem, setSelectedLinkItem] = useState(null); // {type:'estimate'|'proposal', item}
+  const [showLineItemSelectModal, setShowLineItemSelectModal] = useState(false);
+  const [estimateLineItems, setEstimateLineItems] = useState([]);
+  const [selectedLineItemIds, setSelectedLineItemIds] = useState(new Set());
+  const [creatingLinkedInvoice, setCreatingLinkedInvoice] = useState(false);
   const [showApplyDepositsModal, setShowApplyDepositsModal] = useState(false);
   const [pendingInvoiceForDeposit, setPendingInvoiceForDeposit] = useState(null);
   const [editingBudget, setEditingBudget] = useState(false);
@@ -4321,7 +4325,7 @@ async function handleAddContractor() {
             <div style={{display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 8}}>
               <button onClick={() => setShowLinkEstimateModal(false)} style={styles.cancelButton}>Cancel</button>
               <button
-                onClick={() => {
+                onClick={async () => {
                   setShowLinkEstimateModal(false);
                   if (invoiceTypeForLink === 'progress') {
                     if (selectedLinkItem?.type === 'proposal') {
@@ -4331,16 +4335,196 @@ async function handleAddContractor() {
                     } else {
                       navigate(`/project/${id}/progress-billing`);
                     }
+                  } else if (selectedLinkItem) {
+                    // Load estimate line items for selection
+                    const estId = selectedLinkItem.type === 'estimate'
+                      ? selectedLinkItem.item.id
+                      : selectedLinkItem.item.base_estimate_id;
+                    if (estId) {
+                      const { data: items } = await supabase
+                        .from('estimate_items')
+                        .select('*')
+                        .eq('estimate_id', estId)
+                        .order('sequence');
+                      const validItems = (items || []).filter(i => i.description && (i.line_total || 0) > 0);
+                      if (validItems.length > 0) {
+                        setEstimateLineItems(validItems);
+                        // Select all by default
+                        setSelectedLineItemIds(new Set(validItems.map(i => i.id)));
+                        setShowLineItemSelectModal(true);
+                      } else {
+                        // No line items found, just create a blank invoice
+                        handleCreateInvoice();
+                      }
+                    } else {
+                      handleCreateInvoice();
+                    }
                   } else {
-                    // Regular invoice — create it and optionally pass estimate/proposal ID
-                    const estId = selectedLinkItem?.type === 'estimate' ? selectedLinkItem.item.id : null;
-                    const propId = selectedLinkItem?.type === 'proposal' ? selectedLinkItem.item.id : null;
-                    handleCreateInvoice(null, estId, propId);
+                    // No link selected — create blank invoice
+                    handleCreateInvoice();
                   }
                 }}
                 style={styles.submitButton}
               >
                 {selectedLinkItem ? '✓ Continue with Selected' : 'Skip — No Link'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Line Item Selection Modal — pick which estimate items to invoice */}
+      {showLineItemSelectModal && (
+        <div style={styles.modalOverlay} onClick={() => setShowLineItemSelectModal(false)}>
+          <div style={{...styles.modal, maxWidth: 660, maxHeight: '90vh', overflowY: 'auto'}} onClick={(e) => e.stopPropagation()}>
+            <h2 style={styles.modalTitle}>📋 Select Line Items to Invoice</h2>
+            <p style={{fontSize: 14, color: '#666', marginBottom: 16}}>
+              All items are pre-selected. Uncheck any you don&apos;t want to include in this invoice.
+            </p>
+
+            {/* Select All / None */}
+            <div style={{display: 'flex', gap: 10, marginBottom: 16}}>
+              <button
+                onClick={() => setSelectedLineItemIds(new Set(estimateLineItems.map(i => i.id)))}
+                style={{padding: '5px 14px', borderRadius: 6, border: '1px solid #93c5fd', backgroundColor: '#e0f2fe', color: '#0369a1', fontWeight: 700, fontSize: 12, cursor: 'pointer'}}
+              >✓ Select All</button>
+              <button
+                onClick={() => setSelectedLineItemIds(new Set())}
+                style={{padding: '5px 14px', borderRadius: 6, border: '1px solid #d1d5db', backgroundColor: '#f3f4f6', color: '#374151', fontWeight: 700, fontSize: 12, cursor: 'pointer'}}
+              >✕ Clear All</button>
+              <span style={{fontSize: 13, color: '#888', alignSelf: 'center', marginLeft: 4}}>
+                {selectedLineItemIds.size} of {estimateLineItems.length} selected
+              </span>
+            </div>
+
+            {/* Line Items List */}
+            <div style={{display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20, maxHeight: 380, overflowY: 'auto'}}>
+              {estimateLineItems.map((item) => {
+                const checked = selectedLineItemIds.has(item.id);
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => {
+                      const next = new Set(selectedLineItemIds);
+                      if (checked) next.delete(item.id); else next.add(item.id);
+                      setSelectedLineItemIds(next);
+                    }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 12,
+                      padding: '12px 14px', borderRadius: 8, cursor: 'pointer',
+                      border: `2px solid ${checked ? '#3b82f6' : '#e5e7eb'}`,
+                      backgroundColor: checked ? '#e0f2fe' : '#f9fafb',
+                      transition: 'all 0.12s',
+                    }}
+                  >
+                    <div style={{
+                      width: 22, height: 22, borderRadius: 4, flexShrink: 0,
+                      border: `2px solid ${checked ? '#3b82f6' : '#d1d5db'}`,
+                      backgroundColor: checked ? '#3b82f6' : '#fff',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      {checked && <span style={{color: '#fff', fontSize: 14, fontWeight: 800}}>✓</span>}
+                    </div>
+                    <div style={{flex: 1}}>
+                      <div style={{fontSize: 14, fontWeight: '600', color: '#111'}}>{item.description}</div>
+                      {item.quantity && item.quantity !== 1 && (
+                        <div style={{fontSize: 12, color: '#888', marginTop: 2}}>Qty: {item.quantity}</div>
+                      )}
+                    </div>
+                    <div style={{fontSize: 15, fontWeight: '700', color: '#fc6b04', whiteSpace: 'nowrap'}}>
+                      ${(item.line_total || 0).toFixed(2)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Total of selected */}
+            {selectedLineItemIds.size > 0 && (
+              <div style={{padding: '12px 16px', backgroundColor: '#f0fdf4', borderRadius: 8, marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                <span style={{fontWeight: '700', color: '#111'}}>Invoice Total ({selectedLineItemIds.size} items):</span>
+                <span style={{fontSize: 20, fontWeight: '700', color: '#fc6b04'}}>
+                  ${estimateLineItems.filter(i => selectedLineItemIds.has(i.id)).reduce((s, i) => s + (i.line_total || 0), 0).toFixed(2)}
+                </span>
+              </div>
+            )}
+
+            <div style={{display: 'flex', gap: 12, justifyContent: 'flex-end'}}>
+              <button onClick={() => setShowLineItemSelectModal(false)} style={styles.cancelButton}>Cancel</button>
+              <button
+                disabled={selectedLineItemIds.size === 0 || creatingLinkedInvoice}
+                onClick={async () => {
+                  if (creatingLinkedInvoice) return;
+                  setCreatingLinkedInvoice(true);
+                  try {
+                    // Get next invoice number
+                    const { data: existingInvoices } = await supabase
+                      .from('invoices').select('invoice_number')
+                      .order('created_at', { ascending: false }).limit(1);
+                    let nextNumber = 1001;
+                    if (existingInvoices?.[0]) {
+                      nextNumber = (parseInt(existingInvoices[0].invoice_number) || 1000) + 1;
+                    }
+
+                    // Look up customer email
+                    const customerName = project.contractor || project.customer || "";
+                    let customerEmail = "";
+                    if (customerName) {
+                      const { data: custData } = await supabase.from('customers').select('email').ilike('customer', customerName).limit(1);
+                      if (custData?.[0]?.email) customerEmail = custData[0].email;
+                    }
+
+                    const selectedItems = estimateLineItems.filter(i => selectedLineItemIds.has(i.id));
+                    const invoiceTotal = selectedItems.reduce((s, i) => s + (i.line_total || 0), 0);
+
+                    // Create invoice
+                    const { data: newInvoice, error: invErr } = await supabase.from('invoices').insert([{
+                      invoice_number: nextNumber.toString(),
+                      project_name: project.name,
+                      customer_name: customerName || project.name,
+                      customer_email: customerEmail || null,
+                      invoice_date: new Date().toISOString().split('T')[0],
+                      subtotal: invoiceTotal,
+                      total: invoiceTotal,
+                      balance_due: invoiceTotal,
+                      amount_paid: 0,
+                      status: 'draft',
+                      created_by: user.id,
+                    }]).select().single();
+                    if (invErr) throw invErr;
+
+                    // Create invoice items from selected estimate items
+                    await supabase.from('invoice_items').insert(
+                      selectedItems.map(item => ({
+                        invoice_id: newInvoice.id,
+                        description: item.description,
+                        quantity: item.quantity || 1,
+                        unit_price: item.line_total || 0,
+                        total: item.line_total || 0,
+                      }))
+                    );
+
+                    setShowLineItemSelectModal(false);
+
+                    // Check deposits
+                    const availableDeposits = deposits.filter(d => d.status === 'received' || d.status === 'deposited');
+                    if (availableDeposits.length > 0) {
+                      setPendingInvoiceForDeposit(newInvoice);
+                      setSelectedDepositsToApply(availableDeposits.map(d => d.id));
+                      setShowApplyDepositsModal(true);
+                    } else {
+                      navigate(`/invoice?invoiceId=${newInvoice.id}&projectId=${id}`);
+                    }
+                  } catch (err) {
+                    console.error('Error creating invoice with items:', err);
+                    alert('Failed to create invoice: ' + err.message);
+                  } finally {
+                    setCreatingLinkedInvoice(false);
+                  }
+                }}
+                style={{...styles.submitButton, opacity: selectedLineItemIds.size === 0 || creatingLinkedInvoice ? 0.5 : 1, cursor: selectedLineItemIds.size === 0 || creatingLinkedInvoice ? 'not-allowed' : 'pointer'}}
+              >
+                {creatingLinkedInvoice ? '⏳ Creating...' : `✅ Create Invoice (${selectedLineItemIds.size} items)`}
               </button>
             </div>
           </div>
