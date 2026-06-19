@@ -263,34 +263,45 @@ Deno.serve(async (req) => {
         const filePath = `${folderName}/${yr}/${datePart}paystub.pdf`;
         const fileNameStr = `${datePart} paystub.pdf`;
 
-        // Upload PDF
-        const { error: uploadError } = await supabase.storage
-          .from("check-stubs")
-          .upload(filePath, pageBytes, { contentType: "application/pdf", upsert: true });
-        if (uploadError) throw new Error("Upload failed: " + uploadError.message);
-
-        // Insert check_stubs record (employee_id may be null if unmatched)
-        let checkStubId: string | null = null;
-        const { data: stubRow, error: dbError } = await supabase
-          .from("check_stubs")
-          .insert({
-            employee_id: aiResult.employee_id ?? null,
-            pay_period_start: aiResult.pay_period_start ?? null,
-            pay_period_end: aiResult.pay_period_end ?? null,
-            pay_date: payDate,
-            file_path: filePath,
-            file_name: fileNameStr,
-            uploaded_by: callerUserId,
-            ai_confidence: aiResult.confidence ?? 0,
-            ai_raw_name: aiResult.employee_name ?? null,
-          })
-          .select("id")
-          .single();
-
-        if (dbError && dbError.code !== "23505") {
-          throw new Error("DB insert failed: " + dbError.message);
+        // Upload PDF — non-fatal if it fails (approval record still gets created)
+        try {
+          const { error: uploadError } = await supabase.storage
+            .from("check-stubs")
+            .upload(filePath, pageBytes, { contentType: "application/pdf", upsert: true });
+          if (uploadError) console.warn("Storage upload failed (non-fatal):", uploadError.message);
+        } catch (uploadErr: any) {
+          console.warn("Storage upload threw (non-fatal):", uploadErr.message);
         }
-        checkStubId = stubRow?.id ?? null;
+
+        // Insert check_stubs record — optional, non-fatal if it fails
+        // (employee_id may be null for unmatched employees; table constraint may reject it)
+        let checkStubId: string | null = null;
+        try {
+          if (aiResult.employee_id) {
+            const { data: stubRow, error: dbError } = await supabase
+              .from("check_stubs")
+              .insert({
+                employee_id: aiResult.employee_id,
+                pay_period_start: aiResult.pay_period_start ?? payDate,
+                pay_period_end: aiResult.pay_period_end ?? payDate,
+                pay_date: payDate,
+                file_path: filePath,
+                file_name: fileNameStr,
+                uploaded_by: callerUserId,
+              })
+              .select("id")
+              .single();
+            if (!dbError || dbError.code === "23505") {
+              checkStubId = stubRow?.id ?? null;
+            } else {
+              console.warn("check_stubs insert failed (non-fatal):", dbError.message);
+            }
+          } else {
+            console.log("Skipping check_stubs insert — no matched employee_id");
+          }
+        } catch (stubErr: any) {
+          console.warn("check_stubs insert threw (non-fatal):", stubErr.message);
+        }
 
         // ── NEW: Create pending payroll_expense_approvals record ────────────
         await createPayrollApprovalRecord({
