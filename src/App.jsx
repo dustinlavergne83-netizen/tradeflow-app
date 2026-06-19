@@ -76,6 +76,7 @@ import EmailInbox from "./pages/EmailInbox";
 import TwilioSettings from "./pages/TwilioSettings";
 import SuperAdmin from "./pages/SuperAdmin";
 import TimeclockAdmin from "./pages/TimeclockAdmin";
+import PayrollApproval from "./pages/PayrollApproval";
 import PortalLogin from "./pages/portal/PortalLogin";
 import PortalDashboard from "./pages/portal/PortalDashboard";
 import SetPassword from "./pages/SetPassword";
@@ -114,6 +115,7 @@ const KNOWN_APP_PATHS = new Set([
   "/company-locations", "/scheduled-notifications", "/admin", "/assemblies",
   "/base-materials", "/check-stubs", "/employee-locations", "/geofence-events",
   "/communications", "/email-inbox", "/website-manager", "/twilio-settings", "/super-admin",
+  "/payroll-approval",
   "/invoice", "/proposal", "/estimate", "/weekly", "/time-off", "/pending-jobs",
   "/profile-setup", "/reports", "/welcome", "/project", "/timeclock-admin", "/service-calls",
 ]);
@@ -689,6 +691,16 @@ function AppContent() {
             element={
               <ProtectedRoute>
                 <IndividualWeeklyTimesheet />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ── Payroll Approval Queue ───────────────────────────────────── */}
+          <Route
+            path="/payroll-approval"
+            element={
+              <ProtectedRoute>
+                <PayrollApproval />
               </ProtectedRoute>
             }
           />

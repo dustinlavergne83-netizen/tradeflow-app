@@ -21,6 +21,8 @@ function titleFromPath(pathname) {
   if (pathname.startsWith("/weekly")) return "Weekly Totals";
   if (pathname.startsWith("/employees")) return "Employees";
   if (pathname.startsWith("/check-stubs")) return "Check Stubs";
+  if (pathname.startsWith("/payroll-approval")) return "💰 Payroll Approval Queue";
+  if (pathname.startsWith("/email-inbox")) return "📧 Email Inbox";
   if (pathname.startsWith("/pending-jobs")) return "Pending Jobs";
   if (pathname.startsWith("/profile-setup")) return "Profile Setup";
   if (pathname.startsWith("/accounting/chart-of-accounts")) return "Chart of Accounts";
