@@ -2098,6 +2098,69 @@ async function handleAddContractor() {
               )}
             </>
           )}
+
+          {/* ── Cost vs. Price Profit Chart ── */}
+          {activeWorth > 0 && totalCost > 0 && (() => {
+            const grossProfit = activeWorth - totalCost;
+            const marginPct = (grossProfit / activeWorth) * 100;
+            const markupPct = (grossProfit / totalCost) * 100;
+            const costPct = Math.min((totalCost / activeWorth) * 100, 100);
+            const profitPct = Math.max(100 - costPct, 0);
+            const isProfit = grossProfit >= 0;
+            return (
+              <>
+                <div style={styles.divider} />
+                <div style={{marginBottom: 6}}>
+                  <span style={{fontSize: 15, fontWeight: '800', color: '#111'}}>💹 Cost vs. Price</span>
+                </div>
+
+                {/* Stacked bar */}
+                <div style={{width: '100%', height: 28, borderRadius: 8, overflow: 'hidden', display: 'flex', marginBottom: 6, border: '1px solid #e5e7eb'}}>
+                  <div style={{
+                    width: `${costPct}%`, height: '100%',
+                    backgroundColor: costPct >= 100 ? '#ef4444' : '#f97316',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'width 0.4s ease',
+                    minWidth: costPct > 5 ? undefined : 0,
+                  }}>
+                    {costPct > 15 && <span style={{fontSize: 11, fontWeight: '800', color: '#fff'}}>Cost {costPct.toFixed(0)}%</span>}
+                  </div>
+                  <div style={{
+                    width: `${profitPct}%`, height: '100%',
+                    backgroundColor: isProfit ? '#10b981' : '#ef4444',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'width 0.4s ease',
+                  }}>
+                    {profitPct > 10 && <span style={{fontSize: 11, fontWeight: '800', color: '#fff'}}>Profit {profitPct.toFixed(0)}%</span>}
+                  </div>
+                </div>
+
+                {/* Key numbers */}
+                <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px', marginTop: 8}}>
+                  <div style={{display: 'flex', flexDirection: 'column'}}>
+                    <span style={{fontSize: 11, color: '#888', textTransform: 'uppercase', fontWeight: 700, letterSpacing: 0.5}}>Contract Price</span>
+                    <span style={{fontSize: 15, fontWeight: '800', color: '#0b3ea8'}}>${activeWorth.toFixed(2)}</span>
+                  </div>
+                  <div style={{display: 'flex', flexDirection: 'column'}}>
+                    <span style={{fontSize: 11, color: '#888', textTransform: 'uppercase', fontWeight: 700, letterSpacing: 0.5}}>Total Cost</span>
+                    <span style={{fontSize: 15, fontWeight: '800', color: '#f97316'}}>${totalCost.toFixed(2)}</span>
+                  </div>
+                  <div style={{display: 'flex', flexDirection: 'column'}}>
+                    <span style={{fontSize: 11, color: '#888', textTransform: 'uppercase', fontWeight: 700, letterSpacing: 0.5}}>Gross Profit</span>
+                    <span style={{fontSize: 15, fontWeight: '800', color: isProfit ? '#10b981' : '#ef4444'}}>
+                      {isProfit ? '+' : ''}{grossProfit.toFixed(2)}
+                    </span>
+                  </div>
+                  <div style={{display: 'flex', flexDirection: 'column'}}>
+                    <span style={{fontSize: 11, color: '#888', textTransform: 'uppercase', fontWeight: 700, letterSpacing: 0.5}}>Margin / Markup</span>
+                    <span style={{fontSize: 15, fontWeight: '800', color: isProfit ? '#10b981' : '#ef4444'}}>
+                      {marginPct.toFixed(1)}% / {markupPct.toFixed(1)}%
+                    </span>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
         </div>
 
         {/* Project Info Card */}
