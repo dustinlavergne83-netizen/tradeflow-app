@@ -1,22 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { PublicClientApplication } from "@azure/msal-browser";
 import { supabase } from "../lib/supabase";
 import { useNavigate } from "react-router-dom";
+import { startSignIn, getValidToken, doSignOut } from "../lib/msAuth";
 
 const BLUE   = "#0b3ea8";
 const ORANGE = "#fc6b04";
 const GREEN  = "#22c55e";
-
-// MSAL (Microsoft Outlook) config
-const MSAL_CONFIG = {
-  auth: {
-    clientId: "1101ddc0-5dc1-4275-beb6-34b2ef897452",
-    authority: "https://login.microsoftonline.com/9bd3d089-ecc6-4777-9198-41f0d40f95d6",
-    redirectUri: window.location.origin + "/email-inbox",
-  },
-  cache: { cacheLocation: "localStorage", storeAuthStateInCookie: false },
-};
-const EMAIL_SCOPES = { scopes: ["Mail.Read", "Mail.ReadBasic", "Mail.ReadWrite", "Mail.Send"] };
 
 // Well-known folder map (displayName → short key)
 const FOLDER_KEYS = { "Inbox": "inbox", "Sent Items": "sent", "Drafts": "drafts", "Deleted Items": "trash", "Junk Email": "junk" };
@@ -61,8 +50,7 @@ export default function Communications() {
   const [showTranscript, setShowTranscript] = useState(null);
   const messagesEndRef = useRef(null);
 
-  // Email / MSAL state
-  const msalRef                           = useRef(null);
+  // Email auth state (shared msAuth.js — no MSAL)
   const [msalLoading, setMsalLoading]     = useState(true);
   const [emailSignedIn, setEmailSignedIn] = useState(false);
   const [emails, setEmails]               = useState([]);
@@ -100,7 +88,7 @@ export default function Communications() {
   const composeFileInputRef                       = useRef(null);
 
   // Effects
-  useEffect(() => { init(); initMsal(); }, []);
+  useEffect(() => { init(); initEmailAuth(); }, []);
   useEffect(() => { if (selected) loadThread(selected.contactNumber); }, [selected]);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
@@ -159,73 +147,52 @@ export default function Communications() {
     }
   }
 
-  // MSAL init
-  async function initMsal() {
+  // Email auth init — uses shared msAuth.js (OAuth 2.0 PKCE, no MSAL)
+  async function initEmailAuth() {
     try {
-      const instance = new PublicClientApplication(MSAL_CONFIG);
-      await instance.initialize();
-      try {
-        await instance.handleRedirectPromise();
-      } catch (e) {
-        console.warn("MSAL redirect promise error (non-fatal):", e.message);
-        Object.keys(sessionStorage).forEach(key => {
-          if (key.includes("msal") || key.includes("login.windows")) sessionStorage.removeItem(key);
-        });
-      }
-      msalRef.current = instance;
-      const accounts = instance.getAllAccounts();
-      if (accounts.length > 0) setEmailSignedIn(true);
+      const token = await getValidToken();
+      if (token) setEmailSignedIn(true);
     } catch (err) {
-      console.error("MSAL init error:", err);
+      console.error("Email auth init error:", err);
     } finally {
       setMsalLoading(false);
     }
   }
 
-  // Email helpers
-  const getEmailToken = useCallback(async () => {
-    const instance = msalRef.current;
-    if (!instance) throw new Error("MSAL not initialized");
-    const accounts = instance.getAllAccounts();
-    if (accounts.length > 0) {
-      try {
-        const resp = await instance.acquireTokenSilent({ ...EMAIL_SCOPES, account: accounts[0] });
-        return resp.accessToken;
-      } catch {
-        const resp = await instance.acquireTokenPopup(EMAIL_SCOPES);
-        return resp.accessToken;
-      }
+  // Graph API helper — uses shared token from msAuth.js
+  const graphFetch = useCallback(async (url, options = {}) => {
+    const token = await getValidToken();
+    if (!token) {
+      setEmailSignedIn(false);
+      setEmailError("Session expired — please sign in again.");
+      throw new Error("No auth token");
     }
-    const resp = await instance.loginPopup(EMAIL_SCOPES);
-    setEmailSignedIn(true);
-    return resp.accessToken;
+    const res = await fetch(url, {
+      ...options,
+      headers: { Authorization: `Bearer ${token}`, ...(options.headers || {}) },
+    });
+    if (res.status === 401) {
+      setEmailSignedIn(false);
+      setEmailError("Session expired — please sign in again.");
+      throw new Error("Unauthorized");
+    }
+    if (!res.ok) throw new Error(`Graph API ${res.status}: ${res.statusText}`);
+    if (res.status === 204 || options.method === "DELETE") return null;
+    return res.json();
   }, []);
 
-  const graphFetch = useCallback(async (url) => {
-    const token = await getEmailToken();
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-    if (!res.ok) throw new Error(`Graph API ${res.status}: ${res.statusText}`);
-    return res.json();
-  }, [getEmailToken]);
-
   async function handleEmailSignIn() {
-    const instance = msalRef.current;
-    if (!instance) { setEmailError("Auth not ready. Please refresh."); return; }
     try {
       setEmailError(null);
-      await instance.loginPopup(EMAIL_SCOPES);
-      setEmailSignedIn(true);
-      await loadEmails();
+      // startSignIn stores '/communications' as returnTo so EmailInbox redirects back here after auth
+      await startSignIn("/communications");
     } catch (err) {
-      if (!err.message?.includes("user_cancelled") && !err.message?.includes("cancelled")) {
-        setEmailError("Sign in failed: " + err.message);
-      }
+      setEmailError("Sign in failed: " + err.message);
     }
   }
 
   async function handleEmailSignOut() {
-    const instance = msalRef.current;
-    if (instance) { try { await instance.logoutPopup(); } catch (_) {} }
+    doSignOut("/communications");
     setEmailSignedIn(false);
     setEmails([]);
     setSelectedEmail(null);
@@ -260,7 +227,7 @@ export default function Communications() {
     if (!confirmed) return;
     setEmailDeleting(true);
     try {
-      const token = await getEmailToken();
+      const token = await getValidToken();
       if (inTrash) {
         // Permanent delete
         await fetch(`https://graph.microsoft.com/v1.0/me/messages/${email.id}`, {
@@ -305,7 +272,7 @@ export default function Communications() {
     if (selectedEmailIds.size === 0) return;
     setBulkOperating(true);
     try {
-      const token = await getEmailToken();
+      const token = await getValidToken();
       await Promise.all([...selectedEmailIds].map(id =>
         fetch(`https://graph.microsoft.com/v1.0/me/messages/${id}`, {
           method: "PATCH",
@@ -324,7 +291,7 @@ export default function Communications() {
     if (selectedEmailIds.size === 0) return;
     setBulkOperating(true);
     try {
-      const token = await getEmailToken();
+      const token = await getValidToken();
       await Promise.all([...selectedEmailIds].map(id =>
         fetch(`https://graph.microsoft.com/v1.0/me/messages/${id}`, {
           method: "PATCH",
@@ -346,7 +313,7 @@ export default function Communications() {
     if (!confirmed) return;
     setBulkOperating(true);
     try {
-      const token = await getEmailToken();
+      const token = await getValidToken();
       await Promise.all([...selectedEmailIds].map(id =>
         inTrash
           ? fetch(`https://graph.microsoft.com/v1.0/me/messages/${id}`, { method: "DELETE", headers: { "Authorization": `Bearer ${token}` } }).catch(() => {})
@@ -382,7 +349,7 @@ export default function Communications() {
         setEmails(prev => prev.map(e => e.id === email.id ? { ...e, isRead: true } : e));
         setSelectedEmail(prev => prev?.id === email.id ? { ...prev, isRead: true } : prev);
         try {
-          const token = await getEmailToken();
+          const token = await getValidToken();
           await fetch(`https://graph.microsoft.com/v1.0/me/messages/${email.id}`, {
             method: "PATCH",
             headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
@@ -535,7 +502,7 @@ export default function Communications() {
     setComposeSending(true);
     setComposeSendResult(null);
     try {
-      const token = await getEmailToken();
+      const token = await getValidToken();
       const message = {
         subject: composeSubject || "(no subject)",
         body: { contentType: "Text", content: composeBody },
