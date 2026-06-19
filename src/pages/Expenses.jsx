@@ -420,8 +420,9 @@ export default function Expenses() {
   }
 
   async function handleSaveExpense() {
-    if (!expenseForm.amount || expenseForm.amount <= 0) {
-      setSaveMessage({ type: 'error', text: 'Please enter a valid amount' });
+    const parsedAmt = parseFloat(expenseForm.amount);
+    if (expenseForm.amount === '' || expenseForm.amount === null || isNaN(parsedAmt) || parsedAmt === 0) {
+      setSaveMessage({ type: 'error', text: 'Please enter a valid amount (use a negative number for a return/refund)' });
       return;
     }
 
@@ -926,14 +927,18 @@ export default function Expenses() {
                   />
                 </div>
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>Amount *</label>
+                  <label style={styles.label}>
+                    Amount *
+                    <span style={{fontSize: 11, fontWeight: 400, color: '#10b981', marginLeft: 6}}>
+                      (negative = return/refund)
+                    </span>
+                  </label>
                   <input
                     type="number"
                     value={expenseForm.amount}
                     onChange={(e) => setExpenseForm({...expenseForm, amount: e.target.value})}
                     style={styles.input}
-                    placeholder="0.00"
-                    min="0"
+                    placeholder="0.00 (use negative for returns)"
                     step="0.01"
                   />
                 </div>
