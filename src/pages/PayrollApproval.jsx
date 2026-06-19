@@ -417,6 +417,12 @@ export default function PayrollApproval() {
         </div>
         <div style={{ display: "flex", gap: 10 }}>
           <button
+            onClick={() => navigate("/payroll-upload")}
+            style={{ ...styles.btnEdit, borderColor: "#f97316", color: "#f97316", fontWeight: 700 }}
+          >
+            📤 Upload Stubs
+          </button>
+          <button
             onClick={() => navigate("/email-inbox")}
             style={{ ...styles.btnEdit, borderColor: "rgba(255,255,255,0.3)", color: "#fff" }}
           >
