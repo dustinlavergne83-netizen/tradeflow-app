@@ -14,6 +14,8 @@ export default function QuickInvoice() {
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [projectName, setProjectName] = useState("");
   const [projectId, setProjectId] = useState(null);
+  const [pendingDepositIds, setPendingDepositIds] = useState([]);
+  const [pendingDepositTotal, setPendingDepositTotal] = useState(0);
   const [description, setDescription] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0]);
   const [invoiceNumber, setInvoiceNumber] = useState("");
@@ -35,6 +37,11 @@ export default function QuickInvoice() {
     if (paramCustomerEmail) setCustomerEmail(paramCustomerEmail);
     if (paramProjectName) setProjectName(paramProjectName);
     if (paramProjectId) setProjectId(paramProjectId);
+
+    const depositIdsParam = params.get('depositIds');
+    const depositTotalParam = params.get('depositTotal');
+    if (depositIdsParam) setPendingDepositIds(depositIdsParam.split(',').filter(Boolean));
+    if (depositTotalParam) setPendingDepositTotal(parseFloat(depositTotalParam) || 0);
   }, [location.search]);
 
   useEffect(() => {
@@ -189,11 +196,27 @@ export default function QuickInvoice() {
 
       if (itemsError) throw itemsError;
 
+      // Apply any pending deposits from the project
+      if (pendingDepositIds.length > 0) {
+        await supabase.from('invoices').update({ deposit_received: pendingDepositTotal }).eq('id', invoice.id);
+        for (const depId of pendingDepositIds) {
+          await supabase.from('project_deposits').update({
+            status: 'applied',
+            invoice_id: invoice.id,
+            applied_date: new Date().toISOString(),
+          }).eq('id', depId);
+        }
+      }
+
       // Don't create journal entry here - it will be created when the invoice is SENT
-      // This avoids duplicate entries if the invoice is edited and sent multiple times
-      alert(`Quick Invoice #${finalInvoiceNumber} saved successfully! Journal entry will be created when you send it.`);
-      
-      navigate("/invoices");
+      const depositMsg = pendingDepositIds.length > 0 ? `\n💰 $${pendingDepositTotal.toFixed(2)} deposit applied!` : '';
+      alert(`Quick Invoice #${finalInvoiceNumber} saved successfully!${depositMsg}`);
+
+      if (projectId) {
+        navigate(`/project/${projectId}`);
+      } else {
+        navigate("/invoices");
+      }
     } catch (err) {
       console.error("Error saving quick invoice:", err);
       alert(`Failed to save invoice: ${err.message}`);
@@ -218,6 +241,21 @@ export default function QuickInvoice() {
           </button>
         </div>
       </div>
+
+      {/* Deposit Banner */}
+      {pendingDepositIds.length > 0 && (
+        <div style={{marginBottom: 20, padding: '14px 20px', backgroundColor: '#d1fae5', border: '2px solid #10b981', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 12}}>
+          <span style={{fontSize: 24}}>💰</span>
+          <div>
+            <div style={{fontWeight: '700', fontSize: 15, color: '#065f46'}}>
+              ${pendingDepositTotal.toFixed(2)} deposit will be applied to this invoice
+            </div>
+            <div style={{fontSize: 13, color: '#047857', marginTop: 2}}>
+              {pendingDepositIds.length} deposit(s) from this project will automatically be applied when you save.
+            </div>
+          </div>
+        </div>
+      )}
 
       <div style={styles.form}>
         {/* Basic Info */}

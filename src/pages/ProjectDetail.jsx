@@ -4211,6 +4211,16 @@ async function handleAddContractor() {
                   params.set('projectName', project.name);
                   if (customerName) params.set('customerName', customerName);
                   if (customerEmail) params.set('customerEmail', customerEmail);
+
+                  // Check for unapplied deposits — if any exist, show deposit modal first
+                  const availableDeposits = deposits.filter(d => d.status === 'received' || d.status === 'deposited');
+                  if (availableDeposits.length > 0) {
+                    // Pass deposit IDs as URL param so QuickInvoice can apply them on save
+                    params.set('depositIds', availableDeposits.map(d => d.id).join(','));
+                    const totalDeposit = availableDeposits.reduce((s, d) => s + (d.deposit_amount || 0), 0);
+                    params.set('depositTotal', totalDeposit.toFixed(2));
+                  }
+
                   navigate(`/invoice/quick?${params.toString()}`);
                 }}
                 style={{padding: 20, backgroundColor: '#f9fafb', border: '2px solid #e5e7eb', borderRadius: 12, cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s'}}
