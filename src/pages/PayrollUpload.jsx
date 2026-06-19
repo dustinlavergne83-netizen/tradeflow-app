@@ -9,9 +9,8 @@ import { useState, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 
-const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const WEBHOOK_URL   = `${SUPABASE_URL}/functions/v1/smartvault-upload`;
+// Webhook URL shown in Zapier/Make setup tabs (for display only)
+const WEBHOOK_URL = `${import.meta.env.VITE_SUPABASE_URL || 'https://hyhjxdgdetdqoyoscflu.supabase.co'}/functions/v1/smartvault-upload`;
 
 export default function PayrollUpload() {
   const navigate = useNavigate();
@@ -69,27 +68,24 @@ export default function PayrollUpload() {
       );
       try {
         const contentBase64 = await toBase64(entry.file);
-        const res = await fetch(WEBHOOK_URL, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session?.access_token}`,
-            'apikey': SUPABASE_ANON,
-          },
-          body: JSON.stringify({
-            source: 'manual-upload',
-            filename: entry.file.name,
-            contentBase64,
-            contentType: 'application/pdf',
-            from: session?.user?.email || 'manual-upload',
-            subject: `Pay Stub Manual Upload: ${entry.file.name}`,
-          }),
-        });
-        const result = await res.json();
+        // Use supabase.functions.invoke — handles auth/CORS automatically
+        const { data: result, error: fnError } = await supabase.functions.invoke(
+          'process-check-stub-email',
+          {
+            body: {
+              source: 'manual-upload',
+              filename: entry.file.name,
+              contentBase64,
+              contentType: 'application/pdf',
+              from: session?.user?.email || 'manual-upload',
+              subject: `Pay Stub Manual Upload: ${entry.file.name}`,
+            },
+          }
+        );
         setFiles((prev) =>
           prev.map((f) =>
             f.file === entry.file
-              ? { ...f, status: res.ok ? 'done' : 'error', result }
+              ? { ...f, status: fnError ? 'error' : 'done', result: result || { error: fnError?.message } }
               : f
           )
         );
