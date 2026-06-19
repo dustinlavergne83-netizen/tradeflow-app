@@ -189,7 +189,6 @@ export default function PayrollApproval() {
           tax_deductible: true,
           created_by: user.id,
           receipt_notes: stubNote,
-          ...(wagesAccount ? { expense_account_id: wagesAccount.id } : {}),
         });
       }
 
@@ -212,7 +211,6 @@ export default function PayrollApproval() {
             tax_deductible: true,
             created_by: user.id,
             receipt_notes: stubNote,
-            ...(taxAccount ? { expense_account_id: taxAccount.id } : {}),
           });
         }
       }
@@ -228,7 +226,6 @@ export default function PayrollApproval() {
           tax_deductible: false,
           created_by: user.id,
           receipt_notes: stubNote,
-          ...(garnishAccount ? { expense_account_id: garnishAccount.id } : {}),
         });
       }
 
