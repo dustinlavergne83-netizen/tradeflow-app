@@ -238,23 +238,28 @@ Deno.serve(async (req) => {
         const aiResult = await parsePaystubWithAI(pageText, employees ?? [], pageIndex + 1);
         console.log("AI result:", JSON.stringify(aiResult));
 
-        if (!aiResult.employee_id) {
-          results.push({
-            page: pageIndex + 1,
-            success: false,
-            error: aiResult.error ?? `Could not identify employee on page ${pageIndex + 1}`,
-          });
-          continue;
+        // Allow unmatched employees — save with raw AI name so owner can review
+        const emp = aiResult.employee_id
+          ? (employees ?? []).find((e) => e.id === aiResult.employee_id)
+          : undefined;
+        const empName = emp
+          ? `${emp.first_name} ${emp.last_name}`
+          : (aiResult.employee_name ?? aiResult.matched_employee_name ?? "Unknown Employee");
+
+        // Only skip if there's genuinely no employee info AND no financial data
+        if (!empName || empName === "Unknown Employee") {
+          if ((aiResult.gross_wages ?? 0) === 0 && (aiResult.net_pay ?? 0) === 0) {
+            results.push({ page: pageIndex + 1, success: false, error: aiResult.error ?? "No payroll data found on page" });
+            continue;
+          }
         }
 
-        const emp = (employees ?? []).find((e) => e.id === aiResult.employee_id);
-        const empName = emp ? `${emp.first_name} ${emp.last_name}` : (aiResult.matched_employee_name ?? "Unknown");
-
-        // Build file path: FirstName_LastName/YYYY/MM.DD.YYpaystub.pdf
+        // Build file path using safe name
         const payDate = aiResult.pay_date ?? aiResult.pay_period_end ?? new Date().toISOString().split("T")[0];
         const [yr, mo, dy] = payDate.split("-");
         const datePart = `${mo}.${dy}.${yr.slice(2)}`;
-        const folderName = `${emp?.first_name ?? "Unknown"}_${emp?.last_name ?? "Employee"}`;
+        const safeName = empName.replace(/[^a-zA-Z0-9]/g, "_").replace(/_+/g, "_").substring(0, 30);
+        const folderName = safeName || "Unknown_Employee";
         const filePath = `${folderName}/${yr}/${datePart}paystub.pdf`;
         const fileNameStr = `${datePart} paystub.pdf`;
 
@@ -264,12 +269,12 @@ Deno.serve(async (req) => {
           .upload(filePath, pageBytes, { contentType: "application/pdf", upsert: true });
         if (uploadError) throw new Error("Upload failed: " + uploadError.message);
 
-        // Insert check_stubs record
+        // Insert check_stubs record (employee_id may be null if unmatched)
         let checkStubId: string | null = null;
         const { data: stubRow, error: dbError } = await supabase
           .from("check_stubs")
           .insert({
-            employee_id: aiResult.employee_id,
+            employee_id: aiResult.employee_id ?? null,
             pay_period_start: aiResult.pay_period_start ?? null,
             pay_period_end: aiResult.pay_period_end ?? null,
             pay_date: payDate,
