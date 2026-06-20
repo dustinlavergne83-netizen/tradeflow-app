@@ -3798,6 +3798,8 @@ for (const row of validRows) {
                           setExistingAssemblyPick(null);
                           setSaveToAssemblyManager(false);
                           setShowConvertToAssemblyModal(true);
+                          // Ensure materials are loaded (in case they weren't ready yet)
+                          if (materialsDB.length === 0) loadAllMaterials();
                         }}
                         style={{
                           background: 'none',
@@ -5257,8 +5259,18 @@ for (const row of validRows) {
             {assemblyBuildSearch.length >= 2 && (
               <div style={{ maxHeight: 160, overflowY: "auto", border: "1px solid #444", borderRadius: 4, marginTop: 4, background: "#1a1a1a" }}>
                 {materialsDB
-                  .filter(m => smartSearch(m.name, assemblyBuildSearch))
-                  .slice(0, 25)
+                  .filter(m => {
+                    const name = (m.name || '').toLowerCase();
+                    const term = assemblyBuildSearch.toLowerCase().trim();
+                    // Simple substring match first (most reliable, matches what sidebar shows)
+                    if (name.includes(term)) return true;
+                    // Word-by-word match: ALL words in search must appear in name
+                    const words = term.split(/\s+/).filter(Boolean);
+                    if (words.length > 1 && words.every(w => name.includes(w))) return true;
+                    // Smart search as additional fallback (handles abbreviations)
+                    return smartSearch(m.name, assemblyBuildSearch);
+                  })
+                  .slice(0, 50)
                   .map(m => (
                     <div
                       key={m.id}

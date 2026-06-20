@@ -1579,9 +1579,39 @@ export default function BankTransactions() {
         )}
       </div>
 
+      {/* ── Uncleared Transactions Section Header ── */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '14px 20px',
+        marginTop: 8,
+        marginBottom: 0,
+        backgroundColor: '#b45309',
+        borderRadius: unclearedFiltered.length === 0 ? 12 : '12px 12px 0 0',
+        color: '#fff',
+        userSelect: 'none',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+      }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 20 }}>🔲</span>
+          <span style={{ fontSize: 17, fontWeight: 700 }}>Uncleared Transactions</span>
+          <span style={{
+            fontSize: 13, fontWeight: 600,
+            backgroundColor: 'rgba(255,255,255,0.25)',
+            borderRadius: 20, padding: '2px 10px'
+          }}>
+            {unclearedFiltered.length}
+          </span>
+        </span>
+        <span style={{ fontSize: 13, opacity: 0.85 }}>
+          Select rows + click <strong>✅ Clear Selected</strong> to move to Cleared folder
+        </span>
+      </div>
+
       {/* ── Uncleared Transactions (Main View) ── */}
       {unclearedFiltered.length === 0 ? (
-        <div style={styles.empty}>
+        <div style={{...styles.empty, borderRadius: '0 0 12px 12px', marginBottom: 0}}>
           <p style={styles.emptyText}>
             {searchTerm || filterType !== 'all'
               ? 'No uncleared transactions match your filters'
