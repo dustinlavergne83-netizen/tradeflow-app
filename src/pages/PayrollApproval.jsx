@@ -49,6 +49,8 @@ export default function PayrollApproval() {
   const [stateTaxAccount, setStateTaxAccount] = useState(DEFAULT_CLEARING_ID);
   const [stateTaxDate, setStateTaxDate] = useState(new Date().toISOString().split("T")[0]);
   const [creatingStateDeposit, setCreatingStateDeposit] = useState(false);
+  const [pastDeposits, setPastDeposits] = useState([]);
+  const [showPastDeposits, setShowPastDeposits] = useState(false);
 
   useEffect(() => {
     if (user?.id) {
@@ -75,14 +77,19 @@ export default function PayrollApproval() {
     try {
       const { data, error } = await supabase
         .from("payroll_expense_approvals")
-        .select("id, employee_name, pay_period_start, pay_period_end, pay_date, federal_tax, state_tax, social_security, medicare, gross_wages, net_pay")
+        .select("id, employee_name, pay_period_start, pay_period_end, pay_date, federal_tax, state_tax, social_security, medicare, gross_wages, net_pay, irs_deposit_created, state_deposit_created")
         .eq("status", "approved")
         .order("pay_period_end", { ascending: false });
       if (error) throw error;
 
-      // Group by pay_period_end
+      const allRows = data || [];
+
+      // Only show IRS periods where deposit has NOT been created yet
+      const irsRows = allRows.filter(r => !r.irs_deposit_created);
+
+      // Group by pay_period_end — only pending IRS rows
       const groups = {};
-      for (const row of (data || [])) {
+      for (const row of irsRows) {
         const key = row.pay_period_end || row.pay_date || "unknown";
         if (!groups[key]) {
           groups[key] = {
@@ -114,17 +121,27 @@ export default function PayrollApproval() {
           + (g.total_ss_employee * 2)     // employee + employer SS
           + (g.total_medicare_employee * 2), // employee + employer Medicare
         // state_tax is tracked separately via State Tax Deposit
-        stub_ids: (data || [])
+        stub_ids: irsRows
           .filter(r => (r.pay_period_end || r.pay_date) === g.pay_period_end)
           .map(r => r.id),
       }));
 
-      // Also compute total state tax across all approved stubs
-      const totalState = (data || []).reduce((sum, r) => sum + (parseFloat(r.state_tax) || 0), 0);
+      // State tax: only include stubs where state_deposit_created is false/null
+      const stateRows = allRows.filter(r => !r.state_deposit_created);
+      const totalState = stateRows.reduce((sum, r) => sum + (parseFloat(r.state_tax) || 0), 0);
       setStateTaxTotal(totalState);
-      setStateTaxStubs(data || []);
+      setStateTaxStubs(stateRows);
 
       setTaxDepositPeriods(periods.sort((a, b) => b.pay_period_end?.localeCompare(a.pay_period_end)));
+
+      // Load past tax deposits from expenses for archive section
+      const { data: pastData } = await supabase
+        .from("expenses")
+        .select("id, expense_date, amount, description, vendor")
+        .or("description.ilike.%IRS Payroll Tax Deposit%,description.ilike.%State Income Tax Deposit%")
+        .order("expense_date", { ascending: false })
+        .limit(50);
+      setPastDeposits(pastData || []);
     } catch (e) {
       console.warn("Could not load tax deposit periods:", e);
     }
@@ -158,8 +175,18 @@ export default function PayrollApproval() {
       const { error: expError } = await supabase.from("expenses").insert([expenseLine]);
       if (expError) throw expError;
 
+      // Mark all state stubs as deposited so they disappear from the pending list
+      const stateIds = stateTaxStubs.map(r => r.id).filter(Boolean);
+      if (stateIds.length > 0) {
+        await supabase
+          .from("payroll_expense_approvals")
+          .update({ state_deposit_created: true })
+          .in("id", stateIds);
+      }
+
       setMessage({ type: "success", text: `✅ State tax deposit created: ${formatCurrency(stateTaxTotal)}` });
       setShowTaxDeposit(false);
+      loadTaxDepositPeriods();
     } catch (err) {
       setMessage({ type: "error", text: "Failed to create state tax deposit: " + err.message });
     } finally {
@@ -199,13 +226,13 @@ export default function PayrollApproval() {
       const { error: expError } = await supabase.from("expenses").insert([expenseLine]);
       if (expError) throw expError;
 
-      // Mark stubs as having a tax deposit created (if column exists)
-      try {
+      // Mark stubs as IRS deposit created so they disappear from the pending list
+      if (period.stub_ids?.length > 0) {
         await supabase
           .from("payroll_expense_approvals")
-          .update({ tax_deposit_created: true })
+          .update({ irs_deposit_created: true })
           .in("id", period.stub_ids);
-      } catch (_) { /* column may not exist yet, non-fatal */ }
+      }
 
       setMessage({ type: "success", text: `✅ Tax deposit created: ${formatCurrency(totalTax)} for ${periodLabel}` });
       setShowTaxDeposit(false);
@@ -756,6 +783,41 @@ export default function PayrollApproval() {
                     {creatingStateDeposit ? "⏳ Creating…" : `✅ Create ${formatCurrency(stateTaxTotal)} State Tax Deposit`}
                   </button>
                 </div>
+              )}
+            </div>
+
+            {/* ── Section 3: Past Deposits Archive ── */}
+            <div style={{ borderTop: "2px dashed #d1d5db", paddingTop: 24, marginTop: 24 }}>
+              <button
+                onClick={() => setShowPastDeposits(p => !p)}
+                style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: 0, marginBottom: 12 }}
+              >
+                <span style={{ fontSize: 16, fontWeight: 800, color: "#374151" }}>
+                  🗂️ Past Tax Deposits ({pastDeposits.length})
+                </span>
+                <span style={{ fontSize: 13, color: "#6b7280" }}>{showPastDeposits ? "▲ Hide" : "▼ Show"}</span>
+              </button>
+              {showPastDeposits && (
+                pastDeposits.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: 16, color: "#9ca3af", fontSize: 13 }}>
+                    No past deposits found.
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {pastDeposits.map(dep => (
+                      <div key={dep.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", backgroundColor: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 8, padding: "10px 14px", gap: 12 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: dep.description?.includes("IRS") ? "#dc2626" : "#7c3aed", marginBottom: 2 }}>
+                            {dep.description?.includes("IRS") ? "🏛️ IRS" : "🏛️ State"}
+                          </div>
+                          <div style={{ fontSize: 12, color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dep.description}</div>
+                          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{formatDate(dep.expense_date)}</div>
+                        </div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: "#059669", whiteSpace: "nowrap" }}>{formatCurrency(dep.amount)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )
               )}
             </div>
           </div>
