@@ -424,45 +424,120 @@ export default function BankTransactions() {
     setShowMatchesModal(true);
   }
 
+  // ── Scoring-based match functions ──────────────────────────────────────────
+  // Minimum score to appear as a match: 50
+  //   Amount exact (≤$0.01): +50   Amount close/fee (≤$2): +30
+  //   Date ≤3 days: +30   ≤7d: +20   ≤14d: +10   ≤30d: +5   >60d: reject
+  //   Payee/vendor name similarity: +25
+  // Examples:
+  //   Exact amount + ≤30d = 55 ✓   Close amount + ≤3d = 60 ✓   Exact + >60d = 0 ✗
+
+  function dateProximityScore(dateA, dateB, maxDays = 60) {
+    if (!dateA || !dateB) return 0;
+    const a = new Date(dateA.includes('T') ? dateA : dateA + 'T00:00:00');
+    const b = new Date(dateB.includes('T') ? dateB : dateB + 'T00:00:00');
+    const days = Math.abs((a - b) / 86400000);
+    if (days > maxDays) return null; // null = reject entirely
+    if (days <= 3)  return 30;
+    if (days <= 7)  return 20;
+    if (days <= 14) return 10;
+    if (days <= 30) return 5;
+    return 0;
+  }
+
+  function nameSimilarityScore(str1, str2) {
+    if (!str1 || !str2) return 0;
+    const a = str1.toLowerCase().trim();
+    const b = str2.toLowerCase().trim();
+    if (!a || !b) return 0;
+    // Check containment both ways with at least 4 chars
+    const shorter = a.length < b.length ? a : b;
+    const longer  = a.length < b.length ? b : a;
+    if (shorter.length >= 4 && longer.includes(shorter)) return 25;
+    // Check first-word match (e.g. "ABC Corp" vs "ABC Construction")
+    const aWord = a.split(/\s+/)[0];
+    const bWord = b.split(/\s+/)[0];
+    if (aWord.length >= 3 && aWord === bWord) return 12;
+    return 0;
+  }
+
+  function scoreExpenseMatch(transaction, expense) {
+    const txAmount  = Math.abs(parseFloat(transaction.amount)  || 0);
+    const expAmount = Math.abs(parseFloat(expense.amount)      || 0);
+    const diff      = Math.abs(txAmount - expAmount);
+
+    let score = 0;
+    if      (diff < 0.01) score += 50;   // exact
+    else if (diff <= 2.00) score += 30;  // close (payment processing)
+    else return 0;                        // amount too far off
+
+    const datePts = dateProximityScore(transaction.transaction_date, expense.expense_date, 60);
+    if (datePts === null) return 0;       // date too far — reject
+    score += datePts;
+
+    // Payee ↔ vendor similarity
+    score += nameSimilarityScore(transaction.payee       || '', expense.vendor || '');
+    score += nameSimilarityScore(transaction.description || '', expense.vendor || '');
+
+    return score;
+  }
+
+  function scoreInvoiceMatch(transaction, invoice) {
+    const txAmount = Math.abs(parseFloat(transaction.amount) || 0);
+    let   amountScore = 0;
+
+    const netDep   = Math.abs(parseFloat(invoice.net_deposit_amount) || 0);
+    const invTotal = Math.abs(parseFloat(invoice.total_amount)       || 0);
+
+    if      (netDep  > 0 && Math.abs(netDep  - txAmount) < 0.01) amountScore = 50;
+    else if (netDep  > 0 && Math.abs(netDep  - txAmount) <= 2.00) amountScore = 30;
+    else if (invTotal> 0 && Math.abs(invTotal - txAmount) < 0.01) amountScore = 50;
+    else {
+      // Check individual payment records
+      const pmtMatch = invoicePayments.find(pmt => {
+        if (pmt.invoice_id !== invoice.id) return false;
+        const pmtNet   = Math.abs(parseFloat(pmt.net_amount) || 0);
+        const pmtGross = Math.abs(parseFloat(pmt.amount)     || 0);
+        return (pmtNet   > 0 && Math.abs(pmtNet   - txAmount) <= 2.00) ||
+               (pmtGross > 0 && Math.abs(pmtGross - txAmount) < 0.01);
+      });
+      if (!pmtMatch) return 0; // no amount match at all
+      const pmtNet = Math.abs(parseFloat(pmtMatch.net_amount) || 0);
+      amountScore = (pmtNet > 0 && Math.abs(pmtNet - txAmount) < 0.01) ? 50 : 30;
+    }
+
+    let score = amountScore;
+
+    // Date: use invoice_date; allow up to 90 days for invoices (payment can be delayed)
+    const datePts = dateProximityScore(transaction.transaction_date, invoice.invoice_date, 90);
+    if (datePts === null) return 0;
+    score += datePts;
+
+    // Customer ↔ payee similarity
+    score += nameSimilarityScore(transaction.payee       || '', invoice.customer_name || '');
+    score += nameSimilarityScore(transaction.description || '', invoice.customer_name || '');
+
+    return score;
+  }
+
+  const MIN_MATCH_SCORE = 50;
+
   function getMatchingExpenses(transaction) {
-    return expenses.filter(exp => Math.abs(exp.amount) === Math.abs(transaction.amount));
+    return expenses
+      .map(exp => ({ ...exp, _score: scoreExpenseMatch(transaction, exp) }))
+      .filter(exp => exp._score >= MIN_MATCH_SCORE)
+      .sort((a, b) => b._score - a._score);
   }
 
   function getMatchingInvoices(transaction) {
-    const transAmount = Math.abs(parseFloat(transaction.amount) || 0);
-
-    return invoices.filter(inv => {
-      // 1. Match against net_deposit_amount on the invoice record (last payment's net, $2 tolerance)
-      const netDepositAmount = Math.abs(parseFloat(inv.net_deposit_amount) || 0);
-      if (netDepositAmount > 0 && Math.abs(netDepositAmount - transAmount) <= 2.00) {
-        return true;
-      }
-
-      // 2. Check individual payment records — handles invoices with multiple partial payments
-      //    Each Venmo/PayPal payment deposits the NET amount (gross minus fee) into the bank,
-      //    so a bank transaction of $1,642.50 should match a $1,700 payment with $57.50 fee.
-      const hasMatchingPayment = invoicePayments.some(pmt => {
-        if (pmt.invoice_id !== inv.id) return false;
-        const pmtNet = Math.abs(parseFloat(pmt.net_amount) || 0);
-        const pmtGross = Math.abs(parseFloat(pmt.amount) || 0);
-        // Net amount match (within $2 to handle rounding)
-        if (pmtNet > 0 && Math.abs(pmtNet - transAmount) <= 2.00) return true;
-        // Gross amount match (within 1 cent — e.g. no-fee payments like checks/cash)
-        if (pmtGross > 0 && Math.abs(pmtGross - transAmount) < 0.01) return true;
-        return false;
-      });
-      if (hasMatchingPayment) return true;
-
-      // 3. Fallback: match against total invoice amount (exact, within 1 cent)
-      const invAmount = Math.abs(parseFloat(inv.total_amount) || 0);
-      return Math.abs(invAmount - transAmount) < 0.01;
-    });
+    return invoices
+      .map(inv => ({ ...inv, _score: scoreInvoiceMatch(transaction, inv) }))
+      .filter(inv => inv._score >= MIN_MATCH_SCORE)
+      .sort((a, b) => b._score - a._score);
   }
 
   function getMatchCount(transaction) {
-    const expenseMatches = getMatchingExpenses(transaction).length;
-    const invoiceMatches = getMatchingInvoices(transaction).length;
-    return expenseMatches + invoiceMatches;
+    return getMatchingExpenses(transaction).length + getMatchingInvoices(transaction).length;
   }
 
   function applyFilters() {
