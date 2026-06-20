@@ -147,43 +147,6 @@ export default function PayrollApproval() {
     }
   }
 
-  // ── ONE-TIME FIX: Delete old combined IRS deposits + reset stub flags ─────
-  async function fixOldDeposits() {
-    if (!window.confirm(
-      "This will DELETE all old combined IRS Payroll Tax Deposit entries and reset those pay periods so you can recreate them with the correct split format.\n\nContinue?"
-    )) return;
-    try {
-      // 1. Find all old-format combined deposits (description has old pattern)
-      const { data: oldExpenses, error: fetchErr } = await supabase
-        .from("expenses")
-        .select("id")
-        .ilike("description", "IRS Payroll Tax Deposit%");
-      if (fetchErr) throw fetchErr;
-
-      if (oldExpenses && oldExpenses.length > 0) {
-        const oldIds = oldExpenses.map(e => e.id);
-        const { error: delErr } = await supabase
-          .from("expenses")
-          .delete()
-          .in("id", oldIds);
-        if (delErr) throw delErr;
-      }
-
-      // 2. Reset irs_deposit_created on ALL approved stubs so periods reappear
-      const { error: resetErr } = await supabase
-        .from("payroll_expense_approvals")
-        .update({ irs_deposit_created: false })
-        .eq("status", "approved")
-        .eq("irs_deposit_created", true);
-      if (resetErr) throw resetErr;
-
-      setMessage({ type: "success", text: `✅ Fixed! ${oldExpenses?.length || 0} old deposit(s) deleted. All periods are now unlocked — recreate them using the new split format above.` });
-      loadTaxDepositPeriods();
-    } catch (err) {
-      setMessage({ type: "error", text: "Fix failed: " + err.message });
-    }
-  }
-
   // ── Create state tax deposit (all periods rolled into one) ───────────────
   async function createStateTaxDeposit() {
     if (stateTaxTotal <= 0) return;
@@ -694,19 +657,6 @@ export default function PayrollApproval() {
 
             <div style={{ backgroundColor: "#fffbeb", border: "1px solid #fbbf24", borderRadius: 8, padding: "12px 16px", marginBottom: 12, fontSize: 13, color: "#92400e" }}>
               <strong>How this works:</strong> Each pay period now creates 2 expense lines: ✅ deductible employer SS+Medicare match, and ❌ non-deductible employee withholdings (fed + employee SS + employee Medicare).
-            </div>
-
-            {/* ONE-TIME FIX BUTTON — delete after use */}
-            <div style={{ backgroundColor: "#fef2f2", border: "2px solid #fca5a5", borderRadius: 8, padding: "12px 16px", marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-              <div style={{ fontSize: 13, color: "#991b1b" }}>
-                <strong>🔧 Fix Old Deposits:</strong> Old combined IRS deposits have wrong tax flags. Click to delete them and unlock those periods so you can recreate with the correct split format.
-              </div>
-              <button
-                onClick={fixOldDeposits}
-                style={{ padding: "8px 16px", borderRadius: 6, border: "2px solid #dc2626", backgroundColor: "#fff", color: "#dc2626", cursor: "pointer", fontWeight: 700, fontSize: 13, whiteSpace: "nowrap" }}
-              >
-                🔧 Fix Old Deposits
-              </button>
             </div>
 
             {/* Account selector */}
