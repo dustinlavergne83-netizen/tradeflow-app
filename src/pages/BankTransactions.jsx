@@ -35,6 +35,7 @@ export default function BankTransactions() {
   const [selectedClearedTransactions, setSelectedClearedTransactions] = useState(new Set());
   const [isUnclearing, setIsUnclearing] = useState(false);
   const [bulkStatusMsg, setBulkStatusMsg] = useState('');
+  const [showClearedFolder, setShowClearedFolder] = useState(false);
   
   const [transactionForm, setTransactionForm] = useState({
     transaction_date: getTodayLocalDate(),
@@ -480,13 +481,7 @@ export default function BankTransactions() {
       filtered = filtered.filter(t => t.transaction_type === filterType);
     }
 
-    // Cleared filter
-    if (filterCleared === 'cleared') {
-      filtered = filtered.filter(t => t.is_cleared === true);
-    } else if (filterCleared === 'uncleared') {
-      filtered = filtered.filter(t => t.is_cleared === false);
-    }
-
+    // NOTE: Cleared/uncleared split is handled by the two separate sections below (no filter here)
     setFilteredTransactions(filtered);
   }
 
@@ -1296,7 +1291,9 @@ export default function BankTransactions() {
     );
   }
 
-  const runningBalances = calculateRunningBalance(filteredTransactions);
+  const runningBalances = calculateRunningBalance(transactions);
+  const unclearedFiltered = filteredTransactions.filter(t => !t.is_cleared);
+  const clearedFiltered = filteredTransactions.filter(t => t.is_cleared);
   const totalDeposits = transactions.filter(t => t.amount > 0).reduce((sum, t) => sum + t.amount, 0);
   const totalWithdrawals = Math.abs(transactions.filter(t => t.amount < 0).reduce((sum, t) => sum + t.amount, 0));
   const clearedBalance = bankAccount.current_balance || 0;
@@ -1430,15 +1427,6 @@ export default function BankTransactions() {
           <option value="fee">Fees</option>
           <option value="interest">Interest</option>
         </select>
-        <select
-          value={filterCleared}
-          onChange={(e) => setFilterCleared(e.target.value)}
-          style={styles.filterSelect}
-        >
-          <option value="all">All Status</option>
-          <option value="cleared">Cleared</option>
-          <option value="uncleared">Uncleared</option>
-        </select>
         {selectedTransactions.size > 0 && (
           <button
             onClick={handleClearSelected}
@@ -1459,13 +1447,13 @@ export default function BankTransactions() {
         )}
       </div>
 
-      {/* Transactions Table */}
-      {filteredTransactions.length === 0 ? (
+      {/* ── Uncleared Transactions (Main View) ── */}
+      {unclearedFiltered.length === 0 ? (
         <div style={styles.empty}>
           <p style={styles.emptyText}>
-            {searchTerm || filterType !== 'all' || filterCleared !== 'all' 
-              ? 'No transactions match your filters'
-              : 'No transactions yet. Click "Add Transaction" to get started!'}
+            {searchTerm || filterType !== 'all'
+              ? 'No uncleared transactions match your filters'
+              : 'No uncleared transactions — all caught up! 🎉'}
           </p>
         </div>
       ) : (
@@ -1487,13 +1475,10 @@ export default function BankTransactions() {
               </tr>
             </thead>
             <tbody>
-              {filteredTransactions.map(transaction => (
+              {unclearedFiltered.map(transaction => (
               <tr 
                 key={transaction.id} 
-                style={{
-                  ...styles.tableRow,
-                  backgroundColor: transaction.is_cleared ? '#fff' : '#fef3c7',
-                }}
+                style={{...styles.tableRow, backgroundColor: '#fef3c7'}}
               >
                 <td style={styles.td}>
                   <input
@@ -1682,6 +1667,218 @@ export default function BankTransactions() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* ── Cleared Transactions Folder ── */}
+      <div
+        onClick={() => setShowClearedFolder(f => !f)}
+        style={styles.clearedFolderHeader}
+      >
+        <span style={{display: 'flex', alignItems: 'center', gap: 10}}>
+          <span style={{fontSize: 22}}>{showClearedFolder ? '📂' : '📁'}</span>
+          <span style={{fontSize: 17, fontWeight: 700}}>Cleared Transactions</span>
+          <span style={{
+            fontSize: 13, fontWeight: 600,
+            backgroundColor: 'rgba(255,255,255,0.25)',
+            borderRadius: 20, padding: '2px 10px'
+          }}>
+            {clearedFiltered.length}
+          </span>
+        </span>
+        <span style={{fontSize: 13, opacity: 0.85}}>{showClearedFolder ? '▲ Collapse' : '▼ Expand'}</span>
+      </div>
+
+      {showClearedFolder && (
+        clearedFiltered.length === 0 ? (
+          <div style={{...styles.empty, borderRadius: '0 0 12px 12px', marginBottom: 24}}>
+            <p style={styles.emptyText}>No cleared transactions match your filters</p>
+          </div>
+        ) : (
+          <div style={{...styles.tableContainer, borderRadius: '0 0 12px 12px', marginBottom: 24}}>
+            <table style={styles.table}>
+              <thead>
+                <tr style={styles.tableHeader}>
+                  <th style={styles.th}>✓</th>
+                  <th style={styles.th}>Date</th>
+                  <th style={styles.th}>Description</th>
+                  <th style={styles.th}>Payee</th>
+                  <th style={styles.th}>Reference</th>
+                  <th style={styles.th}>Category</th>
+                  <th style={styles.th}>Project</th>
+                  <th style={{...styles.th, textAlign: 'center'}} title="Matches">🔗</th>
+                  <th style={{...styles.th, textAlign: 'right'}}>Amount</th>
+                  <th style={{...styles.th, textAlign: 'right'}}>Balance</th>
+                  <th style={styles.th}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {clearedFiltered.map(transaction => (
+                <tr
+                  key={transaction.id}
+                  style={{...styles.tableRow, backgroundColor: '#f0fdf4'}}
+                >
+                  <td style={styles.td}>
+                    <input
+                      type="checkbox"
+                      checked={selectedClearedTransactions.has(transaction.id)}
+                      onChange={(e) => {
+                        const newSelected = new Set(selectedClearedTransactions);
+                        if (e.target.checked) {
+                          newSelected.add(transaction.id);
+                        } else {
+                          newSelected.delete(transaction.id);
+                        }
+                        setSelectedClearedTransactions(newSelected);
+                      }}
+                      style={{cursor: 'pointer', width: 18, height: 18}}
+                    />
+                  </td>
+                  <td style={styles.td}>{formatDate(transaction.transaction_date)}</td>
+                  <td style={styles.td}>{transaction.description}</td>
+                  <td style={styles.td}>
+                    <input
+                      type="text"
+                      defaultValue={transaction.payee || ''}
+                      onBlur={async (e) => {
+                        const newPayee = e.target.value;
+                        if (newPayee === (transaction.payee || '')) return;
+                        try {
+                          const { error } = await supabase
+                            .from('bank_transactions')
+                            .update({ payee: newPayee || null })
+                            .eq('id', transaction.id);
+                          if (error) throw error;
+                          setTransactions(prev => prev.map(t =>
+                            t.id === transaction.id ? {...t, payee: newPayee || null} : t
+                          ));
+                        } catch (err) {
+                          console.error('Error updating payee:', err);
+                          alert('Failed to update payee');
+                        }
+                      }}
+                      list="vendors-datalist-inline"
+                      style={styles.inlineInput}
+                      placeholder="-"
+                    />
+                  </td>
+                  <td style={styles.td}>{transaction.reference_number || '-'}</td>
+                  <td style={styles.td}>
+                    <select
+                      value={transaction.category || ''}
+                      onChange={async (e) => {
+                        const newCategory = e.target.value || null;
+                        try {
+                          const { error } = await supabase
+                            .from('bank_transactions')
+                            .update({ category: newCategory })
+                            .eq('id', transaction.id);
+                          if (error) throw error;
+                          setTransactions(prev => prev.map(t =>
+                            t.id === transaction.id ? {...t, category: newCategory} : t
+                          ));
+                        } catch (err) {
+                          console.error('Error updating category:', err);
+                          alert('Failed to update category');
+                        }
+                      }}
+                      style={styles.categorySelect}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <option value="">-- Select Account --</option>
+                      {accounts.map(account => (
+                        <option key={account.id} value={account.id}>
+                          {account.account_number} - {account.account_name}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td style={styles.td}>
+                    <select
+                      value={transaction.project_id || ''}
+                      onChange={async (e) => {
+                        const newProjectId = e.target.value || null;
+                        try {
+                          const { error } = await supabase
+                            .from('bank_transactions')
+                            .update({ project_id: newProjectId })
+                            .eq('id', transaction.id);
+                          if (error) throw error;
+                          setTransactions(prev => prev.map(t =>
+                            t.id === transaction.id ? {...t, project_id: newProjectId} : t
+                          ));
+                        } catch (err) {
+                          console.error('Error updating project:', err);
+                          alert('Failed to update project');
+                        }
+                      }}
+                      style={styles.categorySelect}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <option value="">-- Select Project --</option>
+                      {projects.map(project => (
+                        <option key={project.id} value={project.id}>
+                          {project.project_name}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td style={{...styles.td, textAlign: 'center'}}>
+                    <button
+                      onClick={() => openMatchesModal(transaction)}
+                      style={styles.matchIconButton}
+                      title={
+                        transaction.linked_expense_id || transaction.linked_invoice_id
+                          ? 'Linked to expense/invoice - Click to view'
+                          : getMatchCount(transaction) > 0
+                            ? `${getMatchCount(transaction)} potential match${getMatchCount(transaction) > 1 ? 'es' : ''} found`
+                            : 'No matches found'
+                      }
+                    >
+                      {transaction.linked_expense_id || transaction.linked_invoice_id ? '🔗' : getMatchCount(transaction) > 0 ? '✅' : '❌'}
+                    </button>
+                  </td>
+                  <td style={{
+                    ...styles.td,
+                    textAlign: 'right',
+                    fontWeight: '600',
+                    color: transaction.amount < 0 ? '#ef4444' : '#10b981'
+                  }}>
+                    {formatCurrency(transaction.amount)}
+                  </td>
+                  <td style={{...styles.td, fontWeight: 'bold'}}>
+                    {formatCurrency(runningBalances[transaction.id])}
+                  </td>
+                  <td style={styles.td}>
+                    <div style={styles.actionButtons}>
+                      <button
+                        onClick={() => handleToggleCleared(transaction)}
+                        style={styles.clearedButton}
+                        title="Click to unclear"
+                      >
+                        ✅
+                      </button>
+                      <button
+                        onClick={() => openEditModal(transaction)}
+                        style={styles.actionBtn}
+                        title="Edit"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        onClick={() => handleDelete(transaction)}
+                        style={{...styles.actionBtn, ...styles.deleteBtn}}
+                        title="Delete"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
       )}
 
       {/* Matches Modal */}
@@ -2608,5 +2805,19 @@ const styles = {
     color: "#fff",
     fontWeight: "600",
     whiteSpace: "nowrap",
+  },
+  clearedFolderHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "16px 22px",
+    marginTop: 24,
+    backgroundColor: "#1e429f",
+    borderRadius: 12,
+    cursor: "pointer",
+    color: "#fff",
+    userSelect: "none",
+    boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+    transition: "background-color 0.2s",
   },
 };
