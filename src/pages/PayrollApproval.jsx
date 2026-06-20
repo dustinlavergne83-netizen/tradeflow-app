@@ -662,9 +662,27 @@ export default function PayrollApproval() {
 
             {/* ── Section 1: IRS Federal Deposits ── */}
             <div style={{ marginBottom: 28 }}>
-              <h3 style={{ fontSize: 16, fontWeight: 800, color: "#dc2626", margin: "0 0 12px 0", borderBottom: "2px solid #fee2e2", paddingBottom: 8 }}>
-                🏛️ IRS Federal Deposit (Fed + SS×2 + Medicare×2)
-              </h3>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, borderBottom: "2px solid #fee2e2", paddingBottom: 8 }}>
+                <h3 style={{ fontSize: 16, fontWeight: 800, color: "#dc2626", margin: 0 }}>
+                  🏛️ IRS Federal Deposit (Fed + SS×2 + Medicare×2)
+                </h3>
+                {taxDepositPeriods.length > 0 && (
+                  <button
+                    onClick={async () => {
+                      const allIds = taxDepositPeriods.flatMap(p => p.stub_ids || []);
+                      if (allIds.length === 0) return;
+                      await supabase
+                        .from("payroll_expense_approvals")
+                        .update({ irs_deposit_created: true })
+                        .in("id", allIds);
+                      loadTaxDepositPeriods();
+                    }}
+                    style={{ fontSize: 12, padding: "6px 12px", borderRadius: 6, border: "1px solid #dc2626", backgroundColor: "#fff", color: "#dc2626", cursor: "pointer", fontWeight: 700 }}
+                  >
+                    🗂️ Archive All
+                  </button>
+                )}
+              </div>
               {taxDepositPeriods.length === 0 ? (
                 <div style={{ textAlign: "center", padding: 24, color: "#6b7280", backgroundColor: "#f9fafb", borderRadius: 8 }}>
                   <div style={{ fontSize: 28, marginBottom: 8 }}>✅</div>
