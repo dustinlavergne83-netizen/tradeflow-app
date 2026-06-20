@@ -36,6 +36,9 @@ export default function BankTransactions() {
   const [isUnclearing, setIsUnclearing] = useState(false);
   const [bulkStatusMsg, setBulkStatusMsg] = useState('');
   const [showClearedFolder, setShowClearedFolder] = useState(false);
+  const [showMatchReview, setShowMatchReview] = useState(false);
+  const [matchReviewIndex, setMatchReviewIndex] = useState(0);
+  const [matchCandidateIndex, setMatchCandidateIndex] = useState(0);
   
   const [transactionForm, setTransactionForm] = useState({
     transaction_date: getTodayLocalDate(),
@@ -1294,6 +1297,54 @@ export default function BankTransactions() {
   const runningBalances = calculateRunningBalance(transactions);
   const unclearedFiltered = filteredTransactions.filter(t => !t.is_cleared);
   const clearedFiltered = filteredTransactions.filter(t => t.is_cleared);
+
+  // Match Review queue: unlinked transactions that have at least one candidate match
+  const reviewQueue = transactions.filter(t =>
+    !t.linked_expense_id && !t.linked_invoice_id && getMatchCount(t) > 0
+  );
+  const currentReviewTx = reviewQueue[matchReviewIndex] || null;
+  const reviewExpMatches = currentReviewTx
+    ? getMatchingExpenses(currentReviewTx).map(e => ({...e, _type: 'expense'}))
+    : [];
+  const reviewInvMatches = currentReviewTx
+    ? getMatchingInvoices(currentReviewTx).map(i => ({...i, _type: 'invoice'}))
+    : [];
+  const reviewCandidates = [...reviewExpMatches, ...reviewInvMatches];
+  const safeCandIdx = Math.min(matchCandidateIndex, Math.max(0, reviewCandidates.length - 1));
+  const currentCandidate = reviewCandidates[safeCandIdx] || null;
+
+  // Match Review actions
+  async function confirmReviewMatch() {
+    if (!currentReviewTx || !currentCandidate) return;
+    if (currentCandidate._type === 'expense') {
+      await handleLinkExpense(currentReviewTx.id, currentCandidate.id);
+    } else {
+      await handleLinkInvoice(currentReviewTx.id, currentCandidate.id);
+    }
+    setMatchCandidateIndex(0);
+    // After loadData(), the linked transaction leaves the queue; same index points to next item
+  }
+
+  function skipReviewTransaction() {
+    const maxIdx = reviewQueue.length - 1;
+    if (matchReviewIndex >= maxIdx) {
+      setShowMatchReview(false);
+    } else {
+      setMatchReviewIndex(prev => prev + 1);
+      setMatchCandidateIndex(0);
+    }
+  }
+
+  const reviewAmountDiff = currentReviewTx && currentCandidate
+    ? Math.abs(
+        Math.abs(currentReviewTx.amount) -
+        Math.abs(currentCandidate._type === 'expense'
+          ? (currentCandidate.amount || 0)
+          : (currentCandidate.net_deposit_amount || currentCandidate.total_amount || 0))
+      )
+    : 0;
+  const isExactReviewMatch = reviewAmountDiff < 0.01;
+  const isCloseReviewMatch = !isExactReviewMatch && reviewAmountDiff <= 2.00;
   const totalDeposits = transactions.filter(t => t.amount > 0).reduce((sum, t) => sum + t.amount, 0);
   const totalWithdrawals = Math.abs(transactions.filter(t => t.amount < 0).reduce((sum, t) => sum + t.amount, 0));
   const clearedBalance = bankAccount.current_balance || 0;
@@ -1443,6 +1494,19 @@ export default function BankTransactions() {
             style={{...styles.filterSelect, ...styles.bulkUnclearButton}}
           >
             {isUnclearing ? '⏳ Unclearing...' : `🔓 Unclear Selected (${selectedClearedTransactions.size})`}
+          </button>
+        )}
+        {reviewQueue.length > 0 && (
+          <button
+            onClick={() => { setMatchReviewIndex(0); setMatchCandidateIndex(0); setShowMatchReview(true); }}
+            style={{
+              padding: '12px 20px', border: 'none', borderRadius: 8, cursor: 'pointer',
+              fontWeight: 700, fontSize: 15, whiteSpace: 'nowrap',
+              backgroundColor: '#7c3aed', color: '#fff',
+              boxShadow: '0 2px 6px rgba(124,58,237,0.4)',
+            }}
+          >
+            🔍 Review Matches ({reviewQueue.length})
           </button>
         )}
       </div>
@@ -1879,6 +1943,238 @@ export default function BankTransactions() {
             </table>
           </div>
         )
+      )}
+
+      {/* ── Match Review Modal ── */}
+      {showMatchReview && (
+        <div style={styles.matchReviewOverlay} onClick={() => setShowMatchReview(false)}>
+          <div style={styles.matchReviewModal} onClick={e => e.stopPropagation()}>
+
+            {/* Header */}
+            <div style={styles.matchReviewHeader}>
+              <div style={{display: 'flex', alignItems: 'center', gap: 16}}>
+                <span style={{fontSize: 20, fontWeight: 700, color: '#fff'}}>🔍 Match Review</span>
+                {currentReviewTx && (
+                  <span style={{
+                    fontSize: 13, color: '#c7d2fe',
+                    backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 20, padding: '3px 12px'
+                  }}>
+                    Transaction {matchReviewIndex + 1} of {reviewQueue.length}
+                  </span>
+                )}
+              </div>
+              <button onClick={() => setShowMatchReview(false)} style={{...styles.closeButton, color: '#fff', fontSize: 28}}>×</button>
+            </div>
+
+            {/* Progress bar */}
+            {currentReviewTx && (
+              <div style={{height: 4, backgroundColor: 'rgba(255,255,255,0.2)'}}>
+                <div style={{
+                  height: '100%', backgroundColor: '#10b981',
+                  width: `${((matchReviewIndex + 1) / reviewQueue.length) * 100}%`,
+                  transition: 'width 0.3s ease'
+                }} />
+              </div>
+            )}
+
+            {/* ── All Done ── */}
+            {!currentReviewTx && (
+              <div style={{textAlign: 'center', padding: '60px 40px'}}>
+                <div style={{fontSize: 64, marginBottom: 16}}>🎉</div>
+                <h2 style={{fontSize: 24, color: '#fff', marginBottom: 8}}>All caught up!</h2>
+                <p style={{fontSize: 16, color: '#c7d2fe', marginBottom: 32}}>All potential matches have been reviewed.</p>
+                <button onClick={() => setShowMatchReview(false)} style={styles.matchReviewConfirmBtn}>Close</button>
+              </div>
+            )}
+
+            {/* ── Side-by-side comparison ── */}
+            {currentReviewTx && currentCandidate && (
+              <div style={styles.matchReviewBody}>
+
+                {/* Left: Bank Transaction card */}
+                <div style={styles.matchReviewCard}>
+                  <div style={{...styles.matchReviewCardHeader, backgroundColor: '#1e429f'}}>
+                    🏦 Bank Transaction
+                  </div>
+                  <div style={styles.matchReviewCardBody}>
+                    <div style={styles.matchReviewField}>
+                      <span style={styles.matchReviewLabel}>Date</span>
+                      <span style={styles.matchReviewValue}>{formatDate(currentReviewTx.transaction_date)}</span>
+                    </div>
+                    <div style={styles.matchReviewField}>
+                      <span style={styles.matchReviewLabel}>Amount</span>
+                      <span style={{
+                        ...styles.matchReviewValue, fontSize: 22, fontWeight: 700,
+                        color: currentReviewTx.amount < 0 ? '#ef4444' : '#10b981'
+                      }}>
+                        {formatCurrency(currentReviewTx.amount)}
+                      </span>
+                    </div>
+                    <div style={styles.matchReviewField}>
+                      <span style={styles.matchReviewLabel}>Description</span>
+                      <span style={styles.matchReviewValue}>{currentReviewTx.description || '—'}</span>
+                    </div>
+                    <div style={styles.matchReviewField}>
+                      <span style={styles.matchReviewLabel}>Payee</span>
+                      <span style={styles.matchReviewValue}>{currentReviewTx.payee || '—'}</span>
+                    </div>
+                    <div style={styles.matchReviewField}>
+                      <span style={styles.matchReviewLabel}>Type</span>
+                      <span style={styles.matchReviewValue}>
+                        {getTransactionIcon(currentReviewTx.transaction_type)} {currentReviewTx.transaction_type}
+                      </span>
+                    </div>
+                    {currentReviewTx.reference_number && (
+                      <div style={styles.matchReviewField}>
+                        <span style={styles.matchReviewLabel}>Reference</span>
+                        <span style={styles.matchReviewValue}>{currentReviewTx.reference_number}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Center: match quality + candidate switcher */}
+                <div style={styles.matchReviewCenter}>
+                  <div style={{fontSize: 28, marginBottom: 12}}>↔</div>
+                  <div style={{
+                    padding: '8px 14px', borderRadius: 8, fontWeight: 700, fontSize: 13,
+                    backgroundColor: isExactReviewMatch ? '#dcfce7' : isCloseReviewMatch ? '#fef3c7' : '#fee2e2',
+                    color: isExactReviewMatch ? '#059669' : isCloseReviewMatch ? '#d97706' : '#dc2626',
+                    textAlign: 'center'
+                  }}>
+                    {isExactReviewMatch
+                      ? '✓ Exact Match'
+                      : isCloseReviewMatch
+                        ? `≈ $${reviewAmountDiff.toFixed(2)} off`
+                        : `✗ $${reviewAmountDiff.toFixed(2)} diff`}
+                  </div>
+
+                  {/* Candidate switcher (if multiple) */}
+                  {reviewCandidates.length > 1 && (
+                    <div style={{marginTop: 20, textAlign: 'center'}}>
+                      <div style={{fontSize: 12, color: '#888', marginBottom: 6, fontWeight: 600, textTransform: 'uppercase'}}>Candidate</div>
+                      <div style={{display: 'flex', alignItems: 'center', gap: 10}}>
+                        <button
+                          onClick={() => setMatchCandidateIndex(Math.max(0, safeCandIdx - 1))}
+                          disabled={safeCandIdx === 0}
+                          style={{...styles.matchReviewNavBtn, opacity: safeCandIdx === 0 ? 0.3 : 1, padding: '6px 12px'}}
+                        >◀</button>
+                        <span style={{fontSize: 13, fontWeight: 700}}>
+                          {safeCandIdx + 1} / {reviewCandidates.length}
+                        </span>
+                        <button
+                          onClick={() => setMatchCandidateIndex(Math.min(reviewCandidates.length - 1, safeCandIdx + 1))}
+                          disabled={safeCandIdx === reviewCandidates.length - 1}
+                          style={{...styles.matchReviewNavBtn, opacity: safeCandIdx === reviewCandidates.length - 1 ? 0.3 : 1, padding: '6px 12px'}}
+                        >▶</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right: Book match card */}
+                <div style={styles.matchReviewCard}>
+                  <div style={{
+                    ...styles.matchReviewCardHeader,
+                    backgroundColor: currentCandidate._type === 'expense' ? '#dc2626' : '#059669'
+                  }}>
+                    {currentCandidate._type === 'expense' ? '💸 Expense Record' : '📄 Invoice Record'}
+                  </div>
+                  <div style={styles.matchReviewCardBody}>
+                    {currentCandidate._type === 'expense' ? (
+                      <>
+                        <div style={styles.matchReviewField}>
+                          <span style={styles.matchReviewLabel}>Vendor</span>
+                          <span style={styles.matchReviewValue}>{currentCandidate.vendor || '—'}</span>
+                        </div>
+                        <div style={styles.matchReviewField}>
+                          <span style={styles.matchReviewLabel}>Amount</span>
+                          <span style={{...styles.matchReviewValue, fontSize: 22, fontWeight: 700, color: '#ef4444'}}>
+                            {formatCurrency(currentCandidate.amount)}
+                          </span>
+                        </div>
+                        <div style={styles.matchReviewField}>
+                          <span style={styles.matchReviewLabel}>Date</span>
+                          <span style={styles.matchReviewValue}>{formatDate(currentCandidate.expense_date)}</span>
+                        </div>
+                        <div style={styles.matchReviewField}>
+                          <span style={styles.matchReviewLabel}>Category</span>
+                          <span style={styles.matchReviewValue}>{currentCandidate.category || '—'}</span>
+                        </div>
+                        {currentCandidate.description && (
+                          <div style={styles.matchReviewField}>
+                            <span style={styles.matchReviewLabel}>Notes</span>
+                            <span style={styles.matchReviewValue}>{currentCandidate.description}</span>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <div style={styles.matchReviewField}>
+                          <span style={styles.matchReviewLabel}>Invoice #</span>
+                          <span style={styles.matchReviewValue}>#{currentCandidate.invoice_number}</span>
+                        </div>
+                        <div style={styles.matchReviewField}>
+                          <span style={styles.matchReviewLabel}>Amount</span>
+                          <span style={{...styles.matchReviewValue, fontSize: 22, fontWeight: 700, color: '#10b981'}}>
+                            {formatCurrency(currentCandidate.total_amount)}
+                          </span>
+                        </div>
+                        {currentCandidate.net_deposit_amount && currentCandidate.net_deposit_amount !== currentCandidate.total_amount && (
+                          <div style={styles.matchReviewField}>
+                            <span style={styles.matchReviewLabel}>Net Deposit</span>
+                            <span style={styles.matchReviewValue}>{formatCurrency(currentCandidate.net_deposit_amount)}</span>
+                          </div>
+                        )}
+                        <div style={styles.matchReviewField}>
+                          <span style={styles.matchReviewLabel}>Customer</span>
+                          <span style={styles.matchReviewValue}>{currentCandidate.customer_name || currentCandidate.customer_id || '—'}</span>
+                        </div>
+                        <div style={styles.matchReviewField}>
+                          <span style={styles.matchReviewLabel}>Invoice Date</span>
+                          <span style={styles.matchReviewValue}>{formatDate(currentCandidate.invoice_date)}</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Footer navigation ── */}
+            {currentReviewTx && (
+              <div style={styles.matchReviewFooter}>
+                <button
+                  onClick={() => { setMatchReviewIndex(Math.max(0, matchReviewIndex - 1)); setMatchCandidateIndex(0); }}
+                  disabled={matchReviewIndex === 0}
+                  style={{...styles.matchReviewNavBtn, opacity: matchReviewIndex === 0 ? 0.3 : 1, padding: '11px 22px'}}
+                >
+                  ← Prev
+                </button>
+                <button onClick={skipReviewTransaction} style={styles.matchReviewSkipBtn}>
+                  ❌ Skip — No Match
+                </button>
+                {currentCandidate && (
+                  <button onClick={confirmReviewMatch} style={styles.matchReviewConfirmBtn}>
+                    ✅ Confirm Match
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    if (matchReviewIndex < reviewQueue.length - 1) {
+                      setMatchReviewIndex(prev => prev + 1);
+                      setMatchCandidateIndex(0);
+                    }
+                  }}
+                  disabled={matchReviewIndex >= reviewQueue.length - 1}
+                  style={{...styles.matchReviewNavBtn, opacity: matchReviewIndex >= reviewQueue.length - 1 ? 0.3 : 1, padding: '11px 22px'}}
+                >
+                  Next →
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Matches Modal */}
@@ -2819,5 +3115,136 @@ const styles = {
     userSelect: "none",
     boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
     transition: "background-color 0.2s",
+  },
+  // ── Match Review Modal ──
+  matchReviewOverlay: {
+    position: "fixed",
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.82)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2000,
+  },
+  matchReviewModal: {
+    backgroundColor: "#1e1b4b",
+    borderRadius: 16,
+    width: "96%",
+    maxWidth: 1040,
+    maxHeight: "94vh",
+    overflow: "hidden",
+    display: "flex",
+    flexDirection: "column",
+    boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+  },
+  matchReviewHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "20px 28px",
+    backgroundColor: "#312e81",
+    flexShrink: 0,
+  },
+  matchReviewBody: {
+    display: "flex",
+    gap: 0,
+    flex: 1,
+    overflow: "hidden",
+    padding: "24px 20px",
+    gap: 16,
+  },
+  matchReviewCard: {
+    flex: 1,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    overflow: "hidden",
+    display: "flex",
+    flexDirection: "column",
+    boxShadow: "0 4px 16px rgba(0,0,0,0.2)",
+  },
+  matchReviewCardHeader: {
+    padding: "14px 20px",
+    color: "#fff",
+    fontWeight: 700,
+    fontSize: 15,
+    letterSpacing: "0.3px",
+  },
+  matchReviewCardBody: {
+    padding: "20px",
+    flex: 1,
+    overflowY: "auto",
+    display: "flex",
+    flexDirection: "column",
+    gap: 14,
+  },
+  matchReviewCenter: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "0 8px",
+    flexShrink: 0,
+    minWidth: 110,
+  },
+  matchReviewField: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 3,
+    borderBottom: "1px solid #f3f4f6",
+    paddingBottom: 10,
+  },
+  matchReviewLabel: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: "#9ca3af",
+    textTransform: "uppercase",
+    letterSpacing: "0.6px",
+  },
+  matchReviewValue: {
+    fontSize: 15,
+    color: "#111",
+    fontWeight: 500,
+    wordBreak: "break-word",
+  },
+  matchReviewFooter: {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 12,
+    padding: "16px 28px",
+    backgroundColor: "#312e81",
+    flexShrink: 0,
+  },
+  matchReviewNavBtn: {
+    padding: "10px 18px",
+    border: "2px solid rgba(255,255,255,0.3)",
+    borderRadius: 8,
+    backgroundColor: "transparent",
+    color: "#fff",
+    fontWeight: 600,
+    fontSize: 14,
+    cursor: "pointer",
+  },
+  matchReviewSkipBtn: {
+    padding: "12px 24px",
+    border: "none",
+    borderRadius: 8,
+    backgroundColor: "#dc2626",
+    color: "#fff",
+    fontWeight: 700,
+    fontSize: 15,
+    cursor: "pointer",
+    boxShadow: "0 2px 6px rgba(220,38,38,0.4)",
+  },
+  matchReviewConfirmBtn: {
+    padding: "12px 28px",
+    border: "none",
+    borderRadius: 8,
+    backgroundColor: "#059669",
+    color: "#fff",
+    fontWeight: 700,
+    fontSize: 15,
+    cursor: "pointer",
+    boxShadow: "0 2px 6px rgba(5,150,105,0.4)",
   },
 };
