@@ -425,24 +425,26 @@ export default function BankTransactions() {
   }
 
   // ── Scoring-based match functions ──────────────────────────────────────────
-  // Minimum score to appear as a match: 50
+  // Minimum score to appear as a match: 70
   //   Amount exact (≤$0.01): +50   Amount rounding diff (≤$0.02): +30
-  //   Date ≤3 days: +30   ≤7d: +20   ≤14d: +10   ≤30d: +5   >60d: reject
-  //   Payee/vendor name similarity: +25
-  // Examples:
-  //   Exact amount + ≤30d = 55 ✓   2¢ diff + date within 3d = 60 ✓   Exact + >60d = 0 ✗
+  //   Date ≤3 days: +30   ≤7d: +20   ≤14d: +10   >14d: REJECT
+  //   Payee/vendor/customer name similarity: +25
+  // To pass (score ≥ 70):
+  //   Exact amount + ≤7 days  = 70 ✓ (minimum passing case)
+  //   Exact amount + ≤3 days  = 80 ✓ (strong match)
+  //   Exact amount + ≤3 days + name = 105 ✓ (very strong)
+  //   Exact amount + 8-14 days = 60 ✗ (rejected — too old without name confirmation)
+  //   Exact amount + >14 days = 0  ✗ (always rejected)
 
-  function dateProximityScore(dateA, dateB, maxDays = 60) {
-    if (!dateA || !dateB) return 0;
+  function dateProximityScore(dateA, dateB, maxDays = 14) {
+    if (!dateA || !dateB) return null; // no date = reject
     const a = new Date(dateA.includes('T') ? dateA : dateA + 'T00:00:00');
     const b = new Date(dateB.includes('T') ? dateB : dateB + 'T00:00:00');
     const days = Math.abs((a - b) / 86400000);
     if (days > maxDays) return null; // null = reject entirely
     if (days <= 3)  return 30;
     if (days <= 7)  return 20;
-    if (days <= 14) return 10;
-    if (days <= 30) return 5;
-    return 0;
+    return 10; // 8-14 days
   }
 
   function nameSimilarityScore(str1, str2) {
@@ -450,11 +452,9 @@ export default function BankTransactions() {
     const a = str1.toLowerCase().trim();
     const b = str2.toLowerCase().trim();
     if (!a || !b) return 0;
-    // Check containment both ways with at least 4 chars
     const shorter = a.length < b.length ? a : b;
     const longer  = a.length < b.length ? b : a;
     if (shorter.length >= 4 && longer.includes(shorter)) return 25;
-    // Check first-word match (e.g. "ABC Corp" vs "ABC Construction")
     const aWord = a.split(/\s+/)[0];
     const bWord = b.split(/\s+/)[0];
     if (aWord.length >= 3 && aWord === bWord) return 12;
@@ -466,16 +466,18 @@ export default function BankTransactions() {
     const expAmount = Math.abs(parseFloat(expense.amount)      || 0);
     const diff      = Math.abs(txAmount - expAmount);
 
+    // Amount must be within 2 cents — no match otherwise
     let score = 0;
-    if      (diff < 0.01) score += 50;   // exact (< 1 cent)
-    else if (diff <= 0.02) score += 30;  // rounding difference (1-2 cents)
-    else return 0;                        // amount too far off — no match
+    if      (diff < 0.01)  score += 50;  // exact
+    else if (diff <= 0.02) score += 30;  // rounding
+    else return 0;
 
-    const datePts = dateProximityScore(transaction.transaction_date, expense.expense_date, 60);
-    if (datePts === null) return 0;       // date too far — reject
+    // Date must be within 14 days — hard reject beyond that
+    const datePts = dateProximityScore(transaction.transaction_date, expense.expense_date, 14);
+    if (datePts === null) return 0;
     score += datePts;
 
-    // Payee ↔ vendor similarity
+    // Payee ↔ vendor name similarity (bonus)
     score += nameSimilarityScore(transaction.payee       || '', expense.vendor || '');
     score += nameSimilarityScore(transaction.description || '', expense.vendor || '');
 
@@ -484,43 +486,34 @@ export default function BankTransactions() {
 
   function scoreInvoiceMatch(transaction, invoice) {
     const txAmount = Math.abs(parseFloat(transaction.amount) || 0);
-    let   amountScore = 0;
 
+    // ONLY match on the invoice's own total or net_deposit_amount —
+    // do NOT use payment installment records, which cause false positives.
     const netDep   = Math.abs(parseFloat(invoice.net_deposit_amount) || 0);
     const invTotal = Math.abs(parseFloat(invoice.total_amount)       || 0);
 
-    if      (netDep  > 0 && Math.abs(netDep  - txAmount) < 0.01) amountScore = 50;
-    else if (netDep  > 0 && Math.abs(netDep  - txAmount) <= 0.02) amountScore = 30;
-    else if (invTotal> 0 && Math.abs(invTotal - txAmount) < 0.01) amountScore = 50;
-    else {
-      // Check individual payment records
-      const pmtMatch = invoicePayments.find(pmt => {
-        if (pmt.invoice_id !== invoice.id) return false;
-        const pmtNet   = Math.abs(parseFloat(pmt.net_amount) || 0);
-        const pmtGross = Math.abs(parseFloat(pmt.amount)     || 0);
-        return (pmtNet   > 0 && Math.abs(pmtNet   - txAmount) <= 0.02) ||
-               (pmtGross > 0 && Math.abs(pmtGross - txAmount) < 0.01);
-      });
-      if (!pmtMatch) return 0; // no amount match at all
-      const pmtNet = Math.abs(parseFloat(pmtMatch.net_amount) || 0);
-      amountScore = (pmtNet > 0 && Math.abs(pmtNet - txAmount) < 0.01) ? 50 : 30;
-    }
+    let amountScore = 0;
+    if      (netDep   > 0 && Math.abs(netDep   - txAmount) < 0.01)  amountScore = 50;
+    else if (netDep   > 0 && Math.abs(netDep   - txAmount) <= 0.02) amountScore = 30;
+    else if (invTotal > 0 && Math.abs(invTotal  - txAmount) < 0.01)  amountScore = 50;
+    else if (invTotal > 0 && Math.abs(invTotal  - txAmount) <= 0.02) amountScore = 30;
+    else return 0; // amounts don't match — reject
 
     let score = amountScore;
 
-    // Date: use invoice_date; allow up to 90 days for invoices (payment can be delayed)
-    const datePts = dateProximityScore(transaction.transaction_date, invoice.invoice_date, 90);
+    // Date must be within 14 days of invoice date — hard reject beyond that
+    const datePts = dateProximityScore(transaction.transaction_date, invoice.invoice_date, 14);
     if (datePts === null) return 0;
     score += datePts;
 
-    // Customer ↔ payee similarity
+    // Customer ↔ payee/description similarity (bonus)
     score += nameSimilarityScore(transaction.payee       || '', invoice.customer_name || '');
     score += nameSimilarityScore(transaction.description || '', invoice.customer_name || '');
 
     return score;
   }
 
-  const MIN_MATCH_SCORE = 50;
+  const MIN_MATCH_SCORE = 70;
 
   function getMatchingExpenses(transaction) {
     return expenses
