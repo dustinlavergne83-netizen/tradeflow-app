@@ -426,11 +426,11 @@ export default function BankTransactions() {
 
   // ── Scoring-based match functions ──────────────────────────────────────────
   // Minimum score to appear as a match: 50
-  //   Amount exact (≤$0.01): +50   Amount close/fee (≤$2): +30
+  //   Amount exact (≤$0.01): +50   Amount rounding diff (≤$0.02): +30
   //   Date ≤3 days: +30   ≤7d: +20   ≤14d: +10   ≤30d: +5   >60d: reject
   //   Payee/vendor name similarity: +25
   // Examples:
-  //   Exact amount + ≤30d = 55 ✓   Close amount + ≤3d = 60 ✓   Exact + >60d = 0 ✗
+  //   Exact amount + ≤30d = 55 ✓   2¢ diff + date within 3d = 60 ✓   Exact + >60d = 0 ✗
 
   function dateProximityScore(dateA, dateB, maxDays = 60) {
     if (!dateA || !dateB) return 0;
@@ -467,9 +467,9 @@ export default function BankTransactions() {
     const diff      = Math.abs(txAmount - expAmount);
 
     let score = 0;
-    if      (diff < 0.01) score += 50;   // exact
-    else if (diff <= 2.00) score += 30;  // close (payment processing)
-    else return 0;                        // amount too far off
+    if      (diff < 0.01) score += 50;   // exact (< 1 cent)
+    else if (diff <= 0.02) score += 30;  // rounding difference (1-2 cents)
+    else return 0;                        // amount too far off — no match
 
     const datePts = dateProximityScore(transaction.transaction_date, expense.expense_date, 60);
     if (datePts === null) return 0;       // date too far — reject
@@ -490,7 +490,7 @@ export default function BankTransactions() {
     const invTotal = Math.abs(parseFloat(invoice.total_amount)       || 0);
 
     if      (netDep  > 0 && Math.abs(netDep  - txAmount) < 0.01) amountScore = 50;
-    else if (netDep  > 0 && Math.abs(netDep  - txAmount) <= 2.00) amountScore = 30;
+    else if (netDep  > 0 && Math.abs(netDep  - txAmount) <= 0.02) amountScore = 30;
     else if (invTotal> 0 && Math.abs(invTotal - txAmount) < 0.01) amountScore = 50;
     else {
       // Check individual payment records
@@ -498,7 +498,7 @@ export default function BankTransactions() {
         if (pmt.invoice_id !== invoice.id) return false;
         const pmtNet   = Math.abs(parseFloat(pmt.net_amount) || 0);
         const pmtGross = Math.abs(parseFloat(pmt.amount)     || 0);
-        return (pmtNet   > 0 && Math.abs(pmtNet   - txAmount) <= 2.00) ||
+        return (pmtNet   > 0 && Math.abs(pmtNet   - txAmount) <= 0.02) ||
                (pmtGross > 0 && Math.abs(pmtGross - txAmount) < 0.01);
       });
       if (!pmtMatch) return 0; // no amount match at all
@@ -1373,9 +1373,9 @@ export default function BankTransactions() {
   const unclearedFiltered = filteredTransactions.filter(t => !t.is_cleared);
   const clearedFiltered = filteredTransactions.filter(t => t.is_cleared);
 
-  // Match Review queue: unlinked transactions that have at least one candidate match
+  // Match Review queue: UNCLEARED, unlinked transactions that have at least one candidate match
   const reviewQueue = transactions.filter(t =>
-    !t.linked_expense_id && !t.linked_invoice_id && getMatchCount(t) > 0
+    !t.is_cleared && !t.linked_expense_id && !t.linked_invoice_id && getMatchCount(t) > 0
   );
   const currentReviewTx = reviewQueue[matchReviewIndex] || null;
   const reviewExpMatches = currentReviewTx
@@ -1419,7 +1419,7 @@ export default function BankTransactions() {
       )
     : 0;
   const isExactReviewMatch = reviewAmountDiff < 0.01;
-  const isCloseReviewMatch = !isExactReviewMatch && reviewAmountDiff <= 2.00;
+  const isCloseReviewMatch = !isExactReviewMatch && reviewAmountDiff <= 0.02;
   const totalDeposits = transactions.filter(t => t.amount > 0).reduce((sum, t) => sum + t.amount, 0);
   const totalWithdrawals = Math.abs(transactions.filter(t => t.amount < 0).reduce((sum, t) => sum + t.amount, 0));
   const clearedBalance = bankAccount.current_balance || 0;
