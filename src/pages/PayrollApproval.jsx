@@ -138,7 +138,7 @@ export default function PayrollApproval() {
       const { data: pastData } = await supabase
         .from("expenses")
         .select("id, expense_date, amount, description, vendor")
-        .or("description.ilike.%IRS Payroll Tax Deposit%,description.ilike.%State Income Tax Deposit%")
+        .or("description.ilike.%IRS Payroll Tax%,description.ilike.%State Income Tax Deposit%")
         .order("expense_date", { ascending: false })
         .limit(50);
       setPastDeposits(pastData || []);
@@ -166,9 +166,9 @@ export default function PayrollApproval() {
         vendor: "Louisiana / State Tax Authority",
         description: `State Income Tax Deposit — ${periodRange} (${employees.length} employee${employees.length !== 1 ? "s" : ""}: ${employees.join(", ")})`,
         payment_method: "check",
-        tax_deductible: true,
+        tax_deductible: false,
         created_by: user.id,
-        receipt_notes: `State tax withholding covering ${periods.length} pay period(s). Employee state tax only.`,
+        receipt_notes: `Employee state tax withholding remitted to state. Not deductible — already captured in gross wages.`,
         ...(stateTaxAccount ? { bank_account_id: stateTaxAccount } : {}),
       };
 
@@ -204,26 +204,40 @@ export default function PayrollApproval() {
         : formatDate(payDate);
 
       const totalTax = period.grand_total;
-      const breakdown = [
-        `Fed: ${formatCurrency(period.total_fed)}`,
-        `SS (×2): ${formatCurrency(period.total_ss_employee * 2)}`,
-        `Medicare (×2): ${formatCurrency(period.total_medicare_employee * 2)}`,
-      ].join(", ");
+      const empMatchAmount = period.employer_ss + period.employer_medicare;
+      const empWithholdAmount = period.total_fed + period.total_ss_employee + period.total_medicare_employee;
+      const empCount = period.employees.length;
+      const empList = period.employees.join(", ");
 
-      const expenseLine = {
+      // Line 1: Employer match — DEDUCTIBLE (your actual business expense)
+      const employerMatchLine = {
         expense_date: payDate,
-        amount: totalTax,
+        amount: empMatchAmount,
         category: "Payroll Taxes",
-        vendor: "IRS / State Tax Authority",
-        description: `IRS Payroll Tax Deposit — ${periodLabel} (${period.employees.length} employee${period.employees.length !== 1 ? "s" : ""}: ${period.employees.join(", ")}). ${breakdown}`,
+        vendor: "IRS",
+        description: `IRS Payroll Tax — Employer Match — ${periodLabel} (${empCount} employee${empCount !== 1 ? "s" : ""}: ${empList}). Employer SS: ${formatCurrency(period.employer_ss)}, Employer Medicare: ${formatCurrency(period.employer_medicare)}`,
         payment_method: "check",
         tax_deductible: true,
         created_by: user.id,
-        receipt_notes: `Combined employee + employer taxes. Employee SS: ${formatCurrency(period.total_ss_employee)}, Employer SS: ${formatCurrency(period.employer_ss)}, Employee Medicare: ${formatCurrency(period.total_medicare_employee)}, Employer Medicare: ${formatCurrency(period.employer_medicare)}`,
+        receipt_notes: `Employer's matching share of SS and Medicare. This is your deductible payroll tax expense.`,
         ...(taxDepositAccount ? { bank_account_id: taxDepositAccount } : {}),
       };
 
-      const { error: expError } = await supabase.from("expenses").insert([expenseLine]);
+      // Line 2: Employee withholdings — NON-DEDUCTIBLE (pass-through money you remit on behalf of employees)
+      const employeeWithholdLine = {
+        expense_date: payDate,
+        amount: empWithholdAmount,
+        category: "Payroll Taxes",
+        vendor: "IRS",
+        description: `IRS Payroll Tax — Employee Withholdings — ${periodLabel} (${empCount} employee${empCount !== 1 ? "s" : ""}: ${empList}). Fed: ${formatCurrency(period.total_fed)}, Employee SS: ${formatCurrency(period.total_ss_employee)}, Employee Medicare: ${formatCurrency(period.total_medicare_employee)}`,
+        payment_method: "check",
+        tax_deductible: false,
+        created_by: user.id,
+        receipt_notes: `Employee-side withholdings remitted to IRS. Not a deductible employer expense — already captured in gross wages.`,
+        ...(taxDepositAccount ? { bank_account_id: taxDepositAccount } : {}),
+      };
+
+      const { error: expError } = await supabase.from("expenses").insert([employerMatchLine, employeeWithholdLine]);
       if (expError) throw expError;
 
       // Mark stubs as IRS deposit created so they disappear from the pending list
