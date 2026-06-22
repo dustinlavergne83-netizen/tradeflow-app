@@ -301,12 +301,12 @@ export default function QuickEstimate() {
 
       const { data: withLabor, error: withLaborErr } = await supabase
         .from('base_materials')
-        .select('id, name, basecost, laborhrs, category')
+        .select('id, name, basecost, laborhours, category')
         .order('name')
         .range(0, 49999);
 
       if (withLaborErr) {
-        console.warn('laborhrs column unavailable, retrying without it:', withLaborErr.message);
+        console.warn('laborhours column unavailable, retrying without it:', withLaborErr.message);
         hasLaborHrs = false;
         const { data: withoutLabor, error: withoutLaborErr } = await supabase
           .from('base_materials')
@@ -331,7 +331,7 @@ export default function QuickEstimate() {
           id: m.id,
           name: m.name,
           price: Number(m.basecost || 0),
-          laborHrs: hasLaborHrs ? Number(m.laborhrs || 0) : 0,
+          laborHrs: hasLaborHrs ? Number(m.laborhours || 0) : 0,
           category: m.category || '',
         })),
         ...(customMats || []).map(m => ({
