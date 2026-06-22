@@ -842,7 +842,7 @@ export default function ProposalResidentialContractor() {
                   )}
 
                   <tr style={{...styles.tableRow, borderTop: "2px solid #333"}}>
-                    <td style={{...styles.td, fontWeight: "bold"}}>TOTAL PROPOSAL</td>
+                    <td style={{...styles.td, fontWeight: "bold"}}>TOTAL INVESTMENT</td>
                     <td style={{...styles.td, textAlign: "right", fontWeight: "bold", fontSize: 24, color: BRAND.accent}}>
                       ${totalAmount.toFixed(2)}
                     </td>
