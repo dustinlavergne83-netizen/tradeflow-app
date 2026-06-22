@@ -295,14 +295,29 @@ export default function QuickEstimate() {
 
   async function loadMaterials() {
     try {
-      // Load base materials — column is 'basecost' (not 'price')
-      const { data: baseMats, error: baseErr } = await supabase
+      // Try loading with laborhrs first; fall back without it if column doesn't exist
+      let baseMats = null;
+      let hasLaborHrs = true;
+
+      const { data: withLabor, error: withLaborErr } = await supabase
         .from('base_materials')
         .select('id, name, basecost, laborhrs, category')
         .order('name')
         .range(0, 49999);
 
-      if (baseErr) console.error('Error loading base_materials:', baseErr);
+      if (withLaborErr) {
+        console.warn('laborhrs column unavailable, retrying without it:', withLaborErr.message);
+        hasLaborHrs = false;
+        const { data: withoutLabor, error: withoutLaborErr } = await supabase
+          .from('base_materials')
+          .select('id, name, basecost, category')
+          .order('name')
+          .range(0, 49999);
+        if (withoutLaborErr) console.error('Error loading base_materials:', withoutLaborErr);
+        baseMats = withoutLabor;
+      } else {
+        baseMats = withLabor;
+      }
 
       // Load custom materials — column is 'price'
       const { data: customMats, error: customErr } = await supabase
@@ -316,7 +331,7 @@ export default function QuickEstimate() {
           id: m.id,
           name: m.name,
           price: Number(m.basecost || 0),
-          laborHrs: Number(m.laborhrs || 0),
+          laborHrs: hasLaborHrs ? Number(m.laborhrs || 0) : 0,
           category: m.category || '',
         })),
         ...(customMats || []).map(m => ({
@@ -328,7 +343,7 @@ export default function QuickEstimate() {
         })),
       ];
       setMaterialsDB(all);
-      console.log(`[QuickEstimate] Loaded ${all.length} materials for autocomplete`);
+      console.log(`[QuickEstimate] Loaded ${all.length} materials (laborHrs=${hasLaborHrs})`);
     } catch (err) {
       console.error('Error loading materials for autocomplete:', err);
     }
