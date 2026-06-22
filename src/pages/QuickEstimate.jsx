@@ -332,13 +332,51 @@ export default function QuickEstimate() {
     }
   }
 
+  // Size-code expansion table for trade shorthand (e.g. "150" → "1-1/2")
+  const SIZE_EXPANSIONS = {
+    '50':  ['1/2', '½'],
+    '75':  ['3/4', '¾'],
+    '100': ['1"', '1-', ' 1 ', '1 in'],
+    '125': ['1-1/4', '1 1/4', '1.25'],
+    '150': ['1-1/2', '1 1/2', '1.5'],
+    '200': ['2"', '2-', ' 2 ', '2 in'],
+    '250': ['2-1/2', '2 1/2', '2.5'],
+    '300': ['3"', '3-', ' 3 ', '3 in'],
+    '350': ['3-1/2', '3 1/2', '3.5'],
+    '400': ['4"', '4-', ' 4 ', '4 in'],
+    '500': ['5"', '5-', ' 5 '],
+    '600': ['6"', '6-', ' 6 '],
+  };
+
   // Returns up to 10 materials matching the typed text (min 2 chars)
+  // Supports trade shorthand: "pvc150" splits into ["pvc","150"] and matches "1-1/2 PVC"
   function getMaterialSuggestions(text) {
     if (!text || text.trim().length < 2) return [];
     const q = text.trim().toLowerCase();
-    return materialsDB
-      .filter(m => m.name.toLowerCase().includes(q))
-      .slice(0, 10);
+
+    // Split at letter↔digit boundaries and spaces into tokens
+    const tokens = q
+      .split(/(?<=[a-z])(?=\d)|(?<=\d)(?=[a-z])|\s+/)
+      .map(t => t.trim())
+      .filter(t => t.length > 0);
+
+    // If only one token (no split happened), use simple contains search
+    if (tokens.length <= 1) {
+      return materialsDB
+        .filter(m => m.name.toLowerCase().includes(q))
+        .slice(0, 10);
+    }
+
+    // Multi-token: ALL tokens must match (directly or via size expansion)
+    return materialsDB.filter(m => {
+      const name = m.name.toLowerCase();
+      return tokens.every(token => {
+        if (name.includes(token)) return true;
+        const expansions = SIZE_EXPANSIONS[token];
+        if (expansions) return expansions.some(exp => name.includes(exp));
+        return false;
+      });
+    }).slice(0, 10);
   }
 
   // Select a material suggestion for a line item
