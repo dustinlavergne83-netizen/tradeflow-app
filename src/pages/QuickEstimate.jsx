@@ -1192,7 +1192,7 @@ export default function QuickEstimate() {
             </div>
           </div>
 
-          <div style={styles.tableContainer}>
+          <div style={{...styles.tableContainer, overflowX: activeDescDropdown ? 'visible' : 'auto'}}>
             {itemMode === 'detailed' ? (
               // DETAILED MODE TABLE
               <table style={styles.table}>
@@ -1263,7 +1263,7 @@ export default function QuickEstimate() {
                                 position: 'absolute', top: '100%', left: 0, right: 0,
                                 backgroundColor: '#fff', border: '2px solid #fc6b04',
                                 borderTop: 'none', borderRadius: '0 0 6px 6px',
-                                maxHeight: 220, overflowY: 'auto', zIndex: 2000,
+                                maxHeight: 220, overflowY: 'auto', zIndex: 9999,
                                 boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
                               }}>
                                 {getMaterialSuggestions(item.description).map(mat => (
@@ -1406,7 +1406,7 @@ export default function QuickEstimate() {
                                 position: 'absolute', top: '100%', left: 0, right: 0,
                                 backgroundColor: '#fff', border: '2px solid #fc6b04',
                                 borderTop: 'none', borderRadius: '0 0 6px 6px',
-                                maxHeight: 220, overflowY: 'auto', zIndex: 2000,
+                                maxHeight: 220, overflowY: 'auto', zIndex: 9999,
                                 boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
                               }}>
                                 {getMaterialSuggestions(item.description).map(mat => (
@@ -1759,7 +1759,7 @@ const styles = {
     borderRadius: "0 0 6px 6px",
     maxHeight: "200px",
     overflowY: "auto",
-    zIndex: 1000,
+    zIndex: 9999,
     boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
   },
   dropdownItem: {
