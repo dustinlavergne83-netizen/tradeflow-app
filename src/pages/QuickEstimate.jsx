@@ -349,26 +349,32 @@ export default function QuickEstimate() {
   };
 
   // Returns up to 10 materials matching the typed text (min 2 chars)
-  // Supports trade shorthand: "pvc150" splits into ["pvc","150"] and matches "1-1/2 PVC"
+  // Priority: 1) part number (id) match, 2) name/category token match with size expansion
   function getMaterialSuggestions(text) {
     if (!text || text.trim().length < 2) return [];
     const q = text.trim().toLowerCase();
 
-    // Split at letter↔digit boundaries and spaces into tokens
+    // 1. Part number (ID) match — e.g. "pvc112" matches pvc112_, pvc112_45, pvc112_90, etc.
+    const idMatches = materialsDB.filter(m =>
+      String(m.id).toLowerCase().includes(q)
+    );
+    if (idMatches.length > 0) return idMatches.slice(0, 10);
+
+    // 2. Split at letter↔digit boundaries and spaces into tokens
     const tokens = q
       .split(/(?<=[a-z])(?=\d)|(?<=\d)(?=[a-z])|\s+/)
       .map(t => t.trim())
       .filter(t => t.length > 0);
 
-    // If only one token (no split happened), use simple contains search
+    // 3. Single token → simple name search
     if (tokens.length <= 1) {
       return materialsDB
         .filter(m => m.name.toLowerCase().includes(q))
         .slice(0, 10);
     }
 
-    // Multi-token: ALL tokens must match (name OR category, directly or via size expansion)
-    const strictMatches = materialsDB.filter(m => {
+    // 4. Multi-token: ALL tokens must match name or category (with size expansion)
+    return materialsDB.filter(m => {
       const name = m.name.toLowerCase();
       const cat = (m.category || '').toLowerCase();
       return tokens.every(token => {
@@ -377,28 +383,7 @@ export default function QuickEstimate() {
         if (expansions) return expansions.some(exp => name.includes(exp) || cat.includes(exp));
         return false;
       });
-    });
-
-    if (strictMatches.length > 0) return strictMatches.slice(0, 10);
-
-    // Fallback: score-based — return items matching the MOST tokens (at least half)
-    const minScore = Math.ceil(tokens.length / 2);
-    return materialsDB
-      .map(m => {
-        const name = m.name.toLowerCase();
-        const cat = (m.category || '').toLowerCase();
-        const score = tokens.reduce((s, token) => {
-          if (name.includes(token) || cat.includes(token)) return s + 1;
-          const expansions = SIZE_EXPANSIONS[token];
-          if (expansions && expansions.some(exp => name.includes(exp) || cat.includes(exp))) return s + 1;
-          return s;
-        }, 0);
-        return { m, score };
-      })
-      .filter(({ score }) => score >= minScore)
-      .sort((a, b) => b.score - a.score)
-      .map(({ m }) => m)
-      .slice(0, 10);
+    }).slice(0, 10);
   }
 
   // Select a material suggestion for a line item
