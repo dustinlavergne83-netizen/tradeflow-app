@@ -354,10 +354,10 @@ export default function QuickEstimate() {
     if (!text || text.trim().length < 2) return [];
     const q = text.trim().toLowerCase();
 
-    // 1. Part number (ID) match — e.g. "pvc112" matches pvc112_, pvc112_45, pvc112_90, etc.
-    const idMatches = materialsDB.filter(m =>
-      String(m.id).toLowerCase().includes(q)
-    );
+    // 1. Part number (ID) match — sort by ID length so base items (pvc112_) appear before variants (pvc112_45)
+    const idMatches = materialsDB
+      .filter(m => String(m.id).toLowerCase().includes(q))
+      .sort((a, b) => String(a.id).length - String(b.id).length);
     if (idMatches.length > 0) return idMatches.slice(0, 10);
 
     // 2. Split at letter↔digit boundaries and spaces into tokens
