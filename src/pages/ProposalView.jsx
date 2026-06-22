@@ -1,7 +1,9 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-import logoImage from "../assets/LOGOD.jpg";
+
+// Use the public-folder logo so it loads reliably at any route
+const logoImage = "/LOGOD.jpg";
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -75,6 +77,22 @@ export default function ProposalView() {
       setLoading(false);
     }
   }
+
+  // Renders description as left-aligned bullet points if it contains newlines
+  const renderDescription = (text) => {
+    if (!text) return null;
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length <= 1) return <span>{text}</span>;
+    return (
+      <ul style={{ margin: 0, paddingLeft: 18, textAlign: 'left', listStyleType: 'disc' }}>
+        {lines.map((line, i) => (
+          <li key={i} style={{ marginBottom: 2 }}>
+            {line.replace(/^[-•*]\s*/, '')}
+          </li>
+        ))}
+      </ul>
+    );
+  };
 
   // Format date as MM-DD-YYYY
   const formatDate = (dateString) => {
@@ -175,7 +193,7 @@ export default function ProposalView() {
                   <span style={{...styles.badge, backgroundColor: BRAND.accent}}>BASE BID</span>
                 </td>
                 <td style={{...styles.td, fontSize: 13, color: "#666"}}>
-                  {baseEstimate.description || baseEstimate.project_description || "Base scope of work"}
+                  {renderDescription(baseEstimate.description || baseEstimate.project_description || "Base scope of work")}
                 </td>
                 <td style={{...styles.td, textAlign: "right", fontWeight: "600", fontSize: 16}}>
                   ${(proposal.base_bid_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
