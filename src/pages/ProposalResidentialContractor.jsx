@@ -396,6 +396,22 @@ export default function ProposalResidentialContractor() {
     }
   }
 
+  // Renders a description string as left-aligned bullet points if it contains newlines
+  const renderDescription = (text) => {
+    if (!text) return null;
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length <= 1) return <span>{text}</span>;
+    return (
+      <ul style={{ margin: 0, paddingLeft: 18, textAlign: 'left', listStyleType: 'disc' }}>
+        {lines.map((line, i) => (
+          <li key={i} style={{ marginBottom: 2 }}>
+            {line.replace(/^[-•*]\s*/, '')}
+          </li>
+        ))}
+      </ul>
+    );
+  };
+
   const totalAmount = (includeBaseBid ? (baseEstimate?.total || 0) : 0) +
     alternates
       .filter(alt => selectedAlternates.includes(alt.id))
@@ -733,7 +749,7 @@ export default function ProposalResidentialContractor() {
                       {/* For change orders (no estimate items), show the description as a line item */}
                       {includeBaseBid && estimateItems.length === 0 && baseEstimate.description && (
                         <tr style={styles.tableRow}>
-                          <td style={styles.td}>{baseEstimate.description}</td>
+                          <td style={styles.td}>{renderDescription(baseEstimate.description)}</td>
                           <td style={{...styles.td, textAlign: "right", fontWeight: "600"}}>
                             ${(baseEstimate.total || 0).toFixed(2)}
                           </td>
@@ -758,7 +774,7 @@ export default function ProposalResidentialContractor() {
                     <tr style={styles.tableRow}>
                       <td style={{...styles.td, lineHeight: 1.6, padding: "16px 0"}}>
                         <div style={{fontWeight: "600", marginBottom: 6}}>
-                          {baseEstimate.notes || baseEstimate.description || project?.name || "Electrical Work"}
+                          {renderDescription(baseEstimate.notes || baseEstimate.description || project?.name || "Electrical Work")}
                         </div>
                         <div style={{fontSize: 13, color: "#555"}}>
                           Includes all labor, materials, and equipment necessary to complete the scope of work as discussed.
