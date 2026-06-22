@@ -295,30 +295,38 @@ export default function QuickEstimate() {
 
   async function loadMaterials() {
     try {
-      // Load base materials
-      const { data: baseMats } = await supabase
+      // Load base materials — column is 'basecost' (not 'price')
+      const { data: baseMats, error: baseErr } = await supabase
         .from('base_materials')
-        .select('id, name, price, unit_cost, category')
+        .select('id, name, basecost, category')
         .order('name')
         .range(0, 49999);
 
-      // Load custom materials
-      const { data: customMats } = await supabase
-        .from('custom_materials')
-        .select('id, name, price, unit_cost, category');
+      if (baseErr) console.error('Error loading base_materials:', baseErr);
 
-      const format = (m) => ({
-        id: m.id,
-        name: m.name,
-        price: Number(m.price || m.unit_cost || 0),
-        category: m.category || '',
-      });
+      // Load custom materials — column is 'price'
+      const { data: customMats, error: customErr } = await supabase
+        .from('custom_materials')
+        .select('id, name, price, category');
+
+      if (customErr) console.error('Error loading custom_materials:', customErr);
 
       const all = [
-        ...(baseMats || []).map(format),
-        ...(customMats || []).map(format),
+        ...(baseMats || []).map(m => ({
+          id: m.id,
+          name: m.name,
+          price: Number(m.basecost || 0),
+          category: m.category || '',
+        })),
+        ...(customMats || []).map(m => ({
+          id: m.id,
+          name: m.name,
+          price: Number(m.price || 0),
+          category: m.category || '',
+        })),
       ];
       setMaterialsDB(all);
+      console.log(`[QuickEstimate] Loaded ${all.length} materials for autocomplete`);
     } catch (err) {
       console.error('Error loading materials for autocomplete:', err);
     }
