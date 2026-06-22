@@ -18,6 +18,7 @@ export default function ProposalView() {
   const [loading, setLoading] = useState(true);
   const [proposal, setProposal] = useState(null);
   const [baseEstimate, setBaseEstimate] = useState(null);
+  const [estimateItems, setEstimateItems] = useState([]);
   const [proposalAlternates, setProposalAlternates] = useState([]);
   const [project, setProject] = useState(null);
 
@@ -48,6 +49,14 @@ export default function ProposalView() {
 
       if (baseError) throw baseError;
       setBaseEstimate(baseEst);
+
+      // Load estimate line items
+      const { data: itemsData } = await supabase
+        .from("estimate_items")
+        .select("*")
+        .eq("estimate_id", proposalData.base_estimate_id)
+        .order("sequence");
+      if (itemsData) setEstimateItems(itemsData);
 
       // Load project data
       const { data: projectData, error: projectError } = await supabase
@@ -187,18 +196,36 @@ export default function ProposalView() {
               </tr>
             </thead>
             <tbody>
-              {/* Base Bid */}
-              <tr style={styles.tableRow}>
-                <td style={styles.td}>
-                  <span style={{...styles.badge, backgroundColor: BRAND.accent}}>BASE BID</span>
-                </td>
-                <td style={{...styles.td, fontSize: 13, color: "#666"}}>
-                  {renderDescription(baseEstimate.description || baseEstimate.project_description || "Base scope of work")}
-                </td>
-                <td style={{...styles.td, textAlign: "right", fontWeight: "600", fontSize: 16}}>
-                  ${(proposal.base_bid_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                </td>
-              </tr>
+              {/* Base Bid - show each estimate item as its own row, or fall back to description */}
+              {estimateItems.length > 0 ? (
+                estimateItems.map((item, idx) => (
+                  <tr key={item.id} style={styles.tableRow}>
+                    {idx === 0 && (
+                      <td style={styles.td} rowSpan={estimateItems.length}>
+                        <span style={{...styles.badge, backgroundColor: BRAND.accent}}>BASE BID</span>
+                      </td>
+                    )}
+                    <td style={{...styles.td, fontSize: 13, color: "#333", textAlign: "left"}}>
+                      {item.description}
+                    </td>
+                    <td style={{...styles.td, textAlign: "right", fontWeight: "600", fontSize: 14}}>
+                      ${(item.line_total || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr style={styles.tableRow}>
+                  <td style={styles.td}>
+                    <span style={{...styles.badge, backgroundColor: BRAND.accent}}>BASE BID</span>
+                  </td>
+                  <td style={{...styles.td, fontSize: 13, color: "#666", textAlign: "left"}}>
+                    {renderDescription(baseEstimate.description || baseEstimate.project_description || "Base scope of work")}
+                  </td>
+                  <td style={{...styles.td, textAlign: "right", fontWeight: "600", fontSize: 16}}>
+                    ${(proposal.base_bid_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </td>
+                </tr>
+              )}
 
               {/* Selected Alternates */}
               {proposalAlternates.map(alt => (
