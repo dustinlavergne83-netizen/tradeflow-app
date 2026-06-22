@@ -271,7 +271,7 @@ export default function ProposalResidentialContractor() {
             console.log("Auto-selecting contractor:", contractorsData[0]);
             setSelectedContractor(contractorsData[0]);
           } else if (projectData.contractor) {
-            // Fallback: use the contractor text field from the project
+            // Fallback: use the contractor text field from the project (commercial)
             const syntheticContractor = {
               id: "project-contractor",
               contractor_name: projectData.contractor,
@@ -282,6 +282,18 @@ export default function ProposalResidentialContractor() {
             setContractors([syntheticContractor]);
             setSelectedContractor(syntheticContractor);
             console.log("Auto-selecting from project.contractor:", projectData.contractor);
+          } else if (projectData.customer) {
+            // Fallback: use the customer field from the project (residential)
+            const syntheticCustomer = {
+              id: "project-customer",
+              contractor_name: projectData.customer,
+              company_name: projectData.customer,
+              email: null,
+              phone: null,
+            };
+            setContractors([syntheticCustomer]);
+            setSelectedContractor(syntheticCustomer);
+            console.log("Auto-selecting from project.customer:", projectData.customer);
           } else if (estimateData.customer_name) {
             // Fallback: use customer_name from estimate (for residential-owner)
             const syntheticCustomer = {
@@ -374,7 +386,7 @@ export default function ProposalResidentialContractor() {
             setContractors(contractorsData);
             setSelectedContractor(contractorsData[0]);
           } else if (projectData.contractor) {
-            // Fallback: use the contractor text field from the project
+            // Fallback: use the contractor text field from the project (commercial)
             const syntheticContractor = {
               id: "project-contractor",
               contractor_name: projectData.contractor,
@@ -385,6 +397,18 @@ export default function ProposalResidentialContractor() {
             setContractors([syntheticContractor]);
             setSelectedContractor(syntheticContractor);
             console.log("Auto-selecting from project.contractor (CO):", projectData.contractor);
+          } else if (projectData.customer) {
+            // Fallback: use the customer field from the project (residential)
+            const syntheticCustomer = {
+              id: "project-customer",
+              contractor_name: projectData.customer,
+              company_name: projectData.customer,
+              email: null,
+              phone: null,
+            };
+            setContractors([syntheticCustomer]);
+            setSelectedContractor(syntheticCustomer);
+            console.log("Auto-selecting from project.customer (CO):", projectData.customer);
           }
         } else {
           // Fallback: use minimal project object so the page still renders
