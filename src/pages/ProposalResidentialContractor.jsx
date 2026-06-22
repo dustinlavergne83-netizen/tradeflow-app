@@ -531,21 +531,52 @@ export default function ProposalResidentialContractor() {
   return (
     <div className="proposal-page-wrapper" style={styles.container}>
       <div style={styles.header}>
-        <h1 style={styles.title}>{baseEstimate.description || project?.name || `Estimate #${baseEstimate.estimate_number}`}</h1>
+        <h1 style={styles.title}>{project?.name || `Estimate #${baseEstimate.estimate_number}`}</h1>
         <div style={styles.buttons}>
           {isEditing ? (
             <>
-              <button onClick={() => setIsEditing(false)} style={styles.cancelButton}>
+              <button onClick={() => navigate(-1)} style={styles.cancelButton}>
+                ← Back
+              </button>
+              <button onClick={() => setIsEditing(false)} style={{...styles.cancelButton, marginLeft: 0}}>
                 Cancel
               </button>
               <button onClick={() => handleSave()} style={styles.saveButton} disabled={isSaving}>
-                {isSaving ? "Saving..." : "Save Proposal"}
+                {isSaving ? "Saving..." : "💾 Save"}
               </button>
             </>
           ) : (
             <>
-              <button onClick={handlePrint} style={styles.button}>
-                🖨️ Print
+              <button onClick={() => navigate(-1)} style={styles.cancelButton}>
+                ← Back
+              </button>
+              <button onClick={handlePrint} style={{...styles.button, backgroundColor: "#3b82f6"}}>
+                🖨️ Print / PDF
+              </button>
+              <button
+                onClick={async () => {
+                  const email = window.prompt("Enter email address to send proposal to:");
+                  if (!email) return;
+                  try {
+                    const { error } = await supabase.functions.invoke('send-proposal', {
+                      body: {
+                        to: email,
+                        contractorName: selectedContractor?.contractor_name,
+                        projectName: project?.name,
+                        estimateNumber: baseEstimate.estimate_number?.replace('EST-', ''),
+                        totalAmount: totalAmount,
+                        proposalId: proposalId,
+                      },
+                    });
+                    if (error) throw error;
+                    alert(`✅ Proposal sent to ${email}`);
+                  } catch (err) {
+                    alert("Error sending email: " + err.message);
+                  }
+                }}
+                style={{...styles.button, backgroundColor: "#10b981"}}
+              >
+                📧 Email
               </button>
               <button onClick={() => setIsEditing(true)} style={styles.button}>
                 ✏️ Edit
