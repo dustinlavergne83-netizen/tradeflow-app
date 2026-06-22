@@ -298,7 +298,7 @@ export default function QuickEstimate() {
       // Load base materials — column is 'basecost' (not 'price')
       const { data: baseMats, error: baseErr } = await supabase
         .from('base_materials')
-        .select('id, name, basecost, category')
+        .select('id, name, basecost, laborhrs, category')
         .order('name')
         .range(0, 49999);
 
@@ -316,12 +316,14 @@ export default function QuickEstimate() {
           id: m.id,
           name: m.name,
           price: Number(m.basecost || 0),
+          laborHrs: Number(m.laborhrs || 0),
           category: m.category || '',
         })),
         ...(customMats || []).map(m => ({
           id: m.id,
           name: m.name,
           price: Number(m.price || 0),
+          laborHrs: 0,
           category: m.category || '',
         })),
       ];
@@ -393,8 +395,11 @@ export default function QuickEstimate() {
       return {
         ...item,
         description: mat.name,
-        // Only fill in unit material cost in detailed mode
-        ...(isDetailedMode && mat.price > 0 ? { material: mat.price } : {}),
+        // Only fill in cost and labor hours in detailed mode
+        ...(isDetailedMode ? {
+          ...(mat.price > 0 ? { material: mat.price } : {}),
+          ...(mat.laborHrs > 0 ? { lbrHrs: mat.laborHrs } : {}),
+        } : {}),
       };
     }));
     setActiveDescDropdown(null);
