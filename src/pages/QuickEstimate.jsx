@@ -367,16 +367,38 @@ export default function QuickEstimate() {
         .slice(0, 10);
     }
 
-    // Multi-token: ALL tokens must match (directly or via size expansion)
-    return materialsDB.filter(m => {
+    // Multi-token: ALL tokens must match (name OR category, directly or via size expansion)
+    const strictMatches = materialsDB.filter(m => {
       const name = m.name.toLowerCase();
+      const cat = (m.category || '').toLowerCase();
       return tokens.every(token => {
-        if (name.includes(token)) return true;
+        if (name.includes(token) || cat.includes(token)) return true;
         const expansions = SIZE_EXPANSIONS[token];
-        if (expansions) return expansions.some(exp => name.includes(exp));
+        if (expansions) return expansions.some(exp => name.includes(exp) || cat.includes(exp));
         return false;
       });
-    }).slice(0, 10);
+    });
+
+    if (strictMatches.length > 0) return strictMatches.slice(0, 10);
+
+    // Fallback: score-based — return items matching the MOST tokens (at least half)
+    const minScore = Math.ceil(tokens.length / 2);
+    return materialsDB
+      .map(m => {
+        const name = m.name.toLowerCase();
+        const cat = (m.category || '').toLowerCase();
+        const score = tokens.reduce((s, token) => {
+          if (name.includes(token) || cat.includes(token)) return s + 1;
+          const expansions = SIZE_EXPANSIONS[token];
+          if (expansions && expansions.some(exp => name.includes(exp) || cat.includes(exp))) return s + 1;
+          return s;
+        }, 0);
+        return { m, score };
+      })
+      .filter(({ score }) => score >= minScore)
+      .sort((a, b) => b.score - a.score)
+      .map(({ m }) => m)
+      .slice(0, 10);
   }
 
   // Select a material suggestion for a line item
