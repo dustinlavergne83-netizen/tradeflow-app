@@ -94,7 +94,7 @@ export default function InvoiceView() {
             },
           },
         });
-        cardElement.mount(cardMountRef.current);
+        cardElement.mount("#clover-card-element");
         setCloverObj({ instance: cloverInstance, card: cardElement });
       } catch (e) {
         console.error("Clover SDK init error:", e);
