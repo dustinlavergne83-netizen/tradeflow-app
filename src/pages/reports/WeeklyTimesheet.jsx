@@ -23,6 +23,7 @@ export default function WeeklyTimesheet() {
   const [sending, setSending] = useState(false);
   const [approvalStatus, setApprovalStatus] = useState(null);
   const [approving, setApproving] = useState(false);
+  const [selectedEmployeeIds, setSelectedEmployeeIds] = useState(new Set());
 
   // Round hours to nearest quarter hour (0.25)
   function roundToQuarterHour(hours) {
@@ -348,19 +349,31 @@ export default function WeeklyTimesheet() {
       return;
     }
 
+    if (selectedEmployeeIds.size === 0) {
+      alert('Please select at least one employee to include.');
+      return;
+    }
+
     try {
       setSending(true);
-      
+
       const weekDays = getWeekDays(selectedWeek);
+
+      // Filter to only selected employees and recalculate totals
+      const filteredData = timesheetData.filter(r => selectedEmployeeIds.has(r.employeeId));
+      const filteredDayTotals = weekDays.map(day =>
+        filteredData.reduce((sum, row) => sum + (row.days[day] || 0), 0)
+      );
+      const filteredGrandTotal = filteredData.reduce((sum, row) => sum + row.weekTotal, 0);
       
       const response = await supabase.functions.invoke('send-timesheet', {
         body: {
           to: emailAddress.trim(),
           weekStart: selectedWeek,
           weekEnd: weekEndDate,
-          timesheetData: timesheetData,
-          dayTotals: dayTotals,
-          grandTotal: grandTotal,
+          timesheetData: filteredData,
+          dayTotals: filteredDayTotals,
+          grandTotal: filteredGrandTotal,
           companyName: "DML Electrical Service, LLC"
         }
       });
@@ -498,7 +511,10 @@ export default function WeeklyTimesheet() {
             
             <div style={{ display: "flex", gap: 12 }}>
               <button
-                onClick={() => setEmailModalOpen(true)}
+                onClick={() => {
+                  setSelectedEmployeeIds(new Set(timesheetData.map(r => r.employeeId)));
+                  setEmailModalOpen(true);
+                }}
                 style={{
                   backgroundColor: "#3b82f6",
                   color: "#fff",
@@ -855,10 +871,58 @@ export default function WeeklyTimesheet() {
                 border: "2px solid #e5e7eb",
                 borderRadius: 8,
                 fontSize: 16,
-                marginBottom: 24,
+                marginBottom: 20,
                 boxSizing: "border-box",
               }}
             />
+
+            {/* Employee Selection */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                <label style={{ fontWeight: 600, fontSize: 14, color: "#111" }}>
+                  Select Employees to Include
+                </label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button type="button"
+                    onClick={() => setSelectedEmployeeIds(new Set(timesheetData.map(r => r.employeeId)))}
+                    style={{ fontSize: 12, color: "#3b82f6", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>
+                    Select All
+                  </button>
+                  <span style={{ color: "#d1d5db" }}>|</span>
+                  <button type="button"
+                    onClick={() => setSelectedEmployeeIds(new Set())}
+                    style={{ fontSize: 12, color: "#6b7280", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>
+                    None
+                  </button>
+                </div>
+              </div>
+              <div style={{ border: "2px solid #e5e7eb", borderRadius: 8, maxHeight: 200, overflowY: "auto" }}>
+                {timesheetData.map((row, idx) => (
+                  <label key={row.employeeId} style={{
+                    display: "flex", alignItems: "center", gap: 12,
+                    padding: "10px 14px", cursor: "pointer",
+                    borderBottom: idx < timesheetData.length - 1 ? "1px solid #f3f4f6" : "none",
+                    backgroundColor: selectedEmployeeIds.has(row.employeeId) ? "#eff6ff" : "#fff",
+                  }}>
+                    <input type="checkbox"
+                      checked={selectedEmployeeIds.has(row.employeeId)}
+                      onChange={(e) => {
+                        const next = new Set(selectedEmployeeIds);
+                        if (e.target.checked) next.add(row.employeeId);
+                        else next.delete(row.employeeId);
+                        setSelectedEmployeeIds(next);
+                      }}
+                      style={{ width: 16, height: 16, accentColor: "#3b82f6", cursor: "pointer" }}
+                    />
+                    <span style={{ flex: 1, fontWeight: 600, fontSize: 14, color: "#111" }}>{row.employeeName}</span>
+                    <span style={{ fontSize: 13, color: "#6b7280" }}>{row.weekTotal.toFixed(2)} hrs</span>
+                  </label>
+                ))}
+              </div>
+              <p style={{ margin: "6px 0 0 0", fontSize: 12, color: "#6b7280" }}>
+                {selectedEmployeeIds.size} of {timesheetData.length} employee{timesheetData.length !== 1 ? 's' : ''} selected
+              </p>
+            </div>
 
             <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
               <button
