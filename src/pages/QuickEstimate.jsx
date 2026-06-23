@@ -366,7 +366,7 @@ export default function QuickEstimate() {
   };
 
   // Returns up to 10 materials matching the typed text (min 2 chars)
-  // Priority: 1) part number (id) match, 2) name/category token match with size expansion
+  // Priority: 1) part number (id) match, 2) name/category token match with size+electrical expansion
   function getMaterialSuggestions(text) {
     if (!text || text.trim().length < 2) return [];
     const q = text.trim().toLowerCase();
@@ -377,29 +377,62 @@ export default function QuickEstimate() {
       .sort((a, b) => String(a.id).length - String(b.id).length);
     if (idMatches.length > 0) return idMatches.slice(0, 10);
 
-    // 2. Split at letter↔digit boundaries and spaces into tokens
-    const tokens = q
-      .split(/(?<=[a-z])(?=\d)|(?<=\d)(?=[a-z])|\s+/)
-      .map(t => t.trim())
-      .filter(t => t.length > 0);
+    // 2. Normalize electrical trade shorthand BEFORE tokenizing:
+    //    "100a"  → "100"        (strip amperage suffix)
+    //    "100amp"→ "100"        (strip amp word)
+    //    "2p"   → "2 pole"     (expand pole abbreviation)
+    //    "2pole"→ "2 pole"     (split digit from word)
+    //    "3p"   → "3 pole", etc.
+    const processed = q
+      .replace(/\b(\d+)\s*amps?\b/g, '$1 ')        // 100amp / 100amps → 100
+      .replace(/(\d+)\s*a(?=\s|$)/g, '$1 ')         // 100a (trailing) → 100
+      .replace(/\b(\d+)\s*p\b/g, '$1 pole ')        // 2p / 3p → 2 pole / 3 pole
+      .replace(/(\d+)\s*pole/g, '$1 pole ')          // 2pole → 2 pole
+      .replace(/\bdp\b/g, '2 pole ')                 // dp → 2 pole (double pole)
+      .replace(/\bsp\b/g, '1 pole ')                 // sp → 1 pole (single pole)
+      .replace(/\s+/g, ' ')
+      .trim();
 
-    // 3. Single token → simple name search
-    if (tokens.length <= 1) {
-      return materialsDB
-        .filter(m => m.name.toLowerCase().includes(q))
-        .slice(0, 10);
+    // 3. Tokenize on spaces + letter↔digit boundaries; skip 1-char tokens (noise)
+    const tokens = processed
+      .split(/\s+|(?<=[a-z])(?=\d)|(?<=\d)(?=[a-z])/)
+      .map(t => t.trim())
+      .filter(t => t.length >= 2);
+
+    if (tokens.length === 0) {
+      return materialsDB.filter(m => m.name.toLowerCase().includes(q)).slice(0, 10);
     }
 
-    // 4. Multi-token: ALL tokens must match name or category (with size expansion)
-    return materialsDB.filter(m => {
+    if (tokens.length === 1) {
+      return materialsDB.filter(m => m.name.toLowerCase().includes(tokens[0])).slice(0, 10);
+    }
+
+    // 4. Strict: ALL tokens must match name or category
+    const strictMatches = materialsDB.filter(m => {
       const name = m.name.toLowerCase();
       const cat = (m.category || '').toLowerCase();
       return tokens.every(token => {
         if (name.includes(token) || cat.includes(token)) return true;
-        const expansions = SIZE_EXPANSIONS[token];
-        if (expansions) return expansions.some(exp => name.includes(exp) || cat.includes(exp));
+        const sizeExp = SIZE_EXPANSIONS[token];
+        if (sizeExp) return sizeExp.some(e => name.includes(e) || cat.includes(e));
         return false;
       });
+    });
+
+    if (strictMatches.length > 0) return strictMatches.slice(0, 10);
+
+    // 5. Fallback: match at least 60% of tokens (catches near-misses)
+    const minMatches = Math.max(2, Math.ceil(tokens.length * 0.6));
+    return materialsDB.filter(m => {
+      const name = m.name.toLowerCase();
+      const cat = (m.category || '').toLowerCase();
+      let count = 0;
+      for (const token of tokens) {
+        if (name.includes(token) || cat.includes(token)) { count++; continue; }
+        const sizeExp = SIZE_EXPANSIONS[token];
+        if (sizeExp && sizeExp.some(e => name.includes(e) || cat.includes(e))) count++;
+      }
+      return count >= minMatches;
     }).slice(0, 10);
   }
 
