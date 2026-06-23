@@ -332,7 +332,7 @@ Deno.serve(async (req) => {
             <td style="background-color: #f9fafb; padding: 16px 30px; text-align: center; border-top: 1px solid #e5e7eb;">
               <p style="margin: 0; font-size: 12px; color: #666;">
                 ${companyName}<br>
-                Phone: (337) 660-4946 &bull; Email: dustin@dmlelectrical.com
+                Phone: (337) 288-0395 &bull; Email: dustin@dmlelectrical.com
               </p>
             </td>
           </tr>
@@ -453,20 +453,30 @@ Deno.serve(async (req) => {
               <table width="100%" cellpadding="0" cellspacing="0" style="margin: 24px 0 12px 0;">
                 <tr>
                   <td align="center">
-                    <a href="${invoiceUrl}" style="display: inline-block; padding: 18px 48px; background-color: #16a34a; color: #ffffff; text-decoration: none; border-radius: 10px; font-size: 19px; font-weight: bold; box-shadow: 0 4px 12px rgba(22,163,74,0.35); letter-spacing: 0.3px;">
-                      📄 View or Print / Pay Invoice
+                    <!--[if mso]>
+                    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${invoiceUrl}" style="height:54px;v-text-anchor:middle;width:300px;" arcsize="10%" stroke="f" fillcolor="#16a34a">
+                      <w:anchorlock/>
+                      <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:17px;font-weight:bold;">
+                        View &amp; Pay Invoice Online
+                      </center>
+                    </v:roundrect>
+                    <![endif]-->
+                    <!--[if !mso]><!-->
+                    <a href="${invoiceUrl}" style="display: inline-block; padding: 16px 40px; background-color: #16a34a; color: #ffffff; text-decoration: none; border-radius: 10px; font-size: 17px; font-weight: bold; mso-hide: all;">
+                      📄 View &amp; Pay Invoice Online
                     </a>
+                    <!--<![endif]-->
                   </td>
                 </tr>
                 <tr>
                   <td align="center" style="padding-top: 8px;">
-                    <p style="margin: 0; font-size: 12px; color: #6b7280;">🔒 Secure online payment &bull; Credit card or ACH bank transfer &bull; No fee for ACH</p>
+                    <p style="margin: 0; font-size: 12px; color: #6b7280;">🔒 Secure payment powered by Clover</p>
                   </td>
                 </tr>
                 <tr>
                   <td align="center" style="padding-top: 10px;">
-                    <p style="margin: 0; font-size: 11px; color: #9ca3af;">Button not working? Copy &amp; paste this link:</p>
-                    <p style="margin: 4px 0 0 0; font-size: 12px; color: #0b3ea8; word-break: break-all;">${invoiceUrl}</p>
+                    <p style="margin: 0; font-size: 11px; color: #9ca3af;">Button not working? Copy &amp; paste this link into your browser:</p>
+                    <p style="margin: 4px 0 0 0; font-size: 12px; word-break: break-all;"><a href="${invoiceUrl}" style="color: #16a34a;">${invoiceUrl}</a></p>
                   </td>
                 </tr>
               </table>
@@ -474,7 +484,7 @@ Deno.serve(async (req) => {
               <div style="margin: 12px 0 20px 0; padding: 14px 16px; background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
                 <p style="margin: 0; color: #78350f; font-size: 14px; line-height: 1.6;">
                   <strong>Payment Due${dueDate ? ` by ${formatDate(dueDate)}` : ''}.</strong>
-                  Pay online with a credit card or ACH bank transfer, or make checks payable to ${companyName}.
+                  Pay securely online with a credit card, or make checks payable to ${companyName}.
                 </p>
               </div>
               ` : `
@@ -508,7 +518,7 @@ Deno.serve(async (req) => {
             <td style="background-color: #f9fafb; padding: 16px 30px; text-align: center; border-top: 1px solid #e5e7eb;">
               <p style="margin: 0; font-size: 12px; color: #666;">
                 ${companyName}<br>
-                Phone: (337) 660-4946 • Email: dustin@dmlelectrical.com
+                Phone: (337) 288-0395 &bull; Email: dustin@dmlelectrical.com
               </p>
             </td>
           </tr>
