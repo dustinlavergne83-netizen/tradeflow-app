@@ -95,7 +95,7 @@ export default function EmployeeTimesheets() {
   const [saving, setSaving] = useState(false);
 
   // ── email CPA modal ───────────────────────────────────────────────────────
-  const [emailModal, setEmailModal] = useState({ show: false, to: "dustin@dmlelectrical.com", cc: "", subject: "", sending: false, capAt40: false });
+  const [emailModal, setEmailModal] = useState({ show: false, to: "dustin@dmlelectrical.com", cc: "", subject: "", sending: false, capAt40: false, selectedUids: null });
 
   // ── reports modal ─────────────────────────────────────────────────────────
   const [showReportsModal, setShowReportsModal] = useState(false);
@@ -333,7 +333,7 @@ export default function EmployeeTimesheets() {
   }
 
   // ── build timesheet PDF (shared by print + email) ────────────────────────
-  async function buildTimesheetPDF(capAt40 = false) {
+  async function buildTimesheetPDF(capAt40 = false, uidsFilter = null) {
     const logoBase64 = await getLogoBase64();
     const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "letter" });
     const pageW = doc.internal.pageSize.width;
@@ -377,7 +377,12 @@ export default function EmployeeTimesheets() {
     const head = [["Employee", ...dayHeaders, "Total"]];
 
     // ── Employee table (hours) ───────────────────────────────────────────
-    const empBody = regularEmps.map((emp) => {
+    const empReg = uidsFilter ? regularEmps.filter(e => uidsFilter.has(e.uid)) : regularEmps;
+    const empCon = uidsFilter ? contractorEmps.filter(e => uidsFilter.has(e.uid)) : contractorEmps;
+    const empGrand = uidsFilter
+      ? empReg.reduce((sum, e) => sum + getWeekTotal(e.uid), 0)
+      : grandTotal;
+    const empBody = empReg.map((emp) => {
       const days = weekDays.map((d, dayIdx) => {
         if (capAt40) {
           // Mon(0)–Fri(4) = 8.00, Sat(5)–Sun(6) = "—"
@@ -391,10 +396,10 @@ export default function EmployeeTimesheets() {
     });
 
     const empDayTotals = weekDays.map((d, dayIdx) => {
-      if (capAt40) return dayIdx < 5 ? regularEmps.length * 8 : 0;
-      return regularEmps.reduce((sum, emp) => sum + calcDayHours(getSegsForDay(emp.uid, d)), 0);
+      if (capAt40) return dayIdx < 5 ? empReg.length * 8 : 0;
+      return empReg.reduce((sum, emp) => sum + calcDayHours(getSegsForDay(emp.uid, d)), 0);
     });
-    const empGrandTotal = capAt40 ? regularEmps.length * 40 : grandTotal;
+    const empGrandTotal = capAt40 ? empReg.length * 40 : empGrand;
     empBody.push(["WEEK TOTAL", ...empDayTotals.map((h) => h > 0 ? h.toFixed(2) : "—"), empGrandTotal.toFixed(2)]);
 
     doc.autoTable({
@@ -418,7 +423,7 @@ export default function EmployeeTimesheets() {
     });
 
     // ── Contractor table (dollars) — only if there are contractors ───────
-    if (contractorEmps.length > 0) {
+    if (empCon.length > 0) {
       const afterEmpY = doc.lastAutoTable.finalY + 20;
 
       doc.setFont("helvetica", "bold");
@@ -673,7 +678,8 @@ export default function EmployeeTimesheets() {
   async function sendTimesheetEmail() {
     setEmailModal(m => ({ ...m, sending: true }));
     try {
-      const doc = await buildTimesheetPDF(emailModal.capAt40);
+      const uidsFilter = emailModal.selectedUids && emailModal.selectedUids.size > 0 ? emailModal.selectedUids : null;
+      const doc = await buildTimesheetPDF(emailModal.capAt40, uidsFilter);
       const pdfBase64 = doc.output("datauristring").split(",")[1];
 
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -814,7 +820,7 @@ export default function EmployeeTimesheets() {
             style={{ padding: "10px 18px", backgroundColor: "#2563eb", border: "none", borderRadius: 8, cursor: "pointer", color: "#fff", fontWeight: 700, fontSize: 14 }}>
             📊 Reports
           </button>
-          <button onClick={() => setEmailModal(m => ({ ...m, show: true }))}
+          <button onClick={() => setEmailModal(m => ({ ...m, show: true, selectedUids: new Set(allShownUids) }))}
             style={{ padding: "10px 18px", backgroundColor: "#059669", border: "none", borderRadius: 8, cursor: "pointer", color: "#fff", fontWeight: 700, fontSize: 14 }}>
             📧 Email CPA
           </button>
@@ -1630,6 +1636,50 @@ export default function EmployeeTimesheets() {
                   style={inputStyle}
                 />
               </div>
+
+              {/* ── Employee selection ── */}
+              {activeEmployees.length > 0 && (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                    <label style={{ ...labelStyle, margin: 0 }}>Include Employees in PDF</label>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button type="button" onClick={() => setEmailModal(m => ({ ...m, selectedUids: new Set(allShownUids) }))}
+                        style={{ fontSize: 11, color: "#059669", background: "none", border: "none", cursor: "pointer", fontWeight: 700, padding: 0 }}>All</button>
+                      <span style={{ color: "#d1d5db" }}>|</span>
+                      <button type="button" onClick={() => setEmailModal(m => ({ ...m, selectedUids: new Set() }))}
+                        style={{ fontSize: 11, color: "#6b7280", background: "none", border: "none", cursor: "pointer", fontWeight: 700, padding: 0 }}>None</button>
+                    </div>
+                  </div>
+                  <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, maxHeight: 180, overflowY: "auto" }}>
+                    {activeEmployees.map((emp, idx) => (
+                      <label key={emp.uid} style={{
+                        display: "flex", alignItems: "center", gap: 10,
+                        padding: "9px 12px", cursor: "pointer",
+                        borderBottom: idx < activeEmployees.length - 1 ? "1px solid #f3f4f6" : "none",
+                        backgroundColor: emailModal.selectedUids?.has(emp.uid) ? "#f0fdf4" : "#fff",
+                      }}>
+                        <input type="checkbox"
+                          checked={emailModal.selectedUids?.has(emp.uid) ?? true}
+                          onChange={(e) => {
+                            const next = new Set(emailModal.selectedUids || allShownUids);
+                            if (e.target.checked) next.add(emp.uid);
+                            else next.delete(emp.uid);
+                            setEmailModal(m => ({ ...m, selectedUids: next }));
+                          }}
+                          style={{ width: 15, height: 15, accentColor: "#059669", cursor: "pointer", flexShrink: 0 }}
+                        />
+                        <span style={{ flex: 1, fontWeight: 600, fontSize: 13, color: "#111" }}>{emp.name}</span>
+                        <span style={{ fontSize: 12, color: emp.type === "contractor" ? "#7c3aed" : "#6b7280" }}>
+                          {emp.type === "contractor" ? `$${(getWeekTotal(emp.uid) * emp.rate).toFixed(2)}` : `${fmtH(getWeekTotal(emp.uid))}h`}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <p style={{ margin: "5px 0 0 0", fontSize: 11, color: "#6b7280" }}>
+                    {emailModal.selectedUids?.size ?? allShownUids.length} of {allShownUids.length} selected — only checked employees appear in the PDF
+                  </p>
+                </div>
+              )}
 
               {/* ── OT Bank: Cap at 40 hrs toggle ── */}
               <div
