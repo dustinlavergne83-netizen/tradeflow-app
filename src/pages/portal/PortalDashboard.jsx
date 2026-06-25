@@ -75,7 +75,7 @@ export default function PortalDashboard() {
       // Load company by slug
       const { data: co } = await supabase
         .from("companies")
-        .select("id, name, logo_url, primary_color, slug")
+        .select("id, name, logo_url, primary_color, slug, subscription_status, trial_ends_at")
         .eq("slug", slug.toLowerCase())
         .maybeSingle();
 
@@ -163,6 +163,39 @@ export default function PortalDashboard() {
 
       {/* ── Content ── */}
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "24px 16px" }}>
+
+        {/* ── Trial Banner ── */}
+        {company && company.subscription_status === "trial" && (() => {
+          const daysLeft = company.trial_ends_at
+            ? Math.ceil((new Date(company.trial_ends_at) - Date.now()) / 86400000)
+            : null;
+          const isExpired = daysLeft !== null && daysLeft < 0;
+          const isUrgent = daysLeft !== null && daysLeft <= 3 && daysLeft >= 0;
+          return (
+            <div style={{
+              background: isExpired ? "#fee2e2" : isUrgent ? "#fef3c7" : "#f0f9ff",
+              border: `1px solid ${isExpired ? "#fca5a5" : isUrgent ? "#fcd34d" : "#bae6fd"}`,
+              borderRadius: 12, padding: "12px 18px", marginBottom: 16,
+              display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8,
+            }}>
+              <div>
+                <span style={{ fontWeight: 800, color: isExpired ? "#dc2626" : isUrgent ? "#d97706" : "#0284c7", fontSize: 14 }}>
+                  {isExpired ? "⚠️ Trial expired" : `⏳ ${daysLeft} day${daysLeft === 1 ? "" : "s"} left in your free trial`}
+                </span>
+                <span style={{ marginLeft: 8, color: "#6b7280", fontSize: 13 }}>
+                  {isExpired ? " — your portal has been suspended." : " — add a payment method to keep access."}
+                </span>
+              </div>
+              <a href={`/${slug}/billing`} style={{
+                background: isExpired ? "#dc2626" : accent, color: "#fff",
+                borderRadius: 8, padding: "7px 18px", fontWeight: 800, fontSize: 13,
+                textDecoration: "none", flexShrink: 0,
+              }}>
+                {isExpired ? "Reactivate →" : "Add Payment Method →"}
+              </a>
+            </div>
+          );
+        })()}
 
         {/* Tabs */}
         <div style={{ display: "flex", borderBottom: "2px solid #e2e8f0", marginBottom: 0, flexWrap: "wrap" }}>
@@ -763,60 +796,266 @@ function JobRow({ job, editId, editName, setEditId, setEditName, saving, onSave,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TAB 4: EMPLOYEES
+// TAB 4: EMPLOYEES  (with invite flow)
 // ═══════════════════════════════════════════════════════════════════════════
 function EmployeesTab({ accent }) {
+  const { slug } = useParams();
   const [employees, setEmployees] = useState([]);
   const [clockedIn, setClockedIn] = useState(new Set());
   const [loading, setLoading] = useState(true);
+  const [companyId, setCompanyId] = useState(null);
+
+  // Invite form state
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteForm, setInviteForm] = useState({ firstName: "", lastName: "", email: "", phone: "", role: "employee" });
+  const [inviting, setInviting] = useState(false);
+  const [inviteError, setInviteError] = useState("");
+  const [inviteLink, setInviteLink] = useState("");
 
   useEffect(() => {
     (async () => {
+      // Get company id from slug
+      const { data: co } = await supabase.from("companies").select("id").eq("slug", slug.toLowerCase()).maybeSingle();
+      if (co) setCompanyId(co.id);
+
       const [empRes, shiftRes] = await Promise.all([
-        supabase.from("employees").select("id, user_id, first_name, last_name, role, phone, email, is_active").order("first_name"),
-        supabase.from("shifts").select("user_id").is("clock_out", null),
+        supabase.from("employees")
+          .select("id, user_id, first_name, last_name, role, phone, email, is_active, invite_token")
+          .eq("company_id", co?.id || "")
+          .order("first_name"),
+        supabase.from("shifts").select("employee_id").is("clock_out_at", null),
       ]);
       setEmployees(empRes.data || []);
-      setClockedIn(new Set((shiftRes.data || []).map(s => s.user_id)));
+      setClockedIn(new Set((shiftRes.data || []).map(s => s.employee_id)));
       setLoading(false);
     })();
-  }, []);
+  }, [slug]);
+
+  async function handleInvite(e) {
+    e.preventDefault();
+    if (!inviteForm.firstName.trim() || !inviteForm.email.trim()) {
+      setInviteError("First name and email are required.");
+      return;
+    }
+    setInviteError("");
+    setInviting(true);
+    try {
+      // Generate a unique invite token
+      const token = crypto.randomUUID();
+
+      // Check if employee with this email already exists
+      const { data: existing } = await supabase
+        .from("employees")
+        .select("id")
+        .eq("company_id", companyId)
+        .eq("email", inviteForm.email.toLowerCase().trim())
+        .maybeSingle();
+
+      if (existing) {
+        setInviteError("An employee with this email already exists.");
+        setInviting(false);
+        return;
+      }
+
+      // Create employee record (no user_id yet — pending invite)
+      const { error: insertError } = await supabase.from("employees").insert({
+        company_id: companyId,
+        first_name: inviteForm.firstName.trim(),
+        last_name: inviteForm.lastName.trim(),
+        email: inviteForm.email.toLowerCase().trim(),
+        phone: inviteForm.phone.trim() || null,
+        role: inviteForm.role,
+        is_active: true,
+        invite_token: token,
+      });
+
+      if (insertError) throw insertError;
+
+      // Build invite link
+      const baseUrl = window.location.origin;
+      const link = `${baseUrl}/${slug}/clock?invite=${token}`;
+      setInviteLink(link);
+
+      // Refresh employee list
+      const { data: empRes } = await supabase
+        .from("employees")
+        .select("id, user_id, first_name, last_name, role, phone, email, is_active, invite_token")
+        .eq("company_id", companyId)
+        .order("first_name");
+      setEmployees(empRes || []);
+
+      // Reset form
+      setInviteForm({ firstName: "", lastName: "", email: "", phone: "", role: "employee" });
+
+    } catch (err) {
+      setInviteError(err.message || "Failed to send invite.");
+    } finally {
+      setInviting(false);
+    }
+  }
+
+  function copyInviteLink(link) {
+    navigator.clipboard.writeText(link);
+    alert("✅ Invite link copied!");
+  }
+
+  function buildInviteLink(token) {
+    return `${window.location.origin}/${slug}/clock?invite=${token}`;
+  }
 
   const active = employees.filter(e => e.is_active !== false);
   const inactive = employees.filter(e => e.is_active === false);
-  const clockedInCount = active.filter(e => clockedIn.has(e.user_id)).length;
+  const clockedInCount = active.filter(e => clockedIn.has(e.id)).length;
+  const pendingInvites = active.filter(e => !e.user_id && e.invite_token);
+
+  const inputStyle = { width: "100%", padding: "10px 12px", borderRadius: 8, border: "1.5px solid #d1d5db", fontSize: 14, boxSizing: "border-box", outline: "none" };
+  const labelStyle = { display: "block", fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 4 };
 
   return (
     <div>
-      <h2 style={{ margin: "0 0 4px", fontWeight: 900, color: "#0b3ea8" }}>👷 Employees</h2>
-      <p style={{ margin: "0 0 20px", color: "#64748b", fontSize: 13 }}>
-        {clockedInCount} of {active.length} active employees currently clocked in
-      </p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
+        <div>
+          <h2 style={{ margin: "0 0 4px", fontWeight: 900, color: "#0b3ea8" }}>👷 Employees</h2>
+          <p style={{ margin: 0, color: "#64748b", fontSize: 13 }}>
+            {clockedInCount} of {active.length} active employees currently clocked in
+            {pendingInvites.length > 0 && <span style={{ marginLeft: 8, color: "#f59e0b", fontWeight: 700 }}>· {pendingInvites.length} pending invite{pendingInvites.length > 1 ? "s" : ""}</span>}
+          </p>
+        </div>
+        <button
+          onClick={() => { setShowInvite(!showInvite); setInviteLink(""); setInviteError(""); }}
+          style={{
+            background: accent, color: "#fff", border: "none", borderRadius: 10,
+            padding: "10px 20px", fontWeight: 800, fontSize: 14, cursor: "pointer",
+          }}
+        >
+          {showInvite ? "✕ Cancel" : "➕ Invite Employee"}
+        </button>
+      </div>
+
+      {/* ── Invite Form ── */}
+      {showInvite && (
+        <div style={{ background: "#f0f9ff", border: "2px solid #bae6fd", borderRadius: 16, padding: "24px", marginBottom: 24 }}>
+          <h3 style={{ margin: "0 0 16px", fontWeight: 900, color: "#0284c7", fontSize: 16 }}>📨 Invite a New Employee</h3>
+          <p style={{ margin: "0 0 16px", fontSize: 13, color: "#0369a1" }}>
+            Fill in their info and you'll get a link to share with them. They'll use the link to create their account and start clocking in.
+          </p>
+
+          <form onSubmit={handleInvite}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={labelStyle}>First Name *</label>
+                <input type="text" value={inviteForm.firstName} onChange={e => setInviteForm(f => ({ ...f, firstName: e.target.value }))}
+                  placeholder="John" required style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Last Name</label>
+                <input type="text" value={inviteForm.lastName} onChange={e => setInviteForm(f => ({ ...f, lastName: e.target.value }))}
+                  placeholder="Smith" style={inputStyle} />
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={labelStyle}>Email Address *</label>
+                <input type="email" value={inviteForm.email} onChange={e => setInviteForm(f => ({ ...f, email: e.target.value }))}
+                  placeholder="john@email.com" required style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Phone</label>
+                <input type="tel" value={inviteForm.phone} onChange={e => setInviteForm(f => ({ ...f, phone: e.target.value }))}
+                  placeholder="(555) 555-5555" style={inputStyle} />
+              </div>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={labelStyle}>Role</label>
+              <select value={inviteForm.role} onChange={e => setInviteForm(f => ({ ...f, role: e.target.value }))}
+                style={{ ...inputStyle, backgroundColor: "#fff" }}>
+                <option value="employee">Employee</option>
+                <option value="supervisor">Supervisor</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+
+            {inviteError && (
+              <div style={{ background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: 8, padding: "10px 14px", marginBottom: 12, color: "#dc2626", fontSize: 13, fontWeight: 600 }}>
+                ⚠️ {inviteError}
+              </div>
+            )}
+
+            <button type="submit" disabled={inviting} style={{
+              background: inviting ? "#9ca3af" : "#0284c7", color: "#fff", border: "none",
+              borderRadius: 10, padding: "11px 28px", fontWeight: 800, fontSize: 15,
+              cursor: inviting ? "default" : "pointer",
+            }}>
+              {inviting ? "⏳ Creating invite…" : "Generate Invite Link →"}
+            </button>
+          </form>
+
+          {/* Invite link success */}
+          {inviteLink && (
+            <div style={{ marginTop: 20, background: "#dcfce7", border: "2px solid #86efac", borderRadius: 14, padding: "18px 20px" }}>
+              <p style={{ margin: "0 0 8px", fontWeight: 900, color: "#15803d", fontSize: 15 }}>
+                🎉 Invite ready! Share this link with your employee:
+              </p>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <code style={{ flex: 1, background: "#fff", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#0b3ea8", fontWeight: 700, wordBreak: "break-all", border: "1px solid #86efac" }}>
+                  {inviteLink}
+                </code>
+                <button onClick={() => copyInviteLink(inviteLink)} style={{
+                  background: "#16a34a", color: "#fff", border: "none", borderRadius: 8,
+                  padding: "9px 18px", fontWeight: 800, fontSize: 13, cursor: "pointer", flexShrink: 0,
+                }}>
+                  📋 Copy Link
+                </button>
+              </div>
+              <p style={{ margin: "10px 0 0", fontSize: 12, color: "#15803d" }}>
+                The employee will visit this link and create their own password to activate their account.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {loading && <p style={{ color: "#94a3b8" }}>Loading…</p>}
 
+      {/* ── Employee Table ── */}
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
           <thead>
             <tr style={{ background: "#f8fafc" }}>
-              {["Name", "Role", "Phone", "Email", "Status"].map(h => (
+              {["Name", "Role", "Phone", "Email", "Status", "Invite"].map(h => (
                 <th key={h} style={{ padding: "10px 12px", textAlign: "left", fontWeight: 800, color: "#374151", borderBottom: "2px solid #e2e8f0" }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {active.map((emp, i) => {
-              const ci = clockedIn.has(emp.user_id);
+              const ci = clockedIn.has(emp.id);
+              const isPending = !emp.user_id && emp.invite_token;
               return (
-                <tr key={emp.id} style={{ background: i % 2 === 0 ? "#fff" : "#f8fafc", borderBottom: "1px solid #f1f5f9" }}>
-                  <td style={{ padding: "10px 12px", fontWeight: 700 }}>{emp.first_name} {emp.last_name}</td>
+                <tr key={emp.id} style={{ background: i % 2 === 0 ? "#fff" : "#f8fafc", borderBottom: "1px solid #f1f5f9", opacity: isPending ? 0.8 : 1 }}>
+                  <td style={{ padding: "10px 12px", fontWeight: 700 }}>
+                    {emp.first_name} {emp.last_name}
+                    {isPending && <span style={{ marginLeft: 6, fontSize: 11, color: "#f59e0b", fontWeight: 800, background: "#fef3c7", padding: "2px 8px", borderRadius: 20 }}>PENDING</span>}
+                  </td>
                   <td style={{ padding: "10px 12px", color: "#64748b", textTransform: "capitalize" }}>{emp.role || "employee"}</td>
                   <td style={{ padding: "10px 12px", color: "#64748b" }}>{emp.phone || "—"}</td>
                   <td style={{ padding: "10px 12px", color: "#64748b" }}>{emp.email || "—"}</td>
                   <td style={{ padding: "10px 12px" }}>
-                    {ci
-                      ? <span style={{ color: "#16a34a", fontWeight: 800 }}>🟢 Clocked In</span>
-                      : <span style={{ color: "#94a3b8" }}>⚪ Out</span>}
+                    {isPending
+                      ? <span style={{ color: "#f59e0b", fontWeight: 800 }}>⏳ Invite Sent</span>
+                      : ci
+                        ? <span style={{ color: "#16a34a", fontWeight: 800 }}>🟢 Clocked In</span>
+                        : <span style={{ color: "#94a3b8" }}>⚪ Out</span>}
+                  </td>
+                  <td style={{ padding: "10px 12px" }}>
+                    {emp.invite_token && (
+                      <button
+                        onClick={() => copyInviteLink(buildInviteLink(emp.invite_token))}
+                        style={{ background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 7, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", color: "#0284c7" }}
+                      >
+                        📋 Copy Link
+                      </button>
+                    )}
                   </td>
                 </tr>
               );
@@ -824,11 +1063,16 @@ function EmployeesTab({ accent }) {
             {inactive.map(emp => (
               <tr key={emp.id} style={{ background: "#f8fafc", opacity: 0.5, borderBottom: "1px solid #f1f5f9" }}>
                 <td style={{ padding: "10px 12px", fontWeight: 700, color: "#94a3b8" }}>{emp.first_name} {emp.last_name}</td>
-                <td colSpan={4} style={{ padding: "10px 12px", color: "#94a3b8", fontStyle: "italic" }}>Inactive employee</td>
+                <td colSpan={5} style={{ padding: "10px 12px", color: "#94a3b8", fontStyle: "italic" }}>Inactive employee</td>
               </tr>
             ))}
           </tbody>
         </table>
+        {!loading && active.length === 0 && (
+          <div style={{ textAlign: "center", padding: "40px 20px", background: "#f8fafc", borderRadius: 12, border: "2px dashed #e2e8f0", color: "#94a3b8", marginTop: 12 }}>
+            <p style={{ fontWeight: 700 }}>No employees yet. Invite your first crew member above!</p>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -81,6 +81,8 @@ import PayrollUpload from "./pages/PayrollUpload";
 import PayrollHub from "./pages/PayrollHub";
 import PortalLogin from "./pages/portal/PortalLogin";
 import PortalDashboard from "./pages/portal/PortalDashboard";
+import PortalClock from "./pages/portal/PortalClock";
+import PortalBilling from "./pages/portal/PortalBilling";
 import SetPassword from "./pages/SetPassword";
 
 // Portal pages
@@ -125,9 +127,10 @@ const KNOWN_APP_PATHS = new Set([
 function isPortalPath(path) {
   const seg = path.split("/")[1] || "";
   if (!seg || KNOWN_APP_PATHS.has("/" + seg)) return false;
-  // single segment (/:slug) or two segments (/:slug/dashboard)
+  // single segment (/:slug) or two segments (/:slug/dashboard or /:slug/clock)
   const parts = path.split("/").filter(Boolean);
-  return parts.length === 1 || (parts.length === 2 && parts[1] === "dashboard");
+  const PORTAL_SUB_PAGES = new Set(["dashboard", "clock", "billing"]);
+  return parts.length === 1 || (parts.length === 2 && PORTAL_SUB_PAGES.has(parts[1]));
 }
 
 function AppContent() {
@@ -737,10 +740,12 @@ function AppContent() {
             }
           />
 
-          {/* ── Timeclock Portal (/:slug and /:slug/dashboard) ───────────── */}
+          {/* ── Timeclock Portal (/:slug, /:slug/dashboard, /:slug/clock, /:slug/billing) ── */}
           {/* These MUST be last so they don't shadow existing routes */}
           <Route path="/:slug" element={<PortalLogin />} />
           <Route path="/:slug/dashboard" element={<PortalDashboard />} />
+          <Route path="/:slug/clock" element={<PortalClock />} />
+          <Route path="/:slug/billing" element={<PortalBilling />} />
 
           {/* ── Fallback ─────────────────────────────────────────────────── */}
           <Route path="*" element={<Navigate to="/" replace />} />

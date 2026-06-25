@@ -33,6 +33,7 @@ export default function SuperAdmin() {
   const [loading, setLoading] = useState(true);
   const [companies, setCompanies] = useState([]);
   const [stats, setStats] = useState({});
+  const [tab, setTab] = useState("companies"); // "companies" | "billing"
   const [showAddForm, setShowAddForm] = useState(false);
   const [showOnboardForm, setShowOnboardForm] = useState(false);
   const [onboardForm, setOnboardForm] = useState(defaultOnboardForm);
@@ -615,6 +616,23 @@ export default function SuperAdmin() {
         </div>
       </div>
 
+      {/* ── Tabs ── */}
+      <div style={{ display: "flex", borderBottom: "2px solid #e5e7eb", marginBottom: 24 }}>
+        {[["companies", "🏢 Companies"], ["billing", "💳 Billing"]].map(([key, label]) => (
+          <button key={key} onClick={() => setTab(key)} style={{
+            padding: "10px 24px", border: "none",
+            borderBottom: tab === key ? `3px solid ${BRAND.primary}` : "3px solid transparent",
+            background: tab === key ? "#fff" : "#f9fafb",
+            fontWeight: tab === key ? 800 : 600,
+            color: tab === key ? BRAND.primary : "#6b7280",
+            cursor: "pointer", fontSize: 14, borderRadius: "8px 8px 0 0",
+          }}>{label}</button>
+        ))}
+      </div>
+
+      {tab === "billing" && <BillingTab companies={companies} stats={stats} loading={loading} onRefresh={loadData} />}
+      {tab !== "billing" && <>
+
       {/* Summary Cards */}
       <div
         style={{
@@ -1086,6 +1104,156 @@ export default function SuperAdmin() {
           </table>
         </div>
       )}
+      </> /* end companies tab */}
+    </div>
+  );
+}
+
+// ── Billing Tab ──────────────────────────────────────────────────────────────
+function BillingTab({ companies, stats, loading, onRefresh }) {
+  const BASE_PRICE = 49;
+  const PER_EMPLOYEE = 5;
+
+  function daysLeft(trialEndsAt) {
+    if (!trialEndsAt) return null;
+    return Math.ceil((new Date(trialEndsAt) - Date.now()) / 86400000);
+  }
+
+  function monthlyAmount(companyId) {
+    const empCount = stats[companyId]?.employees || 0;
+    return BASE_PRICE + empCount * PER_EMPLOYEE;
+  }
+
+  const trials = companies.filter(c => c.subscription_status === "trial");
+  const active = companies.filter(c => c.subscription_status === "active");
+  const suspended = companies.filter(c => c.subscription_status === "suspended" || c.subscription_status === "cancelled");
+  const expiringSoon = trials.filter(c => { const d = daysLeft(c.trial_ends_at); return d !== null && d <= 3 && d >= 0; });
+  const expired = trials.filter(c => { const d = daysLeft(c.trial_ends_at); return d !== null && d < 0; });
+  const mrr = active.reduce((sum, c) => sum + monthlyAmount(c.id), 0);
+
+  async function handleMarkPaid(company) {
+    if (!window.confirm(`Mark "${company.name}" as ACTIVE (paid)?`)) return;
+    const { createClient } = await import("@supabase/supabase-js");
+    const { supabase: sb } = await import("../lib/supabase");
+    await sb.from("companies").update({
+      subscription_status: "active",
+      last_billed_at: new Date().toISOString(),
+      next_billing_at: new Date(Date.now() + 30 * 86400000).toISOString(),
+    }).eq("id", company.id);
+    onRefresh();
+  }
+
+  async function handleSuspend(company) {
+    if (!window.confirm(`Suspend "${company.name}"?`)) return;
+    const { supabase: sb } = await import("../lib/supabase");
+    await sb.from("companies").update({ subscription_status: "suspended" }).eq("id", company.id);
+    onRefresh();
+  }
+
+  const allBilling = [...trials, ...active, ...suspended];
+
+  return (
+    <div>
+      {/* Summary Cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 28 }}>
+        <SummaryCard label="On Trial" value={trials.length} icon="⏳" color="#f59e0b" />
+        <SummaryCard label="Expiring ≤ 3 Days" value={expiringSoon.length} icon="🔥" color="#dc2626" />
+        <SummaryCard label="Active (Paying)" value={active.length} icon="💳" color="#16a34a" />
+        <SummaryCard label="Est. MRR" value={`$${mrr}`} icon="💰" color="#7c3aed" />
+      </div>
+
+      {/* Expired trials alert */}
+      {expired.length > 0 && (
+        <div style={{ background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: 12, padding: "14px 18px", marginBottom: 20 }}>
+          <strong style={{ color: "#dc2626" }}>⚠️ {expired.length} trial{expired.length > 1 ? "s" : ""} expired</strong>
+          <span style={{ color: "#dc2626", fontSize: 13, marginLeft: 8 }}>
+            {expired.map(c => c.name).join(", ")} — needs action
+          </span>
+        </div>
+      )}
+
+      {loading && <p style={{ color: "#9ca3af" }}>Loading…</p>}
+
+      {/* Billing Table */}
+      <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ background: "#0b3ea8", color: "#fff" }}>
+              {["Company", "Status", "Trial Ends", "Days Left", "Employees", "Monthly $", "Card", "Actions"].map(h => (
+                <th key={h} style={{ padding: "12px 14px", textAlign: "left", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {allBilling.map((co, i) => {
+              const dl = daysLeft(co.trial_ends_at);
+              const amt = monthlyAmount(co.id);
+              const empCount = stats[co.id]?.employees || 0;
+              const isTrial = co.subscription_status === "trial";
+              const isExpired = isTrial && dl !== null && dl < 0;
+              const isExpiringSoon = isTrial && dl !== null && dl >= 0 && dl <= 3;
+              return (
+                <tr key={co.id} style={{ background: isExpired ? "#fff1f2" : isExpiringSoon ? "#fffbeb" : i % 2 === 0 ? "#fff" : "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
+                  <td style={{ padding: "12px 14px" }}>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{co.name}</div>
+                    <div style={{ fontSize: 11, color: "#9ca3af" }}>{co.slug}</div>
+                  </td>
+                  <td style={{ padding: "12px 14px" }}>
+                    <span style={{
+                      background: co.subscription_status === "active" ? "#dcfce7" : co.subscription_status === "trial" ? "#fef3c7" : "#fee2e2",
+                      color: co.subscription_status === "active" ? "#166534" : co.subscription_status === "trial" ? "#92400e" : "#991b1b",
+                      padding: "3px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700, textTransform: "uppercase",
+                    }}>{co.subscription_status}</span>
+                  </td>
+                  <td style={{ padding: "12px 14px", fontSize: 13, color: "#374151" }}>
+                    {co.trial_ends_at ? new Date(co.trial_ends_at).toLocaleDateString() : "—"}
+                  </td>
+                  <td style={{ padding: "12px 14px", fontWeight: 800, fontSize: 14 }}>
+                    {dl === null ? "—"
+                      : isExpired ? <span style={{ color: "#dc2626" }}>Expired</span>
+                      : <span style={{ color: dl <= 3 ? "#dc2626" : dl <= 7 ? "#f59e0b" : "#16a34a" }}>{dl}d</span>}
+                  </td>
+                  <td style={{ padding: "12px 14px", textAlign: "center", fontWeight: 700 }}>{empCount}</td>
+                  <td style={{ padding: "12px 14px", fontWeight: 800, color: "#0b3ea8" }}>
+                    ${amt}/mo
+                    <div style={{ fontSize: 10, color: "#9ca3af", fontWeight: 400 }}>${BASE_PRICE} + {empCount}×${PER_EMPLOYEE}</div>
+                  </td>
+                  <td style={{ padding: "12px 14px", fontSize: 13 }}>
+                    {co.clover_card_token
+                      ? <span style={{ color: "#16a34a", fontWeight: 700 }}>✅ {co.card_brand || "Card"} ••••{co.card_last4 || "?"}</span>
+                      : <span style={{ color: "#9ca3af" }}>No card</span>}
+                  </td>
+                  <td style={{ padding: "12px 14px" }}>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {co.subscription_status !== "active" && (
+                        <button onClick={() => handleMarkPaid(co)} style={{ background: "#dcfce7", border: "1px solid #86efac", color: "#166534", borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                          ✅ Mark Paid
+                        </button>
+                      )}
+                      {co.subscription_status !== "suspended" && (
+                        <button onClick={() => handleSuspend(co)} style={{ background: "#fee2e2", border: "1px solid #fca5a5", color: "#dc2626", borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                          ⏸ Suspend
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+            {allBilling.length === 0 && !loading && (
+              <tr><td colSpan={8} style={{ textAlign: "center", padding: 40, color: "#9ca3af" }}>No companies yet.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Clover setup notice */}
+      <div style={{ marginTop: 20, background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 12, padding: "16px 20px" }}>
+        <p style={{ margin: 0, fontWeight: 700, color: "#0284c7", fontSize: 14 }}>💳 Clover Integration</p>
+        <p style={{ margin: "4px 0 0", color: "#0369a1", fontSize: 13 }}>
+          When your Clover account is ready, add <code>VITE_CLOVER_PUBLIC_KEY</code>, <code>VITE_CLOVER_MERCHANT_ID</code>, and <code>VITE_CLOVER_API_KEY</code> to your environment variables. The card entry form and auto-billing will activate automatically.
+        </p>
+      </div>
     </div>
   );
 }
