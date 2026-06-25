@@ -1143,6 +1143,16 @@ function BillingTab({ companies, stats, loading, onRefresh }) {
     onRefresh();
   }
 
+  async function handleMarkFree(company) {
+    if (!window.confirm(`🎁 Mark "${company.name}" as FREE (comped)?\n\nThis gives them full access with no payment required.`)) return;
+    const { supabase: sb } = await import("../lib/supabase");
+    await sb.from("companies").update({
+      subscription_status: "active",
+      trial_ends_at: null,
+    }).eq("id", company.id);
+    onRefresh();
+  }
+
   async function handleSuspend(company) {
     if (!window.confirm(`Suspend "${company.name}"?`)) return;
     const { supabase: sb } = await import("../lib/supabase");
@@ -1224,10 +1234,15 @@ function BillingTab({ companies, stats, loading, onRefresh }) {
                       : <span style={{ color: "#9ca3af" }}>No card</span>}
                   </td>
                   <td style={{ padding: "12px 14px" }}>
-                    <div style={{ display: "flex", gap: 6 }}>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       {co.subscription_status !== "active" && (
                         <button onClick={() => handleMarkPaid(co)} style={{ background: "#dcfce7", border: "1px solid #86efac", color: "#166534", borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
                           ✅ Mark Paid
+                        </button>
+                      )}
+                      {co.subscription_status !== "active" && (
+                        <button onClick={() => handleMarkFree(co)} style={{ background: "#f3e8ff", border: "1px solid #d8b4fe", color: "#7c3aed", borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                          🎁 Mark Free
                         </button>
                       )}
                       {co.subscription_status !== "suspended" && (
