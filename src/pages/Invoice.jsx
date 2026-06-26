@@ -27,7 +27,7 @@ export default function Invoice() {
   const invoiceType = searchParams.get("type"); // "tm" for Time & Materials
   const depositAppliedParam = parseFloat(searchParams.get("depositApplied")) || 0;
   const coId = searchParams.get("coId"); // Change Order ID parameter
-  const { user } = useAuth();
+  const { user, employee } = useAuth();
   
   const [invoice, setInvoice] = useState(null);
   const [invoiceItems, setInvoiceItems] = useState([]);
@@ -37,6 +37,7 @@ export default function Invoice() {
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
   const [invoiceDate, setInvoiceDate] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [status, setStatus] = useState("draft");
@@ -527,6 +528,18 @@ export default function Invoice() {
 
       setCustomerName(resolvedName);
       setCustomerEmail(resolvedEmail);
+
+      // Load customer phone number
+      if (resolvedName) {
+        try {
+          const { data: custPhone } = await supabase
+            .from("customers")
+            .select("phone")
+            .ilike("customer", resolvedName)
+            .limit(1);
+          if (custPhone?.[0]?.phone) setCustomerPhone(custPhone[0].phone);
+        } catch (_) {}
+      }
       setDueDate(invoiceData.due_date || "");
       setStatus(invoiceData.status || "draft");
       setNotes(invoiceData.notes || "");
@@ -1193,6 +1206,56 @@ export default function Invoice() {
     }
   }
 
+  async function handleSendText() {
+    const phone = customerPhone || prompt("Enter customer phone number (10 digits):");
+    if (!phone) return;
+
+    if (!confirm(`Text invoice #${invoiceNumber} pay link to ${phone}?`)) return;
+
+    const companyId = employee?.company_id || user?.id;
+    if (!companyId) {
+      alert("Could not determine company. Please try again.");
+      return;
+    }
+
+    setSending(true);
+    try {
+      await handleSave({ silent: true });
+
+      const subtotal = invoiceItems.reduce((sum, item) => sum + (item.total || 0), 0);
+      const totalMarkup = Object.keys(itemMarkups).reduce((sum, itemId) => {
+        const item = invoiceItems.find(i => i.id === itemId);
+        if (!item) return sum;
+        return sum + ((item.total || 0) * ((itemMarkups[itemId] || 0) / 100));
+      }, 0);
+      const balanceDueForText = subtotal + totalMarkup - depositReceived - amountPaid;
+
+      const siteUrl = import.meta.env.VITE_SITE_URL || window.location.origin;
+      const payUrl = `${siteUrl}/invoice/view?invoiceId=${invoiceId}`;
+
+      const message = `DML Electrical Service: Invoice #${invoiceNumber} for $${balanceDueForText.toFixed(2)} is ready. Pay online: ${payUrl}`;
+
+      const { data, error } = await supabase.functions.invoke('send-sms', {
+        body: {
+          to: phone,
+          body: message,
+          company_id: companyId,
+          customer_name: customerName || undefined,
+        }
+      });
+
+      if (error) throw new Error(error.message || 'Failed to send SMS');
+      if (data?.error) throw new Error(data.error);
+
+      alert(`✅ Invoice pay link texted to ${phone}!`);
+    } catch (err) {
+      console.error("Error sending text:", err);
+      alert(`Failed to send text: ${err.message || 'Unknown error'}`);
+    } finally {
+      setSending(false);
+    }
+  }
+
   // Update local display state only (no DB call) — called on every keystroke
   function handleLocalItemChange(itemId, field, value) {
     setLocalItems(prev => prev.map(item => {
@@ -1365,6 +1428,13 @@ export default function Invoice() {
             style={{...styles.button, background: '#3b82f6', opacity: sending ? 0.6 : 1}}
           >
             {sending ? '📧 Sending...' : '📧 Email Invoice'}
+          </button>
+          <button
+            onClick={handleSendText}
+            disabled={sending}
+            style={{...styles.button, background: '#059669', opacity: sending ? 0.6 : 1}}
+          >
+            {sending ? '📱 Sending...' : '📱 Text Invoice'}
           </button>
           <button onClick={handleSave} style={{...styles.button, background: BRAND.accent}}>
             💾 Save Changes
