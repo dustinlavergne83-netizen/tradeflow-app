@@ -1,5 +1,3 @@
-# Vercel Ignore File - Exclude large/unnecessary folders
-
 # Exclude nested project folders
 estimator-react/
 timeclock-mobile/
@@ -9,23 +7,10 @@ android/
 *.apk
 *.aab
 
-# Exclude node_modules (should already be excluded but be explicit)
-node_modules/
-
-# Exclude build artifacts
-dist/
-build/
-
 # Exclude large files
 *.zip
 *.tar.gz
 *.rar
-
-# Exclude Git files
-.git/
-
-# Exclude documentation (optional, comment out if you want docs deployed)
-# *.md
 
 # Exclude development files
 .env.local
