@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { formatDate } from "../utils/dateUtils";
 import jsPDF from "jspdf";
+import { notify, confirmDialog } from '../lib/notify';
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -145,11 +146,11 @@ export default function ProjectReportsPhotos() {
     
     for (const file of files) {
       if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
-        alert(`Invalid file type: ${file.name}. Please upload images or videos.`);
+        notify(`Invalid file type: ${file.name}. Please upload images or videos.`);
         return;
       }
       if (file.size > maxSize) {
-        alert(`File too large: ${file.name}. Please keep files under 500MB.`);
+        notify(`File too large: ${file.name}. Please keep files under 500MB.`);
         return;
       }
     }
@@ -201,18 +202,18 @@ export default function ProjectReportsPhotos() {
       
       if (successCount > 0 && errorCount === 0) {
         // All successful
-        alert(`✅ Successfully uploaded ${successCount} photo${successCount !== 1 ? 's' : ''}!`);
+        notify(`✅ Successfully uploaded ${successCount} photo${successCount !== 1 ? 's' : ''}!`);
       } else if (successCount > 0 && errorCount > 0) {
         // Partial success
-        alert(`⚠️ Uploaded ${successCount} photo${successCount !== 1 ? 's' : ''}, but ${errorCount} failed. Check console for details.`);
+        notify(`⚠️ Uploaded ${successCount} photo${successCount !== 1 ? 's' : ''}, but ${errorCount} failed. Check console for details.`);
       } else if (errorCount > 0 && successCount === 0) {
         // All failed - error will be thrown above
-        alert(`❌ Failed to upload any photos. Please check your connection and try again.`);
+        notify(`❌ Failed to upload any photos. Please check your connection and try again.`);
       }
       
     } catch (err) {
       console.error('Error uploading photos:', err);
-      alert('Failed to upload photos: ' + err.message);
+      notify('Failed to upload photos: ' + err.message);
     } finally {
       setUploadingPhoto(false);
       e.target.value = '';
@@ -222,12 +223,12 @@ export default function ProjectReportsPhotos() {
   // Handle delete photo
   const handleDeletePhoto = (photo) => async (e) => {
     e.stopPropagation();
-    if (confirm('Delete this photo?')) {
+    if (await confirmDialog('Delete this photo?')) {
       try {
         await supabase.storage.from('project-photos').remove([`${id}/${photo.name}`]);
         loadProjectData();
       } catch (err) {
-        alert('Failed to delete');
+        notify('Failed to delete');
       }
     }
   };
@@ -254,13 +255,13 @@ export default function ProjectReportsPhotos() {
 
   // Delete report
   async function handleDeleteReport(reportId) {
-    if (confirm('Delete this report and all its photos?')) {
+    if (await confirmDialog('Delete this report and all its photos?')) {
       try {
         await supabase.from('report_photos').delete().eq('report_id', reportId);
         await supabase.from('project_reports').delete().eq('id', reportId);
         loadProjectData();
       } catch (err) {
-        alert('Failed to delete report');
+        notify('Failed to delete report');
       }
     }
   }
@@ -448,7 +449,7 @@ export default function ProjectReportsPhotos() {
       doc.save(`${safeName}_${report.report_date || 'report'}.pdf`);
     } catch (err) {
       console.error('Error generating PDF:', err);
-      alert('Failed to generate PDF: ' + err.message);
+      notify('Failed to generate PDF: ' + err.message);
     } finally {
       setGeneratingPdf(false);
     }
@@ -456,7 +457,7 @@ export default function ProjectReportsPhotos() {
 
   async function generateTakeoffReport() {
     if (selectedSnapshots.length === 0 && takeoffSnapshots.length === 0) {
-      alert('No snapshots available. Go to the Takeoff page, select the 📸 Snapshot tool, and drag to capture areas of the plan.');
+      notify('No snapshots available. Go to the Takeoff page, select the 📸 Snapshot tool, and drag to capture areas of the plan.');
       return;
     }
     const snapsToInclude = selectedSnapshots.length > 0 ? selectedSnapshots : takeoffSnapshots.map(s => s.id);
@@ -619,10 +620,10 @@ export default function ProjectReportsPhotos() {
 
       const safeName = (project?.name || 'Project').replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
       doc.save(`Takeoff_Report_${safeName}_${new Date().toISOString().split('T')[0]}.pdf`);
-      alert(`✅ Takeoff report generated with ${snapshotData.length} snapshot${snapshotData.length !== 1 ? 's' : ''} and ${takeoffMeasurements.length} count measurement${takeoffMeasurements.length !== 1 ? 's' : ''}!`);
+      notify(`✅ Takeoff report generated with ${snapshotData.length} snapshot${snapshotData.length !== 1 ? 's' : ''} and ${takeoffMeasurements.length} count measurement${takeoffMeasurements.length !== 1 ? 's' : ''}!`);
     } catch (err) {
       console.error('Error generating takeoff report PDF:', err);
-      alert('Failed to generate takeoff report: ' + err.message);
+      notify('Failed to generate takeoff report: ' + err.message);
     } finally {
       setGeneratingTakeoffReport(false);
     }
@@ -982,13 +983,13 @@ export default function ProjectReportsPhotos() {
                         <button
                           onClick={async (e) => {
                             e.stopPropagation();
-                            if (confirm('Delete this snapshot?')) {
+                            if (await confirmDialog('Delete this snapshot?')) {
                               try {
                                 if (snap.image_path) await supabase.storage.from('project-photos').remove([snap.image_path]);
                                 await supabase.from('plan_snapshots').delete().eq('id', snap.id);
                                 setTakeoffSnapshots(takeoffSnapshots.filter(s => s.id !== snap.id));
                                 setSelectedSnapshots(selectedSnapshots.filter(id => id !== snap.id));
-                              } catch (err) { alert('Failed to delete: ' + err.message); }
+                              } catch (err) { notify('Failed to delete: ' + err.message); }
                             }
                           }}
                           style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 16, cursor: 'pointer', padding: 4 }}
@@ -1381,7 +1382,7 @@ export default function ProjectReportsPhotos() {
                       onClick={() => {
                         // Show existing project photos for selection
                         if (projectPhotos.length === 0) {
-                          alert('No existing photos to select from. Upload some photos first.');
+                          notify('No existing photos to select from. Upload some photos first.');
                           return;
                         }
                         // Toggle photo selector
@@ -1523,11 +1524,11 @@ export default function ProjectReportsPhotos() {
                   <button 
                     onClick={async () => {
                       if (!reportForm.title.trim()) {
-                        alert('Please enter a report title');
+                        notify('Please enter a report title');
                         return;
                       }
                       if (reportContent.length === 0) {
-                        alert('Please add some content blocks to your report');
+                        notify('Please add some content blocks to your report');
                         return;
                       }
                       
@@ -1668,11 +1669,11 @@ export default function ProjectReportsPhotos() {
                         loadProjectData();
                         
                         const totalPhotos = contentPhotos.length + reportPhotos.length;
-                        alert(`✅ Report "${newReport.title}" created successfully with ${totalPhotos} photo(s) positioned throughout the content!`);
+                        notify(`✅ Report "${newReport.title}" created successfully with ${totalPhotos} photo(s) positioned throughout the content!`);
 
                       } catch (err) {
                         console.error('Error creating report:', err);
-                        alert('Failed to save report: ' + err.message + '\n\nMake sure you have run the SETUP_REPORTS_PHOTOS_FINAL.sql in Supabase.');
+                        notify('Failed to save report: ' + err.message + '\n\nMake sure you have run the SETUP_REPORTS_PHOTOS_FINAL.sql in Supabase.');
                       } finally {
                         setSavingReport(false);
                       }

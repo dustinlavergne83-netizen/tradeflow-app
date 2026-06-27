@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { formatDate } from "../utils/dateUtils";
+import { notify } from '../lib/notify';
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -121,7 +122,7 @@ export default function ProgressBilling() {
       setInvoiceDescription(`Change Order ${coData.change_order_number} - ${coData.title}`);
     } catch (err) {
       console.error("Error loading change order:", err);
-      alert("Failed to load change order data: " + err.message);
+      notify("Failed to load change order data: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -217,7 +218,7 @@ export default function ProgressBilling() {
       setInvoiceDescription(`Base Bid - Estimate #${baseEstimate?.estimate_number || ''}`);
     } catch (err) {
       console.error("Error loading proposal:", err);
-      alert("Failed to load proposal data: " + err.message);
+      notify("Failed to load proposal data: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -273,7 +274,7 @@ export default function ProgressBilling() {
       setInvoiceDescription(`Progress billing from estimate ${estimateData.estimate_number || ''}`);
     } catch (err) {
       console.error("Error loading estimate:", err);
-      alert("Failed to load estimate data");
+      notify("Failed to load estimate data");
     } finally {
       setLoading(false);
     }
@@ -337,12 +338,12 @@ export default function ProgressBilling() {
 
   async function handleCreateInvoice() {
     if (currentBillingAmount <= 0) {
-      alert("Please enter an amount to bill");
+      notify("Please enter an amount to bill");
       return;
     }
 
     if (!customerName.trim()) {
-      alert("Please enter a customer name");
+      notify("Please enter a customer name");
       return;
     }
 
@@ -532,11 +533,11 @@ export default function ProgressBilling() {
         console.warn("⚠️ Could not update project billing totals:", projErr);
       }
 
-      alert(`Invoice #${invoiceNumber} created successfully!`);
+      notify(`Invoice #${invoiceNumber} created successfully!`);
       navigate(`/invoice?invoiceId=${newInvoice.id}`);
     } catch (err) {
       console.error("Error creating invoice:", err);
-      alert("Failed to create invoice: " + err.message);
+      notify("Failed to create invoice: " + err.message);
     }
   }
 

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
+import { notify } from '../lib/notify';
 
 export default function AccountLedger() {
   const navigate = useNavigate();
@@ -103,7 +104,7 @@ export default function AccountLedger() {
       setTransactions(transactionsWithBalance);
     } catch (err) {
       console.error("Error loading ledger:", err);
-      alert("Failed to load account ledger");
+      notify("Failed to load account ledger");
     } finally {
       setLoading(false);
     }
@@ -182,11 +183,11 @@ export default function AccountLedger() {
 
   const handleApplyCustomDates = () => {
     if (!customStartDate || !customEndDate) {
-      alert("Please select both start and end dates");
+      notify("Please select both start and end dates");
       return;
     }
     if (new Date(customStartDate) > new Date(customEndDate)) {
-      alert("Start date must be before end date");
+      notify("Start date must be before end date");
       return;
     }
   };

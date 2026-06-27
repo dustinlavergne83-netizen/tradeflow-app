@@ -12,6 +12,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { createInvoiceJournalEntry } from "../utils/accountingJournals";
 
 import { formatDate } from "../utils/dateUtils";
+import { notify, confirmDialog, promptDialog } from '../lib/notify';
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -106,7 +107,7 @@ export default function Invoice() {
         .single();
 
       if (projErr || !proj) {
-        alert("Project not found");
+        notify("Project not found");
         setLoading(false);
         return;
       }
@@ -170,7 +171,7 @@ export default function Invoice() {
 
       if (createErr) {
         console.error("Error creating invoice:", createErr);
-        alert("Failed to create invoice: " + createErr.message);
+        notify("Failed to create invoice: " + createErr.message);
         setLoading(false);
         return;
       }
@@ -366,7 +367,7 @@ export default function Invoice() {
       navigate(`/invoice?invoiceId=${newInvoice.id}`, { replace: true });
     } catch (err) {
       console.error("Error creating invoice for project:", err);
-      alert("Failed to create invoice");
+      notify("Failed to create invoice");
       setLoading(false);
     }
   }
@@ -471,7 +472,7 @@ export default function Invoice() {
       loadInvoice();
     } catch (err) {
       console.error("Error adding change order:", err);
-      alert("Failed to add change order to invoice");
+      notify("Failed to add change order to invoice");
     }
   }
 
@@ -620,7 +621,7 @@ export default function Invoice() {
       }
     } catch (err) {
       console.error("Error loading invoice:", err);
-      alert("Failed to load invoice");
+      notify("Failed to load invoice");
     } finally {
       setLoading(false);
     }
@@ -628,7 +629,7 @@ export default function Invoice() {
   
   async function handleApplyDeposits() {
     if (selectedDeposits.size === 0) {
-      alert("Please select at least one deposit to apply");
+      notify("Please select at least one deposit to apply");
       return;
     }
     
@@ -672,9 +673,9 @@ export default function Invoice() {
           
           if (feeError) {
             console.error("Error fetching bank/app transfer fees account:", feeError);
-            alert("⚠️ Deposit applied but could not find Bank/App Transfer Fees account (7610). Fee not recorded in journal entry.");
+            notify("⚠️ Deposit applied but could not find Bank/App Transfer Fees account (7610). Fee not recorded in journal entry.");
           } else if (!feeAccount) {
-            alert("⚠️ Deposit applied but Bank/App Transfer Fees account (7610) not found in Chart of Accounts. Please create it to record the fee.");
+            notify("⚠️ Deposit applied but Bank/App Transfer Fees account (7610) not found in Chart of Accounts. Please create it to record the fee.");
           } else {
             // Get AR account
             const { data: arAccount } = await supabase
@@ -788,11 +789,11 @@ export default function Invoice() {
       setDepositFee(0);
       
       const feeText = depositFee > 0 ? `\n💰 Processing Fee: $${depositFee.toFixed(2)}\n💵 Net Deposit: $${netDepositAmount.toFixed(2)}` : '';
-      alert(`✅ Applied ${selectedDepositIds.length} deposit(s) for $${totalDeposits.toFixed(2)}${feeText}\n\nDeposit is now applied to this invoice. Balance updated!`);
+      notify(`✅ Applied ${selectedDepositIds.length} deposit(s) for $${totalDeposits.toFixed(2)}${feeText}\n\nDeposit is now applied to this invoice. Balance updated!`);
       loadInvoice();
     } catch (err) {
       console.error("Error applying deposits:", err);
-      alert("Failed to apply deposits: " + err.message);
+      notify("Failed to apply deposits: " + err.message);
     }
   }
 
@@ -836,11 +837,11 @@ export default function Invoice() {
         .eq("id", invoiceId);
 
       setEditingDraw(false);
-      alert("✅ Draw amount updated successfully!");
+      notify("✅ Draw amount updated successfully!");
       loadInvoice();
     } catch (err) {
       console.error("Error saving draw amount:", err);
-      alert("Failed to save: " + (err.message || err));
+      notify("Failed to save: " + (err.message || err));
     } finally {
       setSavingDraw(false);
     }
@@ -957,7 +958,7 @@ export default function Invoice() {
       
       if (markupErrors.length > 0) {
         console.error("Markup save errors:", markupErrors);
-        alert(`⚠️ Invoice saved but some markups failed:\n${markupErrors.join('\n')}\n\nMake sure the invoice_items table has a markup_percentage column.`);
+        notify(`⚠️ Invoice saved but some markups failed:\n${markupErrors.join('\n')}\n\nMake sure the invoice_items table has a markup_percentage column.`);
       } else {
         console.log("✅ All markups saved successfully");
       }
@@ -993,7 +994,7 @@ export default function Invoice() {
       // NOTE: Journal entry is NOT created on save - it will be created ONLY when the invoice is SENT
       // This prevents duplicate journal entries
       if (!silent) {
-        alert("Invoice saved successfully!");
+        notify("Invoice saved successfully!");
       }
       if (!silent) {
         loadInvoice();
@@ -1001,7 +1002,7 @@ export default function Invoice() {
     } catch (err) {
       console.error("Error saving invoice:", err);
       if (!silent) {
-        alert("Failed to save invoice: " + (err.message || JSON.stringify(err)));
+        notify("Failed to save invoice: " + (err.message || JSON.stringify(err)));
       }
     }
   }
@@ -1055,11 +1056,11 @@ export default function Invoice() {
   // ── Step 1: Show the send-confirmation modal ─────────────────────────────
   function handleSendEmail() {
     if (!customerEmail) {
-      alert("Please add a customer email address before sending.");
+      notify("Please add a customer email address before sending.");
       return;
     }
     if (!invoiceItems || invoiceItems.length === 0) {
-      alert("Please add line items to the invoice before sending.");
+      notify("Please add line items to the invoice before sending.");
       return;
     }
     const _sub = invoiceItems.reduce((s, i) => s + (i.total || 0), 0);
@@ -1211,13 +1212,13 @@ export default function Invoice() {
         console.warn("⚠️ Journal entry error (invoice still sent):", journalErr.message);
       }
 
-      alert(`✅ Invoice #${invoiceNumber} sent successfully to ${customerEmail}!`);
+      notify(`✅ Invoice #${invoiceNumber} sent successfully to ${customerEmail}!`);
       
       // Reload invoice to reflect the updated status
       loadInvoice();
     } catch (err) {
       console.error("Error sending invoice:", err);
-      alert(`Failed to send invoice: ${err.message || 'Unknown error'}`);
+      notify(`Failed to send invoice: ${err.message || 'Unknown error'}`);
     } finally {
       setSending(false);
     }
@@ -1242,7 +1243,7 @@ export default function Invoice() {
       doSendEmail();
     } else {
       const phone = modalPhone.trim();
-      if (!phone) { alert('Please enter a phone number.'); return; }
+      if (!phone) { notify('Please enter a phone number.'); return; }
       const msg = sendModal.message;
       setSendModal(null);
       await handleSave({ silent: true });
@@ -1299,16 +1300,16 @@ export default function Invoice() {
       loadInvoice();
     } catch (err) {
       console.error("Error updating item:", err);
-      alert("Failed to update item: " + (err.message || err));
+      notify("Failed to update item: " + (err.message || err));
     }
   }
 
   async function handleAddItem() {
-    const description = prompt("Item description:");
+    const description = await promptDialog("Item description:");
     if (!description) return;
     
-    const qtyStr = prompt("Quantity:", "1");
-    const priceStr = prompt("Unit price:");
+    const qtyStr = await promptDialog("Quantity:", "1");
+    const priceStr = await promptDialog("Unit price:");
     
     const quantity = parseFloat(qtyStr) || 1;
     const unitPrice = parseFloat(priceStr) || 0;
@@ -1329,12 +1330,12 @@ export default function Invoice() {
       loadInvoice();
     } catch (err) {
       console.error("Error adding item:", err);
-      alert("Failed to add item");
+      notify("Failed to add item");
     }
   }
 
   async function handleDeleteItem(itemId) {
-    if (!confirm("Delete this line item?")) return;
+    if (!await confirmDialog("Delete this line item?")) return;
     
     try {
       const { error } = await supabase
@@ -1346,7 +1347,7 @@ export default function Invoice() {
       loadInvoice();
     } catch (err) {
       console.error("Error deleting item:", err);
-      alert("Failed to delete item");
+      notify("Failed to delete item");
     }
   }
 

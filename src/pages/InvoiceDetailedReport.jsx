@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 
 import { formatDate } from "../utils/dateUtils";
+import { notify } from '../lib/notify';
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -124,10 +125,10 @@ export default function InvoiceDetailedReport() {
         }
       }
       
-      alert("✅ Daily notes saved!");
+      notify("✅ Daily notes saved!");
     } catch (err) {
       console.error("Error saving daily notes:", err);
-      alert("Failed to save notes");
+      notify("Failed to save notes");
     } finally {
       setSaving(false);
     }
@@ -264,7 +265,7 @@ export default function InvoiceDetailedReport() {
       );
     } catch (err) {
       console.error("Error generating PDF:", err);
-      alert("Failed to generate PDF. Please ensure jsPDF is installed.");
+      notify("Failed to generate PDF. Please ensure jsPDF is installed.");
     }
   }
 

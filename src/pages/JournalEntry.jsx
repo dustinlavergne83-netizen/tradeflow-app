@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
+import { notify } from '../lib/notify';
 
 export default function JournalEntry() {
   const navigate = useNavigate();
@@ -51,7 +52,7 @@ export default function JournalEntry() {
 
         if (entryError) {
           console.error("Error loading entry:", entryError);
-          alert("Failed to load entry: " + entryError.message);
+          notify("Failed to load entry: " + entryError.message);
           navigate('/accounting/general-ledger');
           return;
         }
@@ -67,7 +68,7 @@ export default function JournalEntry() {
 
         if (linesError) {
           console.error("Error loading lines:", linesError);
-          alert("Failed to load entry lines");
+          notify("Failed to load entry lines");
           return;
         }
 
@@ -90,7 +91,7 @@ export default function JournalEntry() {
       }
     } catch (err) {
       console.error("Error loading data:", err);
-      alert("Failed to load data");
+      notify("Failed to load data");
     } finally {
       setLoading(false);
     }
@@ -108,7 +109,7 @@ export default function JournalEntry() {
 
   function removeLine(index) {
     if (lines.length <= 2) {
-      alert('Journal entry must have at least 2 lines (one debit and one credit)');
+      notify('Journal entry must have at least 2 lines (one debit and one credit)');
       return;
     }
     const newLines = lines.filter((_, i) => i !== index);
@@ -150,28 +151,28 @@ export default function JournalEntry() {
     const { isBalanced } = calculateTotals();
     
     if (!isBalanced && shouldPost) {
-      alert('Cannot post an unbalanced entry. Debits must equal credits.');
+      notify('Cannot post an unbalanced entry. Debits must equal credits.');
       return;
     }
 
     if (!entry.entry_number || !entry.entry_date) {
-      alert('Please enter entry number and date');
+      notify('Please enter entry number and date');
       return;
     }
 
     if (lines.length < 2) {
-      alert('Journal entry must have at least 2 lines');
+      notify('Journal entry must have at least 2 lines');
       return;
     }
 
     // Validate all lines have accounts selected
     for (const line of lines) {
       if (!line.account_id) {
-        alert('Please select an account for all lines');
+        notify('Please select an account for all lines');
         return;
       }
       if (!line.debit && !line.credit) {
-        alert('Each line must have either a debit or credit amount');
+        notify('Each line must have either a debit or credit amount');
         return;
       }
     }
@@ -241,15 +242,15 @@ export default function JournalEntry() {
           });
 
         if (postError) throw postError;
-        alert('Journal entry posted successfully!');
+        notify('Journal entry posted successfully!');
         navigate('/accounting/general-ledger');
       } else {
-        alert('Journal entry saved as draft!');
+        notify('Journal entry saved as draft!');
         navigate('/accounting/general-ledger');
       }
     } catch (err) {
       console.error('Error saving journal entry:', err);
-      alert(`Failed to save: ${err.message}`);
+      notify(`Failed to save: ${err.message}`);
     }
   }
 

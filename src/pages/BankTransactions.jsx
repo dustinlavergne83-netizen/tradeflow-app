@@ -5,6 +5,7 @@ import { useAuth } from "../contexts/AuthContext";
 import BankStatementUpload from "../Components/BankStatementUpload";
 import { createBankTransactionJournalEntry, getNextJournalEntryNumber } from "../utils/accountingJournals";
 import { getTodayLocalDate } from "../utils/dateUtils";
+import { notify, confirmDialog } from '../lib/notify';
 
 export default function BankTransactions() {
   const navigate = useNavigate();
@@ -54,7 +55,7 @@ export default function BankTransactions() {
 
   useEffect(() => {
     if (!accountId) {
-      alert('No bank account specified');
+      notify('No bank account specified');
       navigate('/accounting/bank-accounts');
       return;
     }
@@ -99,7 +100,7 @@ export default function BankTransactions() {
       setTransactions(transactionsData || []);
     } catch (err) {
       console.error("Error loading data:", err);
-      alert("Failed to load transactions: " + err.message);
+      notify("Failed to load transactions: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -275,7 +276,7 @@ export default function BankTransactions() {
     } catch (err) {
       console.error('❌ Error in deleteJournalEntryForTransaction:', err);
       console.log('Full error details:', err);
-      alert(`❌ WARNING: Could not automatically remove journal entry.\n\nError: ${err.message}\n\nPlease manually delete Entry #${err.entry_number || 'unknown'} from the General Ledger.`);
+      notify(`❌ WARNING: Could not automatically remove journal entry.\n\nError: ${err.message}\n\nPlease manually delete Entry #${err.entry_number || 'unknown'} from the General Ledger.`);
       // Don't throw - allow the transaction to still be marked as uncleared
       return false;
     }
@@ -303,7 +304,7 @@ export default function BankTransactions() {
         const expense = expenses.find(e => e.id === expenseId);
         
         if (!expense) {
-          alert('Expense not found');
+          notify('Expense not found');
           return;
         }
 
@@ -335,7 +336,7 @@ export default function BankTransactions() {
       setShowMatchesModal(false);
     } catch (err) {
       console.error('Error linking expense:', err);
-      alert('Failed to link expense');
+      notify('Failed to link expense');
     }
   }
 
@@ -361,7 +362,7 @@ export default function BankTransactions() {
         const invoice = invoices.find(i => i.id === invoiceId);
         
         if (!invoice) {
-          alert('Invoice not found');
+          notify('Invoice not found');
           return;
         }
 
@@ -414,7 +415,7 @@ export default function BankTransactions() {
       setShowMatchesModal(false);
     } catch (err) {
       console.error('Error linking invoice:', err);
-      alert('Failed to link invoice');
+      notify('Failed to link invoice');
     }
   }
 
@@ -590,14 +591,14 @@ export default function BankTransactions() {
 
   async function handleSave() {
     if (!transactionForm.description || !transactionForm.amount) {
-      alert('Please enter description and amount');
+      notify('Please enter description and amount');
       return;
     }
 
     try {
       const amount = parseFloat(transactionForm.amount);
       if (isNaN(amount) || amount <= 0) {
-        alert('Please enter a valid positive amount');
+        notify('Please enter a valid positive amount');
         return;
       }
 
@@ -627,14 +628,14 @@ export default function BankTransactions() {
           .eq('id', editingTransaction.id);
 
         if (error) throw error;
-        alert('Transaction updated successfully!');
+        notify('Transaction updated successfully!');
       } else {
         const { error } = await supabase
           .from('bank_transactions')
           .insert([transactionData]);
 
         if (error) throw error;
-        alert('Transaction added successfully!');
+        notify('Transaction added successfully!');
       }
 
       setShowModal(false);
@@ -642,7 +643,7 @@ export default function BankTransactions() {
       loadData();
     } catch (err) {
       console.error('Error saving transaction:', err);
-      alert(`Failed to save: ${err.message}`);
+      notify(`Failed to save: ${err.message}`);
     }
   }
 
@@ -658,7 +659,7 @@ export default function BankTransactions() {
 
       if (updateError) {
         console.error('Error updating is_cleared:', updateError);
-        alert('Failed to update transaction status');
+        notify('Failed to update transaction status');
         return;
       }
 
@@ -724,7 +725,7 @@ export default function BankTransactions() {
         await deleteJournalEntryForTransaction(transaction.id);
         
         // Remind user to refresh Chart of Accounts
-        if (!bulkMode) alert('✅ Transaction uncleared! \n\n⚠️ IMPORTANT: Please go to Chart of Accounts > "Refresh Balances" to update the book values.');
+        if (!bulkMode) notify('✅ Transaction uncleared! \n\n⚠️ IMPORTANT: Please go to Chart of Accounts > "Refresh Balances" to update the book values.');
       }
 
         // IMPORTANT: Always create a journal entry for CLEARED transactions
@@ -744,7 +745,7 @@ export default function BankTransactions() {
 
         if (freshTransError) {
           console.error('Error reloading transaction:', freshTransError);
-          alert('Failed to reload transaction data');
+          notify('Failed to reload transaction data');
           return;
         }
 
@@ -764,7 +765,7 @@ export default function BankTransactions() {
 
             if (odError || !ownerDrawsAccount) {
               console.error('❌ Owner Draws account not found in Chart of Accounts');
-              alert('⚠️ Owner Draws account (#3100) not found in Chart of Accounts.\n\nPlease create an Owner Draws account first.');
+              notify('⚠️ Owner Draws account (#3100) not found in Chart of Accounts.\n\nPlease create an Owner Draws account first.');
               
               // Unclear since we can't find the account
               const { error: unClearError } = await supabase
@@ -784,7 +785,7 @@ export default function BankTransactions() {
 
             if (updateError) {
               console.error('Error assigning Owner Draws account:', updateError);
-              if (!bulkMode) alert('⚠️ Failed to assign Owner Draws account');
+              if (!bulkMode) notify('⚠️ Failed to assign Owner Draws account');
               if (!bulkMode) await loadData();
               return;
             }
@@ -798,7 +799,7 @@ export default function BankTransactions() {
 
             if (reloadError || !updatedTrans) {
               console.error('Error reloading transaction:', reloadError);
-              alert('Failed to reload transaction');
+              notify('Failed to reload transaction');
               return;
             }
 
@@ -812,7 +813,7 @@ export default function BankTransactions() {
               .eq('id', transaction.id);
             
             if (!bulkMode) {
-              alert('⚠️ Please select a Category (Chart of Accounts) before clearing this transaction.\n\nThis ensures the transaction is properly recorded in both your Bank Account and the Chart of Accounts.');
+              notify('⚠️ Please select a Category (Chart of Accounts) before clearing this transaction.\n\nThis ensures the transaction is properly recorded in both your Bank Account and the Chart of Accounts.');
               await loadData();
               return;
             }
@@ -829,7 +830,7 @@ export default function BankTransactions() {
 
         if (finalReloadError || !finalTransaction) {
           console.error('Error reloading transaction after category assignment:', finalReloadError);
-          alert('Failed to reload transaction');
+          notify('Failed to reload transaction');
           return;
         }
 
@@ -862,13 +863,13 @@ export default function BankTransactions() {
 
           if (bankRecordError) {
             console.error('Error fetching bank account:', bankRecordError);
-            alert('⚠️ Error fetching bank account details. Please try again.');
+            notify('⚠️ Error fetching bank account details. Please try again.');
             return;
           }
 
           if (!bankAccountRecord?.chart_account_id) {
             console.error('Bank account not linked to Chart of Accounts');
-            alert('⚠️ Bank account is not linked to Chart of Accounts.\n\nPlease go to Bank Accounts settings and link it to an account in your Chart of Accounts before clearing unlinked transactions.');
+            notify('⚠️ Bank account is not linked to Chart of Accounts.\n\nPlease go to Bank Accounts settings and link it to an account in your Chart of Accounts before clearing unlinked transactions.');
             return;
           }
 
@@ -904,7 +905,7 @@ export default function BankTransactions() {
                 console.log('✅ Using account:', offsetAccountName, `(Type: ${catAccount.account_type})`);
               } else {
                 console.error('Category account not found for ID:', transaction.category);
-                alert('⚠️ Selected account not found in Chart of Accounts. Please select a valid account and try again.');
+                notify('⚠️ Selected account not found in Chart of Accounts. Please select a valid account and try again.');
                 return;
               }
             } else {
@@ -920,7 +921,7 @@ export default function BankTransactions() {
 
               if (acctError) {
                 console.error('Error loading accounts:', acctError);
-                alert('⚠️ Could not load accounts. Please try again.');
+                notify('⚠️ Could not load accounts. Please try again.');
                 return;
               }
 
@@ -934,7 +935,7 @@ export default function BankTransactions() {
                   console.log('✅ Using Equity account for opening balance:', offsetAccountName);
                 } else {
                   console.error('No Equity account found for opening balance. Available accounts:', allAccounts);
-                  alert('⚠️ No Equity account found in Chart of Accounts. Please create an Equity account (like Owner\'s Equity) first.');
+                  notify('⚠️ No Equity account found in Chart of Accounts. Please create an Equity account (like Owner\'s Equity) first.');
                   return;
                 }
               } else if (transaction.amount < 0) {
@@ -946,7 +947,7 @@ export default function BankTransactions() {
                   console.log('Using Expense account:', offsetAccountName);
                 } else {
                   console.error('No Expense account found. Available accounts:', allAccounts);
-                  alert('⚠️ No Expense account found in Chart of Accounts. Please create an Expense account first.');
+                  notify('⚠️ No Expense account found in Chart of Accounts. Please create an Expense account first.');
                   return;
                 }
               } else {
@@ -958,7 +959,7 @@ export default function BankTransactions() {
                   console.log('Using Income account:', offsetAccountName);
                 } else {
                   console.error('No Income account found. Available accounts:', allAccounts);
-                  alert('⚠️ No Income account found in Chart of Accounts. Please create an Income account first.');
+                  notify('⚠️ No Income account found in Chart of Accounts. Please create an Income account first.');
                   return;
                 }
               }
@@ -966,7 +967,7 @@ export default function BankTransactions() {
 
             if (!offsetAccountId) {
               console.error('Could not determine offset account for journal entry');
-              alert('⚠️ Please select a category (Chart of Accounts) for this transaction before clearing it.');
+              notify('⚠️ Please select a category (Chart of Accounts) for this transaction before clearing it.');
               return;
             }
 
@@ -1003,7 +1004,7 @@ export default function BankTransactions() {
 
             if (entryError) {
               console.error('Failed to create journal entry:', entryError);
-              alert(`⚠️ Transaction cleared but journal entry failed: ${entryError.message}`);
+              notify(`⚠️ Transaction cleared but journal entry failed: ${entryError.message}`);
               return;
             }
 
@@ -1020,7 +1021,7 @@ export default function BankTransactions() {
 
               if (offsetError || !offsetAccount) {
                 console.error('Error fetching offset account details:', offsetError);
-                alert('⚠️ Could not fetch account details. Please try again.');
+                notify('⚠️ Could not fetch account details. Please try again.');
                 // Delete the journal entry since we can't complete the posting
                 await supabase.from('journal_entries').delete().eq('id', newEntry.id);
                 return;
@@ -1094,7 +1095,7 @@ export default function BankTransactions() {
 
               if (Math.abs(totalDebits - totalCredits) > 0.01) {
                 console.error('❌ Journal entry is NOT balanced!');
-                alert(`⚠️ Journal entry calculation error. Total debits ($${totalDebits.toFixed(2)}) do not equal total credits ($${totalCredits.toFixed(2)}).\n\nThis is a system error. Please contact support.`);
+                notify(`⚠️ Journal entry calculation error. Total debits ($${totalDebits.toFixed(2)}) do not equal total credits ($${totalCredits.toFixed(2)}).\n\nThis is a system error. Please contact support.`);
                 // Delete the journal entry since we can't post it
                 await supabase.from('journal_entries').delete().eq('id', newEntry.id);
                 return;
@@ -1106,7 +1107,7 @@ export default function BankTransactions() {
 
               if (linesError) {
                 console.error('Failed to create journal entry lines:', linesError);
-                alert(`⚠️ Journal entry created but lines failed: ${linesError.message}`);
+                notify(`⚠️ Journal entry created but lines failed: ${linesError.message}`);
                 return;
               }
 
@@ -1117,7 +1118,7 @@ export default function BankTransactions() {
           }
         } catch (err) {
           console.error('Error creating journal entry:', err);
-          alert(`⚠️ Failed to create journal entry: ${err.message}\n\nMake sure you have both Expense and Income accounts in your Chart of Accounts.`);
+          notify(`⚠️ Failed to create journal entry: ${err.message}\n\nMake sure you have both Expense and Income accounts in your Chart of Accounts.`);
         }
       }
 
@@ -1141,7 +1142,7 @@ export default function BankTransactions() {
     } catch (err) {
       console.error('Error toggling cleared status:', err);
       if (!bulkMode) {
-        alert(`Failed to update: ${err.message}`);
+        notify(`Failed to update: ${err.message}`);
         await loadData();
       } else {
         throw err; // re-throw so bulk caller counts it as a failure
@@ -1150,7 +1151,7 @@ export default function BankTransactions() {
   }
 
   async function handleDelete(transaction) {
-    if (!confirm(`Delete transaction "${transaction.description}"?`)) {
+    if (!await confirmDialog(`Delete transaction "${transaction.description}"?`)) {
       return;
     }
 
@@ -1164,11 +1165,11 @@ export default function BankTransactions() {
         .eq('id', transaction.id);
 
       if (error) throw error;
-      alert('Transaction deleted successfully!');
+      notify('Transaction deleted successfully!');
       loadData();
     } catch (err) {
       console.error('Error deleting transaction:', err);
-      alert(`Failed to delete: ${err.message}`);
+      notify(`Failed to delete: ${err.message}`);
     }
   }
 
@@ -1188,12 +1189,12 @@ export default function BankTransactions() {
 
       if (error) throw error;
 
-      alert(`Successfully imported ${transactions.length} transactions!`);
+      notify(`Successfully imported ${transactions.length} transactions!`);
       setShowUploadModal(false);
       loadData();
     } catch (err) {
       console.error('Error importing transactions:', err);
-      alert(`Failed to import transactions: ${err.message}`);
+      notify(`Failed to import transactions: ${err.message}`);
     }
   }
 
@@ -1481,7 +1482,7 @@ export default function BankTransactions() {
             onClick={async () => {
               console.log('Refreshing account balances...');
               await loadExpensesAndInvoices();
-              alert('✅ Account balances refreshed!');
+              notify('✅ Account balances refreshed!');
             }} 
             style={{...styles.newButton, backgroundColor: '#8b5cf6'}}
           >
@@ -1692,7 +1693,7 @@ export default function BankTransactions() {
                           ));
                         } catch (err) {
                           console.error('Error updating payee:', err);
-                          alert('Failed to update payee');
+                          notify('Failed to update payee');
                         }
                       }}
                       list="vendors-datalist-inline"
@@ -1724,7 +1725,7 @@ export default function BankTransactions() {
                           ));
                         } catch (err) {
                           console.error('Error updating category:', err);
-                          alert('Failed to update category');
+                          notify('Failed to update category');
                         }
                       }}
                       style={styles.categorySelect}
@@ -1756,7 +1757,7 @@ export default function BankTransactions() {
                           ));
                         } catch (err) {
                           console.error('Error updating project:', err);
-                          alert('Failed to update project');
+                          notify('Failed to update project');
                         }
                       }}
                       style={styles.categorySelect}
@@ -1915,7 +1916,7 @@ export default function BankTransactions() {
                           ));
                         } catch (err) {
                           console.error('Error updating payee:', err);
-                          alert('Failed to update payee');
+                          notify('Failed to update payee');
                         }
                       }}
                       list="vendors-datalist-inline"
@@ -1940,7 +1941,7 @@ export default function BankTransactions() {
                           ));
                         } catch (err) {
                           console.error('Error updating category:', err);
-                          alert('Failed to update category');
+                          notify('Failed to update category');
                         }
                       }}
                       style={styles.categorySelect}
@@ -1970,7 +1971,7 @@ export default function BankTransactions() {
                           ));
                         } catch (err) {
                           console.error('Error updating project:', err);
-                          alert('Failed to update project');
+                          notify('Failed to update project');
                         }
                       }}
                       style={styles.categorySelect}

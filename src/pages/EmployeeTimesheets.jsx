@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
 import logoUrl from "../assets/LOGOD.jpg";
+import { notify, confirmDialog } from '../lib/notify';
 
 const BRAND = { bg: "#0b3ea8", accent: "#fc6b04ff", primary: "#0b3ea8" };
 
@@ -237,16 +238,16 @@ export default function EmployeeTimesheets() {
       // refresh cell segs
       if (editCell) setCellSegs(getSegsForDay(editCell.uid, editCell.dateStr));
     } catch (e) {
-      alert("Save failed: " + e.message);
+      notify("Save failed: " + e.message);
     } finally {
       setSaving(false);
     }
   }
 
   async function deleteSeg(id) {
-    if (!confirm("Delete this time entry? This cannot be undone.")) return;
+    if (!await confirmDialog("Delete this time entry? This cannot be undone.")) return;
     const { error } = await supabase.from("shift_segments").delete().eq("id", id);
-    if (error) { alert("Delete failed: " + error.message); return; }
+    if (error) { notify("Delete failed: " + error.message); return; }
     await loadData();
     if (editCell) setCellSegs(getSegsForDay(editCell.uid, editCell.dateStr));
     setEditSeg(null);
@@ -262,15 +263,15 @@ export default function EmployeeTimesheets() {
       if (otherIds.length) await supabase.from("shift_segments").update({ is_lunch: false }).in("id", otherIds);
     }
     const { error } = await supabase.from("shift_segments").update({ is_lunch: newVal }).eq("id", seg.id);
-    if (error) { alert("Failed: " + error.message); return; }
+    if (error) { notify("Failed: " + error.message); return; }
     await loadData();
     if (editCell) setCellSegs(getSegsForDay(seg.user_id, segDate(seg)));
   }
 
   // ── create new punch ─────────────────────────────────────────────────────
   async function createSeg(form, uid) {
-    if (!uid) { alert("Please select an employee."); return; }
-    if (!form.startTime) { alert("Please enter a start time."); return; }
+    if (!uid) { notify("Please select an employee."); return; }
+    if (!form.startTime) { notify("Please enter a start time."); return; }
     setSaving(true);
     try {
       const rStart = roundTimeStrTo15(form.startTime);
@@ -306,9 +307,9 @@ export default function EmployeeTimesheets() {
       await loadData();
       // refresh panel if open
       if (editCell) setCellSegs(getSegsForDay(editCell.uid, editCell.dateStr));
-      alert("✅ Punch added successfully!");
+      notify("✅ Punch added successfully!");
     } catch (e) {
-      alert("Failed to add punch: " + e.message);
+      notify("Failed to add punch: " + e.message);
     } finally {
       setSaving(false);
     }
@@ -474,9 +475,9 @@ export default function EmployeeTimesheets() {
 
   // ── generate report PDF ──────────────────────────────────────────────────
   async function generateReport() {
-    if (!reportFilters.startDate || !reportFilters.endDate) { alert("Please select a date range."); return; }
-    if (reportType === "employee" && !reportFilters.employeeId) { alert("Please select an employee."); return; }
-    if (reportType === "job" && !reportFilters.projectName) { alert("Please select a project."); return; }
+    if (!reportFilters.startDate || !reportFilters.endDate) { notify("Please select a date range."); return; }
+    if (reportType === "employee" && !reportFilters.employeeId) { notify("Please select an employee."); return; }
+    if (reportType === "job" && !reportFilters.projectName) { notify("Please select a project."); return; }
     setReportLoading(true);
     try {
       const logoBase64 = await getLogoBase64();
@@ -656,7 +657,7 @@ export default function EmployeeTimesheets() {
       setShowReportsModal(false);
       setReportType(null);
     } catch (e) {
-      alert("Report failed: " + e.message);
+      notify("Report failed: " + e.message);
     } finally {
       setReportLoading(false);
     }
@@ -669,7 +670,7 @@ export default function EmployeeTimesheets() {
       const safeLabel = weekLabel.replace(/[^a-z0-9]/gi, "_");
       doc.save(`Weekly_Timesheet_${safeLabel}.pdf`);
     } catch (e) {
-      alert("PDF generation failed: " + e.message);
+      notify("PDF generation failed: " + e.message);
       console.error("printTimesheet error:", e);
     }
   }
@@ -708,17 +709,17 @@ export default function EmployeeTimesheets() {
       }
 
       setEmailModal(m => ({ ...m, show: false, sending: false }));
-      alert(`✅ Timesheet sent to ${emailModal.to}${emailModal.cc ? ` (CC: ${emailModal.cc})` : ""}!`);
+      notify(`✅ Timesheet sent to ${emailModal.to}${emailModal.cc ? ` (CC: ${emailModal.cc})` : ""}!`);
     } catch (e) {
       setEmailModal(m => ({ ...m, sending: false }));
-      alert("Email failed: " + e.message);
+      notify("Email failed: " + e.message);
       console.error("emailCPA error:", e);
     }
   }
 
   async function pasteTimeToEmployee() {
     if (!pasteModal || !copiedTime) return;
-    if (!pasteModal.targetUid) { alert("Please select an employee first."); return; }
+    if (!pasteModal.targetUid) { notify("Please select an employee first."); return; }
     setPasteSaving(true);
     try {
       const { targetUid } = pasteModal;
@@ -743,9 +744,9 @@ export default function EmployeeTimesheets() {
 
       setPasteModal(null);
       await loadData();
-      alert(`✅ Pasted ${result.insertedCount} segment(s) to ${pasteModal.targetEmpName || targetUid}!`);
+      notify(`✅ Pasted ${result.insertedCount} segment(s) to ${pasteModal.targetEmpName || targetUid}!`);
     } catch (err) {
-      alert("Paste failed: " + err.message);
+      notify("Paste failed: " + err.message);
     } finally {
       setPasteSaving(false);
     }

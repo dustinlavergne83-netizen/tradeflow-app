@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { getSiteUrl } from "../lib/siteUrl";
 import logoImage from "../assets/LOGOD.jpg";
+import { notify, confirmDialog } from '../lib/notify';
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -146,10 +147,10 @@ export default function InvoiceReceipt() {
         <button
           onClick={() => {
             if (!invoice.customer_email) {
-              alert("No customer email on file. Please add one to the invoice first.");
+              notify("No customer email on file. Please add one to the invoice first.");
               return;
             }
-            if (!confirm(`Send paid receipt to ${invoice.customer_email}?`)) return;
+            if (!await confirmDialog(`Send paid receipt to ${invoice.customer_email}?`)) return;
             
             // Use the send-invoice edge function with receipt flag
             supabase.functions.invoke('send-invoice', {
@@ -174,9 +175,9 @@ export default function InvoiceReceipt() {
               }
             }).then(({ data, error }) => {
               if (error) {
-                alert("Failed to send receipt: " + (error.message || "Unknown error"));
+                notify("Failed to send receipt: " + (error.message || "Unknown error"));
               } else {
-                alert(`✅ Paid receipt sent to ${invoice.customer_email}!`);
+                notify(`✅ Paid receipt sent to ${invoice.customer_email}!`);
               }
             });
           }}

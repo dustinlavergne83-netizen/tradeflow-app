@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { supabase } from "../lib/supabase";
+import { notify, confirmDialog } from '../lib/notify';
 
 export default function EstimatesList() {
   const navigate = useNavigate();
@@ -23,7 +24,7 @@ export default function EstimatesList() {
   }, [user]);
 
   async function handleDelete(estimate) {
-    if (!confirm(`Are you sure you want to delete ${estimate.type === 'proposal' ? 'proposal' : 'estimate'} #${estimate.estimate_number}?`)) {
+    if (!await confirmDialog(`Are you sure you want to delete ${estimate.type === 'proposal' ? 'proposal' : 'estimate'} #${estimate.estimate_number}?`)) {
       return;
     }
 
@@ -51,11 +52,11 @@ export default function EstimatesList() {
         if (error) throw error;
       }
       
-      alert('Deleted successfully!');
+      notify('Deleted successfully!');
       loadEstimates(); // Reload the list
     } catch (err) {
       console.error('Error deleting:', err);
-      alert(`Failed to delete: ${err.message}`);
+      notify(`Failed to delete: ${err.message}`);
     }
   }
 
@@ -518,7 +519,7 @@ export default function EstimatesList() {
                           </button>
                           <button
                             onClick={async () => {
-                              if (confirm(`Delete change order ${estimate.estimate_number}? This cannot be undone.`)) {
+                              if (await confirmDialog(`Delete change order ${estimate.estimate_number}? This cannot be undone.`)) {
                                 try {
                                   // Delete change order items first
                                   await supabase
@@ -534,11 +535,11 @@ export default function EstimatesList() {
                                   
                                   if (error) throw error;
                                   
-                                  alert('Change order deleted successfully!');
+                                  notify('Change order deleted successfully!');
                                   loadEstimates(); // Reload the list
                                 } catch (err) {
                                   console.error("Error deleting change order:", err);
-                                  alert("Failed to delete change order: " + err.message);
+                                  notify("Failed to delete change order: " + err.message);
                                 }
                               }
                             }}

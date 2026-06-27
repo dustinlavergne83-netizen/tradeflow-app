@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom";
 import DesktopHeader from "../Components/DesktopHeader";
 
 import { formatDate } from "../utils/dateUtils";
+import { notify } from '../lib/notify';
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -315,7 +316,7 @@ export default function TimeClock() {
       setEditModal(null);
       await loadDetailedBreakdown();
     } catch (e) {
-      alert('Save failed: ' + e.message);
+      notify('Save failed: ' + e.message);
     }
     setEditSaving(false);
   }
@@ -579,7 +580,7 @@ export default function TimeClock() {
     if (!files.length) return;
     
     if (!projectName || projectName === 'No Project') {
-      alert('Employee must be assigned to a project to upload photos');
+      notify('Employee must be assigned to a project to upload photos');
       return;
     }
 
@@ -615,11 +616,11 @@ export default function TimeClock() {
         if (uploadError) throw uploadError;
       }
 
-      alert(`✅ Successfully uploaded ${files.length} photo(s) to project: ${projectName}`);
+      notify(`✅ Successfully uploaded ${files.length} photo(s) to project: ${projectName}`);
       
     } catch (err) {
       console.error('Error uploading job photos:', err);
-      alert('Failed to upload photos: ' + err.message + '\n\nNote: Make sure the "project-photos" storage bucket exists in Supabase.');
+      notify('Failed to upload photos: ' + err.message + '\n\nNote: Make sure the "project-photos" storage bucket exists in Supabase.');
     } finally {
       setUploadingPhotoFor(null);
       e.target.value = ''; // Reset file input
@@ -632,7 +633,7 @@ export default function TimeClock() {
     try {
       const targetEmpRow = weeklyTimesheet.find(r => r.employeeName === pasteModal.targetEmpName);
       if (!targetEmpRow || !targetEmpRow.userId) {
-        alert("Could not find this employee's user ID. They must have signed into the app at least once.");
+        notify("Could not find this employee's user ID. They must have signed into the app at least once.");
         setPasteSaving(false);
         return;
       }
@@ -676,7 +677,7 @@ export default function TimeClock() {
       await loadDetailedBreakdown();
       await loadCurrentWeekTimesheet();
     } catch (err) {
-      alert("Paste failed: " + err.message);
+      notify("Paste failed: " + err.message);
     } finally {
       setPasteSaving(false);
     }

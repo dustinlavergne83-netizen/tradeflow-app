@@ -5,6 +5,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { formatDate } from "../utils/dateUtils";
 import jsPDF from "jspdf";
 import { getNextJournalEntryNumber, createInvoicePaymentJournalEntry } from "../utils/accountingJournals";
+import { notify, confirmDialog, promptDialog } from '../lib/notify';
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -377,7 +378,7 @@ export default function ProjectDetail() {
       doc.save(`${safeName}_${report.report_date || 'report'}.pdf`);
     } catch (err) {
       console.error('Error generating PDF:', err);
-      alert('Failed to generate PDF: ' + err.message);
+      notify('Failed to generate PDF: ' + err.message);
     } finally {
       setGeneratingPdf(false);
     }
@@ -388,7 +389,7 @@ export default function ProjectDetail() {
   }, [id]);
 
   // Refresh data when the tab becomes visible again (user navigates back from estimate/invoice).
-  // We intentionally do NOT listen to the window 'focus' event because prompt() dialogs
+  // We intentionally do NOT listen to the window 'focus' event because await promptDialog() dialogs
   // cause focus to fire on every dialog dismiss, which would trigger multiple simultaneous
   // loadProjectData() calls and freeze the browser.
   useEffect(() => {
@@ -408,7 +409,7 @@ export default function ProjectDetail() {
 
   async function handleSaveProjectEdits() {
     if (!editProjectForm.name.trim()) {
-      alert("Project name is required");
+      notify("Project name is required");
       return;
     }
 
@@ -433,17 +434,17 @@ export default function ProjectDetail() {
 
       if (error) throw error;
 
-      alert("Project updated successfully!");
+      notify("Project updated successfully!");
       setShowEditProjectModal(false);
       loadProjectData();
     } catch (err) {
       console.error("Error updating project:", err);
-      alert("Failed to update project: " + err.message);
+      notify("Failed to update project: " + err.message);
     }
   }
 
   async function handleCreateAlternate(parentEstimateId) {
-    const title = prompt("Enter alternate title (e.g., 'Exterior Lighting Package'):");
+    const title = await promptDialog("Enter alternate title (e.g., 'Exterior Lighting Package'):");
     if (!title) return;
     
     try {
@@ -495,12 +496,12 @@ export default function ProjectDetail() {
       navigate(`/project/${id}/estimate?estimateId=${newAlt.id}`);
     } catch (err) {
       console.error("Error creating alternate:", err);
-      alert("Failed to create alternate");
+      notify("Failed to create alternate");
     }
   }
 async function handleAddContractor() {
   if (!selectedCustomer) {
-    alert("Please select a customer");
+    notify("Please select a customer");
     return;
   }
 
@@ -522,7 +523,7 @@ async function handleAddContractor() {
     loadProjectData();
   } catch (err) {
     console.error("Error adding contractor:", err);
-    alert("Failed to add contractor");
+    notify("Failed to add contractor");
   }
 }
 
@@ -539,12 +540,12 @@ async function handleAddContractor() {
 
   async function handleSaveExpense() {
     if (!expenseForm.description.trim()) {
-      alert('Please enter a description');
+      notify('Please enter a description');
       return;
     }
     const amount = parseFloat(expenseForm.amount);
     if (!expenseForm.amount || isNaN(amount) || amount <= 0) {
-      alert('Please enter a valid amount');
+      notify('Please enter a valid amount');
       return;
     }
     setSavingExpense(true);
@@ -565,7 +566,7 @@ async function handleAddContractor() {
       loadProjectData();
     } catch (err) {
       console.error('Error adding expense:', err);
-      alert('Failed to add expense: ' + err.message);
+      notify('Failed to add expense: ' + err.message);
     } finally {
       setSavingExpense(false);
     }
@@ -734,7 +735,7 @@ async function handleAddContractor() {
     } catch (err) {
       console.error("❌ FULL ERROR:", err);
       console.error("Error details:", JSON.stringify(err, null, 2));
-      alert(`Failed to create invoice: ${err.message}\n\nCheck browser console for details.`);
+      notify(`Failed to create invoice: ${err.message}\n\nCheck browser console for details.`);
     }
   }
 
@@ -794,7 +795,7 @@ async function handleAddContractor() {
 
   async function handleCreateChangeOrder() {
     if (!changeOrderForm.title.trim()) {
-      alert("Please enter a title for the change order");
+      notify("Please enter a title for the change order");
       return;
     }
 
@@ -828,7 +829,7 @@ async function handleAddContractor() {
       navigate(`/project/${id}/estimate?type=changeorder&coId=${newCO.id}&coNumber=${coNumber}`);
     } catch (err) {
       console.error("Error creating change order:", err);
-      alert("Failed to create change order: " + err.message);
+      notify("Failed to create change order: " + err.message);
     }
   }
 
@@ -869,12 +870,12 @@ async function handleAddContractor() {
   async function handleInvoicePayment() {
     if (!payingInvoice) return;
     const amount = parseFloat(pdPaymentForm.amount);
-    if (!amount || amount <= 0) { alert('Please enter a valid payment amount'); return; }
+    if (!amount || amount <= 0) { notify('Please enter a valid payment amount'); return; }
     if (pdPaymentForm.deposit_type === 'bank' && !pdPaymentForm.bank_account_id) {
-      alert('Please select a bank account'); return;
+      notify('Please select a bank account'); return;
     }
     if (pdPaymentForm.deposit_type === 'holding_account' && !pdPaymentForm.holding_account_id) {
-      alert('Please select a holding account'); return;
+      notify('Please select a holding account'); return;
     }
 
     try {
@@ -925,10 +926,10 @@ async function handleAddContractor() {
       setShowInvoicePayModal(false);
       setPayingInvoice(null);
       loadProjectData();
-      alert(`✅ Payment of $${amount.toFixed(2)} recorded!\nInvoice #${payingInvoice.invoice_number} is now ${newStatus}.`);
+      notify(`✅ Payment of $${amount.toFixed(2)} recorded!\nInvoice #${payingInvoice.invoice_number} is now ${newStatus}.`);
     } catch (err) {
       console.error('Error recording payment:', err);
-      alert('Failed to record payment: ' + err.message);
+      notify('Failed to record payment: ' + err.message);
     }
   }
 
@@ -948,7 +949,7 @@ async function handleAddContractor() {
     if (!setActiveModalEstimate) return;
     const newWorth = parseFloat(setActiveEstWorthInput);
     const newBudget = parseFloat(setActiveEstBudgetInput) || 0;
-    if (isNaN(newWorth) || newWorth < 0) { alert("Please enter a valid Contract Value."); return; }
+    if (isNaN(newWorth) || newWorth < 0) { notify("Please enter a valid Contract Value."); return; }
     try {
       const { error } = await supabase
         .from("projects")
@@ -964,7 +965,7 @@ async function handleAddContractor() {
       setSetActiveModalEstimate(null);
     } catch (err) {
       console.error("Error setting active estimate:", err);
-      alert("Failed to set active estimate: " + err.message);
+      notify("Failed to set active estimate: " + err.message);
     }
   }
 
@@ -981,10 +982,10 @@ async function handleAddContractor() {
         .eq("id", id);
       if (error) throw error;
       setProject(prev => ({ ...prev, active_invoice_id: invoice.id, active_worth: newWorth }));
-      alert(`✅ Invoice #${invoice.invoice_number} set as primary!\nContract Value: $${newWorth.toFixed(2)}`);
+      notify(`✅ Invoice #${invoice.invoice_number} set as primary!\nContract Value: $${newWorth.toFixed(2)}`);
     } catch (err) {
       console.error("Error setting active invoice:", err);
-      alert("Failed to set active invoice: " + err.message);
+      notify("Failed to set active invoice: " + err.message);
     }
   }
 
@@ -1257,7 +1258,7 @@ async function handleAddContractor() {
 
     } catch (err) {
       console.error("Error loading project:", err);
-      alert("Failed to load project data");
+      notify("Failed to load project data");
     } finally {
       setLoading(false);
     }
@@ -1342,7 +1343,7 @@ async function handleAddContractor() {
 
   async function saveSqFtField(field, value) {
     const numVal = parseFloat(value);
-    if (isNaN(numVal) || numVal < 0) { alert("Please enter a valid number."); return; }
+    if (isNaN(numVal) || numVal < 0) { notify("Please enter a valid number."); return; }
     setSavingBudget(true);
     try {
       const { error } = await supabase.from("projects").update({ [field]: numVal }).eq("id", id);
@@ -1351,7 +1352,7 @@ async function handleAddContractor() {
       if (field === "sq_ft") setEditingSqFt(false);
       if (field === "sq_ft_living") setEditingSqFtLiving(false);
     } catch (err) {
-      alert("Failed to save: " + err.message);
+      notify("Failed to save: " + err.message);
     } finally {
       setSavingBudget(false);
     }
@@ -1359,7 +1360,7 @@ async function handleAddContractor() {
 
   async function saveBudgetField(field, value) {
     const numVal = parseFloat(value);
-    if (isNaN(numVal) || numVal < 0) { alert("Please enter a valid number."); return; }
+    if (isNaN(numVal) || numVal < 0) { notify("Please enter a valid number."); return; }
     setSavingBudget(true);
     try {
       const { error } = await supabase.from("projects").update({ [field]: numVal }).eq("id", id);
@@ -1368,7 +1369,7 @@ async function handleAddContractor() {
       if (field === "budget") setEditingBudget(false);
       if (field === "active_worth") setEditingActiveWorth(false);
     } catch (err) {
-      alert("Failed to save: " + err.message);
+      notify("Failed to save: " + err.message);
     } finally {
       setSavingBudget(false);
     }
@@ -2155,7 +2156,7 @@ async function handleAddContractor() {
                   setProject({ ...project, ...updateData });
                 } catch (err) {
                   console.error("Error updating status:", err);
-                  alert("Failed to update status");
+                  notify("Failed to update status");
                 }
               }}
               style={{
@@ -2391,7 +2392,7 @@ async function handleAddContractor() {
                   </div>
                   <button
                     onClick={async () => {
-                      if (confirm(`Delete contractor ${contractor.contractor_name}?`)) {
+                      if (await confirmDialog(`Delete contractor ${contractor.contractor_name}?`)) {
                         try {
                           const { error } = await supabase
                             .from("project_contractors")
@@ -2402,7 +2403,7 @@ async function handleAddContractor() {
                           loadProjectData();
                         } catch (err) {
                           console.error("Error deleting contractor:", err);
-                          alert("Failed to delete contractor");
+                          notify("Failed to delete contractor");
                         }
                       }
                     }}
@@ -2560,7 +2561,7 @@ async function handleAddContractor() {
                       <td style={{padding:'4px 6px', textAlign:'center'}}>
                         <button
                           onClick={async () => {
-                            if (confirm(`Delete expense "${expense.description}"?`)) {
+                            if (await confirmDialog(`Delete expense "${expense.description}"?`)) {
                               try {
                                 let { error } = await supabase.from("project_expenses").delete().eq("id", expense.id);
                                 if (error || !error) {
@@ -2570,7 +2571,7 @@ async function handleAddContractor() {
                                 loadProjectData();
                               } catch (err) {
                                 console.error("Error deleting expense:", err);
-                                alert("Failed to delete expense");
+                                notify("Failed to delete expense");
                               }
                             }
                           }}
@@ -2706,7 +2707,7 @@ async function handleAddContractor() {
                     </button>
                     <button
                       onClick={async () => {
-                        if (confirm(`Delete estimate ${estimate.estimate_number}? This cannot be undone.`)) {
+                        if (await confirmDialog(`Delete estimate ${estimate.estimate_number}? This cannot be undone.`)) {
                           try {
                             await supabase.from("estimate_items").delete().eq("estimate_id", estimate.id);
                             const { error } = await supabase.from("estimates").delete().eq("id", estimate.id);
@@ -2714,7 +2715,7 @@ async function handleAddContractor() {
                             loadProjectData();
                           } catch (err) {
                             console.error("Error deleting estimate:", err);
-                            alert("Failed to delete estimate");
+                            notify("Failed to delete estimate");
                           }
                         }
                       }}
@@ -2724,7 +2725,7 @@ async function handleAddContractor() {
                     </button>
                     <button
                       onClick={async () => {
-                        if (!confirm(`Copy estimate ${estimate.estimate_number}?`)) return;
+                        if (!await confirmDialog(`Copy estimate ${estimate.estimate_number}?`)) return;
                         try {
                           // Get next estimate number
                           const { data: allEsts } = await supabase
@@ -2787,11 +2788,11 @@ async function handleAddContractor() {
                             if (itemsErr) throw itemsErr;
                           }
 
-                          alert(`Estimate copied as #${newNumber}`);
+                          notify(`Estimate copied as #${newNumber}`);
                           loadProjectData();
                         } catch (err) {
                           console.error("Error copying estimate:", err);
-                          alert("Failed to copy estimate: " + err.message);
+                          notify("Failed to copy estimate: " + err.message);
                         }
                       }}
                       style={{...styles.estimateButton, backgroundColor: "#6366f1"}}
@@ -2873,7 +2874,7 @@ async function handleAddContractor() {
                           </button>
                           <button
                             onClick={async () => {
-                              if (confirm(`Delete alternate ${alternate.alternate_title}? This cannot be undone.`)) {
+                              if (await confirmDialog(`Delete alternate ${alternate.alternate_title}? This cannot be undone.`)) {
                                 try {
                                   await supabase.from("estimate_items").delete().eq("estimate_id", alternate.id);
                                   const { error } = await supabase.from("estimates").delete().eq("id", alternate.id);
@@ -2881,7 +2882,7 @@ async function handleAddContractor() {
                                   loadProjectData();
                                 } catch (err) {
                                   console.error("Error deleting alternate:", err);
-                                  alert("Failed to delete alternate");
+                                  notify("Failed to delete alternate");
                                 }
                               }
                             }}
@@ -2973,7 +2974,7 @@ async function handleAddContractor() {
                               if (projError) throw projError;
                               
                               setProject({ ...project, active_worth: newWorth });
-                              alert(`Change order approved! Contract value updated:\n$${currentWorth.toFixed(2)} + $${coTotal.toFixed(2)} = $${newWorth.toFixed(2)}`);
+                              notify(`Change order approved! Contract value updated:\n$${currentWorth.toFixed(2)} + $${coTotal.toFixed(2)} = $${newWorth.toFixed(2)}`);
                             }
                             
                             // If un-approving (changing from approved to something else), subtract CO total
@@ -2995,7 +2996,7 @@ async function handleAddContractor() {
                             loadProjectData();
                           } catch (err) {
                             console.error("Error updating change order status:", err);
-                            alert("Failed to update status: " + err.message);
+                            notify("Failed to update status: " + err.message);
                           }
                         }}
                         style={{
@@ -3071,7 +3072,7 @@ async function handleAddContractor() {
                     </button>
                     <button
                       onClick={async () => {
-                        if (confirm(`Delete change order ${changeOrder.change_order_number}? This cannot be undone.`)) {
+                        if (await confirmDialog(`Delete change order ${changeOrder.change_order_number}? This cannot be undone.`)) {
                           try {
                             const { error } = await supabase
                               .from("change_orders")
@@ -3082,7 +3083,7 @@ async function handleAddContractor() {
                             loadProjectData();
                           } catch (err) {
                             console.error("Error deleting change order:", err);
-                            alert("Failed to delete change order");
+                            notify("Failed to delete change order");
                           }
                         }
                       }}
@@ -3167,14 +3168,14 @@ async function handleAddContractor() {
                   </div>
                   <button
                     onClick={async () => {
-                      if (confirm('Delete this deposit record?')) {
+                      if (await confirmDialog('Delete this deposit record?')) {
                         try {
                           const { error } = await supabase.from('project_deposits').delete().eq('id', dep.id);
                           if (error) throw error;
                           loadProjectData();
                         } catch (err) {
                           console.error('Error deleting deposit:', err);
-                          alert('Failed to delete deposit');
+                          notify('Failed to delete deposit');
                         }
                       }
                     }}
@@ -3319,7 +3320,7 @@ async function handleAddContractor() {
                       </button>
                       <button
                         onClick={async () => {
-                          if (confirm(`Delete invoice ${invoice.invoice_number}? This cannot be undone.`)) {
+                          if (await confirmDialog(`Delete invoice ${invoice.invoice_number}? This cannot be undone.`)) {
                             try {
                               // Revert any deposits linked to this invoice back to "received"
                               await supabase
@@ -3336,7 +3337,7 @@ async function handleAddContractor() {
                               loadProjectData();
                             } catch (err) {
                               console.error("Error deleting invoice:", err);
-                              alert("Failed to delete invoice");
+                              notify("Failed to delete invoice");
                             }
                           }
                         }}
@@ -3625,7 +3626,7 @@ async function handleAddContractor() {
                   <button
                     onClick={async (e) => {
                       e.stopPropagation();
-                      if (confirm(`Convert proposal for ${proposal.contractor_name} to invoice?`)) {
+                      if (await confirmDialog(`Convert proposal for ${proposal.contractor_name} to invoice?`)) {
                         try {
                           // Get the next invoice number
                           const { data: existingInvoices } = await supabase
@@ -3699,12 +3700,12 @@ async function handleAddContractor() {
                           
                           if (itemsError) throw itemsError;
                           
-                          alert(`Invoice #${nextNumber} created successfully!`);
+                          notify(`Invoice #${nextNumber} created successfully!`);
                           loadProjectData();
                           setShowProposalsModal(false);
                         } catch (err) {
                           console.error("Error converting to invoice:", err);
-                          alert("Failed to convert proposal to invoice");
+                          notify("Failed to convert proposal to invoice");
                         }
                       }
                     }}
@@ -3731,7 +3732,7 @@ async function handleAddContractor() {
                   <button
                     onClick={async (e) => {
                       e.stopPropagation();
-                      if (confirm(`Delete proposal for ${proposal.contractor_name}?`)) {
+                      if (await confirmDialog(`Delete proposal for ${proposal.contractor_name}?`)) {
                         try {
                           // Delete proposal alternates first
                           await supabase
@@ -3754,7 +3755,7 @@ async function handleAddContractor() {
                           loadProjectData();
                         } catch (err) {
                           console.error("Error deleting proposal:", err);
-                          alert("Failed to delete proposal");
+                          notify("Failed to delete proposal");
                         }
                       }
                     }}
@@ -3850,7 +3851,7 @@ async function handleAddContractor() {
         <button 
           onClick={async () => {
             if (!selectedWinningProposal) {
-              alert("Please select a proposal");
+              notify("Please select a proposal");
               return;
             }
             
@@ -3926,10 +3927,10 @@ async function handleAddContractor() {
               setShowWinningProposalModal(false);
               setSelectedWinningProposal(null);
               
-              alert(`Project activated!\nActive Worth: $${selectedWinningProposal.total_amount.toFixed(2)}\nBudget (Cost): $${internalBudget.toFixed(2)}`);
+              notify(`Project activated!\nActive Worth: $${selectedWinningProposal.total_amount.toFixed(2)}\nBudget (Cost): $${internalBudget.toFixed(2)}`);
             } catch (err) {
               console.error("Error setting winning proposal:", err);
-              alert("Failed to set winning proposal");
+              notify("Failed to set winning proposal");
             }
           }}
           style={styles.submitButton}
@@ -4581,7 +4582,7 @@ async function handleAddContractor() {
                     }
                   } catch (err) {
                     console.error('Error creating invoice with items:', err);
-                    alert('Failed to create invoice: ' + err.message);
+                    notify('Failed to create invoice: ' + err.message);
                   } finally {
                     setCreatingLinkedInvoice(false);
                   }
@@ -4653,7 +4654,7 @@ async function handleAddContractor() {
                 onClick={async () => {
                   const amount = parseFloat(depositForm.deposit_amount);
                   if (!amount || amount <= 0) {
-                    alert('Please enter a valid deposit amount');
+                    notify('Please enter a valid deposit amount');
                     return;
                   }
                   try {
@@ -4673,7 +4674,7 @@ async function handleAddContractor() {
                     loadProjectData();
                   } catch (err) {
                     console.error('Error saving deposit:', err);
-                    alert('Failed to save deposit: ' + err.message);
+                    notify('Failed to save deposit: ' + err.message);
                   }
                 }}
                 style={styles.submitButton}
@@ -4777,7 +4778,7 @@ async function handleAddContractor() {
                     }
                   } catch (err) {
                     console.error('Error applying deposits:', err);
-                    alert('Failed to apply deposits: ' + err.message);
+                    notify('Failed to apply deposits: ' + err.message);
                   }
                 }}
                 style={styles.submitButton}
@@ -5147,7 +5148,7 @@ async function handleAddContractor() {
               <button
                 onClick={async () => {
                   if (!reportForm.title.trim() || !reportForm.content.trim()) {
-                    alert('Please enter a title and content for the report');
+                    notify('Please enter a title and content for the report');
                     return;
                   }
                   setSavingReport(true);
@@ -5207,7 +5208,7 @@ async function handleAddContractor() {
                     loadProjectData();
                   } catch (err) {
                     console.error('Error saving report:', err);
-                    alert('Failed to save report: ' + err.message + '\n\nMake sure you have run the SETUP_REPORTS_PHOTOS.sql in Supabase.');
+                    notify('Failed to save report: ' + err.message + '\n\nMake sure you have run the SETUP_REPORTS_PHOTOS.sql in Supabase.');
                   } finally {
                     setSavingReport(false);
                   }
@@ -5284,7 +5285,7 @@ async function handleAddContractor() {
                     navigate(`/estimate/quick?estimateId=${newAlt.id}&projectId=${id}`);
                   } catch (err) {
                     console.error("Error creating quick alternate:", err);
-                    alert("Failed to create alternate: " + err.message);
+                    notify("Failed to create alternate: " + err.message);
                   }
                 }}
                 style={{padding: 20, backgroundColor: '#f9fafb', border: '2px solid #e5e7eb', borderRadius: 12, cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s'}}
@@ -5598,10 +5599,10 @@ async function handleAddContractor() {
                           if (error) throw error;
                           setShowAttachEstimateModal(false);
                           loadProjectData();
-                          alert(`✅ Estimate #${est.estimate_number} attached to ${project.name}!`);
+                          notify(`✅ Estimate #${est.estimate_number} attached to ${project.name}!`);
                         } catch (err) {
                           console.error("Error attaching estimate:", err);
-                          alert("Failed to attach estimate: " + err.message);
+                          notify("Failed to attach estimate: " + err.message);
                         } finally {
                           setAttachingEstimate(false);
                         }
@@ -5695,10 +5696,10 @@ async function handleAddContractor() {
                           if (error) throw error;
                           setShowAttachInvoiceModal(false);
                           loadProjectData();
-                          alert(`✅ Invoice #${inv.invoice_number} linked to ${project.name}!`);
+                          notify(`✅ Invoice #${inv.invoice_number} linked to ${project.name}!`);
                         } catch (err) {
                           console.error("Error linking invoice:", err);
-                          alert("Failed to link invoice: " + err.message);
+                          notify("Failed to link invoice: " + err.message);
                         } finally {
                           setAttachingInvoice(false);
                         }

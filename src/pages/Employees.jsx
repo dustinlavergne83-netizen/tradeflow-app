@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 
 import { formatDate } from "../utils/dateUtils";
+import { notify, confirmDialog } from '../lib/notify';
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -233,7 +234,7 @@ export default function Employees() {
       if (error) throw error;
       window.open(data.signedUrl, "_blank");
     } catch (err) {
-      alert("Download failed: " + err.message);
+      notify("Download failed: " + err.message);
     }
   }
 
@@ -308,7 +309,7 @@ export default function Employees() {
   }
 
   async function handleResetPassword(employee) {
-    if (!confirm(`Reset password for ${employee.first_name} ${employee.last_name} (${employee.email})?\n\nThis will generate a new temporary password and email it to them.`)) {
+    if (!await confirmDialog(`Reset password for ${employee.first_name} ${employee.last_name} (${employee.email})?\n\nThis will generate a new temporary password and email it to them.`)) {
       return;
     }
 

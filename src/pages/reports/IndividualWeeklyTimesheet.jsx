@@ -7,6 +7,7 @@ import html2pdf from 'html2pdf.js';
 import logo from '../../assets/LOGOD.jpg';
 
 import { formatDate } from "../../utils/dateUtils";
+import { notify, promptDialog } from '../../lib/notify';
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -85,7 +86,7 @@ export default function IndividualWeeklyTimesheet() {
       setEmployees(data || []);
     } catch (err) {
       console.error("Error loading employees:", err);
-      alert("Failed to load employees: " + err.message);
+      notify("Failed to load employees: " + err.message);
     }
   }
 
@@ -138,7 +139,7 @@ export default function IndividualWeeklyTimesheet() {
       setTimesheetData(employeeData);
     } catch (err) {
       console.error("Error loading timesheet:", err);
-      alert("Failed to load timesheet: " + err.message);
+      notify("Failed to load timesheet: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -268,7 +269,7 @@ export default function IndividualWeeklyTimesheet() {
   }
 
   async function emailReport() {
-    const email = prompt('Enter recipient email address:');
+    const email = await promptDialog('Enter recipient email address:');
     
     if (!email) {
       return;
@@ -277,7 +278,7 @@ export default function IndividualWeeklyTimesheet() {
     // Validate email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      alert('Please enter a valid email address');
+      notify('Please enter a valid email address');
       return;
     }
     
@@ -358,11 +359,11 @@ export default function IndividualWeeklyTimesheet() {
       
       if (error) throw error;
       
-      alert(`Timesheet report sent successfully to ${email}!`);
+      notify(`Timesheet report sent successfully to ${email}!`);
       
     } catch (err) {
       console.error('Error sending email:', err);
-      alert('Failed to send email: ' + err.message);
+      notify('Failed to send email: ' + err.message);
     } finally {
       setLoading(false);
     }

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
+import { notify } from '../lib/notify';
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -126,7 +127,7 @@ function AutocompleteInput({ name, value, onChange, options, placeholder, label,
 
 export default function ProjectSetup() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, employee } = useAuth();
   const [searchParams] = useSearchParams();
   const typeFromUrl = searchParams.get("type") || "commercial-public";
   const selectedType = PROJECT_TYPES.find((t) => t.value === typeFromUrl) || PROJECT_TYPES[0];
@@ -187,14 +188,14 @@ export default function ProjectSetup() {
 
   async function handleAddCustomer() {
     if (!newCustomer.name.trim()) {
-      return alert("Customer name is required");
+      return notify("Customer name is required");
     }
 
     try {
       // Get current user ID for company_id
       const { data: { user: currentUser } } = await supabase.auth.getUser();
       if (!currentUser) {
-        alert("You must be logged in to add a customer");
+        notify("You must be logged in to add a customer");
         return;
       }
 
@@ -219,10 +220,10 @@ export default function ProjectSetup() {
       await loadCustomers();
       setShowModal(false);
       setNewCustomer({ name: "", contact: "", address: "", email: "", phone: "" });
-      alert("Customer added successfully!");
+      notify("Customer added successfully!");
     } catch (err) {
       console.error("Error adding customer:", err);
-      alert("Failed to add customer: " + err.message);
+      notify("Failed to add customer: " + err.message);
     }
   }
 
@@ -235,7 +236,7 @@ export default function ProjectSetup() {
     e.preventDefault();
 
     if (!formData.name.trim()) {
-      return alert("Project name is required");
+      return notify("Project name is required");
     }
 
     setSaving(true);
@@ -244,6 +245,7 @@ export default function ProjectSetup() {
         name: formData.name.trim(),
         created_by: user?.id,
         project_type: formData.project_type || typeFromUrl,
+        company_id: employee?.company_id,
       };
 
       if (formData.customer?.trim()) {
@@ -283,11 +285,11 @@ export default function ProjectSetup() {
 
       if (error) throw error;
 
-      alert("Project created successfully!");
+      notify("Project created successfully!");
       navigate(`/project/${data.id}`);
     } catch (err) {
       console.error("Error creating project:", err);
-      alert("Failed to create project: " + err.message);
+      notify("Failed to create project: " + err.message);
     } finally {
       setSaving(false);
     }

@@ -5,6 +5,7 @@ import { loadMaterials } from "../data/materials";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import PriceAdjustment from "../Components/PriceAdjustment";
+import { notify, confirmDialog } from '../lib/notify';
 
 // ===== SUMMARY COMPONENT =====
 function EstimateSummary({ projectId, currentEstimateId, navigate, projectName, isChangeOrder, coNumber, coId }) {
@@ -136,7 +137,7 @@ function EstimateSummary({ projectId, currentEstimateId, navigate, projectName, 
       setLastSaved(new Date());
     } catch (err) {
       console.error("❌ Error updating change order total:", err);
-      alert("Error updating total: " + err.message);
+      notify("Error updating total: " + err.message);
     }
   }
 
@@ -947,7 +948,7 @@ function EstimateSummary({ projectId, currentEstimateId, navigate, projectName, 
                 function copyToClipboard() {
                   const text = document.getElementById('clipData').value;
                   navigator.clipboard.writeText(text).then(() => {
-                    alert('✅ Material list copied to clipboard!\\nPaste into an email to send to your supplier.');
+                    notify('✅ Material list copied to clipboard!\\nPaste into an email to send to your supplier.');
                   }).catch(() => {
                     // Fallback
                     const ta = document.getElementById('clipData');
@@ -956,7 +957,7 @@ function EstimateSummary({ projectId, currentEstimateId, navigate, projectName, 
                     document.execCommand('copy');
                     ta.style.position = 'absolute';
                     ta.style.left = '-9999px';
-                    alert('✅ Material list copied to clipboard!');
+                    notify('✅ Material list copied to clipboard!');
                   });
                 }
               </script>
@@ -1851,7 +1852,7 @@ function EstimateSummary({ projectId, currentEstimateId, navigate, projectName, 
                   const allItems = Object.values(sections).flat();
                   
                   if (!allItems || allItems.length === 0) {
-                    alert("Add some line items to your estimate first!");
+                    notify("Add some line items to your estimate first!");
                     return;
                   }
                   
@@ -1884,13 +1885,13 @@ function EstimateSummary({ projectId, currentEstimateId, navigate, projectName, 
                       
                       // Show cost info
                       const costInfo = data.cost ? ` (Cost: $${data.cost.toFixed(4)})` : '';
-                      alert(`✨ AI proposal generated!${costInfo}\n\nYou can edit the text below before saving.`);
+                      notify(`✨ AI proposal generated!${costInfo}\n\nYou can edit the text below before saving.`);
                     } else {
                       throw new Error(data?.error || 'Failed to generate proposal');
                     }
                   } catch (err) {
                     console.error('AI generation error:', err);
-                    alert('Error generating proposal: ' + (err.message || 'Unknown error'));
+                    notify('Error generating proposal: ' + (err.message || 'Unknown error'));
                   } finally {
                     setAutoSaving(false);
                   }
@@ -2605,7 +2606,7 @@ export default function Estimate({ mode = "full" }) {
         }
     } catch (err) {
       console.error("Error loading project:", err);
-      alert("Failed to load project data");
+      notify("Failed to load project data");
     }
   }
 
@@ -3037,7 +3038,7 @@ for (const row of validRows) {
       setLastSaved(new Date());
     } catch (err) {
       console.error("Auto-save error:", err);
-      alert("❌ Save failed: " + (err.message || JSON.stringify(err)));
+      notify("❌ Save failed: " + (err.message || JSON.stringify(err)));
     } finally {
       setAutoSaving(false);
     }
@@ -3135,7 +3136,7 @@ for (const row of validRows) {
   // ===== SAVE ESTIMATE =====
   async function handleSaveEstimate() {
     if (!projectId) {
-      alert("Cannot save estimate - no project selected");
+      notify("Cannot save estimate - no project selected");
       return;
     }
 
@@ -3143,7 +3144,7 @@ for (const row of validRows) {
     const validRows = rows.filter(r => r.item.trim() !== "");
     
     if (validRows.length === 0) {
-      alert("Please add at least one line item to the estimate");
+      notify("Please add at least one line item to the estimate");
       return;
     }
 
@@ -3210,11 +3211,11 @@ for (const row of validRows) {
 
       if (itemsError) throw itemsError;
 
-      alert(`Estimate saved successfully! Estimate #${estimateNumber}`);
+      notify(`Estimate saved successfully! Estimate #${estimateNumber}`);
       navigate(`/project/${projectId}`);
     } catch (err) {
       console.error("Error saving estimate:", err);
-      alert("Failed to save estimate: " + err.message);
+      notify("Failed to save estimate: " + err.message);
     } finally {
       setSaving(false);
     }
@@ -4071,7 +4072,7 @@ for (const row of validRows) {
                   {r.item && (
                     <button
                       onClick={() => {
-                        if (confirm(`Apply multiplier ${r.laborMultiplier || 1}x to all items?`)) {
+                        if (await confirmDialog(`Apply multiplier ${r.laborMultiplier || 1}x to all items?`)) {
                           const updated = rows.map(row => ({
                             ...row,
                             laborMultiplier: row.item ? (r.laborMultiplier || 1) : row.laborMultiplier
@@ -4601,7 +4602,7 @@ for (const row of validRows) {
                 <button
                   onClick={async () => {
                     if (!customItem.name.trim()) {
-                      alert("Please enter an item name");
+                      notify("Please enter an item name");
                       return;
                     }
                     
@@ -4640,10 +4641,10 @@ for (const row of validRows) {
                       setShowAddItemModal(false);
                       setCustomItem({ name: '', category: 'Custom', price: 0, laborHours: 0 });
                       
-                      alert(`✓ "${newMaterial.name}" saved to database!`);
+                      notify(`✓ "${newMaterial.name}" saved to database!`);
                     } catch (err) {
                       console.error("Error saving custom material:", err);
-                      alert("Failed to save custom material: " + err.message);
+                      notify("Failed to save custom material: " + err.message);
                     }
                   }}
                   style={{
@@ -5101,10 +5102,10 @@ for (const row of validRows) {
             <button onClick={() => setShowSaveAssemblyModal(false)}
               style={{ padding: "10px 20px", background: "transparent", border: "1px solid #666", borderRadius: 6, color: "#999", fontSize: 14, cursor: "pointer" }}>Cancel</button>
             <button onClick={async () => {
-              if (!saveAssemblyName.trim()) { alert("Please enter an assembly name"); return; }
+              if (!saveAssemblyName.trim()) { notify("Please enter an assembly name"); return; }
               const r = rows[saveAssemblyRowIndex];
               const sourceComponents = r.children || r.components || [];
-              if (sourceComponents.length === 0) { alert("No components to save!"); return; }
+              if (sourceComponents.length === 0) { notify("No components to save!"); return; }
               try {
                 const componentsToInsert = sourceComponents.map((comp, idx) => {
                   const compName = comp.material_name || comp.description || comp.name || 'Unknown';
@@ -5131,21 +5132,21 @@ for (const row of validRows) {
                   await supabase.from("assembly_components").delete().eq("assembly_id", r.assemblyId);
                   const withId = componentsToInsert.map(c => ({ ...c, assembly_id: r.assemblyId }));
                   const { error: compError } = await supabase.from("assembly_components").insert(withId);
-                  if (compError) { alert("Failed: " + compError.message); return; }
+                  if (compError) { notify("Failed: " + compError.message); return; }
                   await supabase.from("assemblies").update({ name: saveAssemblyName, total_material_cost: totalMat, total_labor_hours: totalHrs }).eq("id", r.assemblyId);
-                  alert(`Assembly "${saveAssemblyName}" updated! (${componentsToInsert.length} components)`);
+                  notify(`Assembly "${saveAssemblyName}" updated! (${componentsToInsert.length} components)`);
                 } else {
                   const { data: newAsm, error: asmError } = await supabase.from('assemblies').insert([{ name: saveAssemblyName, description: `Created from estimate on ${new Date().toLocaleDateString()}`, category: saveAssemblyCategory, unit: 'ea', is_custom: true, is_active: true, company_id: user?.id, total_material_cost: totalMat, total_labor_hours: totalHrs }]).select().single();
                   if (asmError) throw asmError;
                   const withId = componentsToInsert.map(c => ({ ...c, assembly_id: newAsm.id }));
                   const { error: compError } = await supabase.from('assembly_components').insert(withId);
-                  if (compError) { alert("Assembly created but components failed: " + compError.message); return; }
+                  if (compError) { notify("Assembly created but components failed: " + compError.message); return; }
                   const updatedRows2 = [...rows]; updatedRows2[saveAssemblyRowIndex].assemblyId = newAsm.id; setRows(updatedRows2);
-                  alert(`Assembly "${saveAssemblyName}" saved! (${componentsToInsert.length} components)`);
+                  notify(`Assembly "${saveAssemblyName}" saved! (${componentsToInsert.length} components)`);
                 }
                 await loadAssemblies();
                 setShowSaveAssemblyModal(false);
-              } catch (error) { console.error("Error:", error); alert("Failed: " + error.message); }
+              } catch (error) { console.error("Error:", error); notify("Failed: " + error.message); }
             }} style={{ padding: "10px 24px", background: "#8b5cf6", border: "none", borderRadius: 6, color: "#fff", fontSize: 14, fontWeight: "bold", cursor: "pointer" }}>
               💾 Save Assembly
             </button>
@@ -5454,7 +5455,7 @@ for (const row of validRows) {
             <button
               onClick={async () => {
                 if (assemblyBuildComponents.length === 0) {
-                  alert("Please add at least one component to the assembly");
+                  notify("Please add at least one component to the assembly");
                   return;
                 }
 
@@ -5538,7 +5539,7 @@ for (const row of validRows) {
                     const { error: compError } = await supabase.from('assembly_components').insert(componentsToInsert);
                     if (compError) {
                       console.error('❌ Component insert error:', compError);
-                      alert('Assembly created but components failed to save: ' + compError.message);
+                      notify('Assembly created but components failed to save: ' + compError.message);
                     } else {
                       console.log(`✅ ${componentsToInsert.length} components saved`);
                     }
@@ -5551,7 +5552,7 @@ for (const row of validRows) {
                     console.log(`✅ Assembly "${row.item}" saved to Assembly Manager`);
                   } catch (err) {
                     console.error("Error saving to Assembly Manager:", err);
-                    alert("Assembly applied to estimate but failed to save to Assembly Manager: " + err.message);
+                    notify("Assembly applied to estimate but failed to save to Assembly Manager: " + err.message);
                   }
                 }
 

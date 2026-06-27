@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { createExpenseJournalEntry } from "../utils/accountingJournals";
 import { getTodayLocalDate, toLocalDateString } from "../utils/dateUtils";
+import { confirmDialog } from '../lib/notify';
 
 export default function Expenses() {
   const { user } = useAuth();
@@ -528,7 +529,7 @@ export default function Expenses() {
   }
 
   async function handleDelete(expense) {
-    if (!window.confirm(`Are you sure you want to delete this ${expense.category} expense for ${formatCurrency(expense.amount)}?`)) {
+    if (!window.await confirmDialog(`Are you sure you want to delete this ${expense.category} expense for ${formatCurrency(expense.amount)}?`)) {
       return;
     }
 

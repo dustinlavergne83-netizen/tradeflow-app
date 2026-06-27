@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
+import { notify, confirmDialog } from '../lib/notify';
 
 // ── Onboarding default form ──────────────────────────────────────────────────
 const defaultOnboardForm = {
@@ -152,12 +153,12 @@ export default function SuperAdmin() {
 
       if (error) throw error;
 
-      alert(`✅ Company "${form.name}" created successfully!`);
+      notify(`✅ Company "${form.name}" created successfully!`);
       resetForm();
       setShowAddForm(false);
       loadData();
     } catch (err) {
-      alert(`❌ Error: ${err.message}`);
+      notify(`❌ Error: ${err.message}`);
     }
   }
 
@@ -187,12 +188,12 @@ export default function SuperAdmin() {
 
       if (error) throw error;
 
-      alert(`✅ Company "${form.name}" updated!`);
+      notify(`✅ Company "${form.name}" updated!`);
       setEditingCompany(null);
       resetForm();
       loadData();
     } catch (err) {
-      alert(`❌ Error: ${err.message}`);
+      notify(`❌ Error: ${err.message}`);
     }
   }
 
@@ -246,7 +247,7 @@ export default function SuperAdmin() {
 
   async function handleToggleStatus(company) {
     const newStatus = company.subscription_status === "active" ? "suspended" : "active";
-    const confirm = window.confirm(
+    const confirm = window.await confirmDialog(
       `${newStatus === "suspended" ? "⚠️ Suspend" : "✅ Activate"} "${company.name}"?`
     );
     if (!confirm) return;
@@ -260,7 +261,7 @@ export default function SuperAdmin() {
       if (error) throw error;
       loadData();
     } catch (err) {
-      alert(`❌ Error: ${err.message}`);
+      notify(`❌ Error: ${err.message}`);
     }
   }
 
@@ -1132,7 +1133,7 @@ function BillingTab({ companies, stats, loading, onRefresh }) {
   const mrr = active.reduce((sum, c) => sum + monthlyAmount(c.id), 0);
 
   async function handleMarkPaid(company) {
-    if (!window.confirm(`Mark "${company.name}" as ACTIVE (paid)?`)) return;
+    if (!window.await confirmDialog(`Mark "${company.name}" as ACTIVE (paid)?`)) return;
     const { createClient } = await import("@supabase/supabase-js");
     const { supabase: sb } = await import("../lib/supabase");
     await sb.from("companies").update({
@@ -1144,7 +1145,7 @@ function BillingTab({ companies, stats, loading, onRefresh }) {
   }
 
   async function handleMarkFree(company) {
-    if (!window.confirm(`🎁 Mark "${company.name}" as FREE (comped)?\n\nThis gives them full access with no payment required.`)) return;
+    if (!window.await confirmDialog(`🎁 Mark "${company.name}" as FREE (comped)?\n\nThis gives them full access with no payment required.`)) return;
     const { supabase: sb } = await import("../lib/supabase");
     await sb.from("companies").update({
       subscription_status: "active",
@@ -1154,7 +1155,7 @@ function BillingTab({ companies, stats, loading, onRefresh }) {
   }
 
   async function handleSuspend(company) {
-    if (!window.confirm(`Suspend "${company.name}"?`)) return;
+    if (!window.await confirmDialog(`Suspend "${company.name}"?`)) return;
     const { supabase: sb } = await import("../lib/supabase");
     await sb.from("companies").update({ subscription_status: "suspended" }).eq("id", company.id);
     onRefresh();

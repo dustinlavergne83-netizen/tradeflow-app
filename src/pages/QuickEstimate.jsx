@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import PriceAdjustment from "../Components/PriceAdjustment";
 import { useAuth } from "../contexts/AuthContext";
 import { supabase } from "../lib/supabase";
+import { notify } from '../lib/notify';
 
 export default function QuickEstimate() {
   const navigate = useNavigate();
@@ -191,7 +192,7 @@ export default function QuickEstimate() {
       }
     } catch (err) {
       console.error("Error loading estimate:", err);
-      alert("Failed to load estimate");
+      notify("Failed to load estimate");
     } finally {
       setIsLoading(false);
     }
@@ -244,7 +245,7 @@ export default function QuickEstimate() {
       }
     } catch (err) {
       console.error("Error loading change order:", err);
-      alert("Failed to load change order");
+      notify("Failed to load change order");
     } finally {
       setIsLoading(false);
     }
@@ -512,12 +513,12 @@ export default function QuickEstimate() {
 
   const handleSave = async () => {
     if (!isChangeOrder && !customerName.trim()) {
-      alert("Please enter a customer name");
+      notify("Please enter a customer name");
       return;
     }
     
     if (lineItems.some(item => !item.description.trim())) {
-      alert("Please fill in all line item descriptions");
+      notify("Please fill in all line item descriptions");
       return;
     }
 
@@ -587,7 +588,7 @@ export default function QuickEstimate() {
             if (deleteError) throw deleteError;
           }
 
-          alert(`Quick Change Order updated successfully!`);
+          notify(`Quick Change Order updated successfully!`);
         } else {
           // CREATE new change order
           // Generate CO number with proper format using project's original estimate number
@@ -686,7 +687,7 @@ export default function QuickEstimate() {
 
           if (itemsError) throw itemsError;
 
-          alert(`Quick Change Order ${coNumber} saved successfully!`);
+          notify(`Quick Change Order ${coNumber} saved successfully!`);
         }
       } else {
         // REGULAR ESTIMATE LOGIC
@@ -757,7 +758,7 @@ export default function QuickEstimate() {
             if (deleteError) throw deleteError;
           }
 
-          alert(`Quick Estimate updated successfully!`);
+          notify(`Quick Estimate updated successfully!`);
         } else {
           // CREATE new estimate
           const { data: estimates } = await supabase
@@ -866,7 +867,7 @@ export default function QuickEstimate() {
       }
     } catch (err) {
       console.error("Error saving:", err);
-      alert(`Failed to save: ${err.message}`);
+      notify(`Failed to save: ${err.message}`);
     } finally {
       setIsSaving(false);
     }
@@ -963,7 +964,7 @@ export default function QuickEstimate() {
               <button
                 onClick={async () => {
                   if (!emailTo.trim()) {
-                    alert("Please enter an email address.");
+                    notify("Please enter an email address.");
                     return;
                   }
                   setSending(true);
@@ -1010,13 +1011,13 @@ export default function QuickEstimate() {
                       }
                     });
                     if (error) throw error;
-                    alert("Estimate sent successfully!");
+                    notify("Estimate sent successfully!");
                     setShowEmailModal(false);
                     // Update status to sent
                     await supabase.from("estimates").update({ status: "sent" }).eq("id", estimateId);
                   } catch (err) {
                     console.error("Error sending estimate:", err);
-                    alert(`Failed to send: ${err.message || 'Unknown error'}`);
+                    notify(`Failed to send: ${err.message || 'Unknown error'}`);
                   } finally {
                     setSending(false);
                   }

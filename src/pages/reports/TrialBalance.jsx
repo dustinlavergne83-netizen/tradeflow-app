@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
+import { notify } from '../../lib/notify';
 
 export default function TrialBalance() {
   const navigate = useNavigate();
@@ -89,7 +90,7 @@ export default function TrialBalance() {
       setTotals({ totalDebits, totalCredits, difference });
     } catch (err) {
       console.error("Error loading trial balance:", err);
-      alert("Failed to load trial balance: " + err.message);
+      notify("Failed to load trial balance: " + err.message);
     } finally {
       setLoading(false);
     }

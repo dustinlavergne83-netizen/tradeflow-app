@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { notify } from '../lib/notify';
 
 export default function ServiceCalls() {
   const [calls, setCalls] = useState([]);
@@ -104,7 +105,7 @@ export default function ServiceCalls() {
       .single();
 
     if (error) {
-      alert("Error creating invoice: " + error.message);
+      notify("Error creating invoice: " + error.message);
       setCreating(null);
       return;
     }
@@ -117,7 +118,7 @@ export default function ServiceCalls() {
 
     setCreating(null);
     await loadCalls();
-    alert(`✅ Invoice created! Invoice #${inv.id}`);
+    notify(`✅ Invoice created! Invoice #${inv.id}`);
     window.open(`/invoice/view?id=${inv.id}`, "_blank");
   }
 

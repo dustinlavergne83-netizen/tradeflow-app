@@ -5,6 +5,7 @@ import DesktopHeader from "../Components/DesktopHeader";
 import { MapContainer, TileLayer, Circle, Marker, useMapEvents, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
+import { notify, confirmDialog } from '../lib/notify';
 
 // Fix for default marker icon
 delete L.Icon.Default.prototype._getIconUrl;
@@ -85,7 +86,7 @@ export default function ProjectGeofence() {
       }
     } catch (err) {
       console.error("Error loading project:", err);
-      alert("Error loading project");
+      notify("Error loading project");
     } finally {
       setLoading(false);
     }
@@ -124,7 +125,7 @@ export default function ProjectGeofence() {
 
   async function handleSave() {
     if (!markerPosition) {
-      alert("Please set the geofence location by searching an address or clicking the map.");
+      notify("Please set the geofence location by searching an address or clicking the map.");
       return;
     }
 
@@ -146,7 +147,7 @@ export default function ProjectGeofence() {
       setTimeout(() => setSuccessMessage(""), 3000);
     } catch (err) {
       console.error("Error saving geofence:", err);
-      alert("Error saving geofence");
+      notify("Error saving geofence");
     } finally {
       setSaving(false);
     }
@@ -160,7 +161,7 @@ export default function ProjectGeofence() {
   }
 
   async function handleDelete() {
-    if (!confirm("Are you sure you want to delete this geofence?")) return;
+    if (!await confirmDialog("Are you sure you want to delete this geofence?")) return;
 
     setSaving(true);
     try {
@@ -184,7 +185,7 @@ export default function ProjectGeofence() {
       setTimeout(() => setSuccessMessage(""), 3000);
     } catch (err) {
       console.error("Error deleting geofence:", err);
-      alert("Error deleting geofence");
+      notify("Error deleting geofence");
     } finally {
       setSaving(false);
     }

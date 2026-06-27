@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase";
 import DesktopHeader from "../Components/DesktopHeader";
 
 import { formatDate } from "../utils/dateUtils";
+import { notify, confirmDialog } from '../lib/notify';
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -29,7 +30,7 @@ export default function PendingJobs() {
       await Promise.all([loadPendingJobs(), loadProjects()]);
     } catch (err) {
       console.error("Error loading data:", err);
-      alert("Failed to load data: " + err.message);
+      notify("Failed to load data: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -57,10 +58,10 @@ export default function PendingJobs() {
 
   async function handleLinkToProject(projectTask, projectId) {
     if (!projectId) {
-      return alert("Please select a project");
+      return notify("Please select a project");
     }
 
-    const confirmed = window.confirm(
+    const confirmed = window.await confirmDialog(
       `Link all time entries for "${projectTask}" to this project?\n\nThis will update ${
         pendingJobs.find((j) => j.project_task === projectTask)?.segment_count || 0
       } time segments.`
@@ -77,13 +78,13 @@ export default function PendingJobs() {
 
       if (error) throw error;
 
-      alert(`Successfully linked ${data} time segments to the project!`);
+      notify(`Successfully linked ${data} time segments to the project!`);
       setEditingJob(null);
       setSelectedProjectId("");
       await loadPendingJobs();
     } catch (err) {
       console.error("Error linking job:", err);
-      alert("Failed to link job: " + err.message);
+      notify("Failed to link job: " + err.message);
     } finally {
       setActionLoading(false);
     }
@@ -91,7 +92,7 @@ export default function PendingJobs() {
 
   async function handleRenameJob(oldName, newName) {
     if (!newName || !newName.trim()) {
-      return alert("Please enter a new name");
+      return notify("Please enter a new name");
     }
 
     const trimmedName = newName.trim();
@@ -100,7 +101,7 @@ export default function PendingJobs() {
       return;
     }
 
-    const confirmed = window.confirm(
+    const confirmed = window.await confirmDialog(
       `Rename "${oldName}" to "${trimmedName}"?\n\nThis will update ${
         pendingJobs.find((j) => j.project_task === oldName)?.segment_count || 0
       } time segments.`
@@ -117,13 +118,13 @@ export default function PendingJobs() {
 
       if (error) throw error;
 
-      alert(`Successfully renamed ${data} time segments!`);
+      notify(`Successfully renamed ${data} time segments!`);
       setEditingJob(null);
       setNewName("");
       await loadPendingJobs();
     } catch (err) {
       console.error("Error renaming job:", err);
-      alert("Failed to rename job: " + err.message);
+      notify("Failed to rename job: " + err.message);
     } finally {
       setActionLoading(false);
     }

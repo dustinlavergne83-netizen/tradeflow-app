@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
+import { notify, confirmDialog } from '../lib/notify';
 
 const BRAND = { bg: "#0b3ea8", accent: "#fc6b04ff" };
 
@@ -105,7 +106,7 @@ export default function OvertimeBank() {
         setEnrollments(prev => [...prev, data]);
       }
     } catch (err) {
-      alert("Enrollment error: " + err.message);
+      notify("Enrollment error: " + err.message);
     } finally {
       setEnrollSaving(false);
     }
@@ -136,14 +137,14 @@ export default function OvertimeBank() {
 
   // ── Pay Out ─────────────────────────────────────────────────────────────────
   async function handlePayout() {
-    if (!selectedEmpId) { alert("Please select an employee"); return; }
+    if (!selectedEmpId) { notify("Please select an employee"); return; }
     setSaving(true);
     try {
       const toPayIds = bankRecords
         .filter(r => r.employee_id === selectedEmpId && (!selectedProjectId || r.project_id === selectedProjectId))
         .map(r => r.id);
 
-      if (toPayIds.length === 0) { alert("No banked OT found for this selection."); setSaving(false); return; }
+      if (toPayIds.length === 0) { notify("No banked OT found for this selection."); setSaving(false); return; }
 
       const { error } = await supabase
         .from("ot_bank_entries")
@@ -152,14 +153,14 @@ export default function OvertimeBank() {
 
       if (error) throw error;
 
-      alert(`✅ Paid out OT for ${employees.find(e => e.user_id === selectedEmpId)?.first_name || "employee"}!`);
+      notify(`✅ Paid out OT for ${employees.find(e => e.user_id === selectedEmpId)?.first_name || "employee"}!`);
       setShowPayoutModal(false);
       setSelectedEmpId("");
       setSelectedProjectId("");
       setPayoutNotes("");
       loadData();
     } catch (err) {
-      alert("Payout failed: " + err.message);
+      notify("Payout failed: " + err.message);
     } finally {
       setSaving(false);
     }
@@ -167,10 +168,10 @@ export default function OvertimeBank() {
 
   // ── Add manual bank entry ───────────────────────────────────────────────────
   async function handleAddEntry() {
-    if (!addForm.employee_id) { alert("Select an employee"); return; }
-    if (!addForm.week_start) { alert("Enter the week start date"); return; }
+    if (!addForm.employee_id) { notify("Select an employee"); return; }
+    if (!addForm.week_start) { notify("Enter the week start date"); return; }
     const otHours = parseFloat(addForm.ot_hours);
-    if (!otHours || otHours <= 0) { alert("Enter valid OT hours (hours above 40)"); return; }
+    if (!otHours || otHours <= 0) { notify("Enter valid OT hours (hours above 40)"); return; }
 
     const emp = employees.find(e => e.user_id === addForm.employee_id);
     const rate = parseFloat(addForm.hourly_rate) || parseFloat(emp?.hourly_rate) || 0;
@@ -194,12 +195,12 @@ export default function OvertimeBank() {
 
       if (error) throw error;
 
-      alert(`✅ Banked ${otHours}h OT for ${emp?.first_name || "employee"}!`);
+      notify(`✅ Banked ${otHours}h OT for ${emp?.first_name || "employee"}!`);
       setShowAddModal(false);
       setAddForm({ employee_id: "", project_id: "", week_start: "", regular_hours: 40, actual_hours: "", ot_hours: "", hourly_rate: "", notes: "" });
       loadData();
     } catch (err) {
-      alert("Failed to save: " + err.message);
+      notify("Failed to save: " + err.message);
     } finally {
       setSaving(false);
     }
@@ -341,7 +342,7 @@ export default function OvertimeBank() {
                           <td style={{ padding: "10px 6px" }}>
                             <button
                               onClick={async () => {
-                                if (confirm("Delete this OT bank entry?")) {
+                                if (await confirmDialog("Delete this OT bank entry?")) {
                                   await supabase.from("ot_bank_entries").delete().eq("id", r.id);
                                   loadData();
                                 }

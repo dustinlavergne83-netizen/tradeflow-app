@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { createInvoicePaymentJournalEntry, getNextJournalEntryNumber } from "../utils/accountingJournals";
+import { notify, confirmDialog } from '../lib/notify';
 
 export default function InvoicesList() {
   const navigate = useNavigate();
@@ -99,7 +100,7 @@ export default function InvoicesList() {
       setInvoices(data || []);
     } catch (err) {
       console.error("Error loading invoices:", err);
-      alert("Failed to load invoices");
+      notify("Failed to load invoices");
     } finally {
       setLoading(false);
     }
@@ -157,7 +158,7 @@ export default function InvoicesList() {
   }
 
   async function handleDelete(invoice) {
-    if (!confirm(`Are you sure you want to delete invoice #${invoice.invoice_number}? This will also delete any associated journal entries.`)) {
+    if (!await confirmDialog(`Are you sure you want to delete invoice #${invoice.invoice_number}? This will also delete any associated journal entries.`)) {
       return;
     }
 
@@ -202,7 +203,7 @@ export default function InvoicesList() {
         
         if (entriesDeleteError) {
           console.error('Error deleting journal entries:', entriesDeleteError);
-          alert(`⚠️ Warning: Failed to delete journal entries: ${entriesDeleteError.message}`);
+          notify(`⚠️ Warning: Failed to delete journal entries: ${entriesDeleteError.message}`);
         } else {
           console.log(`✅ Deleted ${entryIds.length} journal entries`);
         }
@@ -229,16 +230,16 @@ export default function InvoicesList() {
       if (invoiceError) throw invoiceError;
       
       console.log(`✅ Invoice ${invoice.id} (#${invoice.invoice_number}) deleted successfully with all journal entries`);
-      alert('Invoice deleted successfully! All associated journal entries have been removed.');
+      notify('Invoice deleted successfully! All associated journal entries have been removed.');
       loadInvoices(); // Reload the list
     } catch (err) {
       console.error('Error deleting invoice:', err);
-      alert(`Failed to delete invoice: ${err.message}`);
+      notify(`Failed to delete invoice: ${err.message}`);
     }
   }
 
   async function handleQuickPaid(invoice) {
-    if (!confirm(`Mark invoice #${invoice.invoice_number} as paid in full?`)) {
+    if (!await confirmDialog(`Mark invoice #${invoice.invoice_number} as paid in full?`)) {
       return;
     }
 
@@ -255,11 +256,11 @@ export default function InvoicesList() {
 
       if (error) throw error;
       
-      alert('Invoice marked as paid!');
+      notify('Invoice marked as paid!');
       loadInvoices();
     } catch (err) {
       console.error('Error marking as paid:', err);
-      alert(`Failed to mark as paid: ${err.message}`);
+      notify(`Failed to mark as paid: ${err.message}`);
     }
   }
 
@@ -306,17 +307,17 @@ export default function InvoicesList() {
 
   async function handlePayment() {
     if (!paymentForm.amount || paymentForm.amount <= 0) {
-      alert('Please enter a valid payment amount');
+      notify('Please enter a valid payment amount');
       return;
     }
 
     if (paymentForm.deposit_type === 'bank' && !paymentForm.bank_account_id) {
-      alert('Please select which bank account this payment should be deposited into');
+      notify('Please select which bank account this payment should be deposited into');
       return;
     }
 
     if (paymentForm.deposit_type === 'holding_account' && !paymentForm.holding_account_id) {
-      alert('Please select which account to deposit this payment into');
+      notify('Please select which account to deposit this payment into');
       return;
     }
 
@@ -326,12 +327,12 @@ export default function InvoicesList() {
       const netDepositAmount = paymentAmount - processingFee;
       
       if (processingFee < 0) {
-        alert('Processing fee cannot be negative');
+        notify('Processing fee cannot be negative');
         return;
       }
       
       if (processingFee >= paymentAmount) {
-        alert('Processing fee cannot be greater than or equal to payment amount');
+        notify('Processing fee cannot be greater than or equal to payment amount');
         return;
       }
 
@@ -379,7 +380,7 @@ export default function InvoicesList() {
 
         if (arError) {
           console.error('Error fetching AR account:', arError);
-          alert(`Payment recorded but journal entry failed: ${arError.message}`);
+          notify(`Payment recorded but journal entry failed: ${arError.message}`);
           setShowPaymentModal(false);
           setSelectedInvoice(null);
           loadInvoices();
@@ -387,7 +388,7 @@ export default function InvoicesList() {
         }
 
         if (!arAccount) {
-          alert('Payment recorded, but Accounts Receivable account (1100) not found. Please create it in Chart of Accounts.');
+          notify('Payment recorded, but Accounts Receivable account (1100) not found. Please create it in Chart of Accounts.');
           setShowPaymentModal(false);
           setSelectedInvoice(null);
           loadInvoices();
@@ -405,7 +406,7 @@ export default function InvoicesList() {
 
           if (bankAcctError || !bankAccountRecord?.chart_account_id) {
             console.error('Error fetching bank account:', bankAcctError);
-            alert('Payment recorded, but bank account not linked to Chart of Accounts. Please link it first.');
+            notify('Payment recorded, but bank account not linked to Chart of Accounts. Please link it first.');
             setShowPaymentModal(false);
             setSelectedInvoice(null);
             loadInvoices();
@@ -422,7 +423,7 @@ export default function InvoicesList() {
 
           if (holdingError || !holdingAccount?.id) {
             console.error('Error fetching holding account:', holdingError);
-            alert('Payment recorded, but holding account not found. Please check your selection.');
+            notify('Payment recorded, but holding account not found. Please check your selection.');
             setShowPaymentModal(false);
             setSelectedInvoice(null);
             loadInvoices();
@@ -442,9 +443,9 @@ export default function InvoicesList() {
 
           if (feeError) {
             console.error('Error fetching bank/app transfer fees account:', feeError);
-            alert('Payment recorded, but could not find Bank/App Transfer Fees account (7610). Fee not recorded in journal entry.');
+            notify('Payment recorded, but could not find Bank/App Transfer Fees account (7610). Fee not recorded in journal entry.');
           } else if (!feeAccount) {
-            alert('Payment recorded, but Bank/App Transfer Fees account (7610) not found in Chart of Accounts. Please create it or processing fees won\'t be recorded.');
+            notify('Payment recorded, but Bank/App Transfer Fees account (7610) not found in Chart of Accounts. Please create it or processing fees won\'t be recorded.');
           } else {
             processingFeeAccountId = feeAccount.id;
           }
@@ -481,7 +482,7 @@ export default function InvoicesList() {
 
         if (entryError) {
           console.error('Failed to create journal entry:', entryError);
-          alert(`Payment recorded but journal entry failed: ${entryError.message}`);
+          notify(`Payment recorded but journal entry failed: ${entryError.message}`);
         } else if (newEntry) {
           // Create journal entry lines
           const lines = [
@@ -523,7 +524,7 @@ export default function InvoicesList() {
 
           if (linesError) {
             console.error('Failed to create journal entry lines:', linesError);
-            alert(`Payment recorded but journal entry failed: ${linesError.message}`);
+            notify(`Payment recorded but journal entry failed: ${linesError.message}`);
           } else {
             // Post the journal entry
             const { error: postError } = await supabase
@@ -534,7 +535,7 @@ export default function InvoicesList() {
 
             if (postError) {
               console.error('Failed to post journal entry:', postError);
-              alert(`Payment recorded and journal entry created but not posted: ${postError.message}`);
+              notify(`Payment recorded and journal entry created but not posted: ${postError.message}`);
             } else {
               console.log('✅ Payment recorded and journal entry posted');
               
@@ -647,12 +648,12 @@ export default function InvoicesList() {
                 }
               }
               
-              alert('Payment recorded successfully! Journal entry created. Bank balance will update when payment clears.');
+              notify('Payment recorded successfully! Journal entry created. Bank balance will update when payment clears.');
             }
           }
         }
       } else {
-        alert('Payment recorded successfully! (No bank account selected, so no journal entry was created)');
+        notify('Payment recorded successfully! (No bank account selected, so no journal entry was created)');
       }
 
       // Save individual payment record for history tracking
@@ -681,7 +682,7 @@ export default function InvoicesList() {
       }, 500);
     } catch (err) {
       console.error('Error recording payment:', err);
-      alert(`Failed to record payment: ${err.message}`);
+      notify(`Failed to record payment: ${err.message}`);
     }
   }
 
@@ -702,7 +703,7 @@ export default function InvoicesList() {
   // ─── Save edited payment ────────────────────────────────────────────────────
   async function handleSaveEditPayment() {
     if (!editPaymentForm.amount || parseFloat(editPaymentForm.amount) <= 0) {
-      alert('Please enter a valid payment amount');
+      notify('Please enter a valid payment amount');
       return;
     }
 
@@ -755,7 +756,7 @@ export default function InvoicesList() {
       if (invUpdateErr) throw invUpdateErr;
 
       // 3. Reload payment history and close modal
-      alert('✅ Payment updated successfully!');
+      notify('✅ Payment updated successfully!');
       setShowEditPaymentModal(false);
       setEditingPayment(null);
 
@@ -766,14 +767,14 @@ export default function InvoicesList() {
       loadInvoices();
     } catch (err) {
       console.error('Error editing payment:', err);
-      alert(`Failed to update payment: ${err.message}`);
+      notify(`Failed to update payment: ${err.message}`);
     }
   }
 
   // ─── Delete individual payment ──────────────────────────────────────────────
   async function handleDeletePayment(payment) {
     const inv = invoices.find(i => i.id === payment.invoice_id) || selectedInvoice;
-    if (!confirm(`Delete this payment of ${formatCurrency(payment.amount)} dated ${formatDate(payment.payment_date)}? This will reduce the amount paid on the invoice.`)) {
+    if (!await confirmDialog(`Delete this payment of ${formatCurrency(payment.amount)} dated ${formatDate(payment.payment_date)}? This will reduce the amount paid on the invoice.`)) {
       return;
     }
 
@@ -868,7 +869,7 @@ export default function InvoicesList() {
         }
       }
 
-      alert('✅ Payment deleted and invoice balance updated!');
+      notify('✅ Payment deleted and invoice balance updated!');
 
       // Reload
       if (selectedInvoice) {
@@ -879,7 +880,7 @@ export default function InvoicesList() {
       loadInvoices();
     } catch (err) {
       console.error('Error deleting payment:', err);
-      alert(`Failed to delete payment: ${err.message}`);
+      notify(`Failed to delete payment: ${err.message}`);
     }
   }
 
@@ -1279,7 +1280,7 @@ export default function InvoicesList() {
                       ) : (
                         <button
                           onClick={async () => {
-                            if (!confirm(`Reset payment for invoice #${invoice.invoice_number}? This will mark it as unpaid, restore the full balance, AND create a reversal journal entry.`)) return;
+                            if (!await confirmDialog(`Reset payment for invoice #${invoice.invoice_number}? This will mark it as unpaid, restore the full balance, AND create a reversal journal entry.`)) return;
                             try {
                               const fullTotal = invoice.total;
                               const previouslyPaidAmount = invoice.amount_paid || 0;
@@ -1402,11 +1403,11 @@ export default function InvoicesList() {
                                 })
                                 .eq('id', invoice.id);
                               if (error) throw error;
-                              alert(`✅ Payment reversed! Balance restored to ${formatCurrency(fullTotal)}. Reversal journal entry created.`);
+                              notify(`✅ Payment reversed! Balance restored to ${formatCurrency(fullTotal)}. Reversal journal entry created.`);
                               loadInvoices();
                             } catch (err) {
                               console.error('Error resetting payment:', err);
-                              alert(`Failed to reset payment: ${err.message}`);
+                              notify(`Failed to reset payment: ${err.message}`);
                             }
                           }}
                           style={{...styles.actionButton, ...styles.resetButton}}
@@ -2150,14 +2151,14 @@ export default function InvoicesList() {
                     try {
                       const allocs = splitPaymentForm.allocations;
                       const invoicesToPay = Object.entries(allocs).filter(([, amt]) => (parseFloat(amt) || 0) > 0);
-                      if (invoicesToPay.length === 0) { alert('Please allocate amounts to at least one invoice'); return; }
+                      if (invoicesToPay.length === 0) { notify('Please allocate amounts to at least one invoice'); return; }
 
                       // Get AR account & bank account
                       const { data: arAccount } = await supabase.from('accounts').select('id').eq('account_number', '1100').maybeSingle();
-                      if (!arAccount) { alert('AR account (1100) not found'); return; }
+                      if (!arAccount) { notify('AR account (1100) not found'); return; }
 
                       const { data: bankRec } = await supabase.from('bank_accounts').select('chart_account_id').eq('id', splitPaymentForm.bank_account_id).single();
-                      if (!bankRec?.chart_account_id) { alert('Bank account not linked to chart of accounts'); return; }
+                      if (!bankRec?.chart_account_id) { notify('Bank account not linked to chart of accounts'); return; }
 
                       let feeAccountId = null;
                       if (processingFee > 0) {
@@ -2224,12 +2225,12 @@ export default function InvoicesList() {
                         console.warn('Could not save split payment history:', histErr.message);
                       }
 
-                      alert(`✅ Split payment of ${formatCurrency(totalAmount)} applied to ${invoiceNumbers.join(', ')}!`);
+                      notify(`✅ Split payment of ${formatCurrency(totalAmount)} applied to ${invoiceNumbers.join(', ')}!`);
                       setShowSplitPaymentModal(false);
                       setTimeout(() => window.location.reload(), 500);
                     } catch (err) {
                       console.error('Split payment error:', err);
-                      alert(`Failed: ${err.message}`);
+                      notify(`Failed: ${err.message}`);
                     }
                   }}
                   style={{...styles.saveButton, opacity: (totalAmount <= 0 || totalAllocated <= 0 || !splitPaymentForm.bank_account_id) ? 0.5 : 1}}>

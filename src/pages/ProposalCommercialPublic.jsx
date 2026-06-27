@@ -3,6 +3,7 @@ import { useSearchParams, useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import logoImage from "../assets/LOGOD.jpg";
 import { useAuth } from "../contexts/AuthContext";
+import { notify } from '../lib/notify';
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -302,17 +303,17 @@ export default function ProposalCommercialPublic() {
 
   async function handleSendEmail() {
     if (!contractorEmail) {
-      alert("Please enter a contractor email address");
+      notify("Please enter a contractor email address");
       return;
     }
 
     if (!selectedContractor && isEditing) {
-      alert("Please select a contractor first");
+      notify("Please select a contractor first");
       return;
     }
 
     if (isEditing && !includeBaseBid && selectedAlternates.length === 0) {
-      alert("Please select at least one item to include in the proposal");
+      notify("Please select at least one item to include in the proposal");
       return;
     }
 
@@ -360,7 +361,7 @@ export default function ProposalCommercialPublic() {
         }
       }
 
-      alert(`Proposal sent successfully to ${emails.length} recipient${emails.length > 1 ? 's' : ''}!`);
+      notify(`Proposal sent successfully to ${emails.length} recipient${emails.length > 1 ? 's' : ''}!`);
       
       // Update proposal status
       if (savedProposalId) {
@@ -382,7 +383,7 @@ export default function ProposalCommercialPublic() {
       }
     } catch (err) {
       console.error("Error sending email:", err);
-      alert("Error sending proposal: " + err.message);
+      notify("Error sending proposal: " + err.message);
     } finally {
       setIsSendingEmail(false);
     }
@@ -390,12 +391,12 @@ export default function ProposalCommercialPublic() {
 
   async function handleSave(returnAfterSave = false) {
     if (!selectedContractor && isEditing) {
-      alert("Please select a contractor");
+      notify("Please select a contractor");
       return;
     }
 
     if (isEditing && !includeBaseBid && selectedAlternates.length === 0) {
-      alert("Please select at least one item (base bid or alternates)");
+      notify("Please select at least one item (base bid or alternates)");
       return;
     }
 
@@ -458,7 +459,7 @@ export default function ProposalCommercialPublic() {
       }
 
       if (!returnAfterSave) {
-        alert("Proposal saved successfully!");
+        notify("Proposal saved successfully!");
         setIsEditing(false);
         
         if (!proposalId) {
@@ -470,7 +471,7 @@ export default function ProposalCommercialPublic() {
       return savedProposalId; // Return the ID for email function
     } catch (err) {
       console.error("Error saving proposal:", err);
-      alert("Error saving proposal: " + err.message);
+      notify("Error saving proposal: " + err.message);
     } finally {
       setIsSaving(false);
     }

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
+import { notify } from '../lib/notify';
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -98,7 +99,7 @@ export default function ProgressInvoice() {
       }
     } catch (err) {
       console.error("Error loading data:", err);
-      alert("Error loading estimate data");
+      notify("Error loading estimate data");
     } finally {
       setLoading(false);
     }
@@ -128,12 +129,12 @@ export default function ProgressInvoice() {
 
   async function handleCreateProgressInvoice() {
     if (selectedItems.size === 0) {
-      alert("Please select at least one item to bill for");
+      notify("Please select at least one item to bill for");
       return;
     }
 
     if (!invoiceNumber || !invoiceDate) {
-      alert("Please enter invoice number and date");
+      notify("Please enter invoice number and date");
       return;
     }
 
@@ -185,11 +186,11 @@ export default function ProgressInvoice() {
 
       if (itemsError) throw itemsError;
 
-      alert(`✅ Progress Invoice #${invoiceNumber} created successfully!`);
+      notify(`✅ Progress Invoice #${invoiceNumber} created successfully!`);
       navigate(`/invoice?invoiceId=${newInvoice.id}`);
     } catch (err) {
       console.error("Error creating progress invoice:", err);
-      alert(`Error creating progress invoice: ${err.message}`);
+      notify(`Error creating progress invoice: ${err.message}`);
     }
   }
 

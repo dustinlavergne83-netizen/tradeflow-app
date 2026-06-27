@@ -1,5 +1,8 @@
+import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
+import GlobalNotifications from "./Components/GlobalNotifications";
+import { notify } from "./lib/notify";
 import ProtectedRoute from "./Components/ProtectedRoute";
 import CustomerRoute from "./Components/CustomerRoute";
 import SignIn from "./pages/SignIn";
@@ -137,6 +140,11 @@ function AppContent() {
   const location = useLocation();
   const path = location.pathname;
 
+  // Replace all native browser alert() calls app-wide with styled toasts
+  useEffect(() => {
+    window.alert = (msg) => notify(String(msg ?? ''));
+  }, []);
+
   const isNoHeader =
     NO_HEADER_PATHS.has(path) ||
     path.startsWith("/customer/") ||
@@ -145,6 +153,7 @@ function AppContent() {
 
   return (
     <>
+      <GlobalNotifications />
       {!isNoHeader && <DesktopHeader />}
       <div className={isNoHeader ? "" : "content"}>
         <Routes>

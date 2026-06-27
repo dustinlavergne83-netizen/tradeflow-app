@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { useNavigate } from "react-router-dom";
+import { notify } from '../lib/notify';
 
 // ── vCard / CSV parsers (runs entirely in browser, no upload) ──────────────────
 function parseVCF(text) {
@@ -203,7 +204,7 @@ export default function TwilioSettings() {
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
-      alert("Error saving: " + err.message);
+      notify("Error saving: " + err.message);
     } finally {
       setSaving(false);
     }

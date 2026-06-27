@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
+import { notify, confirmDialog } from '../lib/notify';
 
 export default function ChartOfAccounts() {
   const navigate = useNavigate();
@@ -140,14 +141,14 @@ export default function ChartOfAccounts() {
       setAccounts(accountsWithCalculatedBalances);
     } catch (err) {
       console.error("Error loading accounts:", err);
-      alert("Failed to load chart of accounts");
+      notify("Failed to load chart of accounts");
     } finally {
       setLoading(false);
     }
   }
 
   async function initializeDefaultAccounts() {
-    if (!confirm("This will create a standard Chart of Accounts with default accounts. Continue?")) {
+    if (!await confirmDialog("This will create a standard Chart of Accounts with default accounts. Continue?")) {
       return;
     }
 
@@ -160,12 +161,12 @@ export default function ChartOfAccounts() {
 
       if (error) throw error;
 
-      alert("Default Chart of Accounts created successfully!");
+      notify("Default Chart of Accounts created successfully!");
       setShowInitialize(false);
       loadAccounts();
     } catch (err) {
       console.error("Error creating default accounts:", err);
-      alert(`Failed to create default accounts: ${err.message}`);
+      notify(`Failed to create default accounts: ${err.message}`);
     }
   }
 
@@ -215,7 +216,7 @@ export default function ChartOfAccounts() {
 
   async function handleSaveAccount() {
     if (!accountForm.account_number || !accountForm.account_name) {
-      alert('Please enter both account number and account name');
+      notify('Please enter both account number and account name');
       return;
     }
 
@@ -325,7 +326,7 @@ export default function ChartOfAccounts() {
           }
         }
 
-        alert('Account updated successfully!');
+        notify('Account updated successfully!');
       } else {
         // Create new account
         const { data: newAccount, error } = await supabase
@@ -436,7 +437,7 @@ export default function ChartOfAccounts() {
           }
         }
 
-        alert(parentAccount ? 'Subaccount added successfully!' : 'Account added successfully!');
+        notify(parentAccount ? 'Subaccount added successfully!' : 'Account added successfully!');
       }
 
       setShowModal(false);
@@ -445,17 +446,17 @@ export default function ChartOfAccounts() {
       loadAccounts();
     } catch (err) {
       console.error('Error saving account:', err);
-      alert(`Failed to save account: ${err.message}`);
+      notify(`Failed to save account: ${err.message}`);
     }
   }
 
   async function handleArchiveAccount(account) {
     if (account.is_system) {
-      alert('System accounts cannot be deleted. You can mark them as inactive instead.');
+      notify('System accounts cannot be deleted. You can mark them as inactive instead.');
       return;
     }
 
-    if (!confirm(`Archive account "${account.account_name}"?`)) {
+    if (!await confirmDialog(`Archive account "${account.account_name}"?`)) {
       return;
     }
 
@@ -467,11 +468,11 @@ export default function ChartOfAccounts() {
 
       if (error) throw error;
 
-      alert('Account archived successfully!');
+      notify('Account archived successfully!');
       loadAccounts();
     } catch (err) {
       console.error('Error archiving account:', err);
-      alert(`Failed to archive account: ${err.message}`);
+      notify(`Failed to archive account: ${err.message}`);
     }
   }
 
@@ -486,7 +487,7 @@ export default function ChartOfAccounts() {
       loadAccounts();
     } catch (err) {
       console.error('Error toggling account status:', err);
-      alert(`Failed to update account: ${err.message}`);
+      notify(`Failed to update account: ${err.message}`);
     }
   }
 

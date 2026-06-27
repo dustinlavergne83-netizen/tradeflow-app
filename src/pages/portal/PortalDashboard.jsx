@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
+import { notify, confirmDialog } from '../../lib/notify';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function elapsed(iso) {
@@ -467,13 +468,13 @@ function TimesheetsTab({ accent, companyId }) {
   }
 
   async function deleteRow(s) {
-    if (!window.confirm("Delete this punch?")) return;
+    if (!window.await confirmDialog("Delete this punch?")) return;
     if (!String(s.id).endsWith("_s")) await supabase.from("shift_segments").delete().eq("id", s.id);
     load();
   }
 
   async function addPunch() {
-    if (!addForm.empId) { alert("Please select an employee"); return; }
+    if (!addForm.empId) { notify("Please select an employee"); return; }
     const emp = employees.find(e => e.id === addForm.empId);
     if (!emp?.user_id) return;
     // Convert local time strings to proper UTC ISO strings so Supabase stores them correctly
@@ -666,7 +667,7 @@ function JobsTab({ companyId, accent }) {
   async function addJob() {
     const name = newName.trim();
     if (!name) return;
-    if (!companyId) return alert("Company not loaded yet.");
+    if (!companyId) return notify("Company not loaded yet.");
     setSaving(true);
     await supabase.from("projects").insert([{ name, status: "active", company_id: companyId }]);
     setNewName("");
@@ -691,7 +692,7 @@ function JobsTab({ companyId, accent }) {
   }
 
   async function deleteJob(job) {
-    if (!window.confirm(`Delete "${job.name}"?`)) return;
+    if (!window.await confirmDialog(`Delete "${job.name}"?`)) return;
     await supabase.from("projects").delete().eq("id", job.id);
     setJobs(prev => prev.filter(j => j.id !== job.id));
   }
@@ -896,7 +897,7 @@ function EmployeesTab({ accent }) {
 
   function copyInviteLink(link) {
     navigator.clipboard.writeText(link);
-    alert("✅ Invite link copied!");
+    notify("✅ Invite link copied!");
   }
 
   function buildInviteLink(token) {

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { supabase } from "../lib/supabase";
+import { notify } from '../lib/notify';
 
 export default function SignUp() {
   const navigate = useNavigate();
@@ -52,7 +53,7 @@ export default function SignUp() {
         throw empError;
       }
 
-      alert("Account created! Please wait for an admin to activate your account, then sign in.");
+      notify("Account created! Please wait for an admin to activate your account, then sign in.");
       navigate("/signin");
     } catch (err) {
       console.error("Error signing up:", err);

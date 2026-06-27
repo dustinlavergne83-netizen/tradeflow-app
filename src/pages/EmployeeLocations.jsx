@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import DesktopHeader from '../Components/DesktopHeader';
 
 import { formatDate } from "../utils/dateUtils";
+import { notify } from '../lib/notify';
 
 export default function EmployeeLocations() {
   const navigate = useNavigate();
@@ -42,7 +43,7 @@ export default function EmployeeLocations() {
       setEmployees(data || []);
     } catch (error) {
       console.error('Error loading employees:', error);
-      alert('Error loading employees: ' + error.message);
+      notify('Error loading employees: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -64,7 +65,7 @@ export default function EmployeeLocations() {
       setSelectedShiftId('');
     } catch (error) {
       console.error('Error loading shifts:', error);
-      alert('Error loading shifts: ' + error.message);
+      notify('Error loading shifts: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -83,7 +84,7 @@ export default function EmployeeLocations() {
       setLocationHistory(data || []);
     } catch (error) {
       console.error('Error loading location history:', error);
-      alert('Error loading location history: ' + error.message);
+      notify('Error loading location history: ' + error.message);
     } finally {
       setLoading(false);
     }

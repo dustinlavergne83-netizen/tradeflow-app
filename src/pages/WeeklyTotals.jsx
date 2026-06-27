@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase";
 import { useNavigate } from "react-router-dom";
 
 import { formatDate } from "../utils/dateUtils";
+import { notify } from '../lib/notify';
 
 const BRAND = {
   bg: "#0b3ea8",        // dark blue/black background
@@ -140,7 +141,7 @@ const [openWeek, setOpenWeek] = useState(null);
   useEffect(() => {
     (async () => {
       const { data: userData, error: userErr } = await supabase.auth.getUser();
-      if (userErr) return alert("Auth error: " + userErr.message);
+      if (userErr) return notify("Auth error: " + userErr.message);
 
       const userId = userData.user?.id;
       if (!userId) return;
@@ -152,7 +153,7 @@ const [openWeek, setOpenWeek] = useState(null);
         .order("start_at", { ascending: false })
         .limit(800);
 
-      if (error) return alert("Load totals error: " + error.message);
+      if (error) return notify("Load totals error: " + error.message);
 
       setEntries(mapSegmentsToEntries(segs));
 

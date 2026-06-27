@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { formatDate } from "../utils/dateUtils";
+import { notify, confirmDialog } from '../lib/notify';
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -102,7 +103,7 @@ export default function ProjectMaterialList() {
 
     } catch (err) {
       console.error("Error loading data:", err);
-      alert("Failed to load material lists: " + err.message);
+      notify("Failed to load material lists: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -110,7 +111,7 @@ export default function ProjectMaterialList() {
 
   async function handleUpdateList() {
     if (!editListForm.title.trim()) {
-      alert('List title is required');
+      notify('List title is required');
       return;
     }
     try {
@@ -134,12 +135,12 @@ export default function ProjectMaterialList() {
       setEditingList(null);
     } catch (err) {
       console.error("Error updating list:", err);
-      alert("Failed to update list: " + err.message);
+      notify("Failed to update list: " + err.message);
     }
   }
 
   async function handleDeleteList(list) {
-    if (!window.confirm(`Delete "${list.title}" and all its items? This cannot be undone.`)) return;
+    if (!window.await confirmDialog(`Delete "${list.title}" and all its items? This cannot be undone.`)) return;
     try {
       // Delete items first
       const { error: itemsError } = await supabase
@@ -159,13 +160,13 @@ export default function ProjectMaterialList() {
       if (expandedList === list.id) setExpandedList(null);
     } catch (err) {
       console.error("Error deleting list:", err);
-      alert("Failed to delete list: " + err.message);
+      notify("Failed to delete list: " + err.message);
     }
   }
 
   async function handleCreateList() {
     if (!listForm.title.trim()) {
-      alert('List title is required');
+      notify('List title is required');
       return;
     }
 
@@ -187,11 +188,11 @@ export default function ProjectMaterialList() {
       setMaterialLists([data, ...materialLists]);
       setShowAddListModal(false);
       setListForm({ title: 'Material List', description: '', status: 'draft' });
-      alert('Material list created successfully!');
+      notify('Material list created successfully!');
 
     } catch (err) {
       console.error("Error creating list:", err);
-      alert("Failed to create list: " + err.message);
+      notify("Failed to create list: " + err.message);
     }
   }
 
@@ -208,7 +209,7 @@ export default function ProjectMaterialList() {
         .order("sort_order", { ascending: true });
 
       if (error) throw error;
-      if (!items || items.length === 0) { alert("No items to export in this list"); return; }
+      if (!items || items.length === 0) { notify("No items to export in this list"); return; }
 
       const headers = ["Qty", "Unit", "Description", "Cost", "Ext Cost"];
       const csvRows = [
@@ -246,7 +247,7 @@ export default function ProjectMaterialList() {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error("Error exporting CSV:", err);
-      alert("Failed to export material list: " + err.message);
+      notify("Failed to export material list: " + err.message);
     }
   }
 
@@ -259,7 +260,7 @@ export default function ProjectMaterialList() {
         .order("sort_order", { ascending: true });
 
       if (error) throw error;
-      if (!items || items.length === 0) { alert("No items to print in this list"); return; }
+      if (!items || items.length === 0) { notify("No items to print in this list"); return; }
 
       const totalCost = items.reduce((sum, i) => sum + (i.total_cost || 0), 0);
 
@@ -351,7 +352,7 @@ export default function ProjectMaterialList() {
       w.document.close();
     } catch (err) {
       console.error("Error printing material list:", err);
-      alert("Failed to generate print view: " + err.message);
+      notify("Failed to generate print view: " + err.message);
     }
   }
 
@@ -360,7 +361,7 @@ export default function ProjectMaterialList() {
     const isText = toSend?.isText === true;
 
     if (!emailAddr && !isText) {
-      alert('Please enter an email address or choose Text');
+      notify('Please enter an email address or choose Text');
       return;
     }
     setSending(true);
@@ -372,7 +373,7 @@ export default function ProjectMaterialList() {
         .order("sort_order", { ascending: true });
 
       if (error) throw error;
-      if (!items || items.length === 0) { alert("No items to send in this list"); return; }
+      if (!items || items.length === 0) { notify("No items to send in this list"); return; }
 
       const subject = `Material List – ${list.title} | ${project.name}`;
 
@@ -432,7 +433,7 @@ export default function ProjectMaterialList() {
       setVendorSearch('');
     } catch (err) {
       console.error("Error preparing send:", err);
-      alert("Failed to prepare send: " + err.message);
+      notify("Failed to prepare send: " + err.message);
     } finally {
       setSending(false);
     }
@@ -796,7 +797,7 @@ export default function ProjectMaterialList() {
                       }));
 
                     if (itemsToSave.length === 0) {
-                      alert('Please enter at least one item with a description');
+                      notify('Please enter at least one item with a description');
                       setSavingItems(false);
                       return;
                     }
@@ -807,14 +808,14 @@ export default function ProjectMaterialList() {
 
                     if (error) throw error;
 
-                    alert(`Added ${itemsToSave.length} items to the list!`);
+                    notify(`Added ${itemsToSave.length} items to the list!`);
                     setShowAddItemModal(false);
                     setEditingItems([]);
                     setSelectedList(null);
                     loadData(); // Refresh the lists
                   } catch (err) {
                     console.error("Error saving items:", err);
-                    alert("Failed to save items: " + err.message);
+                    notify("Failed to save items: " + err.message);
                   } finally {
                     setSavingItems(false);
                   }
@@ -1181,7 +1182,7 @@ function FileUploadModal({ isOpen, onClose, projectId, materialListId, listTitle
 
   async function handleUpload() {
     if (selectedFiles.length === 0) {
-      alert('Please select files to upload');
+      notify('Please select files to upload');
       return;
     }
 
@@ -1217,14 +1218,14 @@ function FileUploadModal({ isOpen, onClose, projectId, materialListId, listTitle
         if (dbError) throw dbError;
       }
 
-      alert(`Successfully uploaded ${selectedFiles.length} file(s)!`);
+      notify(`Successfully uploaded ${selectedFiles.length} file(s)!`);
       setSelectedFiles([]);
       setFileDescriptions({});
       loadAttachments(); // Reload attachments
 
     } catch (err) {
       console.error("Error uploading files:", err);
-      alert("Failed to upload files: " + err.message);
+      notify("Failed to upload files: " + err.message);
     } finally {
       setUploading(false);
     }
@@ -1250,12 +1251,12 @@ function FileUploadModal({ isOpen, onClose, projectId, materialListId, listTitle
 
     } catch (err) {
       console.error("Error downloading file:", err);
-      alert("Failed to download file: " + err.message);
+      notify("Failed to download file: " + err.message);
     }
   }
 
   async function deleteFile(attachment) {
-    if (!confirm(`Delete "${attachment.file_name}"?`)) return;
+    if (!await confirmDialog(`Delete "${attachment.file_name}"?`)) return;
 
     try {
       // Delete from storage
@@ -1277,7 +1278,7 @@ function FileUploadModal({ isOpen, onClose, projectId, materialListId, listTitle
 
     } catch (err) {
       console.error("Error deleting file:", err);
-      alert("Failed to delete file: " + err.message);
+      notify("Failed to delete file: " + err.message);
     }
   }
 
@@ -1442,7 +1443,7 @@ function MaterialListItems({ listId, refreshKey, onRefresh }) {
 
   async function saveEditItem(itemId) {
     if (!editItemForm.description?.trim()) {
-      alert('Description is required');
+      notify('Description is required');
       return;
     }
     setSavingItem(true);
@@ -1472,14 +1473,14 @@ function MaterialListItems({ listId, refreshKey, onRefresh }) {
       setEditItemForm({});
     } catch (err) {
       console.error("Error saving item:", err);
-      alert("Failed to save item: " + err.message);
+      notify("Failed to save item: " + err.message);
     } finally {
       setSavingItem(false);
     }
   }
 
   async function deleteItem(item) {
-    if (!window.confirm(`Delete "${item.description}"?`)) return;
+    if (!window.await confirmDialog(`Delete "${item.description}"?`)) return;
     try {
       const { error } = await supabase
         .from("material_list_items")
@@ -1490,7 +1491,7 @@ function MaterialListItems({ listId, refreshKey, onRefresh }) {
       setItems(items.filter(i => i.id !== item.id));
     } catch (err) {
       console.error("Error deleting item:", err);
-      alert("Failed to delete item: " + err.message);
+      notify("Failed to delete item: " + err.message);
     }
   }
 

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
+import { notify } from '../../lib/notify';
 
 export default function BalanceSheet() {
   const navigate = useNavigate();
@@ -118,7 +119,7 @@ export default function BalanceSheet() {
       });
     } catch (err) {
       console.error("Error loading balance sheet:", err);
-      alert("Failed to load balance sheet: " + err.message);
+      notify("Failed to load balance sheet: " + err.message);
     } finally {
       setLoading(false);
     }

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
+import { confirmDialog } from '../lib/notify';
 
 const BRAND = { blue: "#0b3ea8", orange: "#fc6b04", dark: "#092d7e" };
 const TABS = ["🖼️ Gallery", "📢 Announcements", "✏️ Page Text"];
@@ -126,7 +127,7 @@ export default function WebsiteManager() {
   }
 
   async function deletePhoto(photo) {
-    if (!confirm(`Delete "${photo.title || "this photo"}" from the website?`)) return;
+    if (!await confirmDialog(`Delete "${photo.title || "this photo"}" from the website?`)) return;
     // Delete from storage
     const pathParts = photo.image_url.split("/website-gallery/");
     if (pathParts[1]) {

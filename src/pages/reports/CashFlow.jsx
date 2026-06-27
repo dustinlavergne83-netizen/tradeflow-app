@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
+import { notify } from '../../lib/notify';
 
 export default function CashFlow() {
   const navigate = useNavigate();
@@ -156,7 +157,7 @@ export default function CashFlow() {
       });
     } catch (err) {
       console.error("Error loading cash flow:", err);
-      alert("Failed to load cash flow: " + err.message);
+      notify("Failed to load cash flow: " + err.message);
     } finally {
       setLoading(false);
     }

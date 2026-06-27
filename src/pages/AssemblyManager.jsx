@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
+import { notify, confirmDialog, promptDialog } from '../lib/notify';
 
 export default function AssemblyManager() {
   const { user, isAdmin } = useAuth();
@@ -103,7 +104,7 @@ export default function AssemblyManager() {
       console.log(`✅ Loaded ${allMaterials.length} total materials (${formattedBaseMaterials.length} base + ${formattedCustomMaterials.length} custom)`);
     } catch (err) {
       console.error("Error loading materials:", err);
-      alert("Failed to load materials. Please refresh the page.");
+      notify("Failed to load materials. Please refresh the page.");
     }
   }
 
@@ -144,7 +145,7 @@ export default function AssemblyManager() {
       setAssemblies(assembliesWithTotals);
     } catch (err) {
       console.error("❌ Error loading assemblies:", err);
-      alert("Failed to load assemblies: " + err.message);
+      notify("Failed to load assemblies: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -175,7 +176,7 @@ export default function AssemblyManager() {
   }
 
   async function handleDuplicateAssembly(assembly) {
-    const newName = prompt(`Enter name for duplicated assembly:`, `${assembly.name} (Copy)`);
+    const newName = await promptDialog(`Enter name for duplicated assembly:`, `${assembly.name} (Copy)`);
     if (!newName) return;
 
     setSaving(true);
@@ -189,10 +190,10 @@ export default function AssemblyManager() {
       if (error) throw error;
 
       await loadAssemblies();
-      alert("Assembly duplicated successfully!");
+      notify("Assembly duplicated successfully!");
     } catch (err) {
       console.error("Error duplicating assembly:", err);
-      alert("Failed to duplicate assembly: " + err.message);
+      notify("Failed to duplicate assembly: " + err.message);
     } finally {
       setSaving(false);
     }
@@ -217,7 +218,7 @@ export default function AssemblyManager() {
       await loadAssemblies();
     } catch (err) {
       console.error(`Error updating component ${field}:`, err);
-      alert(`Failed to update component ${field}`);
+      notify(`Failed to update component ${field}`);
     }
   }
 
@@ -227,7 +228,7 @@ export default function AssemblyManager() {
   }
 
   async function handleDeleteComponent(componentId) {
-    if (!confirm("Are you sure you want to delete this component?")) return;
+    if (!await confirmDialog("Are you sure you want to delete this component?")) return;
 
     try {
       const { error } = await supabase
@@ -242,13 +243,13 @@ export default function AssemblyManager() {
       await loadAssemblies();
     } catch (err) {
       console.error("Error deleting component:", err);
-      alert("Failed to delete component");
+      notify("Failed to delete component");
     }
   }
 
   async function handleAddComponent() {
     if (!selectedMaterial) {
-      alert("Please select a material");
+      notify("Please select a material");
       return;
     }
 
@@ -285,7 +286,7 @@ export default function AssemblyManager() {
       setMaterialSearch("");
     } catch (err) {
       console.error("Error adding component:", err);
-      alert("Failed to add component: " + err.message);
+      notify("Failed to add component: " + err.message);
     } finally {
       setSaving(false);
     }
@@ -293,11 +294,11 @@ export default function AssemblyManager() {
 
   async function handleDeleteAssembly(assemblyId, isCustom) {
     if (!isCustom) {
-      alert("Cannot delete predefined assemblies. You can duplicate and modify them instead.");
+      notify("Cannot delete predefined assemblies. You can duplicate and modify them instead.");
       return;
     }
 
-    if (!confirm("Are you sure you want to delete this assembly? This cannot be undone.")) return;
+    if (!await confirmDialog("Are you sure you want to delete this assembly? This cannot be undone.")) return;
 
     try {
       const { error } = await supabase
@@ -314,14 +315,14 @@ export default function AssemblyManager() {
       }
     } catch (err) {
       console.error("Error deleting assembly:", err);
-      alert("Failed to delete assembly");
+      notify("Failed to delete assembly");
     }
   }
 
   // Quick Assembly Builder Functions
   function addComponentToQuickAssembly() {
     if (!quickAssemblyMaterialId || quickAssemblyQuantity === '' || parseFloat(quickAssemblyQuantity) < 0) {
-      alert('Please select a material and enter a quantity (0 or greater)');
+      notify('Please select a material and enter a quantity (0 or greater)');
       return;
     }
     
@@ -366,7 +367,7 @@ export default function AssemblyManager() {
     
     if (error) {
       console.error('Error loading components:', error);
-      alert('Failed to load assembly components');
+      notify('Failed to load assembly components');
       return;
     }
     
@@ -380,12 +381,12 @@ export default function AssemblyManager() {
 
   async function saveQuickAssembly() {
     if (!quickAssemblyName.trim()) {
-      alert('Please enter an assembly name');
+      notify('Please enter an assembly name');
       return;
     }
     
     if (quickAssemblyComponents.length === 0) {
-      alert('Please add at least one component to the assembly');
+      notify('Please add at least one component to the assembly');
       return;
     }
     
@@ -434,7 +435,7 @@ export default function AssemblyManager() {
         
         if (componentsError) throw componentsError;
         
-        alert('✅ Assembly updated successfully!');
+        notify('✅ Assembly updated successfully!');
       } else {
         // CREATE new assembly
         const { data: assemblyData, error: assemblyError } = await supabase
@@ -477,7 +478,7 @@ export default function AssemblyManager() {
         
         if (componentsError) throw componentsError;
         
-        alert('✅ Assembly created successfully!');
+        notify('✅ Assembly created successfully!');
       }
       
       // Reload assemblies
@@ -491,7 +492,7 @@ export default function AssemblyManager() {
       setQuickAssemblyAssemblyCategory('Conduit/Wire');
     } catch (err) {
       console.error('Error saving quick assembly:', err);
-      alert('Failed to save assembly: ' + err.message);
+      notify('Failed to save assembly: ' + err.message);
     } finally {
       setSaving(false);
     }

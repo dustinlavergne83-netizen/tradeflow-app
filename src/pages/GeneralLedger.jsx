@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
+import { notify, confirmDialog } from '../lib/notify';
 
 export default function GeneralLedger() {
   const navigate = useNavigate();
@@ -44,7 +45,7 @@ export default function GeneralLedger() {
       setEntries(entriesWithTotals || []);
     } catch (err) {
       console.error("Error loading entries:", err);
-      alert("Failed to load journal entries");
+      notify("Failed to load journal entries");
     } finally {
       setLoading(false);
     }
@@ -54,7 +55,7 @@ export default function GeneralLedger() {
     // Allow deletion of posted bank transaction entries (even if posted, they should be deletable as orphans)
     // Block deletion of posted entries ONLY if they're NOT orphaned bank transactions
     if (entry.is_posted && entry.reference_type !== 'bank_transaction') {
-      alert('Cannot delete a posted entry. Use a reversing entry to correct it.');
+      notify('Cannot delete a posted entry. Use a reversing entry to correct it.');
       return;
     }
 
@@ -62,7 +63,7 @@ export default function GeneralLedger() {
       ? `Delete POSTED journal entry ${entry.entry_number}? This appears to be an orphaned bank transaction.`
       : `Delete journal entry ${entry.entry_number}?`;
 
-    if (!confirm(message)) {
+    if (!await confirmDialog(message)) {
       return;
     }
 
@@ -125,20 +126,20 @@ export default function GeneralLedger() {
       
       if (verifyData) {
         console.error('❌ CRITICAL: Entry still exists after delete operation!');
-        alert('❌ Delete operation failed - entry still exists in database. This may be a database constraint issue.');
+        notify('❌ Delete operation failed - entry still exists in database. This may be a database constraint issue.');
         loadEntries();
         return;
       }
       
       console.log('✅ Verified: Entry successfully deleted from database');
-      alert('✅ Journal entry deleted successfully!');
+      notify('✅ Journal entry deleted successfully!');
       // Wait a moment then reload to ensure database has processed the deletion
       setTimeout(() => {
         loadEntries();
       }, 500);
     } catch (err) {
       console.error('❌ Error deleting entry:', err);
-      alert(`❌ Failed to delete: ${err.message}`);
+      notify(`❌ Failed to delete: ${err.message}`);
     }
   }
 

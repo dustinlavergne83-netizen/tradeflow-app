@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { confirmDialog } from '../lib/notify';
 
 const BRAND = { bg: "#0b3ea8" };
 
@@ -119,7 +120,7 @@ export default function CheckStubsBrowser() {
 
   // ── Delete a file ─────────────────────────────────────────────────────────
   async function deleteFile(fileName) {
-    if (!window.confirm(`Delete ${fileName}?`)) return;
+    if (!window.await confirmDialog(`Delete ${fileName}?`)) return;
     const path = `${selectedFolder}/${selectedYear}/${fileName}`;
     try {
       await supabase.storage.from("check-stubs").remove([path]);

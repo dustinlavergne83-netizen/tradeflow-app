@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import DesktopHeader from "../Components/DesktopHeader";
+import { notify, confirmDialog } from '../lib/notify';
 
 const BRAND = { bg: "#0b3ea8", primary: "#fc6b04ff" };
 
@@ -356,7 +357,7 @@ export default function ScheduledNotifications() {
       setTimeout(() => setSuccessMsg(""), 3000);
       setShowForm(false);
       await loadAll();
-    } catch (err) { alert("Error saving: " + err.message); }
+    } catch (err) { notify("Error saving: " + err.message); }
     finally { setSaving(false); }
   }
 
@@ -366,7 +367,7 @@ export default function ScheduledNotifications() {
   }
 
   async function deleteSchedule(sn) {
-    if (!confirm(`Delete "${sn.title}" schedule?`)) return;
+    if (!await confirmDialog(`Delete "${sn.title}" schedule?`)) return;
     await supabase.from("scheduled_notifications").delete().eq("id", sn.id);
     await loadAll();
   }
@@ -389,14 +390,14 @@ export default function ScheduledNotifications() {
       if (sent === 0) {
         const reason = data?.reason || "No devices received it";
         const errDetail = data?.errors?.length > 0 ? `\n\nExpo error: ${data.errors.map(e => e.message || JSON.stringify(e)).join(", ")}` : "";
-        alert(`Sent to 0 devices.\n\nReason: ${reason}${errDetail}\n\nEmployees found: ${data?.employees_found ?? "unknown"}\n\nMake sure employees have opened the TradeFlow mobile app at least once to register their push token.`);
+        notify(`Sent to 0 devices.\n\nReason: ${reason}${errDetail}\n\nEmployees found: ${data?.employees_found ?? "unknown"}\n\nMake sure employees have opened the TradeFlow mobile app at least once to register their push token.`);
       } else if (data?.errors?.length > 0) {
-        alert(`⚠️ Attempted to send to ${data.total} device(s) but had errors:\n\n${data.errors.map(e => e.message || JSON.stringify(e)).join("\n")}\n\nTickets: ${JSON.stringify(data.tickets)}`);
+        notify(`⚠️ Attempted to send to ${data.total} device(s) but had errors:\n\n${data.errors.map(e => e.message || JSON.stringify(e)).join("\n")}\n\nTickets: ${JSON.stringify(data.tickets)}`);
       } else {
         setSuccessMsg(`✅ Sent to ${sent} device${sent !== 1 ? "s" : ""}!`);
         setTimeout(() => setSuccessMsg(""), 4000);
       }
-    } catch (err) { alert("Error sending: " + err.message); }
+    } catch (err) { notify("Error sending: " + err.message); }
     finally { setSendingNow(null); }
   }
 

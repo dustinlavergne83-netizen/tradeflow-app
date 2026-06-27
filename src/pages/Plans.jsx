@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import PlanUpload from '../Components/PlanUpload';
+import { notify, confirmDialog, promptDialog } from '../lib/notify';
 
 export default function Plans() {
   const { projectId } = useParams();
@@ -46,14 +47,14 @@ export default function Plans() {
 
     } catch (error) {
       console.error('Error loading plans:', error);
-      alert('Error loading plans: ' + error.message);
+      notify('Error loading plans: ' + error.message);
     } finally {
       setLoading(false);
     }
   }
 
   async function handleDeletePlan(planId, fileUrl) {
-    if (!confirm('Are you sure you want to delete this plan? This cannot be undone.')) {
+    if (!await confirmDialog('Are you sure you want to delete this plan? This cannot be undone.')) {
       return;
     }
 
@@ -79,17 +80,17 @@ export default function Plans() {
 
       if (dbError) throw dbError;
 
-      alert('✅ Plan deleted successfully');
+      notify('✅ Plan deleted successfully');
       loadProjectAndPlans();
 
     } catch (error) {
       console.error('Error deleting plan:', error);
-      alert('❌ Error deleting plan: ' + error.message);
+      notify('❌ Error deleting plan: ' + error.message);
     }
   }
 
   async function handleUpdatePlanName(planId, currentName) {
-    const newName = prompt('Enter new plan name:', currentName);
+    const newName = await promptDialog('Enter new plan name:', currentName);
     if (!newName || newName === currentName) return;
 
     try {
@@ -100,12 +101,12 @@ export default function Plans() {
 
       if (error) throw error;
 
-      alert('✅ Plan name updated');
+      notify('✅ Plan name updated');
       loadProjectAndPlans();
 
     } catch (error) {
       console.error('Error updating plan name:', error);
-      alert('❌ Error updating plan name: ' + error.message);
+      notify('❌ Error updating plan name: ' + error.message);
     }
   }
 

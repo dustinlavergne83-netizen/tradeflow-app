@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import logoImage from "../assets/LOGOD.jpg";
+import { notify } from '../lib/notify';
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -84,7 +85,7 @@ export default function InvoiceCommercialPublic() {
       setIsEditing(false);
     } catch (err) {
       console.error("Error loading invoice:", err);
-      alert("Error loading invoice");
+      notify("Error loading invoice");
     }
   }
 
@@ -107,7 +108,7 @@ export default function InvoiceCommercialPublic() {
 
   async function handleSave() {
     if (!invoiceData.invoice_number || !invoiceData.customer_name) {
-      alert("Please fill in Invoice Number and Customer Name");
+      notify("Please fill in Invoice Number and Customer Name");
       return;
     }
 
@@ -176,7 +177,7 @@ export default function InvoiceCommercialPublic() {
         if (itemsError) throw itemsError;
       }
 
-      alert("Invoice saved successfully!");
+      notify("Invoice saved successfully!");
       setIsEditing(false);
       
       // Update URL with invoice ID
@@ -185,7 +186,7 @@ export default function InvoiceCommercialPublic() {
       }
     } catch (err) {
       console.error("Error saving invoice:", err);
-      alert("Error saving invoice: " + err.message);
+      notify("Error saving invoice: " + err.message);
     } finally {
       setIsSaving(false);
     }
@@ -223,7 +224,7 @@ export default function InvoiceCommercialPublic() {
             <button onClick={() => window.print()} style={{...styles.button, ...styles.printButton}}>
               🖨️ Print / PDF
             </button>
-            <button onClick={() => alert("Email feature coming soon!")} style={{...styles.button, ...styles.emailButton}}>
+            <button onClick={() => notify("Email feature coming soon!")} style={{...styles.button, ...styles.emailButton}}>
               📧 Email
             </button>
           </>

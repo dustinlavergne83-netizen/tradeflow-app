@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
+import { notify, confirmDialog } from '../lib/notify';
 
 export default function BankAccounts() {
   const navigate = useNavigate();
@@ -54,7 +55,7 @@ export default function BankAccounts() {
       setChartAccounts(chartData || []);
     } catch (err) {
       console.error("Error loading data:", err);
-      alert("Failed to load bank accounts");
+      notify("Failed to load bank accounts");
     } finally {
       setLoading(false);
     }
@@ -94,7 +95,7 @@ export default function BankAccounts() {
 
   async function handleSave() {
     if (!accountForm.account_name) {
-      alert('Please enter an account name');
+      notify('Please enter an account name');
       return;
     }
 
@@ -124,14 +125,14 @@ export default function BankAccounts() {
         if (!data || data.length === 0) {
           throw new Error('Failed to update account - no data returned');
         }
-        alert('Bank account updated successfully!');
+        notify('Bank account updated successfully!');
       } else {
         const { error } = await supabase
           .from('bank_accounts')
           .insert([accountData]);
 
         if (error) throw error;
-        alert('Bank account added successfully!');
+        notify('Bank account added successfully!');
       }
 
       setShowModal(false);
@@ -139,7 +140,7 @@ export default function BankAccounts() {
       loadData();
     } catch (err) {
       console.error('Error saving bank account:', err);
-      alert(`Failed to save: ${err.message}`);
+      notify(`Failed to save: ${err.message}`);
     }
   }
 
@@ -154,12 +155,12 @@ export default function BankAccounts() {
       loadData();
     } catch (err) {
       console.error('Error toggling account:', err);
-      alert(`Failed to update: ${err.message}`);
+      notify(`Failed to update: ${err.message}`);
     }
   }
 
   async function handleDelete(account) {
-    if (!confirm(`Delete bank account "${account.account_name}"? This will also delete all associated transactions.`)) {
+    if (!await confirmDialog(`Delete bank account "${account.account_name}"? This will also delete all associated transactions.`)) {
       return;
     }
 
@@ -170,11 +171,11 @@ export default function BankAccounts() {
         .eq('id', account.id);
 
       if (error) throw error;
-      alert('Bank account deleted successfully!');
+      notify('Bank account deleted successfully!');
       loadData();
     } catch (err) {
       console.error('Error deleting account:', err);
-      alert(`Failed to delete: ${err.message}`);
+      notify(`Failed to delete: ${err.message}`);
     }
   }
 

@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import DesktopHeader from "../Components/DesktopHeader";
+import { notify, confirmDialog } from '../lib/notify';
 
 const BRAND = { bg: "#0b3ea8", accent: "#fc6b04", green: "#16a34a", red: "#ef4444" };
 
@@ -408,7 +409,7 @@ function JobsTab({ companyId }) {
   async function addJob() {
     const name = newName.trim();
     if (!name) return;
-    if (!companyId) return alert("Company ID not loaded yet. Please wait.");
+    if (!companyId) return notify("Company ID not loaded yet. Please wait.");
     setSaving(true);
     await supabase.from("projects").insert([{ name, status: "active", company_id: companyId }]);
     setNewName("");
@@ -433,7 +434,7 @@ function JobsTab({ companyId }) {
   }
 
   async function deleteJob(job) {
-    if (!window.confirm(`Delete "${job.name}"? This won't affect existing time entries.`)) return;
+    if (!window.await confirmDialog(`Delete "${job.name}"? This won't affect existing time entries.`)) return;
     await supabase.from("projects").delete().eq("id", job.id);
     setJobs(prev => prev.filter(j => j.id !== job.id));
   }

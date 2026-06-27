@@ -7,6 +7,7 @@ import html2pdf from 'html2pdf.js';
 import logo from '../../assets/LOGOD.jpg';
 
 import { formatDate } from "../../utils/dateUtils";
+import { notify } from '../../lib/notify';
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -129,11 +130,11 @@ export default function WeeklyTimesheet() {
       // Send approved timesheet to all recipients
       await sendApprovedTimesheet();
 
-      alert('✅ Timesheet approved and sent to all recipients!');
+      notify('✅ Timesheet approved and sent to all recipients!');
       await loadApprovalStatus();
     } catch (err) {
       console.error('Error approving timesheet:', err);
-      alert('Failed to approve timesheet: ' + err.message);
+      notify('Failed to approve timesheet: ' + err.message);
     } finally {
       setApproving(false);
     }
@@ -258,7 +259,7 @@ export default function WeeklyTimesheet() {
       setTimesheetData(timesheetRows);
     } catch (err) {
       console.error("Error loading weekly timesheet:", err);
-      alert("Failed to load timesheet: " + err.message);
+      notify("Failed to load timesheet: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -345,12 +346,12 @@ export default function WeeklyTimesheet() {
 
   async function sendEmail() {
     if (!emailAddress.trim()) {
-      alert('Please enter an email address');
+      notify('Please enter an email address');
       return;
     }
 
     if (selectedEmployeeIds.size === 0) {
-      alert('Please select at least one employee to include.');
+      notify('Please select at least one employee to include.');
       return;
     }
 
@@ -382,12 +383,12 @@ export default function WeeklyTimesheet() {
         throw response.error;
       }
 
-      alert('✓ Timesheet report sent successfully!');
+      notify('✓ Timesheet report sent successfully!');
       setEmailModalOpen(false);
       setEmailAddress('');
     } catch (error) {
       console.error('Error sending email:', error);
-      alert('Failed to send email: ' + (error.message || 'Unknown error'));
+      notify('Failed to send email: ' + (error.message || 'Unknown error'));
     } finally {
       setSending(false);
     }

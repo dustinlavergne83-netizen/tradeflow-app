@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { notify, confirmDialog } from '../lib/notify';
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -76,7 +77,7 @@ export default function ProjectsList() {
       await loadCostData(data);
     } catch (err) {
       console.error("Error loading projects:", err);
-      alert("Failed to load projects");
+      notify("Failed to load projects");
     } finally {
       setLoading(false);
     }
@@ -147,7 +148,7 @@ export default function ProjectsList() {
 
   async function handleDeleteProject(projectId, projectName, e) {
     e.stopPropagation(); // Prevent card click
-    if (!confirm(`Delete project "${projectName}"? This cannot be undone.`)) {
+    if (!await confirmDialog(`Delete project "${projectName}"? This cannot be undone.`)) {
       return;
     }
 
@@ -178,11 +179,11 @@ export default function ProjectsList() {
         throw error;
       }
       
-      alert("Project deleted successfully!");
+      notify("Project deleted successfully!");
       loadProjects(); // Reload the list
     } catch (err) {
       console.error("Error deleting project:", err);
-      alert(`Failed to delete project: ${err.message || "Unknown error"}`);
+      notify(`Failed to delete project: ${err.message || "Unknown error"}`);
     }
   }
 
@@ -394,7 +395,7 @@ export default function ProjectsList() {
                             ));
                           } catch (err) {
                             console.error("Error updating status:", err);
-                            alert("Failed to update status");
+                            notify("Failed to update status");
                           }
                         }}
                         style={{

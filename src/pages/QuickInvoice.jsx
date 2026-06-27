@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
+import { notify } from '../lib/notify';
 
 export default function QuickInvoice() {
   const navigate = useNavigate();
@@ -116,12 +117,12 @@ export default function QuickInvoice() {
 
   const handleSave = async () => {
     if (!customerName.trim()) {
-      alert("Please enter a customer name");
+      notify("Please enter a customer name");
       return;
     }
     
     if (lineItems.some(item => !item.description.trim())) {
-      alert("Please fill in all line item descriptions");
+      notify("Please fill in all line item descriptions");
       return;
     }
 
@@ -210,7 +211,7 @@ export default function QuickInvoice() {
 
       // Don't create journal entry here - it will be created when the invoice is SENT
       const depositMsg = pendingDepositIds.length > 0 ? `\n💰 $${pendingDepositTotal.toFixed(2)} deposit applied!` : '';
-      alert(`Quick Invoice #${finalInvoiceNumber} saved successfully!${depositMsg}`);
+      notify(`Quick Invoice #${finalInvoiceNumber} saved successfully!${depositMsg}`);
 
       if (projectId) {
         navigate(`/project/${projectId}`);
@@ -219,7 +220,7 @@ export default function QuickInvoice() {
       }
     } catch (err) {
       console.error("Error saving quick invoice:", err);
-      alert(`Failed to save invoice: ${err.message}`);
+      notify(`Failed to save invoice: ${err.message}`);
     } finally {
       setIsSaving(false);
     }

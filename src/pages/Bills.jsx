@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { createBillJournalEntry, createBillPaymentJournalEntry } from "../utils/accountingJournals";
 import { getTodayLocalDate } from "../utils/dateUtils";
+import { notify, confirmDialog } from '../lib/notify';
 
 export default function Bills() {
   const navigate = useNavigate();
@@ -50,7 +51,7 @@ export default function Bills() {
       setBills(data || []);
     } catch (err) {
       console.error("Error loading bills:", err);
-      alert("Failed to load bills: " + err.message);
+      notify("Failed to load bills: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -110,14 +111,14 @@ export default function Bills() {
 
   async function handleSave() {
     if (!billForm.vendor_name || !billForm.amount) {
-      alert('Please enter vendor name and amount');
+      notify('Please enter vendor name and amount');
       return;
     }
 
     try {
       const amount = parseFloat(billForm.amount);
       if (isNaN(amount) || amount <= 0) {
-        alert('Please enter a valid positive amount');
+        notify('Please enter a valid positive amount');
         return;
       }
 
@@ -140,7 +141,7 @@ export default function Bills() {
           .eq('id', editingBill.id);
 
         if (error) throw error;
-        alert('Bill updated successfully!');
+        notify('Bill updated successfully!');
       } else {
         // Insert the bill and get the ID back
         const { data: newBill, error } = await supabase
@@ -160,9 +161,9 @@ export default function Bills() {
         );
         
         if (journalResult.success) {
-          alert('Bill added successfully! Journal entry created automatically.');
+          notify('Bill added successfully! Journal entry created automatically.');
         } else {
-          alert('Bill added, but journal entry failed: ' + journalResult.error);
+          notify('Bill added, but journal entry failed: ' + journalResult.error);
         }
       }
 
@@ -171,12 +172,12 @@ export default function Bills() {
       loadBills();
     } catch (err) {
       console.error('Error saving bill:', err);
-      alert(`Failed to save: ${err.message}`);
+      notify(`Failed to save: ${err.message}`);
     }
   }
 
   async function handleMarkAsPaid(bill) {
-    if (!confirm(`Mark bill from ${bill.vendor_name} as paid?`)) {
+    if (!await confirmDialog(`Mark bill from ${bill.vendor_name} as paid?`)) {
       return;
     }
 
@@ -203,20 +204,20 @@ export default function Bills() {
       );
       
       if (journalResult.success) {
-        alert('Bill marked as paid! Payment journal entry created automatically.');
+        notify('Bill marked as paid! Payment journal entry created automatically.');
       } else {
-        alert('Bill marked as paid, but journal entry failed: ' + journalResult.error);
+        notify('Bill marked as paid, but journal entry failed: ' + journalResult.error);
       }
       
       loadBills();
     } catch (err) {
       console.error('Error marking bill as paid:', err);
-      alert(`Failed to update: ${err.message}`);
+      notify(`Failed to update: ${err.message}`);
     }
   }
 
   async function handleMarkAsUnpaid(bill) {
-    if (!confirm(`Mark bill from ${bill.vendor_name} as unpaid?`)) {
+    if (!await confirmDialog(`Mark bill from ${bill.vendor_name} as unpaid?`)) {
       return;
     }
 
@@ -230,16 +231,16 @@ export default function Bills() {
         .eq('id', bill.id);
 
       if (error) throw error;
-      alert('Bill marked as unpaid!');
+      notify('Bill marked as unpaid!');
       loadBills();
     } catch (err) {
       console.error('Error marking bill as unpaid:', err);
-      alert(`Failed to update: ${err.message}`);
+      notify(`Failed to update: ${err.message}`);
     }
   }
 
   async function handleDelete(bill) {
-    if (!confirm(`Delete bill from ${bill.vendor_name}?`)) {
+    if (!await confirmDialog(`Delete bill from ${bill.vendor_name}?`)) {
       return;
     }
 
@@ -250,11 +251,11 @@ export default function Bills() {
         .eq('id', bill.id);
 
       if (error) throw error;
-      alert('Bill deleted successfully!');
+      notify('Bill deleted successfully!');
       loadBills();
     } catch (err) {
       console.error('Error deleting bill:', err);
-      alert(`Failed to delete: ${err.message}`);
+      notify(`Failed to delete: ${err.message}`);
     }
   }
 

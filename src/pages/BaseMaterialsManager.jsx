@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase";
 import DesktopHeader from "../Components/DesktopHeader";
 import { useAuth } from "../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
+import { notify, confirmDialog } from '../lib/notify';
 
 export default function BaseMaterialsManager() {
   const { isAdmin } = useAuth();
@@ -59,7 +60,7 @@ export default function BaseMaterialsManager() {
       setMaterials([...(data || [])]);
     } catch (error) {
       console.error("Error loading materials:", error);
-      alert("Error loading materials");
+      notify("Error loading materials");
     } finally {
       setLoading(false);
     }
@@ -91,7 +92,7 @@ export default function BaseMaterialsManager() {
         }
         
         console.log("Update successful!");
-        alert("Material updated successfully!");
+        notify("Material updated successfully!");
       } else {
         // Insert new - include id for new materials
         const insertData = {
@@ -115,7 +116,7 @@ export default function BaseMaterialsManager() {
         }
         
         console.log("Insert successful, data:", data);
-        alert("Material added successfully!");
+        notify("Material added successfully!");
       }
 
       setShowAddModal(false);
@@ -128,12 +129,12 @@ export default function BaseMaterialsManager() {
       console.log("Materials reloaded");
     } catch (error) {
       console.error("Error saving material:", error);
-      alert("Error saving material: " + (error.message || JSON.stringify(error)));
+      notify("Error saving material: " + (error.message || JSON.stringify(error)));
     }
   }
 
   async function handleDelete(id) {
-    if (!confirm("Are you sure you want to delete this material?")) return;
+    if (!await confirmDialog("Are you sure you want to delete this material?")) return;
     
     try {
       const { error } = await supabase
@@ -142,22 +143,22 @@ export default function BaseMaterialsManager() {
         .eq("id", id);
       
       if (error) throw error;
-      alert("Material deleted successfully!");
+      notify("Material deleted successfully!");
       loadMaterials();
     } catch (error) {
       console.error("Error deleting material:", error);
-      alert("Error deleting material: " + error.message);
+      notify("Error deleting material: " + error.message);
     }
   }
 
   // Batch delete function
   async function handleBatchDelete() {
     if (selectedMaterials.length === 0) {
-      alert("Please select materials to delete");
+      notify("Please select materials to delete");
       return;
     }
 
-    if (!confirm(`Are you sure you want to delete ${selectedMaterials.length} material(s)?`)) return;
+    if (!await confirmDialog(`Are you sure you want to delete ${selectedMaterials.length} material(s)?`)) return;
     
     try {
       const { error } = await supabase
@@ -166,12 +167,12 @@ export default function BaseMaterialsManager() {
         .in("id", selectedMaterials);
       
       if (error) throw error;
-      alert(`${selectedMaterials.length} material(s) deleted successfully!`);
+      notify(`${selectedMaterials.length} material(s) deleted successfully!`);
       setSelectedMaterials([]);
       loadMaterials();
     } catch (error) {
       console.error("Error deleting materials:", error);
-      alert("Error deleting materials: " + error.message);
+      notify("Error deleting materials: " + error.message);
     }
   }
 
@@ -249,7 +250,7 @@ export default function BaseMaterialsManager() {
     const required = ['id', 'category', 'name', 'unit', 'basecost', 'laborhours'];
     const missing = required.filter(h => !headers.includes(h));
     if (missing.length > 0) {
-      alert(`Missing required columns: ${missing.join(', ')}`);
+      notify(`Missing required columns: ${missing.join(', ')}`);
       return;
     }
     
@@ -352,7 +353,7 @@ export default function BaseMaterialsManager() {
     if (skipped > 0) message += `⏭️ Skipped (duplicates): ${skipped}\n`;
     if (errors.length > 0) message += `❌ Errors: ${errors.length}\n\n${errors.slice(0, 5).join('\n')}`;
     
-    alert(message);
+    notify(message);
   }
 
   const categories = ["All", ...new Set(materials.map(m => m.category))];

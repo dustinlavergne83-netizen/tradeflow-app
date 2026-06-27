@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { formatDate } from "../utils/dateUtils";
+import { confirmDialog } from '../lib/notify';
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -478,7 +479,7 @@ export default function CheckStubs() {
 
   async function deleteCheckStub(stub) {
     if (
-      !window.confirm(
+      !window.await confirmDialog(
         `Delete check stub for ${stub.employee?.first_name} ${stub.employee?.last_name} (${stub.pay_period_end})?`
       )
     )

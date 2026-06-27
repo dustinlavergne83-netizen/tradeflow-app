@@ -6,6 +6,7 @@ import DesktopHeader from "../Components/DesktopHeader";
 import { MapContainer, TileLayer, Circle, Marker, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
+import { notify, confirmDialog } from '../lib/notify';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -324,7 +325,7 @@ export default function CompanyLocations() {
       if (error) throw error;
       setSuccessMsg("Notification settings saved!");
       setTimeout(() => setSuccessMsg(""), 3000);
-    } catch (err) { alert("Error saving: " + err.message); }
+    } catch (err) { notify("Error saving: " + err.message); }
     finally { setSavingNotif((s) => ({ ...s, [key]: false })); }
   }
 
@@ -364,7 +365,7 @@ export default function CompanyLocations() {
   }
 
   async function saveLoc() {
-    if (!locForm.name.trim()) { alert("Enter a location name."); return; }
+    if (!locForm.name.trim()) { notify("Enter a location name."); return; }
     setSavingLoc(true);
     try {
       const payload = {
@@ -386,12 +387,12 @@ export default function CompanyLocations() {
       setSuccessMsg(editingLoc ? "Location updated!" : "Location created!");
       setTimeout(() => setSuccessMsg(""), 3000);
       setShowAddLoc(false); await loadAll();
-    } catch (err) { alert("Error saving: " + err.message); }
+    } catch (err) { notify("Error saving: " + err.message); }
     finally { setSavingLoc(false); }
   }
 
   async function deleteLoc(loc) {
-    if (!confirm(`Delete "${loc.name}"?`)) return;
+    if (!await confirmDialog(`Delete "${loc.name}"?`)) return;
     await supabase.from("company_locations").delete().eq("id", loc.id);
     await loadAll();
   }

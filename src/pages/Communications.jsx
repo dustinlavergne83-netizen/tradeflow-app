@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../lib/supabase";
 import { useNavigate } from "react-router-dom";
 import { startSignIn, getValidToken, doSignOut } from "../lib/msAuth";
+import { notify, confirmDialog } from '../lib/notify';
 
 const BLUE   = "#0b3ea8";
 const ORANGE = "#fc6b04";
@@ -223,7 +224,7 @@ export default function Communications() {
   async function handleDeleteEmail(email) {
     if (!email) return;
     const inTrash = emailFolder === "trash";
-    const confirmed = window.confirm(inTrash ? "Permanently delete this email?" : "Move this email to Trash?");
+    const confirmed = window.await confirmDialog(inTrash ? "Permanently delete this email?" : "Move this email to Trash?");
     if (!confirmed) return;
     setEmailDeleting(true);
     try {
@@ -245,7 +246,7 @@ export default function Communications() {
       setEmails(prev => prev.filter(e => e.id !== email.id));
       setSelectedEmail(null);
     } catch (err) {
-      alert("Failed to delete: " + err.message);
+      notify("Failed to delete: " + err.message);
     }
     setEmailDeleting(false);
   }
@@ -283,7 +284,7 @@ export default function Communications() {
       selectedEmailIds.forEach(id => markedReadIds.current.add(id));
       setEmails(prev => prev.map(e => selectedEmailIds.has(e.id) ? { ...e, isRead: true } : e));
       setSelectedEmailIds(new Set());
-    } catch (err) { alert("Failed: " + err.message); }
+    } catch (err) { notify("Failed: " + err.message); }
     setBulkOperating(false);
   }
 
@@ -302,14 +303,14 @@ export default function Communications() {
       selectedEmailIds.forEach(id => markedReadIds.current.delete(id));
       setEmails(prev => prev.map(e => selectedEmailIds.has(e.id) ? { ...e, isRead: false } : e));
       setSelectedEmailIds(new Set());
-    } catch (err) { alert("Failed: " + err.message); }
+    } catch (err) { notify("Failed: " + err.message); }
     setBulkOperating(false);
   }
 
   async function handleBulkDelete() {
     if (selectedEmailIds.size === 0) return;
     const inTrash = emailFolder === "trash";
-    const confirmed = window.confirm(`${inTrash ? "Permanently delete" : "Move to Trash"} ${selectedEmailIds.size} email(s)?`);
+    const confirmed = window.await confirmDialog(`${inTrash ? "Permanently delete" : "Move to Trash"} ${selectedEmailIds.size} email(s)?`);
     if (!confirmed) return;
     setBulkOperating(true);
     try {
@@ -327,7 +328,7 @@ export default function Communications() {
       setEmails(prev => prev.filter(e => !deletedIds.has(e.id)));
       if (deletedIds.has(selectedEmail?.id)) setSelectedEmail(null);
       setSelectedEmailIds(new Set());
-    } catch (err) { alert("Failed: " + err.message); }
+    } catch (err) { notify("Failed: " + err.message); }
     setBulkOperating(false);
   }
 
@@ -590,7 +591,7 @@ export default function Communications() {
       setNewMsg("");
       await loadThread(selected.contactNumber);
     } catch (err) {
-      alert("Failed to send: " + err.message);
+      notify("Failed to send: " + err.message);
     } finally {
       setSending(false);
     }

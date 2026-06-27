@@ -5,6 +5,7 @@ import logoImage from "../assets/LOGOD.jpg";
 import { useAuth } from "../contexts/AuthContext";
 
 import { formatDate } from "../utils/dateUtils";
+import { notify, promptDialog } from '../lib/notify';
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -443,12 +444,12 @@ export default function ProposalResidentialContractor() {
 
   const handleSave = async (sendEmailAfter = false) => {
     if (!selectedContractor) {
-      alert("Please select a contractor");
+      notify("Please select a contractor");
       return;
     }
 
     if (!includeBaseBid && selectedAlternates.length === 0) {
-      alert("Please select at least one item");
+      notify("Please select at least one item");
       return;
     }
 
@@ -502,7 +503,7 @@ export default function ProposalResidentialContractor() {
       }
 
       if (!sendEmailAfter) {
-        alert("Proposal saved successfully!");
+        notify("Proposal saved successfully!");
         // Navigate back to the project page
         if (projectId) {
           navigate(`/project/${projectId}`, { replace: true });
@@ -514,7 +515,7 @@ export default function ProposalResidentialContractor() {
       return savedProposalId;
     } catch (err) {
       console.error("Error saving proposal:", err);
-      alert("Error saving proposal: " + err.message);
+      notify("Error saving proposal: " + err.message);
     } finally {
       setIsSaving(false);
     }
@@ -555,7 +556,7 @@ export default function ProposalResidentialContractor() {
               </button>
               <button
                 onClick={async () => {
-                  const email = window.prompt("Enter email address to send proposal to:");
+                  const email = window.await promptDialog("Enter email address to send proposal to:");
                   if (!email) return;
                   try {
                     const { error } = await supabase.functions.invoke('send-proposal', {
@@ -569,9 +570,9 @@ export default function ProposalResidentialContractor() {
                       },
                     });
                     if (error) throw error;
-                    alert(`✅ Proposal sent to ${email}`);
+                    notify(`✅ Proposal sent to ${email}`);
                   } catch (err) {
-                    alert("Error sending email: " + err.message);
+                    notify("Error sending email: " + err.message);
                   }
                 }}
                 style={{...styles.button, backgroundColor: "#10b981"}}

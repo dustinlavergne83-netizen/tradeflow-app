@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
+import { notify } from '../lib/notify';
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -314,7 +315,7 @@ export default function PayrollApproval() {
     }
     try {
       const filePath = record.check_stubs?.file_path;
-      if (!filePath) { alert("No stub file linked to this record."); return; }
+      if (!filePath) { notify("No stub file linked to this record."); return; }
       const { data, error } = await supabase.storage
         .from("check-stubs")
         .createSignedUrl(filePath, 120);
@@ -322,7 +323,7 @@ export default function PayrollApproval() {
       setStubUrl(prev => ({ ...prev, [record.id]: data.signedUrl }));
       window.open(data.signedUrl, "_blank");
     } catch (err) {
-      alert("Could not open stub: " + err.message);
+      notify("Could not open stub: " + err.message);
     }
   }
 

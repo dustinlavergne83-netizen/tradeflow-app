@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { formatDate } from "../utils/dateUtils";
+import { notify, confirmDialog } from '../lib/notify';
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -63,7 +64,7 @@ export default function ProjectInfoSheet() {
 
     } catch (err) {
       console.error("Error loading data:", err);
-      alert("Failed to load project info sheets: " + err.message);
+      notify("Failed to load project info sheets: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -71,7 +72,7 @@ export default function ProjectInfoSheet() {
 
   async function handleSaveSheet() {
     if (!sheetForm.title.trim() || !sheetForm.content.trim()) {
-      alert('Title and content are required');
+      notify('Title and content are required');
       return;
     }
 
@@ -111,14 +112,14 @@ export default function ProjectInfoSheet() {
       loadData(); // Reload sheets
     } catch (err) {
       console.error("Error saving sheet:", err);
-      alert("Failed to save sheet: " + err.message);
+      notify("Failed to save sheet: " + err.message);
     } finally {
       setSaving(false);
     }
   }
 
   async function deleteSheet(sheet) {
-    if (!confirm(`Delete "${sheet.title}"?`)) return;
+    if (!await confirmDialog(`Delete "${sheet.title}"?`)) return;
     
     try {
       const { error } = await supabase
@@ -130,7 +131,7 @@ export default function ProjectInfoSheet() {
       loadData(); // Reload sheets
     } catch (err) {
       console.error("Error deleting sheet:", err);
-      alert("Failed to delete sheet: " + err.message);
+      notify("Failed to delete sheet: " + err.message);
     }
   }
 
@@ -385,7 +386,7 @@ function InfoSheetFileUploadModal({ isOpen, onClose, projectId, infoSheetId, she
 
   async function handleUpload() {
     if (selectedFiles.length === 0) {
-      alert('Please select files to upload');
+      notify('Please select files to upload');
       return;
     }
 
@@ -421,14 +422,14 @@ function InfoSheetFileUploadModal({ isOpen, onClose, projectId, infoSheetId, she
         if (dbError) throw dbError;
       }
 
-      alert(`Successfully uploaded ${selectedFiles.length} file(s)!`);
+      notify(`Successfully uploaded ${selectedFiles.length} file(s)!`);
       setSelectedFiles([]);
       setFileDescriptions({});
       loadAttachments(); // Reload attachments
 
     } catch (err) {
       console.error("Error uploading files:", err);
-      alert("Failed to upload files: " + err.message);
+      notify("Failed to upload files: " + err.message);
     } finally {
       setUploading(false);
     }
@@ -454,12 +455,12 @@ function InfoSheetFileUploadModal({ isOpen, onClose, projectId, infoSheetId, she
 
     } catch (err) {
       console.error("Error downloading file:", err);
-      alert("Failed to download file: " + err.message);
+      notify("Failed to download file: " + err.message);
     }
   }
 
   async function deleteFile(attachment) {
-    if (!confirm(`Delete "${attachment.file_name}"?`)) return;
+    if (!await confirmDialog(`Delete "${attachment.file_name}"?`)) return;
 
     try {
       // Delete from storage
@@ -481,7 +482,7 @@ function InfoSheetFileUploadModal({ isOpen, onClose, projectId, infoSheetId, she
 
     } catch (err) {
       console.error("Error deleting file:", err);
-      alert("Failed to delete file: " + err.message);
+      notify("Failed to delete file: " + err.message);
     }
   }
 

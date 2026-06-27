@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
+import { notify } from '../../lib/notify';
 
 export default function ProfitLoss() {
   const navigate = useNavigate();
@@ -104,7 +105,7 @@ export default function ProfitLoss() {
       });
     } catch (err) {
       console.error("Error loading profit & loss:", err);
-      alert("Failed to load profit & loss: " + err.message);
+      notify("Failed to load profit & loss: " + err.message);
     } finally {
       setLoading(false);
     }

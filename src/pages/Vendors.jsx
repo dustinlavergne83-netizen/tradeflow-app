@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 
 import { formatDate } from "../utils/dateUtils";
+import { notify, confirmDialog } from '../lib/notify';
 
 export default function Vendors() {
   const { user } = useAuth();
@@ -62,7 +63,7 @@ export default function Vendors() {
   }
 
   async function addContact() {
-    if (!contactForm.name.trim()) { alert('Contact name is required'); return; }
+    if (!contactForm.name.trim()) { notify('Contact name is required'); return; }
     setSavingContact(true);
     try {
       const { data, error } = await supabase
@@ -75,17 +76,17 @@ export default function Vendors() {
       setContactForm({ name: '', title: '', email: '', phone: '' });
       setShowAddContact(false);
     } catch (err) {
-      alert('Failed to add contact: ' + err.message);
+      notify('Failed to add contact: ' + err.message);
     } finally {
       setSavingContact(false);
     }
   }
 
   async function deleteContact(contactId) {
-    if (!confirm('Delete this contact?')) return;
+    if (!await confirmDialog('Delete this contact?')) return;
     const { error } = await supabase.from('vendor_contacts').delete().eq('id', contactId);
     if (!error) setVendorContacts(prev => prev.filter(c => c.id !== contactId));
-    else alert('Failed to delete contact: ' + error.message);
+    else notify('Failed to delete contact: ' + error.message);
   }
 
   const loadVendors = async () => {
@@ -167,7 +168,7 @@ export default function Vendors() {
         console.log("Mapped data sample:", imported[0]);
         
         if (imported.length === 0) {
-          alert("No valid vendors found in CSV");
+          notify("No valid vendors found in CSV");
           e.target.value = null;
           return;
         }
@@ -185,19 +186,19 @@ export default function Vendors() {
         
         if (error) {
           console.error("Import error:", error);
-          alert("Failed to import vendors: " + error.message);
+          notify("Failed to import vendors: " + error.message);
         } else {
           await loadVendors();
-          alert(`Successfully imported ${imported.length} vendors!`);
+          notify(`Successfully imported ${imported.length} vendors!`);
         }
         e.target.value = null;
       },
-      error: (err) => alert("Failed to parse CSV: " + err.message)
+      error: (err) => notify("Failed to parse CSV: " + err.message)
     });
   };
 
   const handleExport = () => {
-    if (!vendors.length) return alert("No vendors to export");
+    if (!vendors.length) return notify("No vendors to export");
     const csv = Papa.unparse(vendors);
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -209,7 +210,7 @@ export default function Vendors() {
   };
 
   const handleAdd = async () => {
-    if (!newVendor.vendor_name.trim()) return alert("Vendor name is required");
+    if (!newVendor.vendor_name.trim()) return notify("Vendor name is required");
     
     // Convert numeric fields from strings to numbers
     const vendorData = {
@@ -226,7 +227,7 @@ export default function Vendors() {
     
     if (error) {
       console.error("Add error:", error);
-      alert("Failed to add vendor: " + error.message);
+      notify("Failed to add vendor: " + error.message);
     } else {
       await loadVendors();
       setNewVendor({ 
@@ -265,7 +266,7 @@ export default function Vendors() {
     
     if (error) {
       console.error("Update error:", error);
-      alert("Failed to update vendor: " + error.message);
+      notify("Failed to update vendor: " + error.message);
     } else {
       await loadVendors();
       setEditingId(null);
@@ -274,7 +275,7 @@ export default function Vendors() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm("Delete this vendor?")) return;
+    if (!await confirmDialog("Delete this vendor?")) return;
     
     const { error } = await supabase
       .from('vendors')
@@ -283,7 +284,7 @@ export default function Vendors() {
     
     if (error) {
       console.error("Delete error:", error);
-      alert("Failed to delete vendor: " + error.message);
+      notify("Failed to delete vendor: " + error.message);
     } else {
       await loadVendors();
       setSelected(prev => prev.filter(sid => sid !== id));
@@ -301,7 +302,7 @@ export default function Vendors() {
     
     if (error) {
       console.error("Archive error:", error);
-      alert("Failed to archive vendor: " + error.message);
+      notify("Failed to archive vendor: " + error.message);
     } else {
       await loadVendors();
     }
@@ -316,7 +317,7 @@ export default function Vendors() {
   };
 
   const handleDeleteSelected = async () => {
-    if (!confirm(`Delete ${selected.length} vendors?`)) return;
+    if (!await confirmDialog(`Delete ${selected.length} vendors?`)) return;
     
     const { error } = await supabase
       .from('vendors')
@@ -325,7 +326,7 @@ export default function Vendors() {
     
     if (error) {
       console.error("Delete error:", error);
-      alert("Failed to delete vendors: " + error.message);
+      notify("Failed to delete vendors: " + error.message);
     } else {
       await loadVendors();
       setSelected([]);

@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import PDFRenderer from '../Components/PDFRenderer';
 import { loadMaterials as loadMaterialsFromCSV } from '../data/materials';
+import { notify, confirmDialog } from '../lib/notify';
 
 const BRAND = {
   bg: '#0b3ea8',
@@ -1725,7 +1726,7 @@ try {
 
   async function saveLayerName() {
     if (!layerName.trim()) {
-      alert('Please enter a layer name');
+      notify('Please enter a layer name');
       return;
     }
 
@@ -1768,7 +1769,7 @@ try {
       setEditingLayerId(null);
     } catch (err) {
       console.error('Error saving layer:', err);
-      alert('Failed to save layer: ' + err.message);
+      notify('Failed to save layer: ' + err.message);
     }
   }
 
@@ -1778,7 +1779,7 @@ try {
     // Check if it's a predefined layer
     const layer = layers.find(l => l.id === layerId);
     if (layer?.is_predefined) {
-      alert('Cannot delete predefined section layers');
+      notify('Cannot delete predefined section layers');
       return;
     }
     
@@ -1805,14 +1806,14 @@ try {
       console.log('✅ Layer deleted');
     } catch (err) {
       console.error('Error deleting layer:', err);
-      alert('Failed to delete layer: ' + err.message);
+      notify('Failed to delete layer: ' + err.message);
     }
   }
 
   // Function to add material to the measurement
   function addMaterialToMeasurement() {
     if (!tempMaterialId || !tempMaterialQuantity || parseFloat(tempMaterialQuantity) <= 0) {
-      alert('Please select a material and enter a valid quantity');
+      notify('Please select a material and enter a valid quantity');
       return;
     }
     
@@ -1847,7 +1848,7 @@ try {
   // Add component to quick assembly
   function addComponentToQuickAssembly() {
     if (!quickAssemblyMaterialId || !quickAssemblyQuantity || parseFloat(quickAssemblyQuantity) <= 0) {
-      alert('Please select a material and enter a valid quantity');
+      notify('Please select a material and enter a valid quantity');
       return;
     }
     
@@ -1881,7 +1882,7 @@ try {
   // Prepare assembly preview (called when user clicks "Create Assembly")
   async function prepareAssemblyPreview() {
     if (!quickAssemblyName.trim()) {
-      alert('Please enter an assembly name');
+      notify('Please enter an assembly name');
       return;
     }
     
@@ -2151,7 +2152,7 @@ try {
         console.log('✅ Final components list:', finalComponents.length, 'components');
       } catch (err) {
         console.error('Error loading base assembly:', err);
-        alert('Failed to load base assembly: ' + err.message);
+        notify('Failed to load base assembly: ' + err.message);
         return;
       }
     }
@@ -2160,7 +2161,7 @@ try {
     
     // Validate that we have components
     if (finalComponents.length === 0) {
-      alert('Please add at least one component to the assembly (conduit, wire, or accessories)');
+      notify('Please add at least one component to the assembly (conduit, wire, or accessories)');
       return;
     }
     
@@ -2310,7 +2311,7 @@ try {
         // Reload materials to include the new assembly
         await loadMaterials();
         
-        alert('✅ Assembly created and saved permanently! It will be available for future projects.');
+        notify('✅ Assembly created and saved permanently! It will be available for future projects.');
       } else {
         // TEMPORARY: Just use for this measurement, don't save to database
         console.log('📋 Creating temporary assembly (project-only)...');
@@ -2332,7 +2333,7 @@ try {
         }]);
         
         console.log('✅ Temporary assembly created with components:', components);
-        alert('✅ Assembly created for this measurement only!');
+        notify('✅ Assembly created for this measurement only!');
       }
       
       // Close modals and reset
@@ -2365,7 +2366,7 @@ try {
       }
     } catch (err) {
       console.error('Error creating quick assembly:', err);
-      alert('Failed to create assembly: ' + err.message);
+      notify('Failed to create assembly: ' + err.message);
     }
   }
 
@@ -2459,7 +2460,7 @@ try {
             
             // CRITICAL CHECK: If ALL components were filtered out (broken data), offer to remove this material
             if (validComponents.length === 0 && (components || []).length > 0) {
-              const shouldRemove = confirm(
+              const shouldRemove = await confirmDialog(
                 `⚠️ ERROR: The assembly "${material.name}" contains broken/invalid data.\n\n` +
                 `All ${(components || []).length} component(s) are missing material IDs or names.\n\n` +
                 `This assembly cannot be exported.\n\n` +
@@ -2585,7 +2586,7 @@ try {
     console.log('currentCanvas:', currentCanvas);
     if (!currentCanvas) {
       console.error('❌ Canvas is null, cannot save measurement');
-      alert('Failed to save measurement: Canvas not available');
+      notify('Failed to save measurement: Canvas not available');
       return;
     }
 
@@ -2673,7 +2674,7 @@ try {
       console.log('✅ Polyline measurement saved with', points.length, 'points!');
     } catch (err) {
       console.error('Error saving measurement:', err);
-      alert('Failed to save measurement: ' + err.message);
+      notify('Failed to save measurement: ' + err.message);
       // Clean up segments on error
       if (currentCanvas) {
         segments.forEach(seg => currentCanvas.remove(seg));
@@ -2740,7 +2741,7 @@ try {
         
         if (error) {
           console.error('❌ Database error:', error);
-          alert('Error loading assembly: ' + error.message);
+          notify('Error loading assembly: ' + error.message);
           return;
         }
         
@@ -2795,7 +2796,7 @@ try {
     );
     
     if (allBroken) {
-      const shouldDelete = confirm(
+      const shouldDelete = await confirmDialog(
         '⚠️ ERROR: This measurement contains broken/invalid data.\n\n' +
         'All components are missing material IDs or names.\n\n' +
         'This was likely caused by an error during creation.\n\n' +
@@ -2805,7 +2806,7 @@ try {
       
       if (shouldDelete) {
         await deleteMeasurement(measurementId);
-        alert('✅ Broken measurement deleted. Please create a new one.');
+        notify('✅ Broken measurement deleted. Please create a new one.');
       }
       return;
     }
@@ -3037,10 +3038,10 @@ try {
       setTempMaterialQuantity('');
       
       console.log('✅ Length measurement materials saved to database!');
-      alert('✅ Changes saved successfully!');
+      notify('✅ Changes saved successfully!');
     } catch (err) {
       console.error('Error updating length measurement materials:', err);
-      alert('Failed to update materials: ' + err.message);
+      notify('Failed to update materials: ' + err.message);
     }
   }
 
@@ -3082,7 +3083,7 @@ try {
       console.log('✅ Measurement details updated!');
     } catch (err) {
       console.error('Error updating measurement details:', err);
-      alert('Failed to update measurement details: ' + err.message);
+      notify('Failed to update measurement details: ' + err.message);
     }
   }
 
@@ -3144,7 +3145,7 @@ try {
         console.log('✅ Count measurement updated!');
       } catch (err) {
         console.error('Error updating count:', err);
-        alert('Failed to update count: ' + err.message);
+        notify('Failed to update count: ' + err.message);
       }
     } else {
       // CREATE mode - existing code
@@ -3156,7 +3157,7 @@ try {
       console.log('Already saved markers:', countMarkersRef.current.filter(m => m.measurementId).length);
       
       if (unsavedMarkers.length === 0) {
-        alert('No new markers to save!');
+        notify('No new markers to save!');
         return;
       }
 
@@ -3243,7 +3244,7 @@ try {
         console.log('✅ Count saved - markers kept on canvas and tracking array!');
       } catch (err) {
         console.error('Error saving count:', err);
-        alert('Failed to save count: ' + err.message);
+        notify('Failed to save count: ' + err.message);
       }
     }
   }
@@ -3259,12 +3260,12 @@ try {
     }
     
     if (!isCalibrated) {
-      alert('⚠️ Please calibrate the plan first by setting the scale.');
+      notify('⚠️ Please calibrate the plan first by setting the scale.');
       return;
     }
     
     if (!activeLayer) {
-      alert('⚠️ Please select or create a layer first.');
+      notify('⚠️ Please select or create a layer first.');
       return;
     }
     
@@ -3276,12 +3277,12 @@ try {
   async function autoCalibrate() {
   try {
     if (!selectedPageSize || !selectedScale) {
-      alert('Please select both page size and scale');
+      notify('Please select both page size and scale');
       return;
     }
     
     if (!pdfDimensions) {
-      alert('PDF dimensions not available. Please wait for the PDF to fully load.');
+      notify('PDF dimensions not available. Please wait for the PDF to fully load.');
       return;
     }
     
@@ -3335,22 +3336,22 @@ try {
     setSelectedScale(null);
     
     console.log('✅ Auto-calibration saved!');
-    alert('✅ Plan calibrated successfully!');
+    notify('✅ Plan calibrated successfully!');
   } catch (err) {
     console.error('Error saving auto-calibration:', err);
-    alert('Failed to save calibration: ' + err.message);
+    notify('Failed to save calibration: ' + err.message);
   }
 }
   async function saveCalibration() {
     try {
       if (!calibrationLine || !calibrationDistance) {
-        alert('Please draw a calibration line and enter a distance');
+        notify('Please draw a calibration line and enter a distance');
         return;
       }
       
       const realDistance = parseFloat(calibrationDistance);
       if (realDistance <= 0) {
-        alert('Distance must be greater than 0');
+        notify('Distance must be greater than 0');
         return;
       }
       
@@ -3403,7 +3404,7 @@ const { data, error } = await supabase
       console.log('✅ Calibration saved! You can now use measurement tools.');
     } catch (err) {
       console.error('Error saving calibration:', err);
-      alert('Failed to save calibration: ' + err.message);
+      notify('Failed to save calibration: ' + err.message);
     }
   }
 
@@ -3425,7 +3426,7 @@ const { data, error } = await supabase
       });
       
       if (layerMeasurements.length === 0) {
-        alert('No measurements with materials found on this layer to export.');
+        notify('No measurements with materials found on this layer to export.');
         return;
       }
       
@@ -3888,7 +3889,7 @@ const { data, error } = await supabase
                   console.error('❌ Error code:', itemError.code);
                   console.error('❌ Error message:', itemError.message);
                   console.error('❌ Error details:', itemError.details);
-                  alert(`Failed to insert component "${comp.material_name}": ${itemError.message}`);
+                  notify(`Failed to insert component "${comp.material_name}": ${itemError.message}`);
                   continue;
                 }
                 
@@ -3925,7 +3926,7 @@ const { data, error } = await supabase
               
               if (updateError) {
                 console.error('❌ Error updating parent assembly:', updateError);
-                alert(`Failed to update parent totals: ${updateError.message}`);
+                notify(`Failed to update parent totals: ${updateError.message}`);
               } else {
                 console.log(`✅ Parent assembly updated successfully!`);
                 console.log(`   Parent ID: ${parentItem.id}`);
@@ -3982,14 +3983,14 @@ const { data, error } = await supabase
         // Reload layers to update button color
         loadLayers();
         
-        alert(`✅ Successfully exported ${itemsAdded} item(s) to the "${sectionName}" section in the estimate!`);
+        notify(`✅ Successfully exported ${itemsAdded} item(s) to the "${sectionName}" section in the estimate!`);
       } else {
-        alert('No items were exported. Please check that materials are linked to your measurements.');
+        notify('No items were exported. Please check that materials are linked to your measurements.');
       }
       
     } catch (err) {
       console.error('Error exporting to estimate:', err);
-      alert('Failed to export to estimate: ' + err.message);
+      notify('Failed to export to estimate: ' + err.message);
     }
   }
 
@@ -4032,7 +4033,7 @@ const { data, error } = await supabase
     
     if (polylinePointsRef.current.length < 2) {
       console.error('Not enough points:', polylinePointsRef.current.length);
-      alert('Need at least 2 points to create a measurement');
+      notify('Need at least 2 points to create a measurement');
       return;
     }
     
@@ -4160,7 +4161,7 @@ const { data, error } = await supabase
         }
       }, 'image/png', 0.92);
     } catch (err) {
-      alert('Failed to capture snapshot: ' + err.message);
+      notify('Failed to capture snapshot: ' + err.message);
     } finally {
       setIsCapturingSnapshot(false);
     }
@@ -4188,14 +4189,14 @@ const { data, error } = await supabase
       setPendingSnapshotImage(null);
       setSnapshotLabel('');
       setShowSnapshotLabelModal(false);
-      alert(`✅ Snapshot "${label}" saved to this project!`);
+      notify(`✅ Snapshot "${label}" saved to this project!`);
     } catch (err) {
-      alert('Failed to save snapshot: ' + err.message);
+      notify('Failed to save snapshot: ' + err.message);
     }
   }
 
   async function deleteSnapshot(snapshotId) {
-    if (!confirm('Delete this snapshot?')) return;
+    if (!await confirmDialog('Delete this snapshot?')) return;
     try {
       const snap = snapshots.find(s => s.id === snapshotId);
       if (snap?.image_path) {
@@ -4204,7 +4205,7 @@ const { data, error } = await supabase
       await supabase.from('plan_snapshots').delete().eq('id', snapshotId);
       setSnapshots(snapshots.filter(s => s.id !== snapshotId));
     } catch (err) {
-      alert('Failed to delete snapshot: ' + err.message);
+      notify('Failed to delete snapshot: ' + err.message);
     }
   }
 
@@ -4293,7 +4294,7 @@ const { data, error } = await supabase
         await runAutoCountMatching(compositeCanvas, [newTmpl], autoCountThreshold, fabricCanvas);
       }
     } catch (err) {
-      alert('Failed to capture symbol: ' + err.message);
+      notify('Failed to capture symbol: ' + err.message);
     } finally {
       setIsRunningAutoCount(false);
     }
@@ -6226,7 +6227,7 @@ onmessage = function(e) {
                       </div>
                       <button
                         onClick={() => {
-                          if (confirm(`Remove ${mat.material_name}?`)) {
+                          if (await confirmDialog(`Remove ${mat.material_name}?`)) {
                             setEditLengthMaterials(editLengthMaterials.filter((_, i) => i !== matIdx));
                           }
                         }}
@@ -6322,7 +6323,7 @@ onmessage = function(e) {
                               
                               <button
                                 onClick={() => {
-                                  if (confirm(`Remove ${comp.material_name}?`)) {
+                                  if (await confirmDialog(`Remove ${comp.material_name}?`)) {
                                     const updatedMaterials = [...editLengthMaterials];
                                     updatedMaterials[matIdx].components = updatedMaterials[matIdx].components.filter((_, i) => i !== compIdx);
                                     setEditLengthMaterials(updatedMaterials);
@@ -6385,7 +6386,7 @@ onmessage = function(e) {
                             <button
                               onClick={() => {
                                 if (!tempMaterialId || !tempMaterialQuantity || parseFloat(tempMaterialQuantity) <= 0) {
-                                  alert('Please select a material and enter a valid quantity');
+                                  notify('Please select a material and enter a valid quantity');
                                   return;
                                 }
                                 const material = materials.find(m => m.id === tempMaterialId);
@@ -6475,7 +6476,7 @@ onmessage = function(e) {
                 <button
                   onClick={async () => {
                     if (!tempMaterialId || !tempMaterialQuantity || parseFloat(tempMaterialQuantity) <= 0) {
-                      alert('Please select a material and enter a valid quantity');
+                      notify('Please select a material and enter a valid quantity');
                       return;
                     }
                     const material = materials.find(m => m.id === tempMaterialId);
@@ -6865,7 +6866,7 @@ onmessage = function(e) {
                         <button
                           onClick={() => {
                             if (!tempFittingType || !tempFittingQty || parseInt(tempFittingQty) <= 0) {
-                              alert('Select fitting and quantity');
+                              notify('Select fitting and quantity');
                               return;
                             }
                             const fitting = materials.find(m => m.id === tempFittingType);
@@ -7139,7 +7140,7 @@ onmessage = function(e) {
                   <button
                     onClick={() => {
                       if (!tempWireId || !tempWireQty) {
-                        alert('Select wire and quantity');
+                        notify('Select wire and quantity');
                         return;
                       }
                       const wire = materials.find(m => m.id === tempWireId);
@@ -7267,7 +7268,7 @@ onmessage = function(e) {
                 <button
                   onClick={() => {
                     if (!tempMaterialId || !tempMaterialQuantity || parseFloat(tempMaterialQuantity) <= 0) {
-                      alert('Please select a material and enter a valid quantity');
+                      notify('Please select a material and enter a valid quantity');
                       return;
                     }
                     const material = materials.find(m => m.id === tempMaterialId);
@@ -7572,7 +7573,7 @@ onmessage = function(e) {
                   
                   if (assemblyIndex === -1) {
                     console.error('Assembly not found in materials list!');
-                    alert('Error: Assembly not found');
+                    notify('Error: Assembly not found');
                     return;
                   }
                   
@@ -7658,7 +7659,7 @@ onmessage = function(e) {
                       console.log('✅ Materials updated successfully!');
                     } catch (err) {
                       console.error('Error updating materials:', err);
-                      alert('Failed to update materials: ' + err.message);
+                      notify('Failed to update materials: ' + err.message);
                     }
                   } else {
                     // For new measurements, pass the updated materials DIRECTLY (don't use state)
@@ -7891,7 +7892,7 @@ onmessage = function(e) {
                         // COUNT MEASUREMENT MODE
                         console.log('✅ Count measurement detected');
                         if (unsavedMarkers.length === 0) {
-                          alert('⚠️ Please place count markers on the plan first!');
+                          notify('⚠️ Please place count markers on the plan first!');
                           return;
                         }
                         

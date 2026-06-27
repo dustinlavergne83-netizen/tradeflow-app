@@ -1,3 +1,4 @@
+
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- Payroll Expense Approvals Table
 -- Purpose: Stores AI-parsed check stub data from CPA emails, pending owner approval.

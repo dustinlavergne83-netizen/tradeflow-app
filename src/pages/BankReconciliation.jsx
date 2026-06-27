@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
+import { notify, confirmDialog } from '../lib/notify';
 
 export default function BankReconciliation() {
   const navigate = useNavigate();
@@ -51,7 +52,7 @@ export default function BankReconciliation() {
       setBankAccounts(data || []);
     } catch (err) {
       console.error("Error loading bank accounts:", err);
-      alert("Failed to load bank accounts");
+      notify("Failed to load bank accounts");
     } finally {
       setLoading(false);
     }
@@ -106,7 +107,7 @@ export default function BankReconciliation() {
       setSelectedTransactions(preSelected);
     } catch (err) {
       console.error("Error loading account data:", err);
-      alert("Failed to load account data");
+      notify("Failed to load account data");
     } finally {
       setLoading(false);
     }
@@ -144,12 +145,12 @@ export default function BankReconciliation() {
 
   async function handleReconcile() {
     if (!statementEndingBalance) {
-      alert('Please enter the statement ending balance');
+      notify('Please enter the statement ending balance');
       return;
     }
 
     if (!isBalanced()) {
-      if (!confirm(`The difference is ${formatCurrency(calculateDifference())}. Are you sure you want to save this unbalanced reconciliation?`)) {
+      if (!await confirmDialog(`The difference is ${formatCurrency(calculateDifference())}. Are you sure you want to save this unbalanced reconciliation?`)) {
         return;
       }
     }
@@ -182,7 +183,7 @@ export default function BankReconciliation() {
 
       if (accountError) throw accountError;
 
-      alert(`✅ Reconciliation complete! ${transactionIds.length} transaction(s) reconciled.`);
+      notify(`✅ Reconciliation complete! ${transactionIds.length} transaction(s) reconciled.`);
       
       // Reset and reload
       setSelectedAccountId('');
@@ -193,7 +194,7 @@ export default function BankReconciliation() {
       loadBankAccounts();
     } catch (err) {
       console.error('Error reconciling:', err);
-      alert(`Failed to reconcile: ${err.message}`);
+      notify(`Failed to reconcile: ${err.message}`);
     } finally {
       setReconciling(false);
     }

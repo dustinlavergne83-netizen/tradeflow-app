@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import Papa from "papaparse";
 import { supabase } from "../lib/supabase";
+import { notify, confirmDialog } from '../lib/notify';
 
 export default function Customers() {
   const [customers, setCustomers] = useState([]);
@@ -59,7 +60,7 @@ export default function Customers() {
     // Get current user ID for company_id
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
-      alert("You must be logged in to import customers");
+      notify("You must be logged in to import customers");
       e.target.value = null;
       return;
     }
@@ -93,7 +94,7 @@ export default function Customers() {
         console.log("Mapped data sample:", imported[0]);
         
         if (imported.length === 0) {
-          alert("No valid customers found in CSV");
+          notify("No valid customers found in CSV");
           e.target.value = null;
           return;
         }
@@ -105,19 +106,19 @@ export default function Customers() {
         
         if (error) {
           console.error("Import error:", error);
-          alert("Failed to import customers: " + error.message);
+          notify("Failed to import customers: " + error.message);
         } else {
           await loadCustomers();
-          alert(`Successfully imported ${imported.length} customers!`);
+          notify(`Successfully imported ${imported.length} customers!`);
         }
         e.target.value = null;
       },
-      error: (err) => alert("Failed to parse CSV: " + err.message)
+      error: (err) => notify("Failed to parse CSV: " + err.message)
     });
   };
 
   const handleExport = () => {
-    if (!customers.length) return alert("No customers to export");
+    if (!customers.length) return notify("No customers to export");
     const csv = Papa.unparse(customers);
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -129,12 +130,12 @@ export default function Customers() {
   };
 
   const handleAdd = async () => {
-    if (!newCustomer.name.trim()) return alert("Name is required");
+    if (!newCustomer.name.trim()) return notify("Name is required");
     
     // Get current user ID for company_id
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
-      alert("You must be logged in to add a customer");
+      notify("You must be logged in to add a customer");
       return;
     }
     
@@ -152,7 +153,7 @@ export default function Customers() {
     
     if (error) {
       console.error("Add error:", error);
-      alert("Failed to add customer: " + error.message);
+      notify("Failed to add customer: " + error.message);
     } else {
       await loadCustomers();
       setNewCustomer({ name: "", contact: "", address: "", email: "", phone: "", balance: "" });
@@ -173,7 +174,7 @@ export default function Customers() {
     
     if (error) {
       console.error("Update error:", error);
-      alert("Failed to update customer: " + error.message);
+      notify("Failed to update customer: " + error.message);
     } else {
       await loadCustomers();
       setEditingId(null);
@@ -182,7 +183,7 @@ export default function Customers() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm("Delete this customer?")) return;
+    if (!await confirmDialog("Delete this customer?")) return;
     
     const { error } = await supabase
       .from('customers')
@@ -191,7 +192,7 @@ export default function Customers() {
     
     if (error) {
       console.error("Delete error:", error);
-      alert("Failed to delete customer: " + error.message);
+      notify("Failed to delete customer: " + error.message);
     } else {
       await loadCustomers();
       setSelected(prev => prev.filter(sid => sid !== id));
@@ -209,7 +210,7 @@ export default function Customers() {
     
     if (error) {
       console.error("Archive error:", error);
-      alert("Failed to archive customer: " + error.message);
+      notify("Failed to archive customer: " + error.message);
     } else {
       await loadCustomers();
     }
@@ -224,7 +225,7 @@ export default function Customers() {
   };
 
   const handleDeleteSelected = async () => {
-    if (!confirm(`Delete ${selected.length} customers?`)) return;
+    if (!await confirmDialog(`Delete ${selected.length} customers?`)) return;
     
     const { error } = await supabase
       .from('customers')
@@ -233,7 +234,7 @@ export default function Customers() {
     
     if (error) {
       console.error("Delete error:", error);
-      alert("Failed to delete customers: " + error.message);
+      notify("Failed to delete customers: " + error.message);
     } else {
       await loadCustomers();
       setSelected([]);

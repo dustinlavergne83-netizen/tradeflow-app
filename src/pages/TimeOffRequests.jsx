@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 
 import { formatDate } from "../utils/dateUtils";
+import { promptDialog } from '../lib/notify';
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -230,7 +231,7 @@ export default function TimeOffRequests() {
             </button>
             <button
               onClick={() => {
-                const reason = prompt("Reason for denial (optional):");
+                const reason = await promptDialog("Reason for denial (optional):");
                 if (reason !== null) denyRequest(request.id, reason);
               }}
               style={{...styles.actionBtn, backgroundColor: "#ef4444"}}
