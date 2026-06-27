@@ -434,7 +434,7 @@ function JobsTab({ companyId }) {
   }
 
   async function deleteJob(job) {
-    if (!window.await confirmDialog(`Delete "${job.name}"? This won't affect existing time entries.`)) return;
+    if (!await confirmDialog(`Delete "${job.name}"? This won't affect existing time entries.`)) return;
     await supabase.from("projects").delete().eq("id", job.id);
     setJobs(prev => prev.filter(j => j.id !== job.id));
   }

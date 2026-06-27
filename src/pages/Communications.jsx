@@ -224,7 +224,7 @@ export default function Communications() {
   async function handleDeleteEmail(email) {
     if (!email) return;
     const inTrash = emailFolder === "trash";
-    const confirmed = window.await confirmDialog(inTrash ? "Permanently delete this email?" : "Move this email to Trash?");
+    const confirmed = await confirmDialog(inTrash ? "Permanently delete this email?" : "Move this email to Trash?");
     if (!confirmed) return;
     setEmailDeleting(true);
     try {
@@ -310,7 +310,7 @@ export default function Communications() {
   async function handleBulkDelete() {
     if (selectedEmailIds.size === 0) return;
     const inTrash = emailFolder === "trash";
-    const confirmed = window.await confirmDialog(`${inTrash ? "Permanently delete" : "Move to Trash"} ${selectedEmailIds.size} email(s)?`);
+    const confirmed = await confirmDialog(`${inTrash ? "Permanently delete" : "Move to Trash"} ${selectedEmailIds.size} email(s)?`);
     if (!confirmed) return;
     setBulkOperating(true);
     try {

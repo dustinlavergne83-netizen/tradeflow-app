@@ -479,7 +479,7 @@ export default function CheckStubs() {
 
   async function deleteCheckStub(stub) {
     if (
-      !window.await confirmDialog(
+      !await confirmDialog(
         `Delete check stub for ${stub.employee?.first_name} ${stub.employee?.last_name} (${stub.pay_period_end})?`
       )
     )

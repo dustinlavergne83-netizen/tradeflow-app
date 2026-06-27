@@ -140,7 +140,7 @@ export default function ProjectMaterialList() {
   }
 
   async function handleDeleteList(list) {
-    if (!window.await confirmDialog(`Delete "${list.title}" and all its items? This cannot be undone.`)) return;
+    if (!await confirmDialog(`Delete "${list.title}" and all its items? This cannot be undone.`)) return;
     try {
       // Delete items first
       const { error: itemsError } = await supabase
@@ -1480,7 +1480,7 @@ function MaterialListItems({ listId, refreshKey, onRefresh }) {
   }
 
   async function deleteItem(item) {
-    if (!window.await confirmDialog(`Delete "${item.description}"?`)) return;
+    if (!await confirmDialog(`Delete "${item.description}"?`)) return;
     try {
       const { error } = await supabase
         .from("material_list_items")

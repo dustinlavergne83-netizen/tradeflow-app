@@ -120,7 +120,7 @@ export default function CheckStubsBrowser() {
 
   // ── Delete a file ─────────────────────────────────────────────────────────
   async function deleteFile(fileName) {
-    if (!window.await confirmDialog(`Delete ${fileName}?`)) return;
+    if (!await confirmDialog(`Delete ${fileName}?`)) return;
     const path = `${selectedFolder}/${selectedYear}/${fileName}`;
     try {
       await supabase.storage.from("check-stubs").remove([path]);

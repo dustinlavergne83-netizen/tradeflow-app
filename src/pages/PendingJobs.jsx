@@ -61,7 +61,7 @@ export default function PendingJobs() {
       return notify("Please select a project");
     }
 
-    const confirmed = window.await confirmDialog(
+    const confirmed = await confirmDialog(
       `Link all time entries for "${projectTask}" to this project?\n\nThis will update ${
         pendingJobs.find((j) => j.project_task === projectTask)?.segment_count || 0
       } time segments.`
@@ -101,7 +101,7 @@ export default function PendingJobs() {
       return;
     }
 
-    const confirmed = window.await confirmDialog(
+    const confirmed = await confirmDialog(
       `Rename "${oldName}" to "${trimmedName}"?\n\nThis will update ${
         pendingJobs.find((j) => j.project_task === oldName)?.segment_count || 0
       } time segments.`

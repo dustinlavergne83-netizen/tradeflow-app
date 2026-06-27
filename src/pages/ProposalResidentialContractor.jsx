@@ -556,7 +556,7 @@ export default function ProposalResidentialContractor() {
               </button>
               <button
                 onClick={async () => {
-                  const email = window.await promptDialog("Enter email address to send proposal to:");
+                  const email = await promptDialog("Enter email address to send proposal to:");
                   if (!email) return;
                   try {
                     const { error } = await supabase.functions.invoke('send-proposal', {

@@ -468,7 +468,7 @@ function TimesheetsTab({ accent, companyId }) {
   }
 
   async function deleteRow(s) {
-    if (!window.await confirmDialog("Delete this punch?")) return;
+    if (!await confirmDialog("Delete this punch?")) return;
     if (!String(s.id).endsWith("_s")) await supabase.from("shift_segments").delete().eq("id", s.id);
     load();
   }
@@ -692,7 +692,7 @@ function JobsTab({ companyId, accent }) {
   }
 
   async function deleteJob(job) {
-    if (!window.await confirmDialog(`Delete "${job.name}"?`)) return;
+    if (!await confirmDialog(`Delete "${job.name}"?`)) return;
     await supabase.from("projects").delete().eq("id", job.id);
     setJobs(prev => prev.filter(j => j.id !== job.id));
   }
