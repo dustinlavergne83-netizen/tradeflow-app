@@ -46,6 +46,8 @@ export default function Invoice() {
   const [depositReceived, setDepositReceived] = useState(0);
   const [depositDate, setDepositDate] = useState("");
   const [sending, setSending] = useState(false);
+  const [sendModal, setSendModal] = useState(null); // { type:'email'|'text', to, subject?, message }
+  const [modalPhone, setModalPhone] = useState('');
   
   // Markup state
   const [itemMarkups, setItemMarkups] = useState({});
@@ -1050,21 +1052,36 @@ export default function Invoice() {
     }
   }
 
-  async function handleSendEmail() {
+  // ── Step 1: Show the send-confirmation modal ─────────────────────────────
+  function handleSendEmail() {
     if (!customerEmail) {
       alert("Please add a customer email address before sending.");
       return;
     }
-
     if (!invoiceItems || invoiceItems.length === 0) {
       alert("Please add line items to the invoice before sending.");
       return;
     }
+    const _sub = invoiceItems.reduce((s, i) => s + (i.total || 0), 0);
+    const _mkup = Object.keys(itemMarkups).reduce((s, id) => {
+      const it = invoiceItems.find(i => i.id === id);
+      return s + (it ? (it.total || 0) * ((itemMarkups[id] || 0) / 100) : 0);
+    }, 0);
+    const _bal = (_sub + _mkup - depositReceived - amountPaid).toFixed(2);
+    const _due = dueDate
+      ? ` by ${new Date(dueDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+      : '';
+    setSendModal({
+      type: 'email',
+      to: customerEmail,
+      subject: `Invoice #${invoiceNumber} — $${_bal} Due${_due}`,
+      message: `Full invoice with line items, labor & materials breakdown, and a secure "View & Pay Invoice Online" button. Customer pays via credit card through Clover.`,
+    });
+  }
 
-    if (!confirm(`Send invoice #${invoiceNumber} to ${customerEmail}?`)) {
-      return;
-    }
-
+  // ── Step 2: Actually send (called when user confirms in modal) ────────────
+  async function doSendEmail() {
+    setSendModal(null);
     setSending(true);
     try {
       // First, save the invoice (silent to avoid loadInvoice race condition)
@@ -1206,26 +1223,31 @@ export default function Invoice() {
     }
   }
 
-  async function handleSendText() {
-    const phone = customerPhone || prompt("Enter customer phone number (10 digits):");
-    if (!phone) return;
-
-    await handleSave({ silent: true });
-
-    const subtotal = invoiceItems.reduce((sum, item) => sum + (item.total || 0), 0);
-    const totalMarkupAmt = Object.keys(itemMarkups).reduce((sum, itemId) => {
-      const item = invoiceItems.find(i => i.id === itemId);
-      if (!item) return sum;
-      return sum + ((item.total || 0) * ((itemMarkups[itemId] || 0) / 100));
+  function handleSendText() {
+    const sub = invoiceItems.reduce((s, i) => s + (i.total || 0), 0);
+    const mkup = Object.keys(itemMarkups).reduce((s, id) => {
+      const it = invoiceItems.find(i => i.id === id);
+      return s + (it ? (it.total || 0) * ((itemMarkups[id] || 0) / 100) : 0);
     }, 0);
-    const balanceDueForText = subtotal + totalMarkupAmt - depositReceived - amountPaid;
-
+    const bal = (sub + mkup - depositReceived - amountPaid).toFixed(2);
     const payUrl = `https://www.dmlelectrical.com/invoice/view?invoiceId=${invoiceId}`;
-    const message = `DML Electrical Service: Invoice #${invoiceNumber} for $${balanceDueForText.toFixed(2)} is ready. Pay online: ${payUrl}`;
+    const smsMsg = `DML Electrical Service: Invoice #${invoiceNumber} for $${bal} is ready. Pay online: ${payUrl}`;
+    setModalPhone(customerPhone || '');
+    setSendModal({ type: 'text', to: customerPhone || '', message: smsMsg });
+  }
 
-    // Opens Phone Link on Windows or native SMS app on mobile
-    const cleanPhone = phone.replace(/\D/g, '');
-    window.open(`sms:${cleanPhone}?body=${encodeURIComponent(message)}`, '_self');
+  async function handleModalConfirm() {
+    if (!sendModal) return;
+    if (sendModal.type === 'email') {
+      doSendEmail();
+    } else {
+      const phone = modalPhone.trim();
+      if (!phone) { alert('Please enter a phone number.'); return; }
+      const msg = sendModal.message;
+      setSendModal(null);
+      await handleSave({ silent: true });
+      window.open(`sms:${phone.replace(/\D/g, '')}?body=${encodeURIComponent(msg)}`, '_self');
+    }
   }
 
   // Update local display state only (no DB call) — called on every keystroke
@@ -2123,6 +2145,57 @@ export default function Invoice() {
           </div>
         </div>
       </div>
+
+      {/* ── Send Confirmation Modal ──────────────────────────────────────────── */}
+      {sendModal && (
+        <div style={{ position:'fixed', inset:0, backgroundColor:'rgba(0,0,0,0.65)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:9999, padding:20 }}>
+          <div style={{ backgroundColor:'#fff', borderRadius:16, padding:'28px 32px', maxWidth:500, width:'100%', boxShadow:'0 24px 64px rgba(0,0,0,0.35)' }}>
+            <h2 style={{ margin:'0 0 20px', fontSize:20, fontWeight:800, color:'#111' }}>
+              {sendModal.type === 'email' ? '📧 Send Email Invoice' : '📱 Text Invoice'}
+            </h2>
+
+            <div style={{ marginBottom:16 }}>
+              <p style={{ margin:'0 0 4px', fontSize:11, color:'#999', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px' }}>
+                {sendModal.type === 'email' ? 'To (Email)' : 'To (Phone)'}
+              </p>
+              {sendModal.type === 'text' ? (
+                <input
+                  type="tel"
+                  value={modalPhone}
+                  onChange={e => setModalPhone(e.target.value)}
+                  placeholder="e.g. 3371234567"
+                  style={{ width:'100%', padding:'10px 12px', fontSize:16, border:'2px solid #d1d5db', borderRadius:8, boxSizing:'border-box', fontWeight:600, color:'#111' }}
+                />
+              ) : (
+                <p style={{ margin:0, fontSize:16, fontWeight:700, color:'#111' }}>{sendModal.to}</p>
+              )}
+            </div>
+
+            {sendModal.type === 'email' && sendModal.subject && (
+              <div style={{ marginBottom:16 }}>
+                <p style={{ margin:'0 0 4px', fontSize:11, color:'#999', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px' }}>Subject</p>
+                <p style={{ margin:0, fontSize:14, color:'#374151', fontWeight:600 }}>{sendModal.subject}</p>
+              </div>
+            )}
+
+            <div style={{ marginBottom:24, padding:'14px 16px', backgroundColor: sendModal.type==='email' ? '#f9fafb' : '#f0fdf4', borderRadius:10, border:`1px solid ${sendModal.type==='email' ? '#e5e7eb' : '#86efac'}` }}>
+              <p style={{ margin:'0 0 6px', fontSize:11, color:'#999', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px' }}>
+                {sendModal.type === 'email' ? 'What will be included' : 'Message Preview'}
+              </p>
+              <p style={{ margin:0, fontSize:14, color:'#333', lineHeight:1.7 }}>{sendModal.message}</p>
+            </div>
+
+            <div style={{ display:'flex', gap:12, justifyContent:'flex-end' }}>
+              <button onClick={() => setSendModal(null)} style={{ padding:'11px 24px', border:'2px solid #d1d5db', background:'#fff', color:'#374151', borderRadius:9, cursor:'pointer', fontSize:15, fontWeight:700 }}>
+                Cancel
+              </button>
+              <button onClick={handleModalConfirm} style={{ padding:'11px 28px', border:'none', background: sendModal.type==='email' ? '#3b82f6' : '#059669', color:'#fff', borderRadius:9, cursor:'pointer', fontSize:15, fontWeight:700 }}>
+                {sendModal.type === 'email' ? '✅ Send Email' : '✅ Open in Messages'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
