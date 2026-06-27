@@ -230,7 +230,7 @@ export default function TimeOffRequests() {
               ✓ Approve
             </button>
             <button
-              onClick={() => {
+              onClick={async () => {
                 const reason = await promptDialog("Reason for denial (optional):");
                 if (reason !== null) denyRequest(request.id, reason);
               }}

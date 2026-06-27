@@ -145,7 +145,7 @@ export default function InvoiceReceipt() {
           🖨️ Print / Save PDF
         </button>
         <button
-          onClick={() => {
+          onClick={async () => {
             if (!invoice.customer_email) {
               notify("No customer email on file. Please add one to the invoice first.");
               return;

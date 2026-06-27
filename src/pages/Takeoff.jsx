@@ -6226,7 +6226,7 @@ onmessage = function(e) {
                         )}
                       </div>
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           if (await confirmDialog(`Remove ${mat.material_name}?`)) {
                             setEditLengthMaterials(editLengthMaterials.filter((_, i) => i !== matIdx));
                           }
@@ -6322,7 +6322,7 @@ onmessage = function(e) {
                               </span>
                               
                               <button
-                                onClick={() => {
+                                onClick={async () => {
                                   if (await confirmDialog(`Remove ${comp.material_name}?`)) {
                                     const updatedMaterials = [...editLengthMaterials];
                                     updatedMaterials[matIdx].components = updatedMaterials[matIdx].components.filter((_, i) => i !== compIdx);
