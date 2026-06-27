@@ -1210,50 +1210,22 @@ export default function Invoice() {
     const phone = customerPhone || prompt("Enter customer phone number (10 digits):");
     if (!phone) return;
 
-    if (!confirm(`Text invoice #${invoiceNumber} pay link to ${phone}?`)) return;
+    await handleSave({ silent: true });
 
-    const companyId = employee?.company_id || user?.id;
-    if (!companyId) {
-      alert("Could not determine company. Please try again.");
-      return;
-    }
+    const subtotal = invoiceItems.reduce((sum, item) => sum + (item.total || 0), 0);
+    const totalMarkupAmt = Object.keys(itemMarkups).reduce((sum, itemId) => {
+      const item = invoiceItems.find(i => i.id === itemId);
+      if (!item) return sum;
+      return sum + ((item.total || 0) * ((itemMarkups[itemId] || 0) / 100));
+    }, 0);
+    const balanceDueForText = subtotal + totalMarkupAmt - depositReceived - amountPaid;
 
-    setSending(true);
-    try {
-      await handleSave({ silent: true });
+    const payUrl = `https://www.dmlelectrical.com/invoice/view?invoiceId=${invoiceId}`;
+    const message = `DML Electrical Service: Invoice #${invoiceNumber} for $${balanceDueForText.toFixed(2)} is ready. Pay online: ${payUrl}`;
 
-      const subtotal = invoiceItems.reduce((sum, item) => sum + (item.total || 0), 0);
-      const totalMarkup = Object.keys(itemMarkups).reduce((sum, itemId) => {
-        const item = invoiceItems.find(i => i.id === itemId);
-        if (!item) return sum;
-        return sum + ((item.total || 0) * ((itemMarkups[itemId] || 0) / 100));
-      }, 0);
-      const balanceDueForText = subtotal + totalMarkup - depositReceived - amountPaid;
-
-      const siteUrl = import.meta.env.VITE_SITE_URL || window.location.origin;
-      const payUrl = `${siteUrl}/invoice/view?invoiceId=${invoiceId}`;
-
-      const message = `DML Electrical Service: Invoice #${invoiceNumber} for $${balanceDueForText.toFixed(2)} is ready. Pay online: ${payUrl}`;
-
-      const { data, error } = await supabase.functions.invoke('send-sms', {
-        body: {
-          to: phone,
-          body: message,
-          company_id: companyId,
-          customer_name: customerName || undefined,
-        }
-      });
-
-      if (error) throw new Error(error.message || 'Failed to send SMS');
-      if (data?.error) throw new Error(data.error);
-
-      alert(`✅ Invoice pay link texted to ${phone}!`);
-    } catch (err) {
-      console.error("Error sending text:", err);
-      alert(`Failed to send text: ${err.message || 'Unknown error'}`);
-    } finally {
-      setSending(false);
-    }
+    // Opens Phone Link on Windows or native SMS app on mobile
+    const cleanPhone = phone.replace(/\D/g, '');
+    window.open(`sms:${cleanPhone}?body=${encodeURIComponent(message)}`, '_self');
   }
 
   // Update local display state only (no DB call) — called on every keystroke
