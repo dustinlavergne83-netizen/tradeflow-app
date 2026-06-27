@@ -2172,18 +2172,86 @@ export default function Invoice() {
             </div>
 
             {sendModal.type === 'email' && sendModal.subject && (
-              <div style={{ marginBottom:16 }}>
+              <div style={{ marginBottom:12 }}>
                 <p style={{ margin:'0 0 4px', fontSize:11, color:'#999', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px' }}>Subject</p>
                 <p style={{ margin:0, fontSize:14, color:'#374151', fontWeight:600 }}>{sendModal.subject}</p>
               </div>
             )}
 
-            <div style={{ marginBottom:24, padding:'14px 16px', backgroundColor: sendModal.type==='email' ? '#f9fafb' : '#f0fdf4', borderRadius:10, border:`1px solid ${sendModal.type==='email' ? '#e5e7eb' : '#86efac'}` }}>
-              <p style={{ margin:'0 0 6px', fontSize:11, color:'#999', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px' }}>
-                {sendModal.type === 'email' ? 'What will be included' : 'Message Preview'}
-              </p>
-              <p style={{ margin:0, fontSize:14, color:'#333', lineHeight:1.7 }}>{sendModal.message}</p>
-            </div>
+            {sendModal.type === 'email' ? (
+              /* ── Actual invoice preview ───────────────────────────────── */
+              <div style={{ marginBottom:24, maxHeight:360, overflowY:'auto', border:'1px solid #e5e7eb', borderRadius:10, padding:'18px 20px', backgroundColor:'#fff', fontSize:13 }}>
+                {/* Company header */}
+                <div style={{ textAlign:'center', marginBottom:14, paddingBottom:12, borderBottom:'3px solid #fc6b04' }}>
+                  <p style={{ margin:0, fontWeight:900, fontSize:15, color:'#0b3ea8', textTransform:'uppercase', letterSpacing:'0.5px' }}>DML Electrical Service LLC</p>
+                  <p style={{ margin:'3px 0 0', fontSize:11, color:'#888' }}>(337) 288-0395 · info@dmlelectrical.com · Lic# 63147</p>
+                </div>
+                {/* Invoice header row */}
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:14 }}>
+                  <div>
+                    <p style={{ margin:'0 0 2px', fontSize:10, color:'#999', textTransform:'uppercase', fontWeight:700 }}>Bill To</p>
+                    <p style={{ margin:0, fontWeight:700, fontSize:14, color:'#111' }}>{customerName}</p>
+                  </div>
+                  <div style={{ textAlign:'right' }}>
+                    <p style={{ margin:0, fontWeight:800, fontSize:16, color:'#111' }}>#{invoiceNumber}</p>
+                    {invoiceDate && <p style={{ margin:'2px 0 0', fontSize:11, color:'#888' }}>Date: {invoiceDate}</p>}
+                    {dueDate && <p style={{ margin:'2px 0 0', fontSize:11, color:'#888' }}>Due: {dueDate}</p>}
+                  </div>
+                </div>
+                {/* Line items */}
+                <div style={{ borderTop:'2px solid #fc6b04', paddingTop:6 }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', padding:'4px 0 6px', fontSize:10, fontWeight:700, color:'#999', textTransform:'uppercase', borderBottom:'1px solid #e5e7eb' }}>
+                    <span>Description</span><span>Amount</span>
+                  </div>
+                  {invoiceItems.map((item, idx) => {
+                    const mk = itemMarkups[item.id] || 0;
+                    return (
+                      <div key={idx} style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', borderBottom:'1px solid #f5f5f5' }}>
+                        <span style={{ color:'#222', paddingRight:8, lineHeight:'1.4', maxWidth:'75%' }}>{item.description}</span>
+                        <span style={{ fontWeight:600, whiteSpace:'nowrap' }}>${((item.total||0)*(1+mk/100)).toFixed(2)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Totals */}
+                <div style={{ paddingTop:10, borderTop:'2px solid #fc6b04', marginTop:6 }}>
+                  {depositReceived > 0 && (
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4, fontSize:12 }}>
+                      <span style={{ color:'#666' }}>Deposit Received:</span>
+                      <span style={{ color:'#10b981', fontWeight:700 }}>-${depositReceived.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {amountPaid > 0 && (
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4, fontSize:12 }}>
+                      <span style={{ color:'#666' }}>Amount Paid:</span>
+                      <span style={{ color:'#10b981', fontWeight:700 }}>-${Number(amountPaid).toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div style={{ display:'flex', justifyContent:'space-between', paddingTop:8, borderTop:'2px solid #e5e7eb', marginTop:4 }}>
+                    <span style={{ fontWeight:800, fontSize:15 }}>Balance Due:</span>
+                    <span style={{ fontWeight:900, fontSize:17, color:'#fc6b04' }}>{sendModal.subject?.match(/\$[\d,.]+/)?.[0] || ''}</span>
+                  </div>
+                </div>
+                {/* Pay button */}
+                <div style={{ textAlign:'center', marginTop:16 }}>
+                  <div style={{ display:'inline-block', background:'#0b3ea8', color:'#fff', padding:'10px 28px', borderRadius:8, fontWeight:700, fontSize:13 }}>
+                    💳 View &amp; Pay Invoice Online
+                  </div>
+                </div>
+                {notes && (
+                  <div style={{ marginTop:14, padding:'8px 12px', background:'#f9fafb', borderRadius:8, fontSize:12, color:'#555', borderLeft:'3px solid #d1d5db' }}>
+                    <p style={{ margin:'0 0 2px', fontWeight:700, color:'#999', fontSize:10, textTransform:'uppercase' }}>Notes</p>
+                    <p style={{ margin:0, lineHeight:'1.5' }}>{notes}</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* ── SMS message preview ──────────────────────────────────── */
+              <div style={{ marginBottom:24, padding:'14px 16px', backgroundColor:'#f0fdf4', borderRadius:10, border:'1px solid #86efac' }}>
+                <p style={{ margin:'0 0 6px', fontSize:11, color:'#999', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px' }}>Message Preview</p>
+                <p style={{ margin:0, fontSize:14, color:'#333', lineHeight:1.7 }}>{sendModal.message}</p>
+              </div>
+            )}
 
             <div style={{ display:'flex', gap:12, justifyContent:'flex-end' }}>
               <button onClick={() => setSendModal(null)} style={{ padding:'11px 24px', border:'2px solid #d1d5db', background:'#fff', color:'#374151', borderRadius:9, cursor:'pointer', fontSize:15, fontWeight:700 }}>
