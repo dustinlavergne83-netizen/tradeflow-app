@@ -453,19 +453,13 @@ Deno.serve(async (req) => {
               <table width="100%" cellpadding="0" cellspacing="0" style="margin: 24px 0 12px 0;">
                 <tr>
                   <td align="center">
-                    <!--[if mso]>
-                    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${invoiceUrl}" style="height:54px;v-text-anchor:middle;width:300px;" arcsize="10%" stroke="f" fillcolor="#16a34a">
-                      <w:anchorlock/>
-                      <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:17px;font-weight:bold;">
-                        View &amp; Pay Invoice Online
-                      </center>
-                    </v:roundrect>
-                    <![endif]-->
-                    <!--[if !mso]><!-->
-                    <a href="${invoiceUrl}" style="display: inline-block; padding: 16px 40px; background-color: #16a34a; color: #ffffff; text-decoration: none; border-radius: 10px; font-size: 17px; font-weight: bold; mso-hide: all;">
-                      📄 View &amp; Pay Invoice Online
-                    </a>
-                    <!--<![endif]-->
+                    <table cellpadding="0" cellspacing="0" border="0" style="margin: 0 auto;">
+                      <tr>
+                        <td align="center" bgcolor="#16a34a" style="border-radius: 10px; padding: 16px 40px;">
+                          <a href="${invoiceUrl}" target="_blank" style="color: #ffffff; text-decoration: none; font-size: 17px; font-weight: bold; font-family: Arial, sans-serif; white-space: nowrap;">View &amp; Pay Invoice Online</a>
+                        </td>
+                      </tr>
+                    </table>
                   </td>
                 </tr>
                 <tr>
@@ -475,8 +469,8 @@ Deno.serve(async (req) => {
                 </tr>
                 <tr>
                   <td align="center" style="padding-top: 10px;">
-                    <p style="margin: 0; font-size: 11px; color: #9ca3af;">Button not working? Copy &amp; paste this link into your browser:</p>
-                    <p style="margin: 4px 0 0 0; font-size: 12px; word-break: break-all;"><a href="${invoiceUrl}" style="color: #16a34a;">${invoiceUrl}</a></p>
+                    <p style="margin: 0; font-size: 11px; color: #9ca3af;">Can't click the button? Copy &amp; paste this link into your browser:</p>
+                    <p style="margin: 4px 0 0 0; font-size: 12px; word-break: break-all; color: #16a34a;">${invoiceUrl}</p>
                   </td>
                 </tr>
               </table>
@@ -548,8 +542,10 @@ Deno.serve(async (req) => {
           ? `Payment Receipt - Invoice #${invoiceNumber} - PAID $${fmtMoney(totalPayments)}`
           : `Invoice #${invoiceNumber} - $${fmtMoney(balanceDue)} Due${dueDate ? ` by ${formatDate(dueDate)}` : ''}`,
         html: html,
-        // Disable click tracking to avoid resend-clicks.com SSL redirect issues
-        // when domain is not yet verified
+        // Disable click tracking — prevents Resend from wrapping URLs through
+        // resend-clicks.com which causes Outlook to show "[wrapped-url]link-text"
+        track_clicks: false,
+        track_opens: false,
         tags: [{ name: 'category', value: 'invoice' }],
         headers: {
           'X-Entity-Ref-ID': `invoice-${invoiceId}`,
