@@ -94,11 +94,12 @@ Deno.serve(async (req) => {
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
 
     // Generate an invite link via Supabase admin (doesn't send email — we send via Resend)
+    const SITE_URL = Deno.env.get('SITE_URL') || 'https://tradeflow-app.vercel.app'
     const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
       type: 'invite',
       email: cleanEmail,
       options: {
-        redirectTo: 'https://app.tradeflowllc.com/set-password',
+        redirectTo: `${SITE_URL}/set-password`,
         data: {
           first_name: safeFirst,
           last_name:  safeLast,
@@ -139,7 +140,7 @@ Deno.serve(async (req) => {
       const { data: fallbackData, error: fallbackError } = await supabaseAdmin.auth.admin.generateLink({
         type: fallbackType as any,
         email: cleanEmail,
-        options: { redirectTo: 'https://app.tradeflowllc.com/set-password' },
+        options: { redirectTo: `${SITE_URL}/set-password` },
       })
       if (fallbackError) {
         console.error(`generateLink(${fallbackType}) error:`, fallbackError.message)
