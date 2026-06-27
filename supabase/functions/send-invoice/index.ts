@@ -72,11 +72,12 @@ Deno.serve(async (req) => {
 
     // Resolve effective site URL — never use localhost in email links.
     // Priority: SITE_URL env var > provided siteUrl (if not localhost) > error
-    const envSiteUrl = Deno.env.get('SITE_URL');
-    let effectiveSiteUrl = siteUrl;
+    // IMPORTANT: Always trim to remove any accidental trailing spaces/newlines in the env var
+    const envSiteUrl = Deno.env.get('SITE_URL')?.trim().replace(/\/+$/, '');
+    let effectiveSiteUrl = (siteUrl || '').trim().replace(/\/+$/, '');
     if (envSiteUrl) {
       effectiveSiteUrl = envSiteUrl; // Always prefer the server-side env var
-    } else if (!siteUrl || siteUrl.includes('localhost') || siteUrl.includes('127.0.0.1')) {
+    } else if (!effectiveSiteUrl || effectiveSiteUrl.includes('localhost') || effectiveSiteUrl.includes('127.0.0.1')) {
       return new Response(
         JSON.stringify({
           error: 'Email links cannot point to localhost. Access your app from its production URL, or set the SITE_URL secret in Supabase Dashboard → Edge Functions → Secrets.'
@@ -85,9 +86,12 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Validate and clean the URL (no spaces, no double slashes except after protocol)
+    const cleanBaseUrl = effectiveSiteUrl.replace(/([^:]\/)\/+/g, '$1');
+    
     const invoiceUrl = isReceipt 
-      ? `${effectiveSiteUrl}/invoice/receipt?invoiceId=${invoiceId}`
-      : `${effectiveSiteUrl}/invoice/view?invoiceId=${invoiceId}`;
+      ? `${cleanBaseUrl}/invoice/receipt?invoiceId=${invoiceId}`
+      : `${cleanBaseUrl}/invoice/view?invoiceId=${invoiceId}`;
     
     // Use totalWithMarkup if provided, otherwise fall back to subtotal
     const displayTotal = totalWithMarkup || subtotal || 0;
