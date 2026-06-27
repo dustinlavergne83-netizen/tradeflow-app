@@ -4071,7 +4071,7 @@ for (const row of validRows) {
                   />
                   {r.item && (
                     <button
-                      onClick={() => {
+                      onClick={async () => {
                         if (await confirmDialog(`Apply multiplier ${r.laborMultiplier || 1}x to all items?`)) {
                           const updated = rows.map(row => ({
                             ...row,
