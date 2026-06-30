@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { notify, confirmDialog } from "../lib/notify";
 
@@ -86,6 +87,7 @@ function fmtDate(d) {
 }
 
 export default function Generators() {
+  const navigate = useNavigate();
   const [generators, setGenerators] = useState([]);
   const [brands, setBrands] = useState([...DEFAULT_BRANDS]);
   const [customers, setCustomers] = useState([]);
@@ -482,6 +484,15 @@ export default function Generators() {
 
               {/* Actions */}
               <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                <button
+                  onClick={() => navigate(`/invoice/generator?generatorId=${gen.id}`)}
+                  style={{
+                    flex: 1, padding: "8px", borderRadius: 8, fontSize: 13, fontWeight: 700,
+                    background: "#fff7ed", color: "#ea580c", border: "1.5px solid #fed7aa", cursor: "pointer",
+                  }}
+                >
+                  📋 Invoice
+                </button>
                 <button
                   onClick={() => openEdit(gen)}
                   style={{
