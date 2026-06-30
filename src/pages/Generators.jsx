@@ -328,14 +328,14 @@ export default function Generators() {
         </div>
         <div style={{ display: "flex", gap: 10 }}>
           <button
-            onClick={() => navigate("/invoice/generator?type=install")}
+            onClick={() => navigate("/invoice/generator")}
             style={{
-              background: "#0b3ea8", color: "#fff", border: "none",
+              background: "#fc6b04", color: "#fff", border: "none",
               borderRadius: 10, padding: "10px 20px", fontWeight: 800,
               fontSize: 14, cursor: "pointer",
             }}
           >
-            ⚡ New Install Invoice
+            ⚡ Generator Invoice
           </button>
           <button
             onClick={openAdd}
