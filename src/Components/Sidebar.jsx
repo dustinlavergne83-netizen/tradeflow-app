@@ -42,6 +42,9 @@ export default function Sidebar({ onNavigate }) {
       <NavLink to="/customers" style={linkStyle} onClick={() => onNavigate?.()}>
         Customers
       </NavLink>
+      <NavLink to="/generators" style={linkStyle} onClick={() => onNavigate?.()}>
+        ⚡ Generators
+      </NavLink>
       <NavLink to="/vendors" style={linkStyle} onClick={() => onNavigate?.()}>
         Vendors
       </NavLink>

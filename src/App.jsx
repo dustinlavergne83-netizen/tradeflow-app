@@ -79,6 +79,7 @@ import EmailInbox from "./pages/EmailInbox";
 import TwilioSettings from "./pages/TwilioSettings";
 import SuperAdmin from "./pages/SuperAdmin";
 import TimeclockAdmin from "./pages/TimeclockAdmin";
+import Generators from "./pages/Generators";
 import PayrollApproval from "./pages/PayrollApproval";
 import PayrollUpload from "./pages/PayrollUpload";
 import PayrollHub from "./pages/PayrollHub";
@@ -125,6 +126,7 @@ const KNOWN_APP_PATHS = new Set([
   "/payroll", "/payroll-approval", "/payroll-upload",
   "/invoice", "/proposal", "/estimate", "/weekly", "/time-off", "/pending-jobs",
   "/profile-setup", "/reports", "/welcome", "/project", "/timeclock-admin", "/service-calls",
+  "/generators",
 ]);
 
 function isPortalPath(path) {
@@ -338,6 +340,14 @@ function AppContent() {
             element={
               <ProtectedRoute>
                 <Customers />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/generators"
+            element={
+              <ProtectedRoute>
+                <Generators />
               </ProtectedRoute>
             }
           />
