@@ -99,8 +99,8 @@ export default function GeneratorInvoice() {
   }, [location.search]);
 
   useEffect(() => {
-    if (user) loadCustomers();
-  }, [user]);
+    loadCustomers();
+  }, []);
 
   // close dropdown on outside click
   useEffect(() => {
@@ -136,10 +136,13 @@ export default function GeneratorInvoice() {
   }
 
   async function loadCustomers() {
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser) return;
     const { data } = await supabase
       .from("customers")
       .select("id, customer, address, phone, email")
-      .eq("company_id", user.id)
+      .eq("company_id", authUser.id)
+      .eq("archived", false)
       .order("customer");
     setCustomers(data ?? []);
   }
