@@ -4,7 +4,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { notify } from "../lib/notify";
 
-const DEFAULT_SERVICES = [
+const SERVICE_ITEMS = [
   "Annual Generator Maintenance",
   "Oil & Filter Change",
   "Air Filter Replacement",
@@ -17,6 +17,19 @@ const DEFAULT_SERVICES = [
   "Diagnostic / Repair",
 ];
 
+const INSTALL_ITEMS = [
+  "Generator Unit",
+  "Transfer Switch",
+  "Electrical Connection & Wiring",
+  "Conduit & Materials",
+  "Concrete Pad",
+  "Gas Line Connection",
+  "Permit & Inspection",
+  "Startup & Commissioning",
+  "Load Testing",
+  "Haul Away / Old Unit Removal",
+];
+
 const EMPTY_LINE = () => ({ id: Date.now() + Math.random(), description: "", quantity: 1, unitPrice: 0 });
 
 function calcNextService(lastDate, intervalMonths) {
@@ -26,14 +39,18 @@ function calcNextService(lastDate, intervalMonths) {
   return d.toISOString().slice(0, 10);
 }
 
+const TODAY = new Date().toISOString().slice(0, 10);
+
 export default function GeneratorInvoice() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
 
+  // ── Invoice type ───────────────────────────────────────────
+  const [invoiceType, setInvoiceType] = useState("service"); // "service" | "install"
+
   // ── Generator / Customer state ─────────────────────────────
   const [generatorId, setGeneratorId] = useState(null);
-  const [generator, setGenerator] = useState(null);   // full generator record from DB
 
   const [customerName, setCustomerName] = useState("");
   const [customerAddress, setCustomerAddress] = useState("");
@@ -45,9 +62,12 @@ export default function GeneratorInvoice() {
   const [genSerial, setGenSerial] = useState("");
   const [genKw, setGenKw] = useState("");
   const [genFuel, setGenFuel] = useState("");
+  const [transferSwitchBrand, setTransferSwitchBrand] = useState("");
+  const [transferSwitchModel, setTransferSwitchModel] = useState("");
 
-  // ── Service tracking ───────────────────────────────────────
-  const [serviceDate, setServiceDate] = useState(new Date().toISOString().slice(0, 10));
+  // ── Service / Install tracking ─────────────────────────────
+  const [installDate, setInstallDate] = useState(TODAY);
+  const [serviceDate, setServiceDate] = useState(TODAY);
   const [intervalMonths, setIntervalMonths] = useState(12);
   const [nextServiceDate, setNextServiceDate] = useState("");
   const [techName, setTechName] = useState("");
@@ -55,12 +75,12 @@ export default function GeneratorInvoice() {
 
   // ── Invoice state ──────────────────────────────────────────
   const [invoiceNumber, setInvoiceNumber] = useState("");
-  const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
+  const [invoiceDate, setInvoiceDate] = useState(TODAY);
   const [lineItems, setLineItems] = useState([EMPTY_LINE()]);
   const [invoiceNotes, setInvoiceNotes] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
-  // ── Customers for search (when no generatorId given) ───────
+  // ── Customers for search ───────────────────────────────────
   const [customers, setCustomers] = useState([]);
   const [custSearch, setCustSearch] = useState("");
   const [showCustDrop, setShowCustDrop] = useState(false);
@@ -70,6 +90,8 @@ export default function GeneratorInvoice() {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const gId = params.get("generatorId");
+    const type = params.get("type"); // "install" or "service"
+    if (type === "install") setInvoiceType("install");
     if (gId) {
       setGeneratorId(gId);
       loadGenerator(gId);
@@ -89,15 +111,15 @@ export default function GeneratorInvoice() {
     return () => document.removeEventListener("mousedown", h);
   }, []);
 
-  // auto-calc next service
+  // auto-calc next service date
   useEffect(() => {
-    setNextServiceDate(calcNextService(serviceDate, intervalMonths));
-  }, [serviceDate, intervalMonths]);
+    const base = invoiceType === "install" ? installDate : serviceDate;
+    setNextServiceDate(calcNextService(base, intervalMonths));
+  }, [serviceDate, installDate, intervalMonths, invoiceType]);
 
   async function loadGenerator(id) {
     const { data, error } = await supabase.from("generators").select("*").eq("id", id).single();
     if (error || !data) { notify("Could not load generator record"); return; }
-    setGenerator(data);
     setCustomerName(data.customer_name ?? "");
     setCustomerAddress(data.customer_address ?? "");
     setCustomerPhone(data.customer_phone ?? "");
@@ -107,7 +129,10 @@ export default function GeneratorInvoice() {
     setGenSerial(data.serial_number ?? "");
     setGenKw(data.kw_size ?? "");
     setGenFuel(data.fuel_type ?? "");
+    setTransferSwitchBrand(data.transfer_switch_brand ?? "");
+    setTransferSwitchModel(data.transfer_switch_model ?? "");
     setIntervalMonths(data.service_interval_months ?? 12);
+    if (data.install_date) setInstallDate(data.install_date);
   }
 
   async function loadCustomers() {
@@ -132,11 +157,9 @@ export default function GeneratorInvoice() {
   function addLine(desc = "") {
     setLineItems((prev) => [...prev, { ...EMPTY_LINE(), description: desc }]);
   }
-
   function removeLine(id) {
     setLineItems((prev) => prev.length > 1 ? prev.filter((l) => l.id !== id) : prev);
   }
-
   function updateLine(id, field, val) {
     setLineItems((prev) => prev.map((l) => l.id === id ? { ...l, [field]: val } : l));
   }
@@ -146,6 +169,7 @@ export default function GeneratorInvoice() {
   // ── Save ──────────────────────────────────────────────────
   async function handleSave() {
     if (!customerName.trim()) return notify("Customer name is required");
+    if (invoiceType === "install" && !genBrand.trim()) return notify("Generator brand is required for new installs");
     if (lineItems.some((l) => !l.description.trim())) return notify("Fill in all line item descriptions");
     if (!user) return;
 
@@ -164,13 +188,17 @@ export default function GeneratorInvoice() {
         finalNum = String(baseNum + 1);
       }
 
-      // 2. Build project name / notes
+      // 2. Build labels
+      const isInstall = invoiceType === "install";
       const genDesc = [genBrand, genModel, genSerial ? `SN: ${genSerial}` : ""].filter(Boolean).join(" | ");
-      const projectLabel = `Generator Service – ${customerName}`;
+      const projectLabel = isInstall
+        ? `Generator Installation – ${customerName}`
+        : `Generator Service – ${customerName}`;
       const notesText = [
         genDesc ? `Generator: ${genDesc}` : "",
         genKw ? `${genKw} kW` : "",
         genFuel || "",
+        isInstall && installDate ? `Install Date: ${installDate}` : "",
         techName ? `Tech: ${techName}` : "",
         invoiceNotes,
       ].filter(Boolean).join("\n");
@@ -209,14 +237,10 @@ export default function GeneratorInvoice() {
       );
       if (itemErr) throw itemErr;
 
-      // 5. Update generator record (last service date + next service date)
+      // 5. Update / create generator record
       if (updateGeneratorRecord) {
-        const updates = {
-          last_service_date: serviceDate,
-          next_service_date: nextServiceDate || null,
-          service_interval_months: Number(intervalMonths),
-          status: "active",
-          // also keep generator details in sync if edited
+        const basePayload = {
+          company_id: user.id,
           customer_name: customerName,
           customer_address: customerAddress,
           customer_phone: customerPhone,
@@ -226,23 +250,44 @@ export default function GeneratorInvoice() {
           serial_number: genSerial,
           kw_size: genKw !== "" ? parseFloat(genKw) : null,
           fuel_type: genFuel,
+          transfer_switch_brand: transferSwitchBrand,
+          transfer_switch_model: transferSwitchModel,
+          service_interval_months: Number(intervalMonths),
+          status: "active",
         };
 
-        if (generatorId) {
-          // Update existing generator
-          await supabase.from("generators").update(updates).eq("id", generatorId);
-        } else {
-          // Create a new generator record
+        if (isInstall) {
+          // New install → always create a new generator record
           await supabase.from("generators").insert([{
-            ...updates,
-            company_id: user.id,
-            customer_id: null,
+            ...basePayload,
+            install_date: installDate || TODAY,
+            last_service_date: null,
+            next_service_date: nextServiceDate || null,
             notes: "",
+            customer_id: null,
+          }]);
+        } else if (generatorId) {
+          // Existing service → update service dates
+          await supabase.from("generators").update({
+            ...basePayload,
+            last_service_date: serviceDate,
+            next_service_date: nextServiceDate || null,
+          }).eq("id", generatorId);
+        } else {
+          // New service record (no existing generator ID) → create one
+          await supabase.from("generators").insert([{
+            ...basePayload,
+            install_date: null,
+            last_service_date: serviceDate,
+            next_service_date: nextServiceDate || null,
+            notes: "",
+            customer_id: null,
           }]);
         }
       }
 
-      notify(`⚡ Generator Invoice #${finalNum} saved!`);
+      const typeLabel = isInstall ? "Installation" : "Service";
+      notify(`⚡ Generator ${typeLabel} Invoice #${finalNum} saved!`);
       navigate("/invoices");
     } catch (err) {
       console.error(err);
@@ -256,18 +301,23 @@ export default function GeneratorInvoice() {
     c.customer?.toLowerCase().includes(custSearch.toLowerCase())
   );
 
+  const isInstall = invoiceType === "install";
+  const quickItems = isInstall ? INSTALL_ITEMS : SERVICE_ITEMS;
+
   // ── UI ────────────────────────────────────────────────────
   return (
     <div style={{ maxWidth: 820, margin: "0 auto", padding: "20px 16px" }}>
 
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 24, fontWeight: 900, color: "#111" }}>
-            ⚡ Generator Invoice
+            {isInstall ? "⚡ Generator Installation Invoice" : "🔧 Generator Service Invoice"}
           </h1>
           <p style={{ margin: "4px 0 0", fontSize: 14, color: "#6b7280" }}>
-            Creates an invoice & updates the generator service record automatically
+            {isInstall
+              ? "Creates an invoice & saves the new generator record automatically"
+              : "Creates an invoice & updates the generator service record automatically"}
           </p>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
@@ -278,18 +328,43 @@ export default function GeneratorInvoice() {
         </div>
       </div>
 
-      {/* ── Section: Invoice Info ── */}
+      {/* ── Invoice Type Toggle ── */}
+      <div style={{ background: "#fff", borderRadius: 16, border: "1.5px solid #e5e7eb", padding: 16, marginBottom: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+        <div style={{ fontSize: 12, fontWeight: 800, color: "#0b3ea8", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 12 }}>
+          Invoice Type
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          {[
+            { val: "service", label: "🔧 Service Call", desc: "Maintenance, repair, or inspection of an existing generator" },
+            { val: "install", label: "⚡ New Installation", desc: "Brand new generator install — creates a new record in Generators" },
+          ].map((t) => (
+            <button
+              key={t.val}
+              onClick={() => setInvoiceType(t.val)}
+              style={{
+                flex: 1, padding: "12px 16px", borderRadius: 12, cursor: "pointer", textAlign: "left",
+                border: invoiceType === t.val ? "2.5px solid #0b3ea8" : "1.5px solid #d1d5db",
+                background: invoiceType === t.val ? "#eff6ff" : "#f9fafb",
+              }}
+            >
+              <div style={{ fontWeight: 800, fontSize: 14, color: invoiceType === t.val ? "#0b3ea8" : "#374151" }}>{t.label}</div>
+              <div style={{ fontSize: 12, color: "#6b7280", marginTop: 3 }}>{t.desc}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Invoice Details ── */}
       <Card title="📄 Invoice Details">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Field label="Invoice Number" placeholder="Leave blank to auto-generate"
-            value={invoiceNumber} onChange={setInvoiceNumber} />
+          <Field label="Invoice Number" placeholder="Leave blank to auto-generate" value={invoiceNumber} onChange={setInvoiceNumber} />
           <Field label="Invoice Date" type="date" value={invoiceDate} onChange={setInvoiceDate} />
         </div>
       </Card>
 
-      {/* ── Section: Customer ── */}
+      {/* ── Customer Info ── */}
       <Card title="👤 Customer Information">
-        {!generatorId ? (
+        {!generatorId || isInstall ? (
           <div ref={custRef} style={{ position: "relative", marginBottom: 12 }}>
             <label style={labelStyle}>Search Customer</label>
             <input
@@ -320,7 +395,6 @@ export default function GeneratorInvoice() {
             ✅ Pre-filled from generator record — edit below if needed
           </div>
         )}
-
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Field label="Customer Name *" value={customerName} onChange={setCustomerName} placeholder="Full name" span={2} />
           <Field label="Address" value={customerAddress} onChange={setCustomerAddress} placeholder="123 Main St, City, ST" span={2} />
@@ -329,10 +403,15 @@ export default function GeneratorInvoice() {
         </div>
       </Card>
 
-      {/* ── Section: Generator Info ── */}
-      <Card title="⚡ Generator Information">
+      {/* ── Generator Info ── */}
+      <Card title={isInstall ? "⚡ New Generator Details (Required for install)" : "⚡ Generator Information"}>
+        {isInstall && (
+          <div style={{ marginBottom: 12, padding: "8px 12px", background: "#fff7ed", borderRadius: 8, fontSize: 13, color: "#ea580c", fontWeight: 700, border: "1px solid #fed7aa" }}>
+            📋 Fill in all generator details — these will be saved to your Generators list
+          </div>
+        )}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-          <Field label="Brand" value={genBrand} onChange={setGenBrand} placeholder="e.g. Generac" />
+          <Field label={isInstall ? "Brand *" : "Brand"} value={genBrand} onChange={setGenBrand} placeholder="e.g. Generac" />
           <Field label="Model" value={genModel} onChange={setGenModel} placeholder="e.g. 22000EWCL" />
           <Field label="Serial Number" value={genSerial} onChange={setGenSerial} placeholder="SN12345678" />
           <Field label="KW Size" value={genKw} onChange={setGenKw} placeholder="e.g. 22" type="number" />
@@ -345,69 +424,80 @@ export default function GeneratorInvoice() {
               ))}
             </select>
           </div>
-          <Field label="Technician Name" value={techName} onChange={setTechName} placeholder="Tech's name" />
+          <Field label="Technician" value={techName} onChange={setTechName} placeholder="Tech's name" />
+        </div>
+
+        {/* Transfer switch — always visible */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+          <Field label="Transfer Switch Brand" value={transferSwitchBrand} onChange={setTransferSwitchBrand} placeholder="e.g. Generac" />
+          <Field label="Transfer Switch Model" value={transferSwitchModel} onChange={setTransferSwitchModel} placeholder="e.g. RTSY200A3" />
         </div>
       </Card>
 
-      {/* ── Section: Service Tracking ── */}
-      <Card title="🔧 Service Tracking">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-          <Field label="Service Date" type="date" value={serviceDate} onChange={setServiceDate} />
-          <div>
-            <label style={labelStyle}>Service Interval (months)</label>
-            <input type="number" min="1" max="120" value={intervalMonths}
-              onChange={(e) => setIntervalMonths(e.target.value)} style={inputStyle} />
+      {/* ── Service / Install Tracking ── */}
+      <Card title={isInstall ? "📅 Installation Details" : "🔧 Service Tracking"}>
+        {isInstall ? (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <Field label="Install Date" type="date" value={installDate} onChange={setInstallDate} />
+            <div>
+              <label style={labelStyle}>Service Interval (months)</label>
+              <input type="number" min="1" max="120" value={intervalMonths}
+                onChange={(e) => setIntervalMonths(e.target.value)} style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>First Service Due (auto)</label>
+              <input type="date" value={nextServiceDate}
+                onChange={(e) => setNextServiceDate(e.target.value)}
+                style={{ ...inputStyle, background: "#f0f7ff" }} />
+              <p style={{ fontSize: 10, color: "#6b7280", margin: "3px 0 0" }}>Install date + interval</p>
+            </div>
           </div>
-          <div>
-            <label style={labelStyle}>Next Service Date (auto)</label>
-            <input type="date" value={nextServiceDate}
-              onChange={(e) => setNextServiceDate(e.target.value)}
-              style={{ ...inputStyle, background: "#f0f7ff" }} />
-            <p style={{ fontSize: 10, color: "#6b7280", margin: "3px 0 0" }}>Auto from service date + interval</p>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <Field label="Service Date" type="date" value={serviceDate} onChange={setServiceDate} />
+            <div>
+              <label style={labelStyle}>Service Interval (months)</label>
+              <input type="number" min="1" max="120" value={intervalMonths}
+                onChange={(e) => setIntervalMonths(e.target.value)} style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>Next Service Date (auto)</label>
+              <input type="date" value={nextServiceDate}
+                onChange={(e) => setNextServiceDate(e.target.value)}
+                style={{ ...inputStyle, background: "#f0f7ff" }} />
+              <p style={{ fontSize: 10, color: "#6b7280", margin: "3px 0 0" }}>Service date + interval</p>
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Toggle to update generator record */}
         <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", userSelect: "none" }}>
-          <input
-            type="checkbox"
-            checked={updateGeneratorRecord}
-            onChange={(e) => setUpdateGeneratorRecord(e.target.checked)}
-            style={{ width: 16, height: 16, cursor: "pointer" }}
-          />
+          <input type="checkbox" checked={updateGeneratorRecord} onChange={(e) => setUpdateGeneratorRecord(e.target.checked)}
+            style={{ width: 16, height: 16, cursor: "pointer" }} />
           <span style={{ fontSize: 13, fontWeight: 700, color: updateGeneratorRecord ? "#0b3ea8" : "#6b7280" }}>
-            {generatorId
-              ? "✅ Update generator record with this service date when saved"
-              : "✅ Create a new generator record when saved"}
+            {isInstall
+              ? "✅ Save this generator to the Generators list when invoice is saved"
+              : generatorId
+                ? "✅ Update generator record with this service date when saved"
+                : "✅ Create a new generator record when saved"}
           </span>
         </label>
       </Card>
 
-      {/* ── Section: Line Items ── */}
-      <Card title="🛠️ Services & Parts">
-        {/* Quick-add buttons */}
+      {/* ── Line Items ── */}
+      <Card title={isInstall ? "🛠️ Installation Work & Materials" : "🛠️ Services & Parts"}>
         <div style={{ marginBottom: 12 }}>
           <p style={{ fontSize: 12, fontWeight: 700, color: "#6b7280", marginBottom: 6 }}>Quick add:</p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {DEFAULT_SERVICES.map((s) => (
-              <button
-                key={s}
-                onClick={() => addLine(s)}
-                style={{
-                  padding: "5px 10px", fontSize: 11, fontWeight: 700,
-                  background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe",
-                  borderRadius: 6, cursor: "pointer",
-                }}
-              >
+            {quickItems.map((s) => (
+              <button key={s} onClick={() => addLine(s)}
+                style={{ padding: "5px 10px", fontSize: 11, fontWeight: 700, background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe", borderRadius: 6, cursor: "pointer" }}>
                 + {s}
               </button>
             ))}
           </div>
         </div>
 
-        {/* Line items table */}
         <div style={{ borderTop: "1.5px solid #e5e7eb", paddingTop: 12 }}>
-          {/* Header */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 80px 110px 110px 36px", gap: 8, marginBottom: 6, paddingBottom: 6, borderBottom: "1px solid #f3f4f6" }}>
             {["Description", "Qty", "Unit Price", "Total", ""].map((h) => (
               <div key={h} style={{ fontSize: 11, fontWeight: 800, color: "#9ca3af", textTransform: "uppercase" }}>{h}</div>
@@ -416,52 +506,31 @@ export default function GeneratorInvoice() {
 
           {lineItems.map((item) => (
             <div key={item.id} style={{ display: "grid", gridTemplateColumns: "1fr 80px 110px 110px 36px", gap: 8, marginBottom: 8, alignItems: "center" }}>
-              <input
-                type="text"
-                placeholder="Description of work or part…"
-                value={item.description}
+              <input type="text" placeholder="Description of work or part…" value={item.description}
                 onChange={(e) => updateLine(item.id, "description", e.target.value)}
-                style={{ ...inputStyle, fontSize: 13 }}
-              />
-              <input
-                type="number"
-                min="0"
-                step="0.5"
-                value={item.quantity}
+                style={{ ...inputStyle, fontSize: 13 }} />
+              <input type="number" min="0" step="0.5" value={item.quantity}
                 onChange={(e) => updateLine(item.id, "quantity", e.target.value)}
-                style={{ ...inputStyle, fontSize: 13, textAlign: "center" }}
-              />
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={item.unitPrice}
+                style={{ ...inputStyle, fontSize: 13, textAlign: "center" }} />
+              <input type="number" min="0" step="0.01" value={item.unitPrice}
                 onChange={(e) => updateLine(item.id, "unitPrice", e.target.value)}
-                style={{ ...inputStyle, fontSize: 13, textAlign: "right" }}
-                placeholder="0.00"
-              />
+                style={{ ...inputStyle, fontSize: 13, textAlign: "right" }} placeholder="0.00" />
               <div style={{ fontSize: 14, fontWeight: 700, color: "#111", textAlign: "right", padding: "0 4px" }}>
                 ${(Number(item.quantity) * Number(item.unitPrice)).toFixed(2)}
               </div>
-              <button
-                onClick={() => removeLine(item.id)}
-                style={{ background: "#fef2f2", color: "#dc2626", border: "none", borderRadius: 6, width: 32, height: 32, cursor: "pointer", fontSize: 14, fontWeight: 700 }}
-              >
+              <button onClick={() => removeLine(item.id)}
+                style={{ background: "#fef2f2", color: "#dc2626", border: "none", borderRadius: 6, width: 32, height: 32, cursor: "pointer", fontSize: 14, fontWeight: 700 }}>
                 ✕
               </button>
             </div>
           ))}
 
-          {/* Add line button */}
-          <button
-            onClick={() => addLine()}
-            style={{ marginTop: 8, padding: "8px 16px", background: "#f9fafb", border: "1.5px dashed #d1d5db", borderRadius: 8, fontSize: 13, fontWeight: 700, color: "#374151", cursor: "pointer", width: "100%" }}
-          >
+          <button onClick={() => addLine()}
+            style={{ marginTop: 8, padding: "8px 16px", background: "#f9fafb", border: "1.5px dashed #d1d5db", borderRadius: 8, fontSize: 13, fontWeight: 700, color: "#374151", cursor: "pointer", width: "100%" }}>
             + Add Line Item
           </button>
         </div>
 
-        {/* Subtotal */}
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16, paddingTop: 12, borderTop: "2px solid #e5e7eb" }}>
           <div style={{ textAlign: "right" }}>
             <div style={{ fontSize: 13, color: "#6b7280", fontWeight: 700 }}>TOTAL</div>
@@ -470,22 +539,18 @@ export default function GeneratorInvoice() {
         </div>
       </Card>
 
-      {/* ── Section: Notes ── */}
+      {/* ── Notes ── */}
       <Card title="📝 Notes">
-        <textarea
-          placeholder="Any additional notes for the invoice…"
-          value={invoiceNotes}
-          onChange={(e) => setInvoiceNotes(e.target.value)}
-          rows={3}
-          style={{ ...inputStyle, resize: "vertical" }}
-        />
+        <textarea placeholder="Any additional notes for the invoice…" value={invoiceNotes}
+          onChange={(e) => setInvoiceNotes(e.target.value)} rows={3}
+          style={{ ...inputStyle, resize: "vertical" }} />
       </Card>
 
       {/* Save footer */}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, marginTop: 8, marginBottom: 40 }}>
         <button onClick={() => navigate("/generators")} style={btnGray}>Cancel</button>
         <button onClick={handleSave} disabled={isSaving} style={btnOrange}>
-          {isSaving ? "Saving…" : "💾 Save Invoice"}
+          {isSaving ? "Saving…" : isInstall ? "💾 Save Install Invoice" : "💾 Save Service Invoice"}
         </button>
       </div>
     </div>
@@ -509,13 +574,8 @@ function Field({ label, value, onChange, placeholder = "", type = "text", span }
   return (
     <div style={span ? { gridColumn: `1 / span ${span}` } : {}}>
       <label style={labelStyle}>{label}</label>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        style={inputStyle}
-      />
+      <input type={type} value={value} onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder} style={inputStyle} />
     </div>
   );
 }

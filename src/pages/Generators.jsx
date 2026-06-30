@@ -326,16 +326,28 @@ export default function Generators() {
             Track customer generators, service history, and upcoming maintenance
           </p>
         </div>
-        <button
-          onClick={openAdd}
-          style={{
-            background: "#fc6b04", color: "#fff", border: "none",
-            borderRadius: 10, padding: "10px 20px", fontWeight: 800,
-            fontSize: 14, cursor: "pointer",
-          }}
-        >
-          + Add Generator
-        </button>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            onClick={() => navigate("/invoice/generator?type=install")}
+            style={{
+              background: "#0b3ea8", color: "#fff", border: "none",
+              borderRadius: 10, padding: "10px 20px", fontWeight: 800,
+              fontSize: 14, cursor: "pointer",
+            }}
+          >
+            ⚡ New Install Invoice
+          </button>
+          <button
+            onClick={openAdd}
+            style={{
+              background: "#fc6b04", color: "#fff", border: "none",
+              borderRadius: 10, padding: "10px 20px", fontWeight: 800,
+              fontSize: 14, cursor: "pointer",
+            }}
+          >
+            + Add Generator
+          </button>
+        </div>
       </div>
 
       {/* ── Stats cards ────────────────────────────────────── */}
