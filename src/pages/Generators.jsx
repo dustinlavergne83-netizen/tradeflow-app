@@ -127,7 +127,7 @@ export default function Generators() {
     const [genRes, brandRes, custRes] = await Promise.all([
       supabase.from("generators").select("*").eq("company_id", user.id).order("customer_name"),
       supabase.from("generator_brands").select("name").eq("company_id", user.id).order("name"),
-      supabase.from("customers").select("id, customer, address, email, phone").eq("company_id", user.id).eq("archived", false).order("customer"),
+      supabase.from("customers").select("id, customer, address, email, phone").eq("company_id", user.id).order("customer"),
     ]);
 
     if (!genRes.error) setGenerators(genRes.data ?? []);
@@ -136,7 +136,16 @@ export default function Generators() {
       const merged = [...new Set([...DEFAULT_BRANDS, ...saved])].sort();
       setBrands(merged);
     }
-    if (!custRes.error) setCustomers(custRes.data ?? []);
+    if (!custRes.error && custRes.data?.length > 0) {
+      setCustomers(custRes.data);
+    } else {
+      // fallback: load all customers without company filter
+      const { data: allCust } = await supabase
+        .from("customers")
+        .select("id, customer, address, email, phone")
+        .order("customer");
+      setCustomers(allCust ?? []);
+    }
     setLoading(false);
   }
 

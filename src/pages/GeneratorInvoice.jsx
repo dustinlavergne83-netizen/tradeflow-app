@@ -100,7 +100,7 @@ export default function GeneratorInvoice() {
 
   useEffect(() => {
     loadCustomers();
-  }, []);
+  }, [user]);
 
   // close dropdown on outside click
   useEffect(() => {
@@ -136,15 +136,28 @@ export default function GeneratorInvoice() {
   }
 
   async function loadCustomers() {
-    const { data: { user: authUser } } = await supabase.auth.getUser();
-    if (!authUser) return;
-    const { data } = await supabase
-      .from("customers")
-      .select("id, customer, address, phone, email")
-      .eq("company_id", authUser.id)
-      .eq("archived", false)
-      .order("customer");
-    setCustomers(data ?? []);
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from("customers")
+        .select("id, customer, address, phone, email")
+        .eq("company_id", user.id)
+        .order("customer");
+
+      if (error || !data || data.length === 0) {
+        // fallback: load all customers
+        const { data: allData } = await supabase
+          .from("customers")
+          .select("id, customer, address, phone, email")
+          .order("customer");
+        setCustomers(allData ?? []);
+        return;
+      }
+      setCustomers(data);
+    } catch (err) {
+      console.error("Error loading customers:", err);
+      setCustomers([]);
+    }
   }
 
   function pickCustomer(c) {
