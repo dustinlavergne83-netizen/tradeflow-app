@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { supabase } from "../lib/supabase";
@@ -9,6 +9,64 @@ function EstimateRows({
   estimate, nestedProposals, navigate, handleDelete,
   setViewModalEstimate, loadEstimates, formatDate, formatCurrency, styles,
 }) {
+  const [openMenu, setOpenMenu] = React.useState(null); // null | 'main' | proposalId
+
+  // Close dropdown when clicking outside
+  React.useEffect(() => {
+    function handler(e) {
+      if (!e.target.closest('[data-action-menu]')) setOpenMenu(null);
+    }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // Build action items for each row type
+  const mainMenuItems = (() => {
+    if (estimate.type === 'proposal') return [
+      { label: '📄 View', color: '#3b82f6', action: () => navigate(`/proposal/commercial-public?proposalId=${estimate.id}`) },
+      { label: '🗑️ Delete', color: '#ef4444', action: () => handleDelete(estimate) },
+    ];
+    if (estimate.type === 'change_order') return [
+      { label: '✏️ Edit', color: '#6366f1', action: () => navigate(`/estimate/quick?coId=${estimate.id}&type=changeorder`) },
+      { label: '🗑️ Delete', color: '#ef4444', action: async () => {
+        if (await confirmDialog(`Delete change order ${estimate.estimate_number}? This cannot be undone.`)) {
+          try {
+            await supabase.from("estimate_items").delete().eq("change_order_id", estimate.id);
+            const { error } = await supabase.from("change_orders").delete().eq("id", estimate.id);
+            if (error) throw error;
+            notify('Change order deleted successfully!');
+            loadEstimates();
+          } catch (err) { notify("Failed to delete: " + err.message); }
+        }
+      }},
+    ];
+    // quick_estimate
+    return [
+      { label: '✏️ Edit', color: '#6366f1', action: () => navigate(`/estimate/quick?estimateId=${estimate.id}`) },
+      { label: '👁️ Preview', color: '#3b82f6', action: () => setViewModalEstimate(estimate) },
+      { label: '🖨️ Print', color: '#8b5cf6', action: () => window.open(`/estimate/quick/view?estimateId=${estimate.id}&print=true`, '_blank') },
+      { label: '🗑️ Delete', color: '#ef4444', action: () => handleDelete(estimate) },
+    ];
+  })();
+
+  const dropdownStyle = {
+    position: 'absolute', top: 'calc(100% + 2px)', right: 0,
+    backgroundColor: '#fff', border: '2px solid #e5e7eb',
+    borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.15)',
+    zIndex: 300, minWidth: 170, overflow: 'hidden',
+  };
+  const menuItemStyle = (color) => ({
+    display: 'block', width: '100%', padding: '9px 14px',
+    backgroundColor: 'transparent', border: 'none',
+    borderBottom: '1px solid #f3f4f6',
+    color, cursor: 'pointer', fontSize: 13, fontWeight: 600, textAlign: 'left',
+  });
+  const triggerBtn = (label, bg) => ({
+    padding: '5px 12px', backgroundColor: bg, border: 'none', color: '#fff',
+    borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 700,
+    display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap',
+  });
+
   return (
     <>
       {/* ── Main row (estimate / change-order / orphaned proposal) ── */}
@@ -18,7 +76,7 @@ function EstimateRows({
         onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
       >
         <td style={styles.td}>
-          <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
+          <div style={{display: 'flex', alignItems: 'center', gap: 7}}>
             {estimate.type === 'proposal' ? (
               <span style={{...styles.badge, backgroundColor: '#10b981'}}>PROPOSAL</span>
             ) : estimate.type === 'change_order' ? (
@@ -33,11 +91,10 @@ function EstimateRows({
                 ? estimate.estimate_number.replace('EST-', '').replace('PROP-', '').replace(/^26-/, '')
                 : 'N/A'}
             </span>
-            {/* Show proposal count badge on the estimate row */}
             {nestedProposals.length > 0 && (
               <span style={{
-                fontSize: 11, fontWeight: 700, backgroundColor: '#dcfce7', color: '#065f46',
-                borderRadius: 20, padding: '2px 8px', whiteSpace: 'nowrap',
+                fontSize: 10, fontWeight: 700, backgroundColor: '#dcfce7', color: '#065f46',
+                borderRadius: 20, padding: '2px 7px', whiteSpace: 'nowrap',
               }}>
                 {nestedProposals.length} proposal{nestedProposals.length !== 1 ? 's' : ''}
               </span>
@@ -46,16 +103,12 @@ function EstimateRows({
         </td>
         <td style={styles.td}>
           <div style={{...styles.singleLineText, textAlign: 'center'}}>
-            {estimate.type === 'proposal'
-              ? (estimate.contractor_name || 'N/A')
-              : (estimate.customer_name || 'N/A')}
+            {estimate.type === 'proposal' ? (estimate.contractor_name || 'N/A') : (estimate.customer_name || 'N/A')}
           </div>
         </td>
         <td style={styles.td}>
           <div style={{...styles.singleLineText, textAlign: 'center'}}>
-            {estimate.projects
-              ? estimate.projects.name
-              : (estimate.project_name || estimate.description || 'N/A')}
+            {estimate.projects ? estimate.projects.name : (estimate.project_name || estimate.description || 'N/A')}
           </div>
         </td>
         <td style={{...styles.td, textAlign: 'right'}}>
@@ -65,81 +118,24 @@ function EstimateRows({
           <span style={styles.date}>{formatDate(estimate.estimate_date || estimate.created_at)}</span>
         </td>
         <td style={{...styles.td, textAlign: 'center'}}>
-          <div style={styles.actions}>
-            {estimate.type === 'proposal' ? (
-              <>
-                <button
-                  onClick={() => navigate(`/proposal/commercial-public?proposalId=${estimate.id}`)}
-                  style={{...styles.actionButton, ...styles.viewButton}}
-                >
-                  View
-                </button>
-                <button
-                  onClick={() => handleDelete(estimate)}
-                  style={{...styles.actionButton, ...styles.deleteButton}}
-                >
-                  Delete
-                </button>
-              </>
-            ) : estimate.type === 'change_order' ? (
-              <>
-                <button
-                  onClick={() => navigate(`/estimate/quick?coId=${estimate.id}&type=changeorder`)}
-                  style={{...styles.actionButton, ...styles.editButton}}
-                  title="Edit change order"
-                >
-                  ✏️
-                </button>
-                <button
-                  onClick={async () => {
-                    if (await confirmDialog(`Delete change order ${estimate.estimate_number}? This cannot be undone.`)) {
-                      try {
-                        await supabase.from("estimate_items").delete().eq("change_order_id", estimate.id);
-                        const { error } = await supabase.from("change_orders").delete().eq("id", estimate.id);
-                        if (error) throw error;
-                        notify('Change order deleted successfully!');
-                        loadEstimates();
-                      } catch (err) {
-                        console.error("Error deleting change order:", err);
-                        notify("Failed to delete change order: " + err.message);
-                      }
-                    }
-                  }}
-                  style={{...styles.actionButton, ...styles.deleteButton}}
-                >
-                  🗑️
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={() => navigate(`/estimate/quick?estimateId=${estimate.id}`)}
-                  style={{...styles.actionButton, ...styles.editButton}}
-                  title="Edit estimate"
-                >
-                  ✏️
-                </button>
-                <button
-                  onClick={() => setViewModalEstimate(estimate)}
-                  style={{...styles.actionButton, ...styles.viewButton}}
-                  title="Preview estimate"
-                >
-                  👁️
-                </button>
-                <button
-                  onClick={() => window.open(`/estimate/quick/view?estimateId=${estimate.id}&print=true`, '_blank')}
-                  style={{...styles.actionButton, ...styles.printActionButton}}
-                  title="Print estimate"
-                >
-                  🖨️
-                </button>
-                <button
-                  onClick={() => handleDelete(estimate)}
-                  style={{...styles.actionButton, ...styles.deleteButton}}
-                >
-                  🗑️
-                </button>
-              </>
+          <div style={{position: 'relative', display: 'inline-block'}} data-action-menu="true">
+            <button
+              onClick={(e) => { e.stopPropagation(); setOpenMenu(openMenu === 'main' ? null : 'main'); }}
+              style={triggerBtn('⚡ Actions ▾', '#0b3ea8')}
+            >
+              ⚡ Actions <span style={{fontSize: 10, opacity: 0.75}}>▾</span>
+            </button>
+            {openMenu === 'main' && (
+              <div style={dropdownStyle}>
+                {mainMenuItems.map((item, idx) => (
+                  <button key={idx}
+                    onClick={() => { setOpenMenu(null); item.action(); }}
+                    style={menuItemStyle(item.color)}
+                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = item.color === '#ef4444' ? '#fef2f2' : '#f8fafc'; }}
+                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                  >{item.label}</button>
+                ))}
+              </div>
             )}
           </div>
         </td>
@@ -153,14 +149,12 @@ function EstimateRows({
           onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#dcfce7'; }}
           onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#f0fdf4'; }}
         >
-          {/* Indent with └─ arrow */}
-          <td style={{...styles.td, paddingLeft: 36}}>
-            <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
-              <span style={{color: '#9ca3af', fontSize: 15, lineHeight: 1, flexShrink: 0}}>└─</span>
+          <td style={{...styles.td, paddingLeft: 32}}>
+            <div style={{display: 'flex', alignItems: 'center', gap: 7}}>
+              <span style={{color: '#9ca3af', fontSize: 14, flexShrink: 0}}>└─</span>
               <span style={{...styles.badge, backgroundColor: '#10b981', fontSize: 10}}>PROPOSAL</span>
-              <span style={{fontWeight: 600, color: '#065f46', fontSize: 14}}>
-                {(proposal.proposal_number || proposal.estimate_number || '—')
-                  .replace('EST-', '').replace('PROP-', '')}
+              <span style={{fontWeight: 600, color: '#065f46', fontSize: 13}}>
+                {(proposal.proposal_number || proposal.estimate_number || '—').replace('EST-', '').replace('PROP-', '')}
               </span>
             </div>
           </td>
@@ -175,42 +169,43 @@ function EstimateRows({
             </div>
           </td>
           <td style={{...styles.td, textAlign: 'right'}}>
-            <span style={{...styles.total, fontSize: 15, color: '#059669'}}>
+            <span style={{...styles.total, fontSize: 14, color: '#059669'}}>
               {formatCurrency(proposal.total_amount || proposal.total)}
             </span>
           </td>
           <td style={{...styles.td, textAlign: 'center'}}>
-            <span style={{...styles.date, fontSize: 13}}>{formatDate(proposal.created_at)}</span>
+            <span style={{...styles.date, fontSize: 12}}>{formatDate(proposal.created_at)}</span>
           </td>
           <td style={{...styles.td, textAlign: 'center'}}>
-            <div style={styles.actions}>
+            <div style={{position: 'relative', display: 'inline-block'}} data-action-menu="true">
               <button
-                onClick={() => navigate(`/proposal/commercial-public?proposalId=${proposal.id}`)}
-                style={{...styles.actionButton, ...styles.viewButton, fontSize: 11}}
-                title="View / edit proposal"
+                onClick={(e) => { e.stopPropagation(); setOpenMenu(openMenu === proposal.id ? null : proposal.id); }}
+                style={triggerBtn('⚡ Actions ▾', '#10b981')}
               >
-                📄 View
+                ⚡ Actions <span style={{fontSize: 10, opacity: 0.75}}>▾</span>
               </button>
-              <button
-                onClick={() => {
-                  if (proposal.project_id) {
-                    navigate(`/project/${proposal.project_id}/progress-billing?proposalId=${proposal.id}`);
-                  } else {
-                    notify('This proposal is not linked to a project. Open the project to create a progress invoice.');
-                  }
-                }}
-                style={{...styles.actionButton, backgroundColor: '#8b5cf6', color: '#fff', fontSize: 11}}
-                title="Create progress invoice"
-              >
-                📊 Progress
-              </button>
-              <button
-                onClick={() => handleDelete(proposal)}
-                style={{...styles.actionButton, ...styles.deleteButton, fontSize: 11}}
-                title="Delete proposal"
-              >
-                🗑️
-              </button>
+              {openMenu === proposal.id && (
+                <div style={dropdownStyle}>
+                  {[
+                    { label: '📄 View Proposal', color: '#3b82f6', action: () => navigate(`/proposal/commercial-public?proposalId=${proposal.id}`) },
+                    { label: '📊 Progress Invoice', color: '#8b5cf6', action: () => {
+                      if (proposal.project_id) {
+                        navigate(`/project/${proposal.project_id}/progress-billing?proposalId=${proposal.id}`);
+                      } else {
+                        notify('This proposal is not linked to a project. Open the project to create a progress invoice.');
+                      }
+                    }},
+                    { label: '🗑️ Delete', color: '#ef4444', action: () => handleDelete(proposal) },
+                  ].map((item, idx, arr) => (
+                    <button key={idx}
+                      onClick={() => { setOpenMenu(null); item.action(); }}
+                      style={{...menuItemStyle(item.color), borderBottom: idx < arr.length - 1 ? '1px solid #f3f4f6' : 'none'}}
+                      onMouseEnter={e => { e.currentTarget.style.backgroundColor = item.color === '#ef4444' ? '#fef2f2' : '#f8fafc'; }}
+                      onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                    >{item.label}</button>
+                  ))}
+                </div>
+              )}
             </div>
           </td>
         </tr>
@@ -881,8 +876,8 @@ const styles = {
     borderBottom: "2px solid #e5e7eb",
   },
   th: {
-    padding: "16px 20px",
-    fontSize: 13,
+    padding: "9px 14px",
+    fontSize: 12,
     fontWeight: "700",
     color: "#666",
     textTransform: "uppercase",
@@ -893,14 +888,14 @@ const styles = {
     transition: "background-color 0.2s",
   },
   td: {
-    padding: "16px 20px",
-    fontSize: 15,
+    padding: "9px 14px",
+    fontSize: 14,
     color: "#333",
   },
   estimateNumber: {
     fontWeight: "600",
     color: "#0b3ea8",
-    fontSize: 16,
+    fontSize: 14,
   },
   projectName: {
     fontWeight: "600",
