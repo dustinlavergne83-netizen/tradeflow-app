@@ -255,7 +255,15 @@ export default function ProgressBilling() {
         setPreviouslyBilled(prevBilled);
       }
 
-      setInvoiceDescription(`Base Bid - Estimate #${baseEstimate?.estimate_number || ''}`);
+      // Use proposal number (what the customer sees) instead of the internal estimate number
+      const propNum = proposalData.proposal_number
+        ? proposalData.proposal_number.replace(/^PROP-/i, '').replace(/^\d{2,4}-/, '')
+        : null;
+      setInvoiceDescription(
+        propNum
+          ? `Base Bid - Proposal #${propNum}`
+          : `Base Bid - Estimate #${baseEstimate?.estimate_number || ''}`
+      );
     } catch (err) {
       console.error("Error loading proposal:", err);
       notify("Failed to load proposal data: " + err.message);

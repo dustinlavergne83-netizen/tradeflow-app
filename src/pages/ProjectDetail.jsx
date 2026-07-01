@@ -1005,6 +1005,48 @@ async function handleAddContractor() {
     }
   }
 
+  // Enrich a proposals array with emails from customers/project_contractors
+  // for any proposal where contractor_email is missing.
+  // Uses ilike (case-insensitive) so minor name casing differences don't break the lookup.
+  async function enrichProposalsWithEmails(proposalList) {
+    const missingEmails = proposalList.filter(p => !p.contractor_email && p.contractor_name);
+    if (missingEmails.length === 0) return proposalList;
+
+    const names = [...new Set(missingEmails.map(p => p.contractor_name))];
+    const emailMap = {};
+
+    for (const name of names) {
+      // 1. Try project_contractors first (project-specific, most accurate)
+      const { data: pcData } = await supabase
+        .from('project_contractors')
+        .select('email')
+        .eq('project_id', id)
+        .ilike('contractor_name', name)
+        .limit(1);
+
+      if (pcData?.[0]?.email) {
+        emailMap[name] = pcData[0].email;
+        continue;
+      }
+
+      // 2. Fall back to customers table (case-insensitive match)
+      const { data: custData } = await supabase
+        .from('customers')
+        .select('email')
+        .ilike('customer', name)
+        .limit(1);
+
+      if (custData?.[0]?.email) {
+        emailMap[name] = custData[0].email;
+      }
+    }
+
+    return proposalList.map(p => ({
+      ...p,
+      contractor_email: p.contractor_email || emailMap[p.contractor_name] || null,
+    }));
+  }
+
   async function loadProjectData() {
     try {
       // Load project details
@@ -1235,8 +1277,10 @@ async function handleAddContractor() {
         .order("created_at", { ascending: false });
 
       if (proposalsData) {
+        // Enrich with emails from customers/project_contractors if missing on the record
+        const enrichedProposalsData = await enrichProposalsWithEmails(proposalsData);
         const groupedProposals = {};
-        proposalsData.forEach(p => {
+        enrichedProposalsData.forEach(p => {
           // Group by estimate ID or change order ID
           const key = p.base_estimate_id || p.change_order_id;
           if (key) {
@@ -2138,11 +2182,13 @@ async function handleAddContractor() {
                     .eq("project_id", id);
                   
                   if (allProposals && allProposals.length > 0) {
+                    // Enrich with emails from customers/project_contractors if missing
+                    const enrichedProposals = await enrichProposalsWithEmails(allProposals);
                     // Show winning proposal modal
-                    setAllProjectProposals(allProposals);
+                    setAllProjectProposals(enrichedProposals);
                     // Auto-select if only one proposal
-                    if (allProposals.length === 1) {
-                      setSelectedWinningProposal(allProposals[0]);
+                    if (enrichedProposals.length === 1) {
+                      setSelectedWinningProposal(enrichedProposals[0]);
                     }
                     setShowWinningProposalModal(true);
                     return; // Don't update status yet
