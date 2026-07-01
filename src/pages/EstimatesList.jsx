@@ -154,7 +154,7 @@ function EstimateRows({
               <span style={{color: '#9ca3af', fontSize: 14, flexShrink: 0}}>└─</span>
               <span style={{...styles.badge, backgroundColor: '#10b981', fontSize: 10}}>PROPOSAL</span>
               <span style={{fontWeight: 600, color: '#065f46', fontSize: 13}}>
-                {(proposal.proposal_number || proposal.estimate_number || '—').replace('EST-', '').replace('PROP-', '')}
+                {(proposal.proposal_number || proposal.estimate_number || '—').replace('EST-', '').replace('PROP-', '').replace(/^\d{2}-/, '')}
               </span>
             </div>
           </td>

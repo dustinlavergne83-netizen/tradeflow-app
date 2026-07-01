@@ -857,7 +857,9 @@ export default function ProposalCommercialPublic() {
           </div>
           <div style={styles.estimateTitle}>
             <h2 style={styles.estimateNumber}>
-              ESTIMATE #{baseEstimate.estimate_number?.replace('EST-', '')}
+              {proposal?.proposal_number
+                ? `PROPOSAL #${proposal.proposal_number.replace('PROP-', '').replace('EST-', '').replace(/^\d{2}-/, '')}`
+                : `ESTIMATE #${baseEstimate.estimate_number?.replace('EST-', '').replace(/^\d{2}-/, '')}`}
             </h2>
           </div>
         </div>
