@@ -57,30 +57,33 @@ export default function ProgressBilling() {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Helper: sum ONLY the first invoice_item per invoice (the progress draw).
-  // Extra/additional line items are intentionally excluded — they don't count
-  // toward contract progress % and should never appear in "Previously Billed".
+  // Helper: sum ONLY the draw amount from each previous progress invoice.
+  // We read the "This draw: $X" value written into the invoice notes — this is
+  // far more reliable than trying to identify the "first" invoice_item by
+  // insertion order (UUIDs make .order('id') non-deterministic).
+  // Falls back to the invoice total for any invoice that has no draw tag.
   // ─────────────────────────────────────────────────────────────────────────
-  async function sumFirstInvoiceItems(invoices) {
+  async function sumDrawAmounts(invoiceObjs) {
+    if (!invoiceObjs || invoiceObjs.length === 0) return 0;
+
+    // invoiceObjs may be lightweight {id} objects — fetch full notes + total
+    const ids = invoiceObjs.map(inv => inv.id);
+    const { data: invoices } = await supabase
+      .from('invoices')
+      .select('id, total, notes')
+      .in('id', ids);
+
     if (!invoices || invoices.length === 0) return 0;
-    const ids = invoices.map(inv => inv.id);
 
-    const { data: items } = await supabase
-      .from('invoice_items')
-      .select('invoice_id, total')
-      .in('invoice_id', ids)
-      .order('id', { ascending: true });
-
-    // Take ONLY the first item per invoice (insertion order = draw item is always first)
-    const seen = {};
-    let drawTotal = 0;
-    for (const item of (items || [])) {
-      if (!seen[item.invoice_id]) {
-        seen[item.invoice_id] = true;
-        drawTotal += item.total || 0;
+    return invoices.reduce((sum, inv) => {
+      // Parse "This draw: $9438.00" from the structured notes text
+      if (inv.notes) {
+        const m = inv.notes.match(/This draw: \$([0-9,]+(?:\.[0-9]+)?)/);
+        if (m) return sum + parseFloat(m[1].replace(/,/g, ''));
       }
-    }
-    return drawTotal;
+      // Fallback: use total (for very old invoices without the draw tag)
+      return sum + (inv.total || 0);
+    }, 0);
   }
 
   useEffect(() => {
@@ -153,8 +156,8 @@ export default function ProgressBilling() {
         coInvoices = legacyCoInvoices;
       }
 
-      // Sum ONLY the first invoice_item per invoice (the draw — excludes extra line items)
-      const prevBilled = await sumFirstInvoiceItems(coInvoices || []);
+      // Sum ONLY the draw amount per invoice (parsed from notes — excludes extra line items)
+      const prevBilled = await sumDrawAmounts(coInvoices || []);
       setPreviouslyBilled(prevBilled);
 
       setInvoiceDescription(`Change Order ${coData.change_order_number} - ${coData.title}`);
@@ -247,8 +250,8 @@ export default function ProgressBilling() {
           proposalInvoices = legacyInvoices;
         }
 
-        // Sum ONLY the first invoice_item per invoice (the draw — excludes extra line items)
-        const prevBilled = await sumFirstInvoiceItems(proposalInvoices || []);
+        // Sum ONLY the draw amount per invoice (parsed from notes — excludes extra line items)
+        const prevBilled = await sumDrawAmounts(proposalInvoices || []);
         setPreviouslyBilled(prevBilled);
       }
 
@@ -316,8 +319,8 @@ export default function ProgressBilling() {
           estInvoices = legacyInvoices;
         }
 
-        // Sum ONLY the first invoice_item per invoice (the draw — excludes extra line items)
-        const prevBilled = await sumFirstInvoiceItems(estInvoices || []);
+        // Sum ONLY the draw amount per invoice (parsed from notes — excludes extra line items)
+        const prevBilled = await sumDrawAmounts(estInvoices || []);
         setPreviouslyBilled(prevBilled);
       }
 
