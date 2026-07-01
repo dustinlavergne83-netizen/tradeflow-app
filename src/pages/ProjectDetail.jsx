@@ -3136,7 +3136,7 @@ async function handleAddContractor() {
               {/* Header */}
               <div style={{display:'grid', gridTemplateColumns:'120px 1fr 1fr 130px 120px', borderBottom: '2px solid #e5e7eb', paddingBottom: 8, marginBottom: 4}}>
                 <div style={styles.th}>Status</div>
-                <div style={styles.th}>Based On</div>
+                <div style={styles.th}>Proposal # / Based On</div>
                 <div style={styles.th}>Contractor</div>
                 <div style={styles.th}>Amount</div>
                 <div style={styles.th}>Actions</div>
@@ -3173,7 +3173,14 @@ async function handleAddContractor() {
                         {isWinner && <span style={{...styles.badge, backgroundColor: '#059669', marginLeft: 6}}>⭐</span>}
                       </div>
                       <div style={styles.td}>
-                        Estimate #{linkedEstimate?.estimate_number || estimateId.slice(0, 8)}
+                        {proposal.proposal_number && (
+                          <div style={{fontWeight: '700', color: '#0b3ea8', fontSize: 14}}>
+                            Proposal #{proposal.proposal_number.replace(/^\d{2}-/, '').replace('PROP-', '')}
+                          </div>
+                        )}
+                        <div style={{fontSize: 12, color: '#666', marginTop: proposal.proposal_number ? 2 : 0}}>
+                          Based on Estimate #{linkedEstimate?.estimate_number || estimateId.slice(0, 8)}
+                        </div>
                       </div>
                       <div style={styles.td}>{proposal.contractor_name || '—'}</div>
                       <div style={styles.td}><strong>${(proposal.total_amount || 0).toFixed(2)}</strong></div>
