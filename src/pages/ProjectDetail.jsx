@@ -3213,7 +3213,7 @@ async function handleAddContractor() {
                       <div style={styles.td}>
                         {proposal.proposal_number ? (
                           <span style={{fontWeight: '700', color: '#0b3ea8', fontSize: 14}}>
-                            #{proposal.proposal_number.replace(/^\d{2}-/, '').replace('PROP-', '')}
+                            #{proposal.proposal_number.replace('PROP-', '').replace(/^\d{2,4}-/, '')}
                           </span>
                         ) : <span style={{color:'#aaa'}}>—</span>}
                       </div>
