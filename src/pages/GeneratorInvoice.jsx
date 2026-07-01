@@ -395,12 +395,12 @@ export default function GeneratorInvoice() {
               <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#fff", border: "1.5px solid #d1d5db", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 100, maxHeight: 200, overflowY: "auto" }}>
                 {filteredCustomers.slice(0, 8).map((c) => (
                   <button key={c.id} onClick={() => pickCustomer(c)}
-                    style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 14px", background: "none", border: "none", cursor: "pointer", fontSize: 13, borderBottom: "1px solid #f3f4f6" }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = "#f0f7ff"}
-                    onMouseLeave={(e) => e.currentTarget.style.background = "none"}
+                    style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 14px", background: "#fff", border: "none", cursor: "pointer", fontSize: 13, borderBottom: "1px solid #f3f4f6", color: "#111" }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "#f0f7ff"; e.currentTarget.style.color = "#1d4ed8"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.color = "#111"; }}
                   >
-                    <div style={{ fontWeight: 700 }}>{c.customer}</div>
-                    {c.address && <div style={{ fontSize: 11, color: "#9ca3af" }}>{c.address}</div>}
+                    <div style={{ fontWeight: 700, color: "#111" }}>{c.customer}</div>
+                    {c.address && <div style={{ fontSize: 11, color: "#6b7280" }}>{c.address}</div>}
                   </button>
                 ))}
               </div>
