@@ -81,6 +81,7 @@ import SuperAdmin from "./pages/SuperAdmin";
 import TimeclockAdmin from "./pages/TimeclockAdmin";
 import Generators from "./pages/Generators";
 import GeneratorInvoice from "./pages/GeneratorInvoice";
+import GeneratorServiceContract from "./pages/GeneratorServiceContract";
 import PayrollApproval from "./pages/PayrollApproval";
 import PayrollUpload from "./pages/PayrollUpload";
 import PayrollHub from "./pages/PayrollHub";
@@ -438,6 +439,14 @@ function AppContent() {
             element={
               <ProtectedRoute>
                 <GeneratorInvoice />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/invoice/generator-contract"
+            element={
+              <ProtectedRoute>
+                <GeneratorServiceContract />
               </ProtectedRoute>
             }
           />

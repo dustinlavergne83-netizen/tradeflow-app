@@ -451,8 +451,21 @@ export default function GeneratorInvoice() {
       </Card>
 
       {/* ── Service / Install Tracking ── */}
-      <Card title={isInstall ? "📅 Installation Details" : "🔧 Service Tracking"}>
-        {isInstall ? (
+      <Card title={isInstall ? "📅 Installation Details" : "🔧 Service Tracking (Optional)"}>
+        {!isInstall && (
+          <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", userSelect: "none", marginBottom: 14 }}>
+            <input type="checkbox" checked={updateGeneratorRecord} onChange={(e) => setUpdateGeneratorRecord(e.target.checked)}
+              style={{ width: 16, height: 16, cursor: "pointer" }} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: updateGeneratorRecord ? "#0b3ea8" : "#6b7280" }}>
+              {generatorId ? "Update service dates on generator record" : "Save service dates to generator record"}
+            </span>
+          </label>
+        )}
+        {(!isInstall && !updateGeneratorRecord) ? (
+          <p style={{ fontSize: 13, color: "#9ca3af", fontStyle: "italic", margin: 0 }}>
+            Service dates will not be updated. Check the box above to enable service tracking.
+          </p>
+        ) : isInstall ? (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
             <Field label="Install Date" type="date" value={installDate} onChange={setInstallDate} />
             <div>

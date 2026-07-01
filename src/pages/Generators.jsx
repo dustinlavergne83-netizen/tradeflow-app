@@ -504,15 +504,24 @@ export default function Generators() {
               )}
 
               {/* Actions */}
-              <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+              <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
                 <button
                   onClick={() => navigate(`/invoice/generator?generatorId=${gen.id}`)}
                   style={{
-                    flex: 1, padding: "8px", borderRadius: 8, fontSize: 13, fontWeight: 700,
+                    flex: 1, padding: "8px", borderRadius: 8, fontSize: 12, fontWeight: 700,
                     background: "#fff7ed", color: "#ea580c", border: "1.5px solid #fed7aa", cursor: "pointer",
                   }}
                 >
                   📋 Invoice
+                </button>
+                <button
+                  onClick={() => navigate(`/invoice/generator-contract?generatorId=${gen.id}`)}
+                  style={{
+                    flex: 1, padding: "8px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+                    background: "#f0fdf4", color: "#15803d", border: "1.5px solid #bbf7d0", cursor: "pointer",
+                  }}
+                >
+                  📝 Contract
                 </button>
                 <button
                   onClick={() => openEdit(gen)}
