@@ -2741,7 +2741,6 @@ async function handleAddContractor() {
                               if (proposals[estimate.id]?.length > 0) { setProposalActionEstimate(estimate); setShowProposalActionModal(true); }
                               else { const pt = project?.project_type || 'commercial-public'; const cp = project?.project_type === 'lighting-project' && project?.contractor ? `&contractor=${encodeURIComponent(project.contractor)}` : ''; navigate(`/project/${id}/proposal?estimateId=${estimate.id}&type=${pt}${cp}`); }
                             }},
-                            { label: project.active_estimate_id === estimate.id ? '⭐ Active Bid' : '☆ Set Active Bid', color: project.active_estimate_id === estimate.id ? '#d97706' : '#6b7280', action: () => { setOpenActionMenu(null); handleSetActiveEstimate(estimate); }},
                             { label: '🗑️ Delete', color: '#ef4444', action: async () => {
                               setOpenActionMenu(null);
                               if (await confirmDialog(`Delete estimate ${estimate.estimate_number}? This cannot be undone.`)) {
