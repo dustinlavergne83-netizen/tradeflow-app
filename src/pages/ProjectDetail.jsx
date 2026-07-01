@@ -2653,14 +2653,38 @@ async function handleAddContractor() {
           ) : (
             <div style={styles.table}>
               <div style={styles.estimateHeader}>
+                <div style={styles.th}>Type</div>
                 <div style={styles.th}>Estimate #</div>
                 <div style={styles.th}>Date</div>
                 <div style={styles.th}>Total</div>
+                <div style={styles.th}>Actions</div>
               </div>
               {estimates.filter(e => !e.parent_estimate_id).map((estimate) => (
                 <div key={estimate.id} style={{marginBottom: 16}}>
                   {/* BASE ESTIMATE ROW */}
                   <div style={styles.estimateRow}>
+                    {/* TYPE column */}
+                    <div style={styles.td}>
+                      <div style={{display:'flex', flexDirection:'column', gap:4}}>
+                        <span style={{
+                          fontSize: 11, fontWeight: 700, borderRadius: 5, padding: '3px 8px',
+                          backgroundColor: '#dbeafe', color: '#1e40af', whiteSpace: 'nowrap',
+                          display: 'inline-block',
+                        }}>
+                          Base Bid
+                        </span>
+                        {project.active_estimate_id === estimate.id && (
+                          <span style={{fontSize: 11, fontWeight: '700', backgroundColor: '#fef3c7', color: '#92400e', borderRadius: 5, padding: '2px 8px', whiteSpace: 'nowrap', display:'inline-block'}}>
+                            ⭐ Active
+                          </span>
+                        )}
+                        {proposals[estimate.id]?.length > 0 && (
+                          <span style={{fontSize: 11, fontWeight: '700', backgroundColor: '#e0f2fe', color: '#0369a1', borderRadius: 5, padding: '2px 8px', whiteSpace: 'nowrap', display:'inline-block'}}>
+                            📋 {proposals[estimate.id].length} Prop.
+                          </span>
+                        )}
+                      </div>
+                    </div>
                     <div style={styles.td}>{estimate.estimate_number || "N/A"}</div>
                     <div style={styles.td}>
                       {formatDate(estimate.estimate_date)}
@@ -2669,38 +2693,15 @@ async function handleAddContractor() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <strong>${(estimate.total || 0).toFixed(2)}</strong>
                         {estimate.price_adjustment_applied && (
-                          <span
-                            style={{
-                              background: '#f59e0b',
-                              color: '#000',
-                              padding: '2px 6px',
-                              borderRadius: 4,
-                              fontSize: 10,
-                              fontWeight: 'bold'
-                            }}
-                            title="Price has been adjusted from calculated total"
-                          >
-                            ADJUSTED
+                          <span style={{ background: '#f59e0b', color: '#000', padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 'bold' }}
+                            title="Price has been adjusted from calculated total">
+                            ADJ
                           </span>
                         )}
                       </div>
                     </div>
-                  </div>
-                  
-                  {/* ── ESTIMATE ACTIONS — single "⚡ Actions ▾" dropdown ── */}
-                  <div style={{padding: "10px 16px", borderBottom: "1px solid #e5e7eb", display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap'}}>
-                    {/* Status badges */}
-                    {project.active_estimate_id === estimate.id && (
-                      <span style={{fontSize: 12, fontWeight: '700', backgroundColor: '#fef3c7', color: '#92400e', borderRadius: 20, padding: '4px 12px', whiteSpace: 'nowrap'}}>
-                        ⭐ Active Bid
-                      </span>
-                    )}
-                    {proposals[estimate.id]?.length > 0 && (
-                      <span style={{fontSize: 12, fontWeight: '700', backgroundColor: '#dbeafe', color: '#1e40af', borderRadius: 20, padding: '4px 12px', whiteSpace: 'nowrap'}}>
-                        📋 {proposals[estimate.id].length} Proposal{proposals[estimate.id].length !== 1 ? 's' : ''}
-                      </span>
-                    )}
-                    {/* Actions dropdown */}
+                    {/* ACTIONS column */}
+                    <div style={styles.td}>
                     <div style={{position: 'relative'}} data-action-menu="true">
                       <button
                         onClick={(e) => {
@@ -2757,6 +2758,7 @@ async function handleAddContractor() {
                           ))}
                         </div>
                       )}
+                    </div>
                     </div>
                   </div>
 
@@ -6153,8 +6155,8 @@ const styles = {
   },
   estimateHeader: {
     display: "grid",
-    gridTemplateColumns: "2fr 1.5fr 1fr",
-    gap: 16,
+    gridTemplateColumns: "100px 1.5fr 1.2fr 1fr 140px",
+    gap: 12,
     padding: "12px 16px",
     backgroundColor: "#f3f4f6",
     borderRadius: 8,
@@ -6162,8 +6164,8 @@ const styles = {
   },
   estimateRow: {
     display: "grid",
-    gridTemplateColumns: "2fr 1.5fr 1fr",
-    gap: 16,
+    gridTemplateColumns: "100px 1.5fr 1.2fr 1fr 140px",
+    gap: 12,
     padding: "12px 16px",
     borderBottom: "1px solid #e5e7eb",
     alignItems: "center",
