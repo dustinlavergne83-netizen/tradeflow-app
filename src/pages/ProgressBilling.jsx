@@ -56,6 +56,33 @@ export default function ProgressBilling() {
     setExtraLineItems(prev => prev.filter(item => item.id !== id));
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Helper: sum ONLY the first invoice_item per invoice (the progress draw).
+  // Extra/additional line items are intentionally excluded — they don't count
+  // toward contract progress % and should never appear in "Previously Billed".
+  // ─────────────────────────────────────────────────────────────────────────
+  async function sumFirstInvoiceItems(invoices) {
+    if (!invoices || invoices.length === 0) return 0;
+    const ids = invoices.map(inv => inv.id);
+
+    const { data: items } = await supabase
+      .from('invoice_items')
+      .select('invoice_id, total')
+      .in('invoice_id', ids)
+      .order('id', { ascending: true });
+
+    // Take ONLY the first item per invoice (insertion order = draw item is always first)
+    const seen = {};
+    let drawTotal = 0;
+    for (const item of (items || [])) {
+      if (!seen[item.invoice_id]) {
+        seen[item.invoice_id] = true;
+        drawTotal += item.total || 0;
+      }
+    }
+    return drawTotal;
+  }
+
   useEffect(() => {
     if (proposalId) {
       loadProposalData();
@@ -109,14 +136,25 @@ export default function ProgressBilling() {
       const contractValue = coData.total || 0;
       setTotalContractValue(contractValue);
 
-      // Load previous progress billing invoices for this change order
-      const { data: prevInvoices } = await supabase
+      // Load previous progress billing invoices for this change order.
+      // Primary: query by source_change_order_id (bulletproof — set at invoice creation).
+      // Fallback: legacy [CO:xxx] notes tag for invoices created before the column existed.
+      let { data: coInvoices } = await supabase
         .from("invoices")
-        .select("total")
-        .eq("project_name", coData.project_name)
-        .like("notes", `%${coData.change_order_number}%`);
+        .select("id")
+        .eq("source_change_order_id", coId);
 
-      const prevBilled = (prevInvoices || []).reduce((sum, inv) => sum + (inv.total || 0), 0);
+      if (!coInvoices || coInvoices.length === 0) {
+        const { data: legacyCoInvoices } = await supabase
+          .from("invoices")
+          .select("id")
+          .eq("project_name", coData.project_name)
+          .like("notes", `%[CO:${coId}]%`);
+        coInvoices = legacyCoInvoices;
+      }
+
+      // Sum ONLY the first invoice_item per invoice (the draw — excludes extra line items)
+      const prevBilled = await sumFirstInvoiceItems(coInvoices || []);
       setPreviouslyBilled(prevBilled);
 
       setInvoiceDescription(`Change Order ${coData.change_order_number} - ${coData.title}`);
@@ -182,36 +220,35 @@ export default function ProgressBilling() {
       // Also parse "This draw: $X" from notes to avoid counting extra line items.
       const projectName = baseEstimate?.project_name || "";
       if (projectName) {
-        // Primary: match by proposal ID tag (invoices created after this fix)
-        const { data: taggedInvoices } = await supabase
+        // Primary: query by source_proposal_id column (bulletproof — set at invoice creation).
+        let { data: proposalInvoices } = await supabase
           .from("invoices")
-          .select("notes, total")
-          .eq("project_name", projectName)
-          .like("notes", `%[PROPOSAL:${proposalId}]%`);
+          .select("id")
+          .eq("source_proposal_id", proposalId);
 
-        let prevBilled = 0;
-        if (taggedInvoices && taggedInvoices.length > 0) {
-          // Parse the "This draw: $X" from each invoice's notes for accuracy
-          for (const inv of taggedInvoices) {
-            const match = (inv.notes || "").match(/This draw: \$([0-9.]+)/);
-            prevBilled += match ? parseFloat(match[1]) : (inv.total || 0);
-          }
-        } else if (baseEstimate?.estimate_number) {
-          // Fallback for invoices created before the tag was added.
-          // IMPORTANT: use " | " after the estimate number so "estimate 1010 |" does NOT
-          // accidentally match the CO invoice "estimate 1010-CO1 |".
+        // Fallback 1: legacy [PROPOSAL:xxx] notes tag
+        if (!proposalInvoices || proposalInvoices.length === 0) {
+          const { data: taggedInvoices } = await supabase
+            .from("invoices")
+            .select("id")
+            .eq("project_name", projectName)
+            .like("notes", `%[PROPOSAL:${proposalId}]%`);
+          proposalInvoices = taggedInvoices;
+        }
+
+        // Fallback 2: legacy estimate number pattern (oldest invoices before tagging)
+        if ((!proposalInvoices || proposalInvoices.length === 0) && baseEstimate?.estimate_number) {
           const { data: legacyInvoices } = await supabase
             .from("invoices")
-            .select("notes, total")
+            .select("id")
             .eq("project_name", projectName)
             .like("notes", `%Progress billing from estimate ${baseEstimate.estimate_number} |%`)
-            .not("notes", "like", "%[PROPOSAL:%"); // exclude invoices already tagged to a different proposal
-
-          for (const inv of legacyInvoices || []) {
-            const match = (inv.notes || "").match(/This draw: \$([0-9.]+)/);
-            prevBilled += match ? parseFloat(match[1]) : (inv.total || 0);
-          }
+            .not("notes", "like", "%[PROPOSAL:%");
+          proposalInvoices = legacyInvoices;
         }
+
+        // Sum ONLY the first invoice_item per invoice (the draw — excludes extra line items)
+        const prevBilled = await sumFirstInvoiceItems(proposalInvoices || []);
         setPreviouslyBilled(prevBilled);
       }
 
@@ -259,15 +296,28 @@ export default function ProgressBilling() {
       const contractValue = estimateData.total || 0;
       setTotalContractValue(contractValue);
 
-      // Load previous progress billing invoices
+      // Load previous progress billing invoices.
+      // Primary: query by source_estimate_id column (bulletproof — set at invoice creation).
+      // Fallback: legacy notes search for invoices created before the column was added.
       if (estimateData.project_name) {
-        const { data: prevInvoices } = await supabase
+        let { data: estInvoices } = await supabase
           .from("invoices")
-          .select("total")
-          .eq("project_name", estimateData.project_name)
-          .like("notes", "%Progress billing%");
+          .select("id")
+          .eq("source_estimate_id", estimateId);
 
-        const prevBilled = (prevInvoices || []).reduce((sum, inv) => sum + (inv.total || 0), 0);
+        if (!estInvoices || estInvoices.length === 0) {
+          const { data: legacyInvoices } = await supabase
+            .from("invoices")
+            .select("id")
+            .eq("project_name", estimateData.project_name)
+            .like("notes", "%Progress billing%")
+            .not("notes", "like", "%[PROPOSAL:%")
+            .not("notes", "like", "%[CO:%");
+          estInvoices = legacyInvoices;
+        }
+
+        // Sum ONLY the first invoice_item per invoice (the draw — excludes extra line items)
+        const prevBilled = await sumFirstInvoiceItems(estInvoices || []);
         setPreviouslyBilled(prevBilled);
       }
 
@@ -440,7 +490,12 @@ export default function ProgressBilling() {
           deposit_received: totalDepositsSelected || 0,
           status: 'draft',
           notes: notesText,
-          created_by: user.id
+          created_by: user.id,
+          // Permanently tie this invoice to its source proposal / estimate / change order.
+          // This makes future "Previously Billed" lookups bulletproof — no text parsing needed.
+          ...(proposalId    ? { source_proposal_id: proposalId }                       : {}),
+          ...(coId          ? { source_change_order_id: coId }                          : {}),
+          ...(!proposalId && !coId && estimateId ? { source_estimate_id: estimateId } : {}),
         }])
         .select()
         .single();

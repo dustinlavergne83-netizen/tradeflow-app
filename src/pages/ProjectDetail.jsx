@@ -89,6 +89,11 @@ export default function ProjectDetail() {
   const [invoiceItems, setInvoiceItems] = useState([]);
   const [showProgressBillingModal, setShowProgressBillingModal] = useState(false);
   const [selectedEstimateForProgressBilling, setSelectedEstimateForProgressBilling] = useState(null);
+  // Proposal action modal: single button that handles "view existing" or "create new"
+  const [showProposalActionModal, setShowProposalActionModal] = useState(false);
+  const [proposalActionEstimate, setProposalActionEstimate] = useState(null);
+  // Actions dropdown — tracks which row's menu is open (by estimate/invoice ID)
+  const [openActionMenu, setOpenActionMenu] = useState(null);
   const [showWinningProposalModal, setShowWinningProposalModal] = useState(false);
   const [selectedWinningProposal, setSelectedWinningProposal] = useState(null);
   const [allProjectProposals, setAllProjectProposals] = useState([]);
@@ -406,6 +411,17 @@ export default function ProjectDetail() {
       document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [id]);
+
+  // Close any open "Actions" dropdown when the user clicks outside of it
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (!e.target.closest('[data-action-menu]')) {
+        setOpenActionMenu(null);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   async function handleSaveProjectEdits() {
     if (!editProjectForm.name.trim()) {
@@ -2689,160 +2705,77 @@ async function handleAddContractor() {
                     </div>
                   </div>
                   
-                  {/* BUTTONS ROW BELOW ESTIMATE */}
-                  <div style={{padding: "12px 16px", display: "flex", gap: 8, flexWrap: "wrap", borderBottom: "1px solid #e5e7eb"}}>
-                    <button
-                      onClick={() => {
-                        // Use estimate_type to determine which editor to open
-                        // 'full' → Full Estimate editor, 'quick' (or null for old estimates) → Quick Estimate editor
-                        if (estimate.estimate_type === 'full') {
-                          navigate(`/project/${id}/estimate?estimateId=${estimate.id}`);
-                        } else {
-                          navigate(`/estimate/quick?estimateId=${estimate.id}&projectId=${id}`);
-                        }
-                      }}
-                      style={styles.estimateButton}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={async () => {
-                        if (await confirmDialog(`Delete estimate ${estimate.estimate_number}? This cannot be undone.`)) {
-                          try {
-                            await supabase.from("estimate_items").delete().eq("estimate_id", estimate.id);
-                            const { error } = await supabase.from("estimates").delete().eq("id", estimate.id);
-                            if (error) throw error;
-                            loadProjectData();
-                          } catch (err) {
-                            console.error("Error deleting estimate:", err);
-                            notify("Failed to delete estimate");
-                          }
-                        }
-                      }}
-                      style={{...styles.estimateButton, backgroundColor: "#ef4444"}}
-                    >
-                      Delete
-                    </button>
-                    <button
-                      onClick={async () => {
-                        if (!await confirmDialog(`Copy estimate ${estimate.estimate_number}?`)) return;
-                        try {
-                          // Get next estimate number
-                          const { data: allEsts } = await supabase
-                            .from("estimates")
-                            .select("estimate_number")
-                            .eq("company_id", user.id)
-                            .not("estimate_number", "is", null);
-                          let maxNum = 1000;
-                          (allEsts || []).forEach(e => {
-                            const m = (e.estimate_number || '').match(/^(\d+)/);
-                            if (m && parseInt(m[1]) > maxNum) maxNum = parseInt(m[1]);
-                          });
-                          const newNumber = String(maxNum + 1);
-
-                          // Copy the estimate record
-                          const { data: newEst, error: estErr } = await supabase
-                            .from("estimates")
-                            .insert([{
-                              company_id: estimate.company_id || user.id,
-                              estimate_number: newNumber,
-                              project_name: estimate.project_name,
-                              customer_name: estimate.customer_name,
-                              estimate_date: new Date().toISOString().split('T')[0],
-                              subtotal: estimate.subtotal,
-                              total: estimate.total,
-                              status: 'draft',
-                              notes: estimate.notes ? `${estimate.notes} (Copy of #${estimate.estimate_number})` : `Copy of #${estimate.estimate_number}`,
-                              estimate_type: estimate.estimate_type,
-                              project_id: estimate.project_id,
-                            }])
-                            .select()
-                            .single();
-                          if (estErr) throw estErr;
-
-                          // Copy all line items
-                          const { data: items } = await supabase
-                            .from("estimate_items")
-                            .select("*")
-                            .eq("estimate_id", estimate.id)
-                            .order("sequence");
-
-                          if (items && items.length > 0) {
-                            const copiedItems = items.map(item => ({
-                              estimate_id: newEst.id,
-                              line_type: item.line_type,
-                              description: item.description,
-                              quantity: item.quantity,
-                              unit: item.unit,
-                              material_unit_cost: item.material_unit_cost,
-                              material_total: item.material_total,
-                              labor_hours: item.labor_hours,
-                              labor_rate: item.labor_rate,
-                              labor_total: item.labor_total,
-                              line_total: item.line_total,
-                              sequence: item.sequence,
-                            }));
-                            const { error: itemsErr } = await supabase
-                              .from("estimate_items")
-                              .insert(copiedItems);
-                            if (itemsErr) throw itemsErr;
-                          }
-
-                          notify(`Estimate copied as #${newNumber}`);
-                          loadProjectData();
-                        } catch (err) {
-                          console.error("Error copying estimate:", err);
-                          notify("Failed to copy estimate: " + err.message);
-                        }
-                      }}
-                      style={{...styles.estimateButton, backgroundColor: "#6366f1"}}
-                    >
-                      📋 Copy
-                    </button>
-                    <button
-                      onClick={() => {
-                        setSelectedEstimateForAlternate(estimate.id);
-                        setShowAlternateTypeModal(true);
-                      }}
-                      style={{...styles.estimateButton, backgroundColor: "#8b5cf6"}}
-                    >
-                      + Add Alt
-                    </button>
-                    <button
-                      onClick={() => {
-                        const projectType = project?.project_type || 'commercial-public';
-                        const contractorParam = project?.project_type === 'lighting-project' && project?.contractor
-                          ? `&contractor=${encodeURIComponent(project.contractor)}`
-                          : '';
-                        navigate(`/project/${id}/proposal?estimateId=${estimate.id}&type=${projectType}${contractorParam}`);
-                      }}
-                      style={{...styles.estimateButton, backgroundColor: "#10b981"}}
-                    >
-                      📋 Proposal
-                    </button>
-                    {proposals[estimate.id] && proposals[estimate.id].length > 0 && (
-                      <button
-                        onClick={() => {
-                          setSelectedEstimateProposals(proposals[estimate.id]);
-                          setShowProposalsModal(true);
-                        }}
-                        style={{...styles.estimateButton, backgroundColor: "#3b82f6"}}
-                      >
-                        📄 View Proposals ({proposals[estimate.id].length})
-                      </button>
+                  {/* ── ESTIMATE ACTIONS — single "⚡ Actions ▾" dropdown ── */}
+                  <div style={{padding: "10px 16px", borderBottom: "1px solid #e5e7eb", display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap'}}>
+                    {/* Status badges */}
+                    {project.active_estimate_id === estimate.id && (
+                      <span style={{fontSize: 12, fontWeight: '700', backgroundColor: '#fef3c7', color: '#92400e', borderRadius: 20, padding: '4px 12px', whiteSpace: 'nowrap'}}>
+                        ⭐ Active Bid
+                      </span>
                     )}
-                    {/* ⭐ Set as Active Bid */}
-                    <button
-                      onClick={() => handleSetActiveEstimate(estimate)}
-                      title="Set this estimate as the active bid — updates Contract Value and Budget"
-                      style={{
-                        ...styles.estimateButton,
-                        backgroundColor: project.active_estimate_id === estimate.id ? '#f59e0b' : '#6b7280',
-                        border: project.active_estimate_id === estimate.id ? '2px solid #d97706' : '2px solid transparent',
-                      }}
-                    >
-                      {project.active_estimate_id === estimate.id ? '⭐ Active Bid' : '☆ Set Active'}
-                    </button>
+                    {proposals[estimate.id]?.length > 0 && (
+                      <span style={{fontSize: 12, fontWeight: '700', backgroundColor: '#dbeafe', color: '#1e40af', borderRadius: 20, padding: '4px 12px', whiteSpace: 'nowrap'}}>
+                        📋 {proposals[estimate.id].length} Proposal{proposals[estimate.id].length !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                    {/* Actions dropdown */}
+                    <div style={{position: 'relative'}} data-action-menu="true">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOpenActionMenu(openActionMenu === estimate.id ? null : estimate.id);
+                        }}
+                        style={{padding: '8px 18px', backgroundColor: '#0b3ea8', border: 'none', color: '#fff', borderRadius: 8, cursor: 'pointer', fontSize: 14, fontWeight: '700', display: 'flex', alignItems: 'center', gap: 8}}
+                      >
+                        ⚡ Actions <span style={{fontSize: 11, opacity: 0.75}}>▾</span>
+                      </button>
+                      {openActionMenu === estimate.id && (
+                        <div style={{position: 'absolute', top: 'calc(100% + 4px)', left: 0, backgroundColor: '#fff', border: '2px solid #e5e7eb', borderRadius: 10, boxShadow: '0 8px 28px rgba(0,0,0,0.15)', zIndex: 200, minWidth: 230, overflow: 'hidden'}}>
+                          {[
+                            { label: '✏️ Edit', color: '#111', action: () => {
+                              setOpenActionMenu(null);
+                              if (estimate.estimate_type === 'full') navigate(`/project/${id}/estimate?estimateId=${estimate.id}`);
+                              else navigate(`/estimate/quick?estimateId=${estimate.id}&projectId=${id}`);
+                            }},
+                            { label: '📋 Copy', color: '#6366f1', action: async () => {
+                              setOpenActionMenu(null);
+                              if (!await confirmDialog(`Copy estimate ${estimate.estimate_number}?`)) return;
+                              try {
+                                const { data: allEsts } = await supabase.from("estimates").select("estimate_number").eq("company_id", user.id).not("estimate_number", "is", null);
+                                let maxNum = 1000;
+                                (allEsts || []).forEach(e => { const m = (e.estimate_number || '').match(/^(\d+)/); if (m && parseInt(m[1]) > maxNum) maxNum = parseInt(m[1]); });
+                                const newNumber = String(maxNum + 1);
+                                const { data: newEst, error: estErr } = await supabase.from("estimates").insert([{ company_id: estimate.company_id || user.id, estimate_number: newNumber, project_name: estimate.project_name, customer_name: estimate.customer_name, estimate_date: new Date().toISOString().split('T')[0], subtotal: estimate.subtotal, total: estimate.total, status: 'draft', notes: estimate.notes ? `${estimate.notes} (Copy of #${estimate.estimate_number})` : `Copy of #${estimate.estimate_number}`, estimate_type: estimate.estimate_type, project_id: estimate.project_id }]).select().single();
+                                if (estErr) throw estErr;
+                                const { data: items } = await supabase.from("estimate_items").select("*").eq("estimate_id", estimate.id).order("sequence");
+                                if (items?.length > 0) { const { error: ie } = await supabase.from("estimate_items").insert(items.map(i => ({ estimate_id: newEst.id, line_type: i.line_type, description: i.description, quantity: i.quantity, unit: i.unit, material_unit_cost: i.material_unit_cost, material_total: i.material_total, labor_hours: i.labor_hours, labor_rate: i.labor_rate, labor_total: i.labor_total, line_total: i.line_total, sequence: i.sequence }))); if (ie) throw ie; }
+                                notify(`Estimate copied as #${newNumber}`); loadProjectData();
+                              } catch (err) { console.error("Error copying estimate:", err); notify("Failed to copy estimate: " + err.message); }
+                            }},
+                            { label: '➕ Add Alternate', color: '#8b5cf6', action: () => { setOpenActionMenu(null); setSelectedEstimateForAlternate(estimate.id); setShowAlternateTypeModal(true); }},
+                            { label: proposals[estimate.id]?.length > 0 ? `📋 Proposals (${proposals[estimate.id].length})` : '📋 New Proposal', color: proposals[estimate.id]?.length > 0 ? '#3b82f6' : '#10b981', action: () => {
+                              setOpenActionMenu(null);
+                              if (proposals[estimate.id]?.length > 0) { setProposalActionEstimate(estimate); setShowProposalActionModal(true); }
+                              else { const pt = project?.project_type || 'commercial-public'; const cp = project?.project_type === 'lighting-project' && project?.contractor ? `&contractor=${encodeURIComponent(project.contractor)}` : ''; navigate(`/project/${id}/proposal?estimateId=${estimate.id}&type=${pt}${cp}`); }
+                            }},
+                            { label: project.active_estimate_id === estimate.id ? '⭐ Active Bid' : '☆ Set Active Bid', color: project.active_estimate_id === estimate.id ? '#d97706' : '#6b7280', action: () => { setOpenActionMenu(null); handleSetActiveEstimate(estimate); }},
+                            { label: '🗑️ Delete', color: '#ef4444', action: async () => {
+                              setOpenActionMenu(null);
+                              if (await confirmDialog(`Delete estimate ${estimate.estimate_number}? This cannot be undone.`)) {
+                                try { await supabase.from("estimate_items").delete().eq("estimate_id", estimate.id); const { error } = await supabase.from("estimates").delete().eq("id", estimate.id); if (error) throw error; loadProjectData(); }
+                                catch (err) { console.error("Error deleting estimate:", err); notify("Failed to delete estimate"); }
+                              }
+                            }},
+                          ].map((item, idx, arr) => (
+                            <button key={idx} onClick={item.action} style={{display:'block', width:'100%', padding:'12px 16px', backgroundColor:'transparent', border:'none', borderBottom: idx < arr.length-1 ? '1px solid #f3f4f6' : 'none', color: item.color, cursor:'pointer', fontSize:14, fontWeight:'600', textAlign:'left', transition:'background-color 0.1s'}}
+                              onMouseEnter={e => { e.currentTarget.style.backgroundColor = item.color === '#ef4444' ? '#fef2f2' : '#f8fafc'; }}
+                              onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}>
+                              {item.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* ALTERNATES ROWS (indented) */}
@@ -3273,79 +3206,55 @@ async function handleAddContractor() {
                       );
                     })()}
                   </div>
+                  {/* ── INVOICE ACTIONS — single "⚡ Actions ▾" dropdown ── */}
                   <div style={styles.td}>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      <button
-                        onClick={() => navigate(`/invoice?invoiceId=${invoice.id}&projectId=${id}`)}
-                        style={styles.estimateButton}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => window.open(`/invoice/view?invoiceId=${invoice.id}`, '_blank')}
-                        style={{...styles.estimateButton, backgroundColor: "#3b82f6"}}
-                      >
-                        👁️ View
-                      </button>
-                      {(() => {
-                        const trueBalance = Math.max(0, (invoice.total || 0) - (invoice.amount_paid || 0) - (invoice.deposit_received || 0));
-                        return trueBalance > 0 ? (
-                          <button
-                            onClick={() => openInvoicePaymentModal(invoice)}
-                            style={{...styles.estimateButton, backgroundColor: "#10b981"}}
-                          >
-                            💰 Pay
-                          </button>
-                        ) : null;
-                      })()}
-                      {invoice.status === 'paid' && (
-                        <button
-                          onClick={() => navigate(`/invoice?invoiceId=${invoice.id}`)}
-                          style={{...styles.estimateButton, backgroundColor: "#8b5cf6"}}
-                        >
-                          📧 Receipt
-                        </button>
-                      )}
-                      {/* ⭐ Set as Primary Invoice */}
-                      <button
-                        onClick={() => handleSetActiveInvoice(invoice)}
-                        title="Set this invoice as primary — updates Contract Value"
-                        style={{
-                          ...styles.estimateButton,
-                          backgroundColor: project.active_invoice_id === invoice.id ? '#f59e0b' : '#6b7280',
-                          border: project.active_invoice_id === invoice.id ? '2px solid #d97706' : '2px solid transparent',
-                        }}
-                      >
-                        {project.active_invoice_id === invoice.id ? '⭐ Primary' : '☆ Set Primary'}
-                      </button>
-                      <button
-                        onClick={async () => {
+                    {(() => {
+                      const trueBalance = Math.max(0, (invoice.total || 0) - (invoice.amount_paid || 0) - (invoice.deposit_received || 0));
+                      const menuId = `inv-${invoice.id}`;
+                      const menuItems = [
+                        { label: '✏️ Edit',    color: '#111',    action: () => { setOpenActionMenu(null); navigate(`/invoice?invoiceId=${invoice.id}&projectId=${id}`); }},
+                        { label: '👁️ View',   color: '#3b82f6', action: () => { setOpenActionMenu(null); window.open(`/invoice/view?invoiceId=${invoice.id}`, '_blank'); }},
+                        ...(trueBalance > 0 ? [{ label: '💰 Pay', color: '#10b981', action: () => { setOpenActionMenu(null); openInvoicePaymentModal(invoice); }}] : []),
+                        ...(invoice.status === 'paid' ? [{ label: '📧 Receipt', color: '#8b5cf6', action: () => { setOpenActionMenu(null); navigate(`/invoice?invoiceId=${invoice.id}`); }}] : []),
+                        ...(!project.active_estimate_id || project.active_invoice_id === invoice.id ? [{
+                          label: project.active_invoice_id === invoice.id ? '⭐ Primary Invoice' : '☆ Set as Primary',
+                          color: project.active_invoice_id === invoice.id ? '#d97706' : '#6b7280',
+                          action: () => { setOpenActionMenu(null); handleSetActiveInvoice(invoice); }
+                        }] : []),
+                        { label: '🗑️ Delete', color: '#ef4444', action: async () => {
+                          setOpenActionMenu(null);
                           if (await confirmDialog(`Delete invoice ${invoice.invoice_number}? This cannot be undone.`)) {
                             try {
-                              // Revert any deposits linked to this invoice back to "received"
-                              await supabase
-                                .from("project_deposits")
-                                .update({ status: "received", invoice_id: null, applied_date: null })
-                                .eq("invoice_id", invoice.id);
-
-                              const { error } = await supabase
-                                .from("invoices")
-                                .delete()
-                                .eq("id", invoice.id);
-                              
+                              await supabase.from("project_deposits").update({ status: "received", invoice_id: null, applied_date: null }).eq("invoice_id", invoice.id);
+                              const { error } = await supabase.from("invoices").delete().eq("id", invoice.id);
                               if (error) throw error;
                               loadProjectData();
-                            } catch (err) {
-                              console.error("Error deleting invoice:", err);
-                              notify("Failed to delete invoice");
-                            }
+                            } catch (err) { console.error("Error deleting invoice:", err); notify("Failed to delete invoice"); }
                           }
-                        }}
-                        style={{...styles.estimateButton, backgroundColor: "#ef4444"}}
-                      >
-                        Delete
-                      </button>
-                    </div>
+                        }},
+                      ];
+                      return (
+                        <div style={{position: 'relative'}} data-action-menu="true">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setOpenActionMenu(openActionMenu === menuId ? null : menuId); }}
+                            style={{padding: '7px 14px', backgroundColor: '#0b3ea8', border: 'none', color: '#fff', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: '700', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap'}}
+                          >
+                            ⚡ Actions <span style={{fontSize: 10, opacity: 0.75}}>▾</span>
+                          </button>
+                          {openActionMenu === menuId && (
+                            <div style={{position: 'absolute', top: 'calc(100% + 4px)', right: 0, backgroundColor: '#fff', border: '2px solid #e5e7eb', borderRadius: 10, boxShadow: '0 8px 28px rgba(0,0,0,0.15)', zIndex: 200, minWidth: 210, overflow: 'hidden'}}>
+                              {menuItems.map((item, idx) => (
+                                <button key={idx} onClick={item.action} style={{display:'block', width:'100%', padding:'11px 16px', backgroundColor:'transparent', border:'none', borderBottom: idx < menuItems.length-1 ? '1px solid #f3f4f6' : 'none', color: item.color, cursor:'pointer', fontSize:13, fontWeight:'600', textAlign:'left', transition:'background-color 0.1s'}}
+                                  onMouseEnter={e => { e.currentTarget.style.backgroundColor = item.color === '#ef4444' ? '#fef2f2' : '#f8fafc'; }}
+                                  onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}>
+                                  {item.label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               ))}
@@ -3506,6 +3415,81 @@ async function handleAddContractor() {
               >
                 Cancel
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Proposal Action Modal — shown when clicking the smart "📋 Proposal" button
+           on an estimate that already has proposals. Lets the user choose:
+           View Existing Proposals  OR  Create a New Proposal               ── */}
+      {showProposalActionModal && proposalActionEstimate && (
+        <div style={styles.modalOverlay} onClick={() => setShowProposalActionModal(false)}>
+          <div style={{...styles.modal, maxWidth: 520}} onClick={(e) => e.stopPropagation()}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 20}}>
+              <h2 style={{...styles.modalTitle, marginBottom: 0}}>
+                📋 Proposals — Estimate #{proposalActionEstimate.estimate_number}
+              </h2>
+              <button onClick={() => setShowProposalActionModal(false)} style={{background:'none', border:'none', fontSize:22, cursor:'pointer', color:'#666'}}>×</button>
+            </div>
+            <p style={{fontSize: 14, color: '#666', marginBottom: 20}}>
+              This estimate has <strong>{proposals[proposalActionEstimate.id]?.length || 0}</strong> saved proposal{proposals[proposalActionEstimate.id]?.length !== 1 ? 's' : ''}.
+              What would you like to do?
+            </p>
+
+            <div style={{display:'flex', flexDirection:'column', gap: 12}}>
+              {/* View Existing */}
+              <button
+                onClick={() => {
+                  setShowProposalActionModal(false);
+                  setSelectedEstimateProposals(proposals[proposalActionEstimate.id]);
+                  setShowProposalsModal(true);
+                }}
+                style={{
+                  padding: '18px 20px', backgroundColor: '#f9fafb',
+                  border: '2px solid #3b82f6', borderRadius: 12,
+                  cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#e0f2fe'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#f9fafb'; }}
+              >
+                <div style={{fontSize: 17, fontWeight: '700', color: '#1e40af', marginBottom: 4}}>
+                  📄 View Existing Proposals ({proposals[proposalActionEstimate.id]?.length})
+                </div>
+                <div style={{fontSize: 13, color: '#666'}}>
+                  Open, edit, send, or create progress invoices from existing proposals
+                </div>
+              </button>
+
+              {/* Create New */}
+              <button
+                onClick={() => {
+                  setShowProposalActionModal(false);
+                  const projectType = project?.project_type || 'commercial-public';
+                  const contractorParam = project?.project_type === 'lighting-project' && project?.contractor
+                    ? `&contractor=${encodeURIComponent(project.contractor)}`
+                    : '';
+                  navigate(`/project/${id}/proposal?estimateId=${proposalActionEstimate.id}&type=${projectType}${contractorParam}`);
+                }}
+                style={{
+                  padding: '18px 20px', backgroundColor: '#f9fafb',
+                  border: '2px solid #10b981', borderRadius: 12,
+                  cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f0fdf4'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#f9fafb'; }}
+              >
+                <div style={{fontSize: 17, fontWeight: '700', color: '#065f46', marginBottom: 4}}>
+                  ➕ Create New Proposal
+                </div>
+                <div style={{fontSize: 13, color: '#666'}}>
+                  Generate a new proposal for a different contractor from this estimate
+                </div>
+              </button>
+            </div>
+
+            <div style={{...styles.modalActions, marginTop: 20}}>
+              <button onClick={() => setShowProposalActionModal(false)} style={styles.cancelButton}>Cancel</button>
             </div>
           </div>
         </div>
