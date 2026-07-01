@@ -2837,7 +2837,7 @@ async function handleAddContractor() {
         </div>
 
         {/* Change Orders Card — only shown when there are change orders */}
-        {changeOrders.length > 0 && <div style={{...styles.card, gridColumn: "1 / -1", order: 4}}>
+        {changeOrders.length > 0 && <div style={{...styles.card, gridColumn: "1 / -1", order: 5}}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
             <h2 style={{ ...styles.cardTitle, marginBottom: 0 }}>Change Orders</h2>
             <div style={{ display: "flex", gap: 12 }}>
@@ -3057,7 +3057,7 @@ async function handleAddContractor() {
         </div>}
 
         {/* Deposits Card — only shown when there are deposits */}
-        {deposits.length > 0 && <div style={{...styles.card, gridColumn: "1 / -1", order: 5}}>
+        {deposits.length > 0 && <div style={{...styles.card, gridColumn: "1 / -1", order: 6}}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
             <h2 style={{ ...styles.cardTitle, marginBottom: 0 }}>💰 Project Deposits</h2>
             <button onClick={() => setShowAddDepositModal(true)} style={styles.addEstimateButton}>
@@ -3122,8 +3122,111 @@ async function handleAddContractor() {
           )}
         </div>}
 
+        {/* Proposals Card — shown whenever the project has at least one proposal */}
+        {Object.values(proposals).flat().length > 0 && (
+          <div style={{...styles.card, gridColumn: "1 / -1", order: 3}}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h2 style={{ ...styles.cardTitle, marginBottom: 0 }}>📋 Proposals</h2>
+              <div style={{ fontSize: 13, color: '#666' }}>
+                {Object.values(proposals).flat().length} proposal{Object.values(proposals).flat().length !== 1 ? 's' : ''}
+              </div>
+            </div>
+
+            <div style={styles.table}>
+              {/* Header */}
+              <div style={{display:'grid', gridTemplateColumns:'120px 1fr 1fr 130px 120px', borderBottom: '2px solid #e5e7eb', paddingBottom: 8, marginBottom: 4}}>
+                <div style={styles.th}>Status</div>
+                <div style={styles.th}>Based On</div>
+                <div style={styles.th}>Contractor</div>
+                <div style={styles.th}>Amount</div>
+                <div style={styles.th}>Actions</div>
+              </div>
+
+              {Object.entries(proposals).map(([estimateId, estimateProposals]) =>
+                estimateProposals.map(proposal => {
+                  const linkedEstimate = estimates.find(e => e.id === estimateId);
+                  const menuId = `prop-${proposal.id}`;
+                  const isWinner = project.winning_proposal_id === proposal.id;
+                  return (
+                    <div
+                      key={proposal.id}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '120px 1fr 1fr 130px 120px',
+                        alignItems: 'center',
+                        padding: '14px 12px',
+                        backgroundColor: isWinner ? '#f0fdf4' : '#fff',
+                        borderBottom: '1px solid #f3f4f6',
+                        borderRadius: isWinner ? 8 : 0,
+                        border: isWinner ? '1px solid #bbf7d0' : undefined,
+                        marginBottom: isWinner ? 4 : 0,
+                      }}
+                    >
+                      <div style={styles.td}>
+                        <span style={{
+                          ...styles.badge,
+                          backgroundColor: proposal.status === 'approved' ? '#10b981'
+                            : proposal.status === 'sent' ? '#3b82f6' : '#f59e0b',
+                        }}>
+                          {proposal.status || 'draft'}
+                        </span>
+                        {isWinner && <span style={{...styles.badge, backgroundColor: '#059669', marginLeft: 6}}>⭐</span>}
+                      </div>
+                      <div style={styles.td}>
+                        Estimate #{linkedEstimate?.estimate_number || estimateId.slice(0, 8)}
+                      </div>
+                      <div style={styles.td}>{proposal.contractor_name || '—'}</div>
+                      <div style={styles.td}><strong>${(proposal.total_amount || 0).toFixed(2)}</strong></div>
+                      <div style={styles.td}>
+                        <div style={{position: 'relative'}} data-action-menu="true">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setOpenActionMenu(openActionMenu === menuId ? null : menuId); }}
+                            style={{padding: '7px 14px', backgroundColor: '#3b82f6', border: 'none', color: '#fff', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: '700', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap'}}
+                          >
+                            ⚡ Actions <span style={{fontSize: 10, opacity: 0.75}}>▾</span>
+                          </button>
+                          {openActionMenu === menuId && (
+                            <div style={{position: 'absolute', top: 'calc(100% + 4px)', right: 0, backgroundColor: '#fff', border: '2px solid #e5e7eb', borderRadius: 10, boxShadow: '0 8px 28px rgba(0,0,0,0.15)', zIndex: 200, minWidth: 230, overflow: 'hidden'}}>
+                              {[
+                                { label: '📄 View / Edit Proposal', color: '#3b82f6',
+                                  action: () => { setOpenActionMenu(null); navigate(`/project/${id}/proposal?proposalId=${proposal.id}&estimateId=${estimateId}&type=${project.project_type || 'commercial-public'}`); }},
+                                { label: '📊 Progress Invoice', color: '#8b5cf6',
+                                  action: () => { setOpenActionMenu(null); navigate(`/project/${id}/progress-billing?proposalId=${proposal.id}`); }},
+                                !isWinner ? { label: '⭐ Set as Winning Bid', color: '#059669',
+                                  action: () => { setOpenActionMenu(null); setAllProjectProposals(Object.values(proposals).flat()); setSelectedWinningProposal(proposal); setShowWinningProposalModal(true); }} : null,
+                                { label: '🗑️ Delete Proposal', color: '#ef4444',
+                                  action: async () => {
+                                    setOpenActionMenu(null);
+                                    if (await confirmDialog('Delete this proposal? This cannot be undone.')) {
+                                      try {
+                                        await supabase.from('proposals').delete().eq('id', proposal.id);
+                                        loadProjectData();
+                                        notify('Proposal deleted');
+                                      } catch (err) { console.error(err); notify('Failed to delete proposal'); }
+                                    }
+                                  }},
+                              ].filter(Boolean).map((item, idx, arr) => (
+                                <button key={idx} onClick={item.action}
+                                  style={{display:'block', width:'100%', padding:'11px 16px', backgroundColor:'transparent', border:'none', borderBottom: idx < arr.length-1 ? '1px solid #f3f4f6' : 'none', color: item.color, cursor:'pointer', fontSize:13, fontWeight:'600', textAlign:'left'}}
+                                  onMouseEnter={e => { e.currentTarget.style.backgroundColor = item.color === '#ef4444' ? '#fef2f2' : '#f8fafc'; }}
+                                  onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}>
+                                  {item.label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Invoices Card */}
-        <div style={{...styles.card, gridColumn: "1 / -1", order: 3}}>
+        <div style={{...styles.card, gridColumn: "1 / -1", order: 4}}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
             <h2 style={{ ...styles.cardTitle, marginBottom: 0 }}>Project Invoices</h2>
             <div style={{ display: "flex", gap: 12 }}>
