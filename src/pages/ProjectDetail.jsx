@@ -2655,7 +2655,6 @@ async function handleAddContractor() {
               <div style={styles.estimateHeader}>
                 <div style={styles.th}>Estimate #</div>
                 <div style={styles.th}>Date</div>
-                <div style={styles.th}>Status</div>
                 <div style={styles.th}>Total</div>
               </div>
               {estimates.filter(e => !e.parent_estimate_id).map((estimate) => (
@@ -2665,23 +2664,6 @@ async function handleAddContractor() {
                     <div style={styles.td}>{estimate.estimate_number || "N/A"}</div>
                     <div style={styles.td}>
                       {formatDate(estimate.estimate_date)}
-                    </div>
-                    <div style={styles.td}>
-                      <span
-                        style={{
-                          ...styles.badge,
-                          backgroundColor:
-                            estimate.status === "approved"
-                              ? "#10b981"
-                              : estimate.status === "sent"
-                              ? "#3b82f6"
-                              : estimate.status === "rejected"
-                              ? "#ef4444"
-                              : "#f59e0b",
-                        }}
-                      >
-                        {estimate.status || "draft"}
-                      </span>
                     </div>
                     <div style={styles.td}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -3134,7 +3116,8 @@ async function handleAddContractor() {
 
             <div style={styles.table}>
               {/* Header */}
-              <div style={{display:'grid', gridTemplateColumns:'150px 120px 1fr 1fr 130px 120px', borderBottom: '2px solid #e5e7eb', paddingBottom: 8, marginBottom: 4}}>
+              <div style={{display:'grid', gridTemplateColumns:'100px 150px 110px 1fr 1fr 130px 120px', borderBottom: '2px solid #e5e7eb', paddingBottom: 8, marginBottom: 4}}>
+                <div style={styles.th}>Type</div>
                 <div style={styles.th}>Status</div>
                 <div style={styles.th}>Proposal #</div>
                 <div style={styles.th}>Based On</div>
@@ -3153,7 +3136,7 @@ async function handleAddContractor() {
                       key={proposal.id}
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: '150px 120px 1fr 1fr 130px 120px',
+                        gridTemplateColumns: '100px 150px 110px 1fr 1fr 130px 120px',
                         alignItems: 'center',
                         padding: '14px 12px',
                         backgroundColor: isWinner ? '#f0fdf4' : '#fff',
@@ -3163,6 +3146,17 @@ async function handleAddContractor() {
                         marginBottom: isWinner ? 4 : 0,
                       }}
                     >
+                      {/* TYPE — Base Bid or Change Order */}
+                      <div style={styles.td}>
+                        <span style={{
+                          fontSize: 11, fontWeight: 700, borderRadius: 5, padding: '3px 8px',
+                          backgroundColor: proposal.change_order_id ? '#fef3c7' : '#dbeafe',
+                          color: proposal.change_order_id ? '#92400e' : '#1e40af',
+                          whiteSpace: 'nowrap',
+                        }}>
+                          {proposal.change_order_id ? 'Change Order' : 'Base Bid'}
+                        </span>
+                      </div>
                       {/* STATUS — editable dropdown */}
                       <div style={styles.td}>
                         <div style={{display:'flex', alignItems:'center', gap:4, flexWrap:'wrap'}}>
@@ -6159,7 +6153,7 @@ const styles = {
   },
   estimateHeader: {
     display: "grid",
-    gridTemplateColumns: "2fr 1.5fr 1fr 1fr",
+    gridTemplateColumns: "2fr 1.5fr 1fr",
     gap: 16,
     padding: "12px 16px",
     backgroundColor: "#f3f4f6",
@@ -6168,7 +6162,7 @@ const styles = {
   },
   estimateRow: {
     display: "grid",
-    gridTemplateColumns: "2fr 1.5fr 1fr 1fr",
+    gridTemplateColumns: "2fr 1.5fr 1fr",
     gap: 16,
     padding: "12px 16px",
     borderBottom: "1px solid #e5e7eb",
