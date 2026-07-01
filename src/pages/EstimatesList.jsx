@@ -4,6 +4,221 @@ import { useAuth } from "../contexts/AuthContext";
 import { supabase } from "../lib/supabase";
 import { notify, confirmDialog } from '../lib/notify';
 
+// ── EstimateRows: renders one estimate row + any nested proposal rows ────────
+function EstimateRows({
+  estimate, nestedProposals, navigate, handleDelete,
+  setViewModalEstimate, loadEstimates, formatDate, formatCurrency, styles,
+}) {
+  return (
+    <>
+      {/* ── Main row (estimate / change-order / orphaned proposal) ── */}
+      <tr
+        style={styles.tableRow}
+        onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f9fafb'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+      >
+        <td style={styles.td}>
+          <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
+            {estimate.type === 'proposal' ? (
+              <span style={{...styles.badge, backgroundColor: '#10b981'}}>PROPOSAL</span>
+            ) : estimate.type === 'change_order' ? (
+              <span style={{...styles.badge, backgroundColor: '#f59e0b'}}>CHANGE ORDER</span>
+            ) : estimate.type === 'bid' ? (
+              <span style={{...styles.badge, backgroundColor: '#6366f1'}}>BID</span>
+            ) : (
+              <span style={{...styles.badge, backgroundColor: '#fc6b04'}}>ESTIMATE</span>
+            )}
+            <span style={styles.estimateNumber}>
+              {estimate.estimate_number
+                ? estimate.estimate_number.replace('EST-', '').replace('PROP-', '').replace(/^26-/, '')
+                : 'N/A'}
+            </span>
+            {/* Show proposal count badge on the estimate row */}
+            {nestedProposals.length > 0 && (
+              <span style={{
+                fontSize: 11, fontWeight: 700, backgroundColor: '#dcfce7', color: '#065f46',
+                borderRadius: 20, padding: '2px 8px', whiteSpace: 'nowrap',
+              }}>
+                {nestedProposals.length} proposal{nestedProposals.length !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+        </td>
+        <td style={styles.td}>
+          <div style={{...styles.singleLineText, textAlign: 'center'}}>
+            {estimate.type === 'proposal'
+              ? (estimate.contractor_name || 'N/A')
+              : (estimate.customer_name || 'N/A')}
+          </div>
+        </td>
+        <td style={styles.td}>
+          <div style={{...styles.singleLineText, textAlign: 'center'}}>
+            {estimate.projects
+              ? estimate.projects.name
+              : (estimate.project_name || estimate.description || 'N/A')}
+          </div>
+        </td>
+        <td style={{...styles.td, textAlign: 'right'}}>
+          <span style={styles.total}>{formatCurrency(estimate.total)}</span>
+        </td>
+        <td style={{...styles.td, textAlign: 'center'}}>
+          <span style={styles.date}>{formatDate(estimate.estimate_date || estimate.created_at)}</span>
+        </td>
+        <td style={{...styles.td, textAlign: 'center'}}>
+          <div style={styles.actions}>
+            {estimate.type === 'proposal' ? (
+              <>
+                <button
+                  onClick={() => navigate(`/proposal/commercial-public?proposalId=${estimate.id}`)}
+                  style={{...styles.actionButton, ...styles.viewButton}}
+                >
+                  View
+                </button>
+                <button
+                  onClick={() => handleDelete(estimate)}
+                  style={{...styles.actionButton, ...styles.deleteButton}}
+                >
+                  Delete
+                </button>
+              </>
+            ) : estimate.type === 'change_order' ? (
+              <>
+                <button
+                  onClick={() => navigate(`/estimate/quick?coId=${estimate.id}&type=changeorder`)}
+                  style={{...styles.actionButton, ...styles.editButton}}
+                  title="Edit change order"
+                >
+                  ✏️
+                </button>
+                <button
+                  onClick={async () => {
+                    if (await confirmDialog(`Delete change order ${estimate.estimate_number}? This cannot be undone.`)) {
+                      try {
+                        await supabase.from("estimate_items").delete().eq("change_order_id", estimate.id);
+                        const { error } = await supabase.from("change_orders").delete().eq("id", estimate.id);
+                        if (error) throw error;
+                        notify('Change order deleted successfully!');
+                        loadEstimates();
+                      } catch (err) {
+                        console.error("Error deleting change order:", err);
+                        notify("Failed to delete change order: " + err.message);
+                      }
+                    }
+                  }}
+                  style={{...styles.actionButton, ...styles.deleteButton}}
+                >
+                  🗑️
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => navigate(`/estimate/quick?estimateId=${estimate.id}`)}
+                  style={{...styles.actionButton, ...styles.editButton}}
+                  title="Edit estimate"
+                >
+                  ✏️
+                </button>
+                <button
+                  onClick={() => setViewModalEstimate(estimate)}
+                  style={{...styles.actionButton, ...styles.viewButton}}
+                  title="Preview estimate"
+                >
+                  👁️
+                </button>
+                <button
+                  onClick={() => window.open(`/estimate/quick/view?estimateId=${estimate.id}&print=true`, '_blank')}
+                  style={{...styles.actionButton, ...styles.printActionButton}}
+                  title="Print estimate"
+                >
+                  🖨️
+                </button>
+                <button
+                  onClick={() => handleDelete(estimate)}
+                  style={{...styles.actionButton, ...styles.deleteButton}}
+                >
+                  🗑️
+                </button>
+              </>
+            )}
+          </div>
+        </td>
+      </tr>
+
+      {/* ── Nested proposal rows (indented under parent estimate) ── */}
+      {nestedProposals.map((proposal) => (
+        <tr
+          key={proposal.id}
+          style={{borderBottom: '1px solid #d1fae5', backgroundColor: '#f0fdf4', borderLeft: '4px solid #10b981'}}
+          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#dcfce7'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#f0fdf4'; }}
+        >
+          {/* Indent with └─ arrow */}
+          <td style={{...styles.td, paddingLeft: 36}}>
+            <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
+              <span style={{color: '#9ca3af', fontSize: 15, lineHeight: 1, flexShrink: 0}}>└─</span>
+              <span style={{...styles.badge, backgroundColor: '#10b981', fontSize: 10}}>PROPOSAL</span>
+              <span style={{fontWeight: 600, color: '#065f46', fontSize: 14}}>
+                {(proposal.proposal_number || proposal.estimate_number || '—')
+                  .replace('EST-', '').replace('PROP-', '')}
+              </span>
+            </div>
+          </td>
+          <td style={styles.td}>
+            <div style={{...styles.singleLineText, textAlign: 'center', fontSize: 13, color: '#065f46'}}>
+              {proposal.contractor_name || 'N/A'}
+            </div>
+          </td>
+          <td style={styles.td}>
+            <div style={{...styles.singleLineText, textAlign: 'center', fontSize: 13}}>
+              {proposal.project_name || '—'}
+            </div>
+          </td>
+          <td style={{...styles.td, textAlign: 'right'}}>
+            <span style={{...styles.total, fontSize: 15, color: '#059669'}}>
+              {formatCurrency(proposal.total_amount || proposal.total)}
+            </span>
+          </td>
+          <td style={{...styles.td, textAlign: 'center'}}>
+            <span style={{...styles.date, fontSize: 13}}>{formatDate(proposal.created_at)}</span>
+          </td>
+          <td style={{...styles.td, textAlign: 'center'}}>
+            <div style={styles.actions}>
+              <button
+                onClick={() => navigate(`/proposal/commercial-public?proposalId=${proposal.id}`)}
+                style={{...styles.actionButton, ...styles.viewButton, fontSize: 11}}
+                title="View / edit proposal"
+              >
+                📄 View
+              </button>
+              <button
+                onClick={() => {
+                  if (proposal.project_id) {
+                    navigate(`/project/${proposal.project_id}/progress-billing?proposalId=${proposal.id}`);
+                  } else {
+                    notify('This proposal is not linked to a project. Open the project to create a progress invoice.');
+                  }
+                }}
+                style={{...styles.actionButton, backgroundColor: '#8b5cf6', color: '#fff', fontSize: 11}}
+                title="Create progress invoice"
+              >
+                📊 Progress
+              </button>
+              <button
+                onClick={() => handleDelete(proposal)}
+                style={{...styles.actionButton, ...styles.deleteButton, fontSize: 11}}
+                title="Delete proposal"
+              >
+                🗑️
+              </button>
+            </div>
+          </td>
+        </tr>
+      ))}
+    </>
+  );
+}
+
 export default function EstimatesList() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -450,140 +665,46 @@ export default function EstimatesList() {
               </tr>
             </thead>
             <tbody>
-              {filteredEstimates.map(estimate => (
-                <tr 
-                  key={estimate.id} 
-                  style={styles.tableRow}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f9fafb'}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                >
-                  <td style={styles.td}>
-                    <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
-                      {estimate.type === 'proposal' ? (
-                        <span style={{...styles.badge, backgroundColor: '#10b981'}}>PROPOSAL</span>
-                      ) : estimate.type === 'change_order' ? (
-                        <span style={{...styles.badge, backgroundColor: '#f59e0b'}}>CHANGE ORDER</span>
-                      ) : estimate.type === 'bid' ? (
-                        <span style={{...styles.badge, backgroundColor: '#6366f1'}}>BID</span>
-                      ) : (
-                        <span style={{...styles.badge, backgroundColor: '#fc6b04'}}>ESTIMATE</span>
-                      )}
-                      <span style={styles.estimateNumber}>
-                        {estimate.estimate_number ? 
-                          estimate.estimate_number.replace('EST-', '').replace('PROP-', '').replace(/^26-/, '') 
-                          : 'N/A'}
-                      </span>
-                    </div>
-                  </td>
-                  <td style={styles.td}>
-                    <div style={{...styles.singleLineText, textAlign: 'center'}}>
-                      {estimate.type === 'proposal' ? (estimate.contractor_name || 'N/A') : (estimate.customer_name || 'N/A')}
-                    </div>
-                  </td>
-                  <td style={styles.td}>
-                    <div style={{...styles.singleLineText, textAlign: 'center'}}>
-                      {estimate.projects ? estimate.projects.name : (estimate.project_name || estimate.description || 'N/A')}
-                    </div>
-                  </td>
-                  <td style={{...styles.td, textAlign: 'right'}}>
-                    <span style={styles.total}>{formatCurrency(estimate.total)}</span>
-                  </td>
-                  <td style={{...styles.td, textAlign: 'center'}}>
-                    <span style={styles.date}>{formatDate(estimate.estimate_date || estimate.created_at)}</span>
-                  </td>
-                  <td style={{...styles.td, textAlign: 'center'}}>
-                    <div style={styles.actions}>
-                      {estimate.type === 'proposal' ? (
-                        <>
-                          <button
-                            onClick={() => navigate(`/proposal/commercial-public?proposalId=${estimate.id}`)}
-                            style={{...styles.actionButton, ...styles.viewButton}}
-                          >
-                            View
-                          </button>
-                          <button
-                            onClick={() => handleDelete(estimate)}
-                            style={{...styles.actionButton, ...styles.deleteButton}}
-                          >
-                            Delete
-                          </button>
-                        </>
-                      ) : estimate.type === 'change_order' ? (
-                        <>
-                          <button
-                            onClick={() => navigate(`/estimate/quick?coId=${estimate.id}&type=changeorder`)}
-                            style={{...styles.actionButton, ...styles.editButton}}
-                            title="Edit change order"
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            onClick={async () => {
-                              if (await confirmDialog(`Delete change order ${estimate.estimate_number}? This cannot be undone.`)) {
-                                try {
-                                  // Delete change order items first
-                                  await supabase
-                                    .from("estimate_items")
-                                    .delete()
-                                    .eq("change_order_id", estimate.id);
-                                  
-                                  // Then delete the change order
-                                  const { error } = await supabase
-                                    .from("change_orders")
-                                    .delete()
-                                    .eq("id", estimate.id);
-                                  
-                                  if (error) throw error;
-                                  
-                                  notify('Change order deleted successfully!');
-                                  loadEstimates(); // Reload the list
-                                } catch (err) {
-                                  console.error("Error deleting change order:", err);
-                                  notify("Failed to delete change order: " + err.message);
-                                }
-                              }
-                            }}
-                            style={{...styles.actionButton, ...styles.deleteButton}}
-                          >
-                            🗑️
-                          </button>
-                        </>
-                      ) : (
-                        // All quick estimates (with or without project) — same actions
-                        <>
-                          <button
-                            onClick={() => navigate(`/estimate/quick?estimateId=${estimate.id}`)}
-                            style={{...styles.actionButton, ...styles.editButton}}
-                            title="Edit estimate"
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            onClick={() => setViewModalEstimate(estimate)}
-                            style={{...styles.actionButton, ...styles.viewButton}}
-                            title="Preview estimate"
-                          >
-                            👁️
-                          </button>
-                          <button
-                            onClick={() => window.open(`/estimate/quick/view?estimateId=${estimate.id}&print=true`, '_blank')}
-                            style={{...styles.actionButton, ...styles.printActionButton}}
-                            title="Print estimate"
-                          >
-                            🖨️
-                          </button>
-                          <button
-                            onClick={() => handleDelete(estimate)}
-                            style={{...styles.actionButton, ...styles.deleteButton}}
-                          >
-                            🗑️
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {(() => {
+                // ── Build a lookup map: parent estimate id → proposals[] ──────────
+                // Only used when filterType is "all" (proposals are present in the list)
+                const proposalsByEstimateId = {};
+                filteredEstimates.forEach(item => {
+                  if (item.type === 'proposal' && item.base_estimate_id) {
+                    if (!proposalsByEstimateId[item.base_estimate_id]) {
+                      proposalsByEstimateId[item.base_estimate_id] = [];
+                    }
+                    proposalsByEstimateId[item.base_estimate_id].push(item);
+                  }
+                });
+
+                // ── Top-level items: estimates/change-orders + orphaned proposals ─
+                // A proposal is "orphaned" (top-level) when its parent estimate is
+                // not present in the current filtered list.
+                const parentEstimateIds = new Set(
+                  filteredEstimates.filter(i => i.type !== 'proposal').map(i => i.id)
+                );
+                const topLevelItems = filteredEstimates.filter(item => {
+                  if (item.type !== 'proposal') return true;
+                  // Proposal is top-level only when parent is not visible
+                  return !item.base_estimate_id || !parentEstimateIds.has(item.base_estimate_id);
+                });
+
+                return topLevelItems.map(estimate => (
+                  <EstimateRows
+                    key={estimate.id}
+                    estimate={estimate}
+                    nestedProposals={proposalsByEstimateId[estimate.id] || []}
+                    navigate={navigate}
+                    handleDelete={handleDelete}
+                    setViewModalEstimate={setViewModalEstimate}
+                    loadEstimates={loadEstimates}
+                    formatDate={formatDate}
+                    formatCurrency={formatCurrency}
+                    styles={styles}
+                  />
+                ));
+              })()}
             </tbody>
           </table>
         </div>
