@@ -3134,9 +3134,10 @@ async function handleAddContractor() {
 
             <div style={styles.table}>
               {/* Header */}
-              <div style={{display:'grid', gridTemplateColumns:'120px 1fr 1fr 130px 120px', borderBottom: '2px solid #e5e7eb', paddingBottom: 8, marginBottom: 4}}>
+              <div style={{display:'grid', gridTemplateColumns:'150px 120px 1fr 1fr 130px 120px', borderBottom: '2px solid #e5e7eb', paddingBottom: 8, marginBottom: 4}}>
                 <div style={styles.th}>Status</div>
-                <div style={styles.th}>Proposal # / Based On</div>
+                <div style={styles.th}>Proposal #</div>
+                <div style={styles.th}>Based On</div>
                 <div style={styles.th}>Contractor</div>
                 <div style={styles.th}>Amount</div>
                 <div style={styles.th}>Actions</div>
@@ -3152,7 +3153,7 @@ async function handleAddContractor() {
                       key={proposal.id}
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: '120px 1fr 1fr 130px 120px',
+                        gridTemplateColumns: '150px 120px 1fr 1fr 130px 120px',
                         alignItems: 'center',
                         padding: '14px 12px',
                         backgroundColor: isWinner ? '#f0fdf4' : '#fff',
@@ -3162,25 +3163,65 @@ async function handleAddContractor() {
                         marginBottom: isWinner ? 4 : 0,
                       }}
                     >
+                      {/* STATUS — editable dropdown */}
                       <div style={styles.td}>
-                        <span style={{
-                          ...styles.badge,
-                          backgroundColor: proposal.status === 'approved' ? '#10b981'
-                            : proposal.status === 'sent' ? '#3b82f6' : '#f59e0b',
-                        }}>
-                          {proposal.status || 'draft'}
-                        </span>
-                        {isWinner && <span style={{...styles.badge, backgroundColor: '#059669', marginLeft: 6}}>⭐</span>}
-                      </div>
-                      <div style={styles.td}>
-                        {proposal.proposal_number && (
-                          <div style={{fontWeight: '700', color: '#0b3ea8', fontSize: 14}}>
-                            Proposal #{proposal.proposal_number.replace(/^\d{2}-/, '').replace('PROP-', '')}
-                          </div>
-                        )}
-                        <div style={{fontSize: 12, color: '#666', marginTop: proposal.proposal_number ? 2 : 0}}>
-                          Based on Estimate #{linkedEstimate?.estimate_number || estimateId.slice(0, 8)}
+                        <div style={{display:'flex', alignItems:'center', gap:4, flexWrap:'wrap'}}>
+                          <select
+                            value={proposal.status || 'draft'}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={async (e) => {
+                              const newStatus = e.target.value;
+                              try {
+                                const { error } = await supabase
+                                  .from('proposals')
+                                  .update({ status: newStatus })
+                                  .eq('id', proposal.id);
+                                if (error) throw error;
+                                loadProjectData();
+                              } catch (err) {
+                                console.error('Error updating proposal status:', err);
+                                notify('Failed to update status: ' + err.message);
+                              }
+                            }}
+                            style={{
+                              padding: '4px 8px', fontSize: 12, fontWeight: 700,
+                              border: '2px solid #d1d5db', borderRadius: 6, cursor: 'pointer',
+                              backgroundColor:
+                                proposal.status === 'approved' ? '#d1fae5' :
+                                proposal.status === 'sent' ? '#dbeafe' :
+                                proposal.status === 'not_approved' || proposal.status === 'rejected' ? '#fee2e2' :
+                                '#fef3c7',
+                              color:
+                                proposal.status === 'approved' ? '#065f46' :
+                                proposal.status === 'sent' ? '#1e40af' :
+                                proposal.status === 'not_approved' || proposal.status === 'rejected' ? '#991b1b' :
+                                '#92400e',
+                            }}
+                          >
+                            <option value="draft">Draft</option>
+                            <option value="sent">Sent</option>
+                            <option value="approved">Approved</option>
+                            <option value="not_approved">Not Approved</option>
+                            <option value="rejected">Rejected</option>
+                            <option value="won">Won</option>
+                            <option value="lost">Lost</option>
+                          </select>
+                          {isWinner && <span style={{fontSize: 14}}>⭐</span>}
                         </div>
+                      </div>
+                      {/* PROPOSAL # */}
+                      <div style={styles.td}>
+                        {proposal.proposal_number ? (
+                          <span style={{fontWeight: '700', color: '#0b3ea8', fontSize: 14}}>
+                            #{proposal.proposal_number.replace(/^\d{2}-/, '').replace('PROP-', '')}
+                          </span>
+                        ) : <span style={{color:'#aaa'}}>—</span>}
+                      </div>
+                      {/* BASED ON */}
+                      <div style={styles.td}>
+                        <span style={{fontSize: 13, color: '#555'}}>
+                          Estimate #{linkedEstimate?.estimate_number || estimateId.slice(0, 8)}
+                        </span>
                       </div>
                       <div style={styles.td}>{proposal.contractor_name || '—'}</div>
                       <div style={styles.td}><strong>${(proposal.total_amount || 0).toFixed(2)}</strong></div>
