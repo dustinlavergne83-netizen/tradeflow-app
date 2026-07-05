@@ -518,6 +518,9 @@ export default function BankTransactions() {
 
   // Score a bank deposit against an individual invoice_payment record.
   // Uses net_amount (after fee) first — this is what actually hits the bank.
+  // NOTE: No hard date rejection here — invoice payments are often recorded weeks
+  // before or after the deposit clears. The specific after-fee amount (e.g. $294.75)
+  // is distinctive enough that amount-only matching is reliable.
   function scoreInvoicePaymentMatch(transaction, payment) {
     if (transaction.amount < 0) return 0; // only for deposits
     const txAmount = Math.abs(parseFloat(transaction.amount) || 0);
@@ -530,16 +533,10 @@ export default function BankTransactions() {
           : parseFloat(payment.amount) || 0);
 
     const diff = Math.abs(pmtNet - txAmount);
-    let score = 0;
-    if      (diff < 0.01)  score += 50;
-    else if (diff <= 0.02) score += 30;
-    else return 0;
-
-    const datePts = dateProximityScore(transaction.transaction_date, payment.payment_date, 14);
-    if (datePts === null) return 0;
-    score += datePts;
-
-    return score;
+    // Amount match alone is sufficient for individual payment records
+    if (diff < 0.01)   return 100; // exact → guaranteed above MIN_MATCH_SCORE
+    if (diff <= 0.02)  return 80;  // rounding → still passes
+    return 0;
   }
 
   function getMatchingInvoicePayments(transaction) {
