@@ -1,6 +1,6 @@
-import { useNavigate, useLocation } from "react-router-dom";
-import { useAuth } from "../contexts/AuthContext";
+import { useLocation, useNavigate } from "react-router-dom";
 import logo from "../assets/LOGOD.jpg";
+import { useAuth } from "../contexts/AuthContext";
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -82,6 +82,13 @@ export default function DesktopHeader({ title: propTitle }) {
                 {isAdmin && <span style={styles.adminBadge}>ADMIN</span>}
               </>
             )}
+            <button
+              onClick={() => window.open("https://tradeflowllc.com/hub", "_self")}
+              style={styles.switchButton}
+              title="Go back to Hub to switch between DML and TradeFlow"
+            >
+              🔀 Switch Company
+            </button>
             <button
               onClick={() => window.open("/", "_blank")}
               style={styles.websiteButton}
@@ -191,6 +198,16 @@ const styles = {
     fontSize: 11,
     fontWeight: 700,
     letterSpacing: 0.5,
+  },
+  switchButton: {
+    padding: "7px 14px",
+    backgroundColor: "#fc6b04",
+    border: "none",
+    color: "#fff",
+    borderRadius: 6,
+    cursor: "pointer",
+    fontSize: 13,
+    fontWeight: 700,
   },
   websiteButton: {
     padding: "7px 14px",
