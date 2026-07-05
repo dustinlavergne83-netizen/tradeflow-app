@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useAuth } from "../contexts/AuthContext";
 import { supabase } from "../lib/supabase";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { formatDate, toLocalDateString } from "../utils/dateUtils";
-import AIAssistant from "../Components/AIAssistant";
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -682,9 +681,6 @@ export default function Home() {
   return (
     <div style={styles.pageWrapper}>
       <div style={styles.container}>
-        {/* AI Assistant - One button to rule them all */}
-        <AIAssistant />
-
         {/* Revenue & Profit Stats */}
         <div style={styles.statsGrid}>
           <StatCard
