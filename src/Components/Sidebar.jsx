@@ -61,42 +61,14 @@ export default function Sidebar({ onNavigate }) {
 
       {/* Communications — visible to admin and supervisors */}
       {isSupervisor && (
-        <NavLink
-          to="/communications"
-          style={({ isActive }) => ({
-            display: "block",
-            padding: "12px 14px",
-            color: "white",
-            textDecoration: "none",
-            fontWeight: isActive ? 800 : 600,
-            background: isActive ? "rgba(34,197,94,0.25)" : "rgba(34,197,94,0.1)",
-            borderRadius: 10,
-            marginBottom: 6,
-            border: "1px solid rgba(34,197,94,0.3)",
-          })}
-          onClick={() => onNavigate?.()}
-        >
+        <NavLink to="/communications" style={linkStyle} onClick={() => onNavigate?.()}>
           💬 Communications
         </NavLink>
       )}
 
       {/* Website Manager — visible to admin and supervisors */}
       {isSupervisor && (
-        <NavLink
-          to="/website-manager"
-          style={({ isActive }) => ({
-            display: "block",
-            padding: "12px 14px",
-            color: "white",
-            textDecoration: "none",
-            fontWeight: isActive ? 800 : 600,
-            background: isActive ? "rgba(252,107,4,0.25)" : "rgba(252,107,4,0.1)",
-            borderRadius: 10,
-            marginBottom: 6,
-            border: "1px solid rgba(252,107,4,0.3)",
-          })}
-          onClick={() => onNavigate?.()}
-        >
+        <NavLink to="/website-manager" style={linkStyle} onClick={() => onNavigate?.()}>
           🌐 Website Manager
         </NavLink>
       )}
@@ -104,28 +76,6 @@ export default function Sidebar({ onNavigate }) {
       {isAdmin && (
         <NavLink to="/admin" style={linkStyle} onClick={() => onNavigate?.()}>
           Admin
-        </NavLink>
-      )}
-
-      {/* Super Admin — platform owner only */}
-      {employee?.is_super_admin && (
-        <NavLink
-          to="/super-admin"
-          style={({ isActive }) => ({
-            display: "block",
-            padding: "12px 14px",
-            color: "white",
-            textDecoration: "none",
-            fontWeight: isActive ? 800 : 600,
-            background: isActive ? "rgba(139,92,246,0.35)" : "rgba(139,92,246,0.15)",
-            borderRadius: 10,
-            marginBottom: 6,
-            marginTop: 8,
-            border: "1px solid rgba(139,92,246,0.4)",
-          })}
-          onClick={() => onNavigate?.()}
-        >
-          🛡️ Super Admin
         </NavLink>
       )}
     </div>
