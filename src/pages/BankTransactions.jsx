@@ -1,11 +1,11 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { supabase } from "../lib/supabase";
-import { useAuth } from "../contexts/AuthContext";
 import BankStatementUpload from "../Components/BankStatementUpload";
-import { createBankTransactionJournalEntry, getNextJournalEntryNumber } from "../utils/accountingJournals";
+import { useAuth } from "../contexts/AuthContext";
+import { confirmDialog, notify } from '../lib/notify';
+import { supabase } from "../lib/supabase";
+import { getNextJournalEntryNumber } from "../utils/accountingJournals";
 import { getTodayLocalDate } from "../utils/dateUtils";
-import { notify, confirmDialog } from '../lib/notify';
 
 export default function BankTransactions() {
   const navigate = useNavigate();
@@ -516,6 +516,40 @@ export default function BankTransactions() {
 
   const MIN_MATCH_SCORE = 70;
 
+  // Score a bank deposit against an individual invoice_payment record.
+  // Uses net_amount (after fee) first — this is what actually hits the bank.
+  function scoreInvoicePaymentMatch(transaction, payment) {
+    if (transaction.amount < 0) return 0; // only for deposits
+    const txAmount = Math.abs(parseFloat(transaction.amount) || 0);
+
+    // Priority: net_amount → amount-fee → amount
+    const pmtNet = (payment.net_amount != null && parseFloat(payment.net_amount) > 0)
+      ? parseFloat(payment.net_amount)
+      : (parseFloat(payment.processing_fee || 0) > 0
+          ? (parseFloat(payment.amount) || 0) - parseFloat(payment.processing_fee)
+          : parseFloat(payment.amount) || 0);
+
+    const diff = Math.abs(pmtNet - txAmount);
+    let score = 0;
+    if      (diff < 0.01)  score += 50;
+    else if (diff <= 0.02) score += 30;
+    else return 0;
+
+    const datePts = dateProximityScore(transaction.transaction_date, payment.payment_date, 14);
+    if (datePts === null) return 0;
+    score += datePts;
+
+    return score;
+  }
+
+  function getMatchingInvoicePayments(transaction) {
+    if (!transaction || transaction.amount < 0) return [];
+    return invoicePayments
+      .map(pmt => ({ ...pmt, _score: scoreInvoicePaymentMatch(transaction, pmt) }))
+      .filter(pmt => pmt._score >= MIN_MATCH_SCORE)
+      .sort((a, b) => b._score - a._score);
+  }
+
   function getMatchingExpenses(transaction) {
     return expenses
       .map(exp => ({ ...exp, _score: scoreExpenseMatch(transaction, exp) }))
@@ -531,7 +565,7 @@ export default function BankTransactions() {
   }
 
   function getMatchCount(transaction) {
-    return getMatchingExpenses(transaction).length + getMatchingInvoices(transaction).length;
+    return getMatchingExpenses(transaction).length + getMatchingInvoices(transaction).length + getMatchingInvoicePayments(transaction).length;
   }
 
   function applyFilters() {
@@ -727,6 +761,45 @@ export default function BankTransactions() {
         // Remind user to refresh Chart of Accounts
         if (!bulkMode) notify('✅ Transaction uncleared! \n\n⚠️ IMPORTANT: Please go to Chart of Accounts > "Refresh Balances" to update the book values.');
       }
+
+        // ── AUTO-MATCH: Check if this deposit was already recorded via invoice_payments ──
+        // If a matching payment record exists (net_amount after fees), just link the bank
+        // transaction to that invoice and skip JE creation — prevents double-counting.
+        if (newClearedStatus && !transaction.linked_invoice_id && !transaction.linked_expense_id && transaction.amount > 0) {
+          const txAmt = Math.abs(parseFloat(transaction.amount) || 0);
+          const txDate = transaction.transaction_date;
+
+          const matchingPayment = invoicePayments.find(pmt => {
+            // Use net_amount (after fee) first, then calculated net, then gross
+            const pmtNet = (pmt.net_amount != null && parseFloat(pmt.net_amount) > 0)
+              ? parseFloat(pmt.net_amount)
+              : (parseFloat(pmt.processing_fee || 0) > 0
+                  ? (parseFloat(pmt.amount) || 0) - parseFloat(pmt.processing_fee)
+                  : parseFloat(pmt.amount) || 0);
+
+            if (Math.abs(pmtNet - txAmt) > 0.02) return false;
+
+            if (!pmt.payment_date) return false;
+            const pDate = new Date(pmt.payment_date.includes('T') ? pmt.payment_date : pmt.payment_date + 'T00:00:00');
+            const tDate = new Date(txDate.includes('T') ? txDate : txDate + 'T00:00:00');
+            return Math.abs((pDate - tDate) / 86400000) <= 7;
+          });
+
+          if (matchingPayment) {
+            // Link the bank transaction to the invoice so future clears also skip JE creation
+            await supabase
+              .from('bank_transactions')
+              .update({ linked_invoice_id: matchingPayment.invoice_id })
+              .eq('id', transaction.id);
+
+            console.log('✅ Deposit auto-matched to existing invoice payment — no duplicate JE created');
+            if (!bulkMode) {
+              notify('✅ Cleared! This deposit matched an existing invoice payment record — no duplicate journal entry was created.');
+              await loadData();
+            }
+            return;
+          }
+        }
 
         // IMPORTANT: Always create a journal entry for CLEARED transactions
         // This ensures all cleared transactions are recorded in the ledger
