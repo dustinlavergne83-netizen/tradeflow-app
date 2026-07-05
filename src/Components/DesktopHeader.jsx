@@ -83,7 +83,7 @@ export default function DesktopHeader({ title: propTitle }) {
               </>
             )}
             <button
-              onClick={() => window.open("https://tradeflowllc.com/hub", "_self")}
+              onClick={() => window.open("https://app.tradeflowllc.com/hub", "_self")}
               style={styles.switchButton}
               title="Go back to Hub to switch between DML and TradeFlow"
             >
