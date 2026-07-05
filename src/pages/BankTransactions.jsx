@@ -1451,7 +1451,10 @@ export default function BankTransactions() {
   const reviewInvMatches = currentReviewTx
     ? getMatchingInvoices(currentReviewTx).map(i => ({...i, _type: 'invoice'}))
     : [];
-  const reviewCandidates = [...reviewExpMatches, ...reviewInvMatches];
+  const reviewPmtMatches = currentReviewTx
+    ? getMatchingInvoicePayments(currentReviewTx).map(p => ({...p, _type: 'payment'}))
+    : [];
+  const reviewCandidates = [...reviewExpMatches, ...reviewInvMatches, ...reviewPmtMatches];
   const safeCandIdx = Math.min(matchCandidateIndex, Math.max(0, reviewCandidates.length - 1));
   const currentCandidate = reviewCandidates[safeCandIdx] || null;
 
@@ -1460,6 +1463,9 @@ export default function BankTransactions() {
     if (!currentReviewTx || !currentCandidate) return;
     if (currentCandidate._type === 'expense') {
       await handleLinkExpense(currentReviewTx.id, currentCandidate.id);
+    } else if (currentCandidate._type === 'payment') {
+      // Link bank transaction to the invoice this payment belongs to
+      await handleLinkInvoice(currentReviewTx.id, currentCandidate.invoice_id);
     } else {
       await handleLinkInvoice(currentReviewTx.id, currentCandidate.id);
     }
@@ -1482,7 +1488,13 @@ export default function BankTransactions() {
         Math.abs(currentReviewTx.amount) -
         Math.abs(currentCandidate._type === 'expense'
           ? (currentCandidate.amount || 0)
-          : (currentCandidate.net_deposit_amount || currentCandidate.total_amount || 0))
+          : currentCandidate._type === 'payment'
+            ? ((currentCandidate.net_amount != null && parseFloat(currentCandidate.net_amount) > 0)
+                ? parseFloat(currentCandidate.net_amount)
+                : (parseFloat(currentCandidate.processing_fee || 0) > 0
+                    ? (parseFloat(currentCandidate.amount) || 0) - parseFloat(currentCandidate.processing_fee)
+                    : parseFloat(currentCandidate.amount) || 0))
+            : (currentCandidate.net_deposit_amount || currentCandidate.total_amount || 0))
       )
     : 0;
   const isExactReviewMatch = reviewAmountDiff < 0.01;
@@ -2248,12 +2260,50 @@ export default function BankTransactions() {
                 <div style={styles.matchReviewCard}>
                   <div style={{
                     ...styles.matchReviewCardHeader,
-                    backgroundColor: currentCandidate._type === 'expense' ? '#dc2626' : '#059669'
+                    backgroundColor: currentCandidate._type === 'expense' ? '#dc2626' : currentCandidate._type === 'payment' ? '#7c3aed' : '#059669'
                   }}>
-                    {currentCandidate._type === 'expense' ? '💸 Expense Record' : '📄 Invoice Record'}
+                    {currentCandidate._type === 'expense' ? '💸 Expense Record' : currentCandidate._type === 'payment' ? '💳 Invoice Payment Record' : '📄 Invoice Record'}
                   </div>
                   <div style={styles.matchReviewCardBody}>
-                    {currentCandidate._type === 'expense' ? (
+                    {currentCandidate._type === 'payment' ? (
+                      <>
+                        <div style={styles.matchReviewField}>
+                          <span style={styles.matchReviewLabel}>Type</span>
+                          <span style={{...styles.matchReviewValue, color: '#7c3aed', fontWeight: 700}}>💳 Invoice Payment (already in books)</span>
+                        </div>
+                        <div style={styles.matchReviewField}>
+                          <span style={styles.matchReviewLabel}>Gross Amount</span>
+                          <span style={{...styles.matchReviewValue, fontSize: 18, fontWeight: 700, color: '#10b981'}}>
+                            {formatCurrency(currentCandidate.amount)}
+                          </span>
+                        </div>
+                        {currentCandidate.processing_fee > 0 && (
+                          <div style={styles.matchReviewField}>
+                            <span style={styles.matchReviewLabel}>Processing Fee</span>
+                            <span style={{...styles.matchReviewValue, color: '#ef4444'}}>-{formatCurrency(currentCandidate.processing_fee)}</span>
+                          </div>
+                        )}
+                        <div style={styles.matchReviewField}>
+                          <span style={styles.matchReviewLabel}>Net Deposited</span>
+                          <span style={{...styles.matchReviewValue, fontSize: 22, fontWeight: 700, color: '#10b981'}}>
+                            {formatCurrency(
+                              currentCandidate.net_amount != null && parseFloat(currentCandidate.net_amount) > 0
+                                ? currentCandidate.net_amount
+                                : parseFloat(currentCandidate.processing_fee || 0) > 0
+                                  ? (parseFloat(currentCandidate.amount) || 0) - parseFloat(currentCandidate.processing_fee)
+                                  : currentCandidate.amount
+                            )}
+                          </span>
+                        </div>
+                        <div style={styles.matchReviewField}>
+                          <span style={styles.matchReviewLabel}>Payment Date</span>
+                          <span style={styles.matchReviewValue}>{formatDate(currentCandidate.payment_date)}</span>
+                        </div>
+                        <div style={{marginTop: 8, padding: '10px 12px', backgroundColor: '#f3e8ff', borderRadius: 6, fontSize: 12, color: '#6b21a8'}}>
+                          ⚠️ Confirming this match will link the bank deposit to the invoice without creating a duplicate journal entry.
+                        </div>
+                      </>
+                    ) : currentCandidate._type === 'expense' ? (
                       <>
                         <div style={styles.matchReviewField}>
                           <span style={styles.matchReviewLabel}>Vendor</span>
