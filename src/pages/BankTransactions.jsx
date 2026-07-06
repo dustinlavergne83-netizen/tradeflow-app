@@ -1289,6 +1289,58 @@ export default function BankTransactions() {
     return balances;
   }
 
+  async function handleClearCategorized() {
+    // Find all uncleared transactions that have a category OR are linked
+    const eligible = transactions.filter(t =>
+      !t.is_cleared && (t.category || t.linked_invoice_id || t.linked_expense_id)
+    );
+    if (eligible.length === 0) {
+      notify('No uncleared transactions with a category assigned.');
+      return;
+    }
+    if (!await confirmDialog(`Auto-clear ${eligible.length} transaction${eligible.length !== 1 ? 's' : ''} that have a category selected?`)) return;
+
+    setIsClearing(true);
+    setBulkStatusMsg(`⏳ Auto-clearing ${eligible.length} categorized transactions…`);
+    let successCount = 0;
+    let errorCount = 0;
+
+    try {
+      for (const transaction of eligible) {
+        try {
+          await handleToggleCleared(transaction, true);
+          successCount++;
+        } catch (err) {
+          console.error(`Error clearing transaction ${transaction.id}:`, err);
+          errorCount++;
+        }
+      }
+
+      if (successCount > 0) {
+        try {
+          const { data: clearedTxns } = await supabase
+            .from('bank_transactions').select('amount')
+            .eq('bank_account_id', accountId).eq('is_cleared', true);
+          const freshSum = (clearedTxns || []).reduce((sum, t) => sum + t.amount, 0);
+          const freshBalance = (bankAccount?.opening_balance || 0) + freshSum;
+          setBankAccount(prev => prev ? {...prev, current_balance: freshBalance} : prev);
+          await supabase.from('bank_accounts').update({ current_balance: freshBalance }).eq('id', accountId);
+        } catch (e) { console.error('Balance recalc error:', e); }
+        await loadData();
+      }
+
+      const msg = `✅ ${successCount} transaction${successCount !== 1 ? 's' : ''} auto-cleared${errorCount > 0 ? ` · ${errorCount} failed` : ''}`;
+      setBulkStatusMsg(msg);
+      setTimeout(() => setBulkStatusMsg(''), 6000);
+    } catch (err) {
+      console.error('Error in auto-clear:', err);
+      setBulkStatusMsg('❌ Error during auto-clear');
+      setTimeout(() => setBulkStatusMsg(''), 6000);
+    } finally {
+      setIsClearing(false);
+    }
+  }
+
   async function handleClearSelected() {
     if (selectedTransactions.size === 0) return;
 
@@ -1559,6 +1611,14 @@ export default function BankTransactions() {
               : selectedClearedTransactions.size > 0
                 ? `🔓 Unclear Selected (${selectedClearedTransactions.size})`
                 : '🔓 Unclear Selected'}
+          </button>
+          <button
+            onClick={handleClearCategorized}
+            disabled={isClearing}
+            style={{...styles.newButton, backgroundColor: '#0ea5e9'}}
+            title="Auto-clear all uncleared transactions that have a category selected"
+          >
+            ⚡ Clear Categorized
           </button>
           <button 
             onClick={async () => {
