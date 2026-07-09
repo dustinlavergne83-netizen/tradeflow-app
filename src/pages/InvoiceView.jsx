@@ -185,17 +185,11 @@ export default function InvoiceView() {
       `}</style>
       <div style={card}>
 
-        {/* Logo */}
-        <div style={{textAlign:"center", marginBottom:16}}>
-          <img src={logoImage} alt="DML Electrical" style={{maxWidth:200, width:"100%", height:"auto"}} />
-          <p style={{fontSize:11, color:"#888", margin:"4px 0 0"}}>
-            (337)288-0395 · info@dmlelectrical.com · Lic# 63147
-          </p>
-        </div>
+        {/* Header: Date (left) | Logo (center) | Invoice # (right) */}
+        <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16}}>
 
-        {/* Invoice # and Date row */}
-        <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6}}>
-          <div>
+          {/* Left — Date / Due */}
+          <div style={{minWidth:110}}>
             <p style={{fontSize:12, color:"#888", margin:0}}>Date</p>
             <p style={{fontSize:14, fontWeight:600, color:"#111", margin:0}}>{fmtDate(invoice.invoice_date)}</p>
             {invoice.due_date && (
@@ -205,10 +199,21 @@ export default function InvoiceView() {
               </>
             )}
           </div>
-          <div style={{textAlign:"right"}}>
+
+          {/* Center — Logo */}
+          <div style={{textAlign:"center", flex:1, padding:"0 12px"}}>
+            <img src={logoImage} alt="DML Electrical" style={{maxWidth:200, width:"100%", height:"auto"}} />
+            <p style={{fontSize:11, color:"#888", margin:"4px 0 0"}}>
+              (337)288-0395 · info@dmlelectrical.com · Lic# 63147
+            </p>
+          </div>
+
+          {/* Right — Invoice # */}
+          <div style={{textAlign:"right", minWidth:110}}>
             <p style={{fontSize:12, color:"#888", margin:0}}>Invoice #</p>
             <p style={{fontSize:18, fontWeight:"bold", color:"#111", margin:0}}>{invoice.invoice_number}</p>
           </div>
+
         </div>
 
         <div style={{borderTop:`3px solid ${ACCENT}`, margin:"12px 0"}} />
