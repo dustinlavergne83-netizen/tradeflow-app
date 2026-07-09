@@ -145,6 +145,29 @@ export default function InvoiceView() {
     }
   }
 
+  // ── Parse progress billing data from notes ────────────────────────────────
+  function parseProgressNotes(notes) {
+    if (!notes || !notes.includes('This draw:')) return null;
+    try {
+      // Description is everything before the first " | "
+      const descMatch  = notes.match(/^([^|]+)\|/);
+      const drawMatch  = notes.match(/This draw: \$([0-9,]+(?:\.[0-9]+)?)\s*\(([0-9.]+)%\s*of\s*\$([0-9,]+(?:\.[0-9]+)?)\)/);
+      const prevMatch  = notes.match(/Previously billed: \$([0-9,]+(?:\.[0-9]+)?)/);
+      const remMatch   = notes.match(/Remaining after this: \$([0-9,]+(?:\.[0-9]+)?)/);
+      const depMatch   = notes.match(/Applied Deposits: \$([0-9,]+(?:\.[0-9]+)?)/);
+      if (!drawMatch) return null;
+      return {
+        description:    descMatch  ? descMatch[1].trim()                        : 'Progress billing',
+        thisDraw:       parseFloat(drawMatch[1].replace(/,/g, '')),
+        pctOfContract:  parseFloat(drawMatch[2]),
+        contractValue:  parseFloat(drawMatch[3].replace(/,/g, '')),
+        prevBilled:     prevMatch  ? parseFloat(prevMatch[1].replace(/,/g, '')) : 0,
+        remaining:      remMatch   ? parseFloat(remMatch[1].replace(/,/g, ''))  : 0,
+        deposits:       depMatch   ? parseFloat(depMatch[1].replace(/,/g, ''))  : 0,
+      };
+    } catch { return null; }
+  }
+
   // ── Helpers ───────────────────────────────────────────────────────────────
   const fmtDate = (d) => {
     if (!d) return "";
@@ -251,32 +274,131 @@ export default function InvoiceView() {
           )}
         </div>
 
-        {/* Line Items Header */}
-        <div style={{
-          display:"flex", justifyContent:"space-between",
-          padding:"6px 0", borderBottom:`2px solid ${ACCENT}`,
-          marginBottom:4
-        }}>
-          <span style={{fontSize:11, fontWeight:"bold", color:"#888", textTransform:"uppercase"}}>Description</span>
-          <span style={{fontSize:11, fontWeight:"bold", color:"#888", textTransform:"uppercase"}}>Amount</span>
-        </div>
+        {/* ── LINE ITEMS — progress invoices get a summary table ────────── */}
+        {(() => {
+          const pb = parseProgressNotes(invoice.notes);
 
-        {/* Line Items */}
-        {items.map((item, i) => (
-          <div key={item.id} style={{
-            display:"flex", justifyContent:"space-between", alignItems:"flex-start",
-            padding:"10px 0",
-            borderBottom:"1px solid #f0f0f0",
-            backgroundColor: i % 2 === 0 ? "#fff" : "#fafafa"
-          }}>
-            <span style={{fontSize:14, color:"#222", flex:1, paddingRight:12, lineHeight:"1.4", wordBreak:"break-word"}}>
-              {item.description}
-            </span>
-            <span style={{fontSize:14, fontWeight:"bold", color:"#111", whiteSpace:"nowrap", flexShrink:0}}>
-              {fmtMoney(itemTotal(item))}
-            </span>
-          </div>
-        ))}
+          if (pb) {
+            // The first invoice_item is the draw itself; remaining are extras
+            const extraItems = items.slice(1);
+            const totalBilled = pb.prevBilled + pb.thisDraw;
+            const totalContract = pb.contractValue;
+            const pctComplete = totalContract > 0 ? ((totalBilled / totalContract) * 100).toFixed(1) : '0.0';
+
+            return (
+              <>
+                {/* Progress Billing Summary title */}
+                <div style={{textAlign:"center", marginBottom:10}}>
+                  <span style={{fontSize:13, fontWeight:"bold", color:"#555", textTransform:"uppercase", letterSpacing:0.5}}>
+                    Progress Billing Summary
+                  </span>
+                </div>
+
+                {/* Summary table */}
+                <div style={{overflowX:"auto", marginBottom:16}}>
+                  <table style={{width:"100%", borderCollapse:"collapse", fontSize:12}}>
+                    <thead>
+                      <tr style={{backgroundColor:"#f3f4f6"}}>
+                        {["Description","Contract Value","This Draw","% of Contract","Prev. Billed","Remaining"].map(h => (
+                          <th key={h} style={{
+                            padding:"7px 8px", textAlign: h === "Description" ? "left" : "right",
+                            fontSize:10, fontWeight:"bold", color:"#6b7280",
+                            textTransform:"uppercase", letterSpacing:0.4,
+                            borderBottom:"2px solid #e5e7eb", whiteSpace:"nowrap"
+                          }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td style={{padding:"10px 8px", fontSize:13, fontWeight:600, color:"#111", borderBottom:"1px solid #f0f0f0"}}>
+                          {pb.description}
+                        </td>
+                        <td style={{padding:"10px 8px", textAlign:"right", fontSize:13, color:"#374151", borderBottom:"1px solid #f0f0f0"}}>
+                          {fmtMoney(pb.contractValue)}
+                        </td>
+                        <td style={{padding:"10px 8px", textAlign:"right", fontSize:14, fontWeight:"bold", color:ACCENT, borderBottom:"1px solid #f0f0f0"}}>
+                          {fmtMoney(pb.thisDraw)}
+                        </td>
+                        <td style={{padding:"10px 8px", textAlign:"right", fontSize:13, fontWeight:600, color:"#374151", borderBottom:"1px solid #f0f0f0"}}>
+                          {pb.pctOfContract.toFixed(1)}%
+                        </td>
+                        <td style={{padding:"10px 8px", textAlign:"right", fontSize:13, color:"#6b7280", borderBottom:"1px solid #f0f0f0"}}>
+                          {fmtMoney(pb.prevBilled)}
+                        </td>
+                        <td style={{padding:"10px 8px", textAlign:"right", fontSize:13, fontWeight:600, color:"#16a34a", borderBottom:"1px solid #f0f0f0"}}>
+                          {fmtMoney(pb.remaining)}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Progress bar */}
+                <div style={{marginBottom:16}}>
+                  <div style={{display:"flex", justifyContent:"space-between", fontSize:11, color:"#9ca3af", marginBottom:4}}>
+                    <span>Contract progress after this invoice</span>
+                    <span>{pctComplete}% complete</span>
+                  </div>
+                  <div style={{height:8, backgroundColor:"#e5e7eb", borderRadius:4, overflow:"hidden", display:"flex"}}>
+                    <div style={{height:"100%", width:`${Math.min(parseFloat(pctComplete),100)}%`, backgroundColor:ACCENT, borderRadius:4}} />
+                  </div>
+                  <div style={{display:"flex", justifyContent:"space-between", fontSize:11, color:"#9ca3af", marginTop:3}}>
+                    <span>Billed to date: {fmtMoney(totalBilled)}</span>
+                    <span>Remaining: {fmtMoney(pb.remaining)}</span>
+                  </div>
+                </div>
+
+                {/* Extra line items (if any) */}
+                {extraItems.length > 0 && (
+                  <>
+                    <div style={{fontSize:11, fontWeight:"bold", color:"#888", textTransform:"uppercase", letterSpacing:0.4, marginBottom:4, paddingTop:4, borderTop:"1px dashed #e5e7eb"}}>
+                      Additional Charges
+                    </div>
+                    {extraItems.map((item, i) => (
+                      <div key={item.id} style={{
+                        display:"flex", justifyContent:"space-between", alignItems:"flex-start",
+                        padding:"8px 0", borderBottom:"1px solid #f0f0f0",
+                        backgroundColor: i % 2 === 0 ? "#fff" : "#fafafa"
+                      }}>
+                        <span style={{fontSize:13, color:"#374151", flex:1, paddingRight:12}}>{item.description}</span>
+                        <span style={{fontSize:13, fontWeight:"bold", color:"#111", whiteSpace:"nowrap"}}>{fmtMoney(itemTotal(item))}</span>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </>
+            );
+          }
+
+          // ── Regular (non-progress) invoice ────────────────────────────────
+          return (
+            <>
+              <div style={{
+                display:"flex", justifyContent:"space-between",
+                padding:"6px 0", borderBottom:`2px solid ${ACCENT}`,
+                marginBottom:4
+              }}>
+                <span style={{fontSize:11, fontWeight:"bold", color:"#888", textTransform:"uppercase"}}>Description</span>
+                <span style={{fontSize:11, fontWeight:"bold", color:"#888", textTransform:"uppercase"}}>Amount</span>
+              </div>
+              {items.map((item, i) => (
+                <div key={item.id} style={{
+                  display:"flex", justifyContent:"space-between", alignItems:"flex-start",
+                  padding:"10px 0", borderBottom:"1px solid #f0f0f0",
+                  backgroundColor: i % 2 === 0 ? "#fff" : "#fafafa"
+                }}>
+                  <span style={{fontSize:14, color:"#222", flex:1, paddingRight:12, lineHeight:"1.4", wordBreak:"break-word"}}>
+                    {item.description}
+                  </span>
+                  <span style={{fontSize:14, fontWeight:"bold", color:"#111", whiteSpace:"nowrap", flexShrink:0}}>
+                    {fmtMoney(itemTotal(item))}
+                  </span>
+                </div>
+              ))}
+            </>
+          );
+        })()}
 
         {/* Subtotal / Deposits / Balance */}
         <div style={{marginTop:16, paddingTop:12, borderTop:"2px solid #e5e7eb"}}>
@@ -446,8 +568,8 @@ export default function InvoiceView() {
           </div>
         )}
 
-        {/* Notes */}
-        {invoice.notes && (
+        {/* Notes — hide for progress invoices (table already shows everything) */}
+        {invoice.notes && !invoice.notes.includes('This draw:') && (
           <div style={{
             background:"#f9fafb", borderRadius:8, padding:12,
             marginTop:12, marginBottom:12
