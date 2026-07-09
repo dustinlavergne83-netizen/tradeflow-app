@@ -457,7 +457,12 @@ export default function ProgressBilling() {
         invoiceNumber = `${coInvoicePrefix}-${nextProgressNum}`;
       } else {
         // REGULAR PROGRESS INVOICE: Format 1007-1, 1007-2
-        const suffix = (projectInvoices?.length || 0) + 1;
+        // Only count plain progress invoices — exclude CO invoices like 1007-CO1, 1007-CO1-1
+        const progressOnlyInvoices = (projectInvoices || []).filter(inv => {
+          const m = inv.invoice_number.match(/^(\d+)-(\d+)$/);
+          return m && parseInt(m[1]) === baseNumber;
+        });
+        const suffix = progressOnlyInvoices.length + 1;
         invoiceNumber = `${baseNumber}-${suffix}`;
       }
 
