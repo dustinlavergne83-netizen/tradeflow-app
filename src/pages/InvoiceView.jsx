@@ -178,12 +178,33 @@ export default function InvoiceView() {
   const isPending = invoice?.status === "payment_pending";
 
   return (
-    <div style={pg}>
+    <div style={pg} data-invoice-page>
       <style>{`
-        @media print { .no-print { display: none !important; } }
+        @media print {
+          .no-print { display: none !important; }
+          body { margin: 0; padding: 0; background: #fff !important; }
+          /* page wrapper: remove grey bg, padding, centering */
+          body > #root > * { background: #fff !important; padding: 0 !important; }
+          /* invoice card: stretch to full page width */
+          [data-invoice-card] {
+            max-width: 100% !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 24px 32px !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+            background: #fff !important;
+          }
+          /* outer page wrapper */
+          [data-invoice-page] {
+            background: #fff !important;
+            padding: 0 !important;
+            min-height: unset !important;
+          }
+        }
         #clover-card-element iframe { border-radius: 8px; }
       `}</style>
-      <div style={card}>
+      <div style={card} data-invoice-card>
 
         {/* Header: Date (left) | Logo (center) | Invoice # (right) */}
         <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16}}>
