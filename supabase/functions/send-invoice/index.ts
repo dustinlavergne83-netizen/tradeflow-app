@@ -99,6 +99,28 @@ Deno.serve(async (req) => {
     const hasDeposit = depositReceived > 0;
     const totalPayments = (depositReceived || 0) + (amountPaid || 0);
 
+    // ── Detect & parse progress billing from notes ───────────────────────
+    const isProgressInvoice = !!(notes && notes.includes('This draw:'));
+    let pbData: any = null;
+    if (isProgressInvoice) {
+      try {
+        const descMatch = notes.match(/^([^|]+)\|/);
+        const drawMatch = notes.match(/This draw: \$([0-9,]+(?:\.[0-9]+)?)\s*\(([0-9.]+)%\s*of\s*\$([0-9,]+(?:\.[0-9]+)?)\)/);
+        const prevMatch = notes.match(/Previously billed: \$([0-9,]+(?:\.[0-9]+)?)/);
+        const remMatch  = notes.match(/Remaining after this: \$([0-9,]+(?:\.[0-9]+)?)/);
+        if (drawMatch) {
+          pbData = {
+            description:   descMatch ? descMatch[1].trim() : 'Progress billing',
+            thisDraw:      parseFloat(drawMatch[1].replace(/,/g, '')),
+            pctOfContract: parseFloat(drawMatch[2]),
+            contractValue: parseFloat(drawMatch[3].replace(/,/g, '')),
+            prevBilled:    prevMatch ? parseFloat(prevMatch[1].replace(/,/g, '')) : 0,
+            remaining:     remMatch  ? parseFloat(remMatch[1].replace(/,/g, ''))  : 0,
+          };
+        }
+      } catch (_) { /* fall through to normal rendering */ }
+    }
+
     // Build detailed line items HTML
     let lineItemsHtml = '';
     lineItems?.forEach((item: any) => {
@@ -396,7 +418,57 @@ Deno.serve(async (req) => {
                 </tr>
               </table>
 
-              <!-- Line Items Table -->
+              <!-- Line Items / Progress Billing Table -->
+              ${pbData ? `
+              <!-- PROGRESS BILLING SUMMARY -->
+              <p style="text-align:center; margin: 0 0 10px 0; font-size: 13px; font-weight: bold; color: #555; text-transform: uppercase; letter-spacing: 0.5px;">Progress Billing Summary</p>
+              <table width="100%" cellpadding="0" cellspacing="0" style="border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; margin-bottom: 14px;">
+                <tr style="background-color: #f3f4f6;">
+                  <td style="padding: 8px; font-size: 10px; color: #6b7280; font-weight: bold; text-transform: uppercase; letter-spacing: 0.4px;">Description</td>
+                  <td style="padding: 8px; font-size: 10px; color: #6b7280; font-weight: bold; text-transform: uppercase; letter-spacing: 0.4px; text-align: right; white-space: nowrap;">Contract Value</td>
+                  <td style="padding: 8px; font-size: 10px; color: #6b7280; font-weight: bold; text-transform: uppercase; letter-spacing: 0.4px; text-align: right; white-space: nowrap;">This Draw</td>
+                  <td style="padding: 8px; font-size: 10px; color: #6b7280; font-weight: bold; text-transform: uppercase; letter-spacing: 0.4px; text-align: right; white-space: nowrap;">% of Contract</td>
+                  <td style="padding: 8px; font-size: 10px; color: #6b7280; font-weight: bold; text-transform: uppercase; letter-spacing: 0.4px; text-align: right; white-space: nowrap;">Prev. Billed</td>
+                  <td style="padding: 8px; font-size: 10px; color: #6b7280; font-weight: bold; text-transform: uppercase; letter-spacing: 0.4px; text-align: right; white-space: nowrap;">Remaining</td>
+                </tr>
+                <tr>
+                  <td style="padding: 12px 8px; font-size: 13px; font-weight: 600; color: #111; border-top: 1px solid #e5e7eb;">${pbData.description}</td>
+                  <td style="padding: 12px 8px; font-size: 13px; color: #374151; text-align: right; border-top: 1px solid #e5e7eb;">$${fmtMoney(pbData.contractValue)}</td>
+                  <td style="padding: 12px 8px; font-size: 14px; font-weight: bold; color: #fc6b04; text-align: right; border-top: 1px solid #e5e7eb;">$${fmtMoney(pbData.thisDraw)}</td>
+                  <td style="padding: 12px 8px; font-size: 13px; font-weight: 600; color: #374151; text-align: right; border-top: 1px solid #e5e7eb;">${pbData.pctOfContract.toFixed(1)}%</td>
+                  <td style="padding: 12px 8px; font-size: 13px; color: #6b7280; text-align: right; border-top: 1px solid #e5e7eb;">$${fmtMoney(pbData.prevBilled)}</td>
+                  <td style="padding: 12px 8px; font-size: 13px; font-weight: 600; color: #16a34a; text-align: right; border-top: 1px solid #e5e7eb;">$${fmtMoney(pbData.remaining)}</td>
+                </tr>
+              </table>
+              <!-- Progress bar row -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 16px;">
+                <tr>
+                  <td style="font-size: 11px; color: #9ca3af; padding-bottom: 4px;">Contract progress after this invoice</td>
+                  <td style="font-size: 11px; color: #9ca3af; text-align: right; padding-bottom: 4px;">${Math.min(((pbData.prevBilled + pbData.thisDraw) / pbData.contractValue) * 100, 100).toFixed(1)}% complete</td>
+                </tr>
+                <tr>
+                  <td colspan="2" style="background-color: #e5e7eb; border-radius: 4px; height: 8px; overflow: hidden;">
+                    <div style="background-color: #fc6b04; width: ${Math.min(((pbData.prevBilled + pbData.thisDraw) / pbData.contractValue) * 100, 100).toFixed(1)}%; height: 8px;"></div>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="font-size: 11px; color: #9ca3af; padding-top: 3px;">Billed to date: $${fmtMoney(pbData.prevBilled + pbData.thisDraw)}</td>
+                  <td style="font-size: 11px; color: #9ca3af; text-align: right; padding-top: 3px;">Remaining: $${fmtMoney(pbData.remaining)}</td>
+                </tr>
+              </table>
+              ${(lineItems || []).length > 1 ? `
+              <!-- Extra line items -->
+              <p style="font-size: 11px; font-weight: bold; color: #888; text-transform: uppercase; margin: 0 0 4px 0; padding-top: 4px; border-top: 1px dashed #e5e7eb;">Additional Charges</p>
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 8px;">
+                ${(lineItems || []).slice(1).map((item: any) => `
+                <tr>
+                  <td style="padding: 8px 0; font-size: 13px; color: #374151; border-bottom: 1px solid #f0f0f0;">${(item.description || '').split('\n')[0]}</td>
+                  <td style="padding: 8px 0; font-size: 13px; font-weight: bold; color: #111; text-align: right; border-bottom: 1px solid #f0f0f0;">$${fmtMoney((item.total || 0) * (1 + (item.markupPercent || 0) / 100))}</td>
+                </tr>`).join('')}
+              </table>
+              ` : ''}
+              ` : `
+              <!-- REGULAR INVOICE line items -->
               <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 0; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
                 <tr style="background-color: #0b3ea8;">
                   <td style="padding: 10px 8px; font-size: 12px; color: #fff; font-weight: bold; text-transform: uppercase;">Description</td>
@@ -405,14 +477,10 @@ Deno.serve(async (req) => {
                   <td style="padding: 10px 8px; font-size: 12px; color: #fff; font-weight: bold; text-transform: uppercase; text-align: right;">Amount</td>
                 </tr>
                 ${lineItemsHtml}
-
-                <!-- Labor Details -->
                 ${laborDetailsHtml}
-
-                <!-- Materials Details -->
                 ${materialsDetailsHtml}
-
               </table>
+              `}
 
               <!-- Totals -->
               <table width="100%" cellpadding="0" cellspacing="0" style="margin-top: 20px;">
@@ -445,7 +513,7 @@ Deno.serve(async (req) => {
                 </tr>
               </table>
 
-              ${notes ? `
+              ${notes && !isProgressInvoice ? `
               <div style="margin: 24px 0; padding: 16px; background-color: #f9fafb; border-radius: 6px; border-left: 3px solid #0b3ea8;">
                 <p style="margin: 0 0 4px 0; font-size: 12px; color: #666; font-weight: bold; text-transform: uppercase;">Notes:</p>
                 <p style="margin: 0; font-size: 14px; color: #333; line-height: 1.6;">${notes}</p>
