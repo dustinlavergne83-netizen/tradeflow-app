@@ -3348,18 +3348,51 @@ async function handleAddContractor() {
             <p style={styles.emptyText}>No invoices created yet. Click "New Invoice" to create one!</p>
           ) : (
             <div style={styles.table}>
-              <div style={styles.invoiceHeader}>
-                <div style={styles.th}>Invoice #</div>
-                <div style={styles.th}>Date</div>
-                <div style={styles.th}>Due Date</div>
-                <div style={styles.th}>Status</div>
-                <div style={styles.th}>Total</div>
-                <div style={styles.th}>Paid</div>
-                <div style={styles.th}>Balance</div>
-                <div style={styles.th}>Actions</div>
-              </div>
-              {invoices.map((invoice) => (
-                <div key={invoice.id} style={styles.invoiceRow}>
+              {invoices
+                .reduce((acc, inv) => {
+                  const k = inv.source_proposal_id || '__none__';
+                  const g = acc.find(x => x.key === k);
+                  if (g) { g.rows.push(inv); } else { acc.push({ key: k, rows: [inv] }); }
+                  return acc;
+                }, [])
+                .sort((a, b) => a.key === '__none__' ? 1 : b.key === '__none__' ? -1 : 0)
+                .map((group, groupIdx) => {
+                  const { key } = group;
+                  const groupInvoices = group.rows;
+                  const isLinked = key !== '__none__';
+                  let groupLabel = 'Other Invoices';
+                  if (isLinked) {
+                    for (const ep of Object.values(proposals)) {
+                      const p = ep.find(pr => pr.id === key);
+                      if (p) {
+                        groupLabel = 'Proposal #' + (p.proposal_number || '').replace('PROP-', '').replace(/^\d{2,4}-/, '');
+                        break;
+                      }
+                    }
+                  }
+                  const groupTotal = groupInvoices.reduce((s, inv) => s + (inv.total || 0), 0);
+                  return (
+                    <div key={key}>
+                      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 14px', backgroundColor: isLinked ? '#eff6ff' : '#f9fafb', borderTop: groupIdx > 0 ? '3px solid #e5e7eb' : 'none', marginTop: groupIdx > 0 ? 12 : 0}}>
+                        <span style={{fontWeight:'700', fontSize:14, color: isLinked ? '#1d4ed8' : '#6b7280'}}>
+                          {'📋 ' + groupLabel}
+                        </span>
+                        <span style={{fontSize:13, color:'#6b7280'}}>
+                          {groupInvoices.length} {groupInvoices.length !== 1 ? 'invoices' : 'invoice'} &middot; {'$' + groupTotal.toFixed(2)}
+                        </span>
+                      </div>
+                      <div style={styles.invoiceHeader}>
+                        <div style={styles.th}>Invoice #</div>
+                        <div style={styles.th}>Date</div>
+                        <div style={styles.th}>Due Date</div>
+                        <div style={styles.th}>Status</div>
+                        <div style={styles.th}>Total</div>
+                        <div style={styles.th}>Paid</div>
+                        <div style={styles.th}>Balance</div>
+                        <div style={styles.th}>Actions</div>
+                      </div>
+                      {groupInvoices.map((invoice) => (
+                        <div key={invoice.id} style={styles.invoiceRow}>
                   <div style={styles.td}>{invoice.invoice_number || "N/A"}</div>
                   <div style={styles.td}>
                     {formatDate(invoice.invoice_date)}
@@ -3449,7 +3482,10 @@ async function handleAddContractor() {
                     })()}
                   </div>
                 </div>
-              ))}
+                      ))}
+                    </div>
+                  );
+                })}
             </div>
           )}
         </div>
