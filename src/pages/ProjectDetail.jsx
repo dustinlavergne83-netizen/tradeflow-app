@@ -168,6 +168,7 @@ export default function ProjectDetail() {
     deposit_amount: '',
     deposit_date: new Date().toISOString().split('T')[0],
     reference_notes: '',
+    bank_account_id: '',
   });
 
 
@@ -2415,7 +2416,13 @@ async function handleAddContractor() {
             <div style={{width: 1, height: 32, backgroundColor: '#e5e7eb', margin: '0 4px'}} />
 
             <button onClick={() => setShowChangeOrderModal(true)} style={qaBtn('#f97316')}>🔄 Add Change Order</button>
-            <button onClick={() => setShowAddDepositModal(true)} style={qaBtn('#10b981')}>💰 Add Deposit</button>
+            <button onClick={async () => {
+              if (pdCashAccounts.length === 0) {
+                const { data: accts } = await supabase.from('bank_accounts').select('*').eq('company_id', user.id).eq('is_active', true).order('account_name');
+                setPdCashAccounts(accts || []);
+              }
+              setShowAddDepositModal(true);
+            }} style={qaBtn('#10b981')}>💰 Add Deposit</button>
           </div>
         </div>
 
@@ -4852,11 +4859,30 @@ async function handleAddContractor() {
               />
             </div>
 
+            <div style={styles.field}>
+              <label style={styles.modalLabel}>Deposit To (Bank Account) *</label>
+              <select
+                value={depositForm.bank_account_id}
+                onChange={(e) => setDepositForm({...depositForm, bank_account_id: e.target.value})}
+                style={{...styles.select, padding: '10px'}}
+              >
+                <option value="">Select Bank Account…</option>
+                {pdCashAccounts.map(a => (
+                  <option key={a.id} value={a.id}>{a.account_name}{a.bank_name ? ` (${a.bank_name})` : ''}</option>
+                ))}
+              </select>
+              {pdCashAccounts.length === 0 && (
+                <div style={{fontSize: 12, color: '#f59e0b', marginTop: 6}}>
+                  ⚠️ No bank accounts found. A journal entry won't be created. Add one in Bank Accounts.
+                </div>
+              )}
+            </div>
+
             <div style={styles.modalActions}>
               <button
                 onClick={() => {
                   setShowAddDepositModal(false);
-                  setDepositForm({ deposit_amount: '', deposit_date: new Date().toISOString().split('T')[0], reference_notes: '' });
+                  setDepositForm({ deposit_amount: '', deposit_date: new Date().toISOString().split('T')[0], reference_notes: '', bank_account_id: '' });
                 }}
                 style={styles.cancelButton}
               >
@@ -4870,7 +4896,8 @@ async function handleAddContractor() {
                     return;
                   }
                   try {
-                    const { error } = await supabase
+                    // 1. Insert the deposit record
+                    const { data: newDeposit, error } = await supabase
                       .from('project_deposits')
                       .insert([{
                         project_id: id,
@@ -4879,11 +4906,100 @@ async function handleAddContractor() {
                         reference_notes: depositForm.reference_notes || null,
                         status: 'received',
                         created_by: user.id,
-                      }]);
+                      }])
+                      .select()
+                      .single();
                     if (error) throw error;
+
+                    // 2. Create journal entry immediately if bank account selected
+                    if (depositForm.bank_account_id) {
+                      try {
+                        // Get bank account's chart_account_id
+                        const { data: bankRec } = await supabase
+                          .from('bank_accounts')
+                          .select('chart_account_id, account_name')
+                          .eq('id', depositForm.bank_account_id)
+                          .single();
+
+                        if (bankRec?.chart_account_id) {
+                          // Find Unearned Revenue / Customer Deposits account (2700 first)
+                          let unearnedAccount = null;
+                          const { data: acct2700 } = await supabase
+                            .from('accounts')
+                            .select('id, account_name')
+                            .eq('account_number', '2700')
+                            .maybeSingle();
+                          if (acct2700) {
+                            unearnedAccount = acct2700;
+                          } else {
+                            // Fallback: any liability account named Unearned/Deposit/Customer
+                            const { data: fallbackAccts } = await supabase
+                              .from('accounts')
+                              .select('id, account_name')
+                              .eq('account_type', 'Liability')
+                              .or('account_name.ilike.%Unearned%,account_name.ilike.%Deposit%,account_name.ilike.%Customer%,account_name.ilike.%Deferred%');
+                            if (fallbackAccts && fallbackAccts.length > 0) unearnedAccount = fallbackAccts[0];
+                          }
+
+                          if (unearnedAccount) {
+                            const nextNum = await getNextJournalEntryNumber(user.id);
+                            const { data: newJE, error: jeErr } = await supabase
+                              .from('journal_entries')
+                              .insert([{
+                                entry_number: nextNum,
+                                entry_date: depositForm.deposit_date,
+                                description: `Customer deposit received — ${project.name}${depositForm.reference_notes ? ` (${depositForm.reference_notes})` : ''}`,
+                                reference_type: 'deposit',
+                                reference_id: newDeposit.id,
+                                created_by: user.id,
+                                company_id: user.id,
+                              }])
+                              .select()
+                              .single();
+
+                            if (!jeErr && newJE) {
+                              await supabase.from('journal_entry_lines').insert([
+                                {
+                                  entry_id: newJE.id,
+                                  line_number: 1,
+                                  account_id: bankRec.chart_account_id,
+                                  debit: amount,
+                                  credit: 0,
+                                  description: `Deposit received — ${project.name}`,
+                                },
+                                {
+                                  entry_id: newJE.id,
+                                  line_number: 2,
+                                  account_id: unearnedAccount.id,
+                                  debit: 0,
+                                  credit: amount,
+                                  description: `Customer deposit — ${unearnedAccount.account_name}`,
+                                },
+                              ]);
+                              // Post the entry
+                              try {
+                                await supabase.rpc('post_journal_entry', { p_entry_id: newJE.id, p_user_id: user.id });
+                              } catch (postErr) {
+                                console.warn('Could not post deposit journal entry:', postErr);
+                              }
+                              console.log('✅ Deposit journal entry created and posted');
+                            }
+                          } else {
+                            notify('⚠️ Deposit saved but no Unearned Revenue account found (looking for account #2700). Create it in Chart of Accounts.');
+                          }
+                        } else {
+                          notify('⚠️ Deposit saved but selected bank account is not linked to Chart of Accounts. Link it in Bank Accounts settings.');
+                        }
+                      } catch (jeErr) {
+                        console.error('Journal entry error (non-critical):', jeErr);
+                        notify('⚠️ Deposit saved but journal entry failed: ' + jeErr.message);
+                      }
+                    }
+
                     setShowAddDepositModal(false);
-                    setDepositForm({ deposit_amount: '', deposit_date: new Date().toISOString().split('T')[0], reference_notes: '' });
+                    setDepositForm({ deposit_amount: '', deposit_date: new Date().toISOString().split('T')[0], reference_notes: '', bank_account_id: '' });
                     loadProjectData();
+                    notify(`✅ Deposit of $${amount.toFixed(2)} recorded!${depositForm.bank_account_id ? ' Journal entry created — bank balance updated.' : ''}`);
                   } catch (err) {
                     console.error('Error saving deposit:', err);
                     notify('Failed to save deposit: ' + err.message);
