@@ -169,6 +169,7 @@ export default function ProjectDetail() {
     deposit_date: new Date().toISOString().split('T')[0],
     reference_notes: '',
     bank_account_id: '',
+    processing_fee: '',
   });
 
 
@@ -4878,11 +4879,30 @@ async function handleAddContractor() {
               )}
             </div>
 
+            <div style={styles.field}>
+              <label style={styles.modalLabel}>Processing Fee (Optional)</label>
+              <input
+                type="number"
+                value={depositForm.processing_fee}
+                onChange={(e) => setDepositForm({...depositForm, processing_fee: e.target.value})}
+                style={{...styles.select, padding: '10px'}}
+                placeholder="0.00"
+                min="0"
+                step="0.01"
+              />
+              {depositForm.processing_fee && depositForm.deposit_amount && parseFloat(depositForm.processing_fee) > 0 && parseFloat(depositForm.deposit_amount) > 0 && (
+                <div style={{marginTop: 6, padding: '8px 12px', backgroundColor: '#f0f9ff', borderRadius: 6, fontSize: 13, color: '#0369a1', fontWeight: 600}}>
+                  💰 Net Deposit to Bank: ${(parseFloat(depositForm.deposit_amount) - parseFloat(depositForm.processing_fee)).toFixed(2)}
+                  {' · '}Fee recorded as expense (acct 7610)
+                </div>
+              )}
+            </div>
+
             <div style={styles.modalActions}>
               <button
                 onClick={() => {
                   setShowAddDepositModal(false);
-                  setDepositForm({ deposit_amount: '', deposit_date: new Date().toISOString().split('T')[0], reference_notes: '', bank_account_id: '' });
+                  setDepositForm({ deposit_amount: '', deposit_date: new Date().toISOString().split('T')[0], reference_notes: '', bank_account_id: '', processing_fee: '' });
                 }}
                 style={styles.cancelButton}
               >
@@ -4921,7 +4941,10 @@ async function handleAddContractor() {
                           .eq('id', depositForm.bank_account_id)
                           .single();
 
-                        if (bankRec?.chart_account_id) {
+                    if (bankRec?.chart_account_id) {
+                          const fee = parseFloat(depositForm.processing_fee) || 0;
+                          const netAmount = amount - fee;
+
                           // Find Unearned Revenue / Customer Deposits account (2700 first)
                           let unearnedAccount = null;
                           const { data: acct2700 } = await supabase
@@ -4932,13 +4955,23 @@ async function handleAddContractor() {
                           if (acct2700) {
                             unearnedAccount = acct2700;
                           } else {
-                            // Fallback: any liability account named Unearned/Deposit/Customer
                             const { data: fallbackAccts } = await supabase
                               .from('accounts')
                               .select('id, account_name')
                               .eq('account_type', 'Liability')
                               .or('account_name.ilike.%Unearned%,account_name.ilike.%Deposit%,account_name.ilike.%Customer%,account_name.ilike.%Deferred%');
                             if (fallbackAccts && fallbackAccts.length > 0) unearnedAccount = fallbackAccts[0];
+                          }
+
+                          // Optionally find fee account 7610
+                          let feeAccountId = null;
+                          if (fee > 0) {
+                            const { data: feeAcct } = await supabase
+                              .from('accounts')
+                              .select('id')
+                              .eq('account_number', '7610')
+                              .maybeSingle();
+                            feeAccountId = feeAcct?.id || null;
                           }
 
                           if (unearnedAccount) {
@@ -4948,7 +4981,7 @@ async function handleAddContractor() {
                               .insert([{
                                 entry_number: nextNum,
                                 entry_date: depositForm.deposit_date,
-                                description: `Customer deposit received — ${project.name}${depositForm.reference_notes ? ` (${depositForm.reference_notes})` : ''}`,
+                                description: `Customer deposit received — ${project.name}${depositForm.reference_notes ? ` (${depositForm.reference_notes})` : ''}${fee > 0 ? ` (Fee: $${fee.toFixed(2)})` : ''}`,
                                 reference_type: 'deposit',
                                 reference_id: newDeposit.id,
                                 created_by: user.id,
@@ -4958,25 +4991,37 @@ async function handleAddContractor() {
                               .single();
 
                             if (!jeErr && newJE) {
-                              await supabase.from('journal_entry_lines').insert([
+                              const lines = [
                                 {
                                   entry_id: newJE.id,
                                   line_number: 1,
                                   account_id: bankRec.chart_account_id,
-                                  debit: amount,
+                                  debit: fee > 0 ? netAmount : amount, // net if fee, gross if no fee
                                   credit: 0,
-                                  description: `Deposit received — ${project.name}`,
+                                  description: `Deposit received — ${project.name}${fee > 0 ? ` (net after $${fee.toFixed(2)} fee)` : ''}`,
                                 },
-                                {
+                              ];
+                              let nextLine = 2;
+                              if (fee > 0 && feeAccountId) {
+                                lines.push({
                                   entry_id: newJE.id,
-                                  line_number: 2,
-                                  account_id: unearnedAccount.id,
-                                  debit: 0,
-                                  credit: amount,
-                                  description: `Customer deposit — ${unearnedAccount.account_name}`,
-                                },
-                              ]);
-                              // Post the entry
+                                  line_number: nextLine++,
+                                  account_id: feeAccountId,
+                                  debit: fee,
+                                  credit: 0,
+                                  description: 'Processing fee on deposit',
+                                });
+                              }
+                              lines.push({
+                                entry_id: newJE.id,
+                                line_number: nextLine,
+                                account_id: unearnedAccount.id,
+                                debit: 0,
+                                credit: amount, // always credit full gross amount
+                                description: `Customer deposit — ${unearnedAccount.account_name}`,
+                              });
+
+                              await supabase.from('journal_entry_lines').insert(lines);
                               try {
                                 await supabase.rpc('post_journal_entry', { p_entry_id: newJE.id, p_user_id: user.id });
                               } catch (postErr) {
@@ -4997,9 +5042,10 @@ async function handleAddContractor() {
                     }
 
                     setShowAddDepositModal(false);
-                    setDepositForm({ deposit_amount: '', deposit_date: new Date().toISOString().split('T')[0], reference_notes: '', bank_account_id: '' });
+                    setDepositForm({ deposit_amount: '', deposit_date: new Date().toISOString().split('T')[0], reference_notes: '', bank_account_id: '', processing_fee: '' });
                     loadProjectData();
-                    notify(`✅ Deposit of $${amount.toFixed(2)} recorded!${depositForm.bank_account_id ? ' Journal entry created — bank balance updated.' : ''}`);
+                    const fee = parseFloat(depositForm.processing_fee) || 0;
+                    notify(`✅ Deposit of $${amount.toFixed(2)} recorded!${depositForm.bank_account_id ? ` Journal entry created — bank balance updated${fee > 0 ? ` (net $${(amount - fee).toFixed(2)} after $${fee.toFixed(2)} fee)` : ''}.` : ''}`);
                   } catch (err) {
                     console.error('Error saving deposit:', err);
                     notify('Failed to save deposit: ' + err.message);
