@@ -545,32 +545,41 @@ export default function InvoicesList() {
                 console.log(`💰 Invoice is fully paid with deposit of $${selectedInvoice.deposit_received}. Clearing Unearned Revenue...`);
                 
                 try {
-                  // Get the Unearned Revenue account - try multiple search strategies
+                  // Get the Unearned Revenue / Customer Deposits account (2700 first, then name search)
                   let unearnedRevenueAccount = null;
                   
-                  // Strategy 1: Look for accounts with specific names
-                  const { data: namedAccounts } = await supabase
+                  // Strategy 1: Account number 2700 (Customer Deposits)
+                  const { data: acct2700 } = await supabase
                     .from('accounts')
                     .select('id, account_name')
-                    .eq('company_id', user.id)
-                    .eq('account_type', 'Liability')
-                    .or(`account_name.ilike.%Unearned%,account_name.ilike.%Deferred%,account_name.ilike.%Deposit%,account_name.ilike.%Customer%`);
-
-                  if (namedAccounts && namedAccounts.length > 0) {
-                    unearnedRevenueAccount = namedAccounts[0];
-                    console.log(`✅ Found Unearned Revenue account: ${unearnedRevenueAccount.account_name}`);
+                    .eq('account_number', '2700')
+                    .maybeSingle();
+                  if (acct2700) {
+                    unearnedRevenueAccount = acct2700;
+                    console.log(`✅ Found Customer Deposits account 2700: ${unearnedRevenueAccount.account_name}`);
                   } else {
-                    // Strategy 2: Just get any liability account as fallback
-                    const { data: liabilityAccounts } = await supabase
+                    // Strategy 2: Look for accounts with specific names
+                    const { data: namedAccounts } = await supabase
                       .from('accounts')
                       .select('id, account_name')
                       .eq('company_id', user.id)
                       .eq('account_type', 'Liability')
-                      .limit(1);
-                    
-                    if (liabilityAccounts && liabilityAccounts.length > 0) {
-                      unearnedRevenueAccount = liabilityAccounts[0];
-                      console.log(`⚠️ Using fallback liability account: ${unearnedRevenueAccount.account_name}`);
+                      .or(`account_name.ilike.%Unearned%,account_name.ilike.%Deferred%,account_name.ilike.%Deposit%,account_name.ilike.%Customer%`);
+                    if (namedAccounts && namedAccounts.length > 0) {
+                      unearnedRevenueAccount = namedAccounts[0];
+                      console.log(`✅ Found Unearned Revenue account: ${unearnedRevenueAccount.account_name}`);
+                    } else {
+                      // Strategy 3: Just get any liability account as fallback
+                      const { data: liabilityAccounts } = await supabase
+                        .from('accounts')
+                        .select('id, account_name')
+                        .eq('company_id', user.id)
+                        .eq('account_type', 'Liability')
+                        .limit(1);
+                      if (liabilityAccounts && liabilityAccounts.length > 0) {
+                        unearnedRevenueAccount = liabilityAccounts[0];
+                        console.log(`⚠️ Using fallback liability account: ${unearnedRevenueAccount.account_name}`);
+                      }
                     }
                   }
 
