@@ -147,6 +147,7 @@ export default function ProjectDetail() {
   const [selectedLineItemIds, setSelectedLineItemIds] = useState(new Set());
   const [creatingLinkedInvoice, setCreatingLinkedInvoice] = useState(false);
   const [invoiceLumpSum, setInvoiceLumpSum] = useState(true); // true = single total line, false = all line items
+  const [estimateForInvoice, setEstimateForInvoice] = useState(null); // holds full estimate record for markup calc
   const [showApplyDepositsModal, setShowApplyDepositsModal] = useState(false);
   const [pendingInvoiceForDeposit, setPendingInvoiceForDeposit] = useState(null);
   const [editingBudget, setEditingBudget] = useState(false);
@@ -4627,6 +4628,14 @@ async function handleAddContractor() {
                       ? selectedLinkItem.item.id
                       : selectedLinkItem.item.base_estimate_id;
                     if (estId) {
+                      // Fetch the estimate record so we can compute the markup ratio (total / subtotal)
+                      const { data: estRecord } = await supabase
+                        .from('estimates')
+                        .select('id, total, subtotal, estimate_type')
+                        .eq('id', estId)
+                        .single();
+                      setEstimateForInvoice(estRecord || null);
+
                       const { data: items } = await supabase
                         .from('estimate_items')
                         .select('*')
@@ -4795,7 +4804,16 @@ async function handleAddContractor() {
                     }
 
                     const selectedItems = estimateLineItems.filter(i => selectedLineItemIds.has(i.id));
-                    const invoiceTotal = selectedItems.reduce((s, i) => s + (i.line_total || 0), 0);
+
+                    // Calculate markup ratio from the estimate (total with markup / subtotal at cost)
+                    // For Quick Estimates: user entered selling prices → ratio ≈ 1.0
+                    // For Full Bid Estimates: line_total is raw cost → ratio applies overhead + profit
+                    const markupRatio = (estimateForInvoice?.subtotal > 0 && estimateForInvoice?.total > 0)
+                      ? estimateForInvoice.total / estimateForInvoice.subtotal
+                      : 1;
+
+                    // Raw cost total → selling price total
+                    const invoiceTotal = selectedItems.reduce((s, i) => s + ((i.line_total || 0) * markupRatio), 0);
 
                     // Create invoice
                     const { data: newInvoice, error: invErr } = await supabase.from('invoices').insert([{
@@ -4815,7 +4833,7 @@ async function handleAddContractor() {
 
                     // Create invoice items — lump sum (1 line) or itemized (all lines)
                     if (invoiceLumpSum) {
-                      // Single line item with total
+                      // Single line item with total (selling price)
                       await supabase.from('invoice_items').insert([{
                         invoice_id: newInvoice.id,
                         description: `Electrical Services — ${project.name}`,
@@ -4824,15 +4842,20 @@ async function handleAddContractor() {
                         total: invoiceTotal,
                       }]);
                     } else {
-                      // All individual line items
+                      // All individual line items — apply markup to each
                       await supabase.from('invoice_items').insert(
-                        selectedItems.map(item => ({
-                          invoice_id: newInvoice.id,
-                          description: item.description,
-                          quantity: item.quantity || 1,
-                          unit_price: item.line_total || 0,
-                          total: item.line_total || 0,
-                        }))
+                        selectedItems.map(item => {
+                          const qty = item.quantity || 1;
+                          const sellingTotal = (item.line_total || 0) * markupRatio;
+                          const sellingUnitPrice = sellingTotal / qty;
+                          return {
+                            invoice_id: newInvoice.id,
+                            description: item.description,
+                            quantity: qty,
+                            unit_price: parseFloat(sellingUnitPrice.toFixed(2)),
+                            total: parseFloat(sellingTotal.toFixed(2)),
+                          };
+                        })
                       );
                     }
 
