@@ -146,6 +146,7 @@ export default function ProjectDetail() {
   const [estimateLineItems, setEstimateLineItems] = useState([]);
   const [selectedLineItemIds, setSelectedLineItemIds] = useState(new Set());
   const [creatingLinkedInvoice, setCreatingLinkedInvoice] = useState(false);
+  const [invoiceLumpSum, setInvoiceLumpSum] = useState(true); // true = single total line, false = all line items
   const [showApplyDepositsModal, setShowApplyDepositsModal] = useState(false);
   const [pendingInvoiceForDeposit, setPendingInvoiceForDeposit] = useState(null);
   const [editingBudget, setEditingBudget] = useState(false);
@@ -4667,6 +4668,40 @@ async function handleAddContractor() {
               All items are pre-selected. Uncheck any you don&apos;t want to include in this invoice.
             </p>
 
+            {/* Lump Sum / Itemized Toggle */}
+            <div style={{display: 'flex', gap: 0, marginBottom: 20, border: '2px solid #e5e7eb', borderRadius: 10, overflow: 'hidden'}}>
+              <button
+                onClick={() => setInvoiceLumpSum(true)}
+                style={{
+                  flex: 1, padding: '12px 8px', border: 'none', cursor: 'pointer',
+                  fontWeight: 700, fontSize: 14,
+                  backgroundColor: invoiceLumpSum ? '#0b3ea8' : '#f9fafb',
+                  color: invoiceLumpSum ? '#fff' : '#555',
+                  transition: 'all 0.15s',
+                }}
+              >
+                🧾 Lump Sum (Total Only)
+              </button>
+              <button
+                onClick={() => setInvoiceLumpSum(false)}
+                style={{
+                  flex: 1, padding: '12px 8px', border: 'none', borderLeft: '2px solid #e5e7eb', cursor: 'pointer',
+                  fontWeight: 700, fontSize: 14,
+                  backgroundColor: !invoiceLumpSum ? '#0b3ea8' : '#f9fafb',
+                  color: !invoiceLumpSum ? '#fff' : '#555',
+                  transition: 'all 0.15s',
+                }}
+              >
+                📋 Itemized (All Line Items)
+              </button>
+            </div>
+
+            {invoiceLumpSum && (
+              <div style={{padding: '10px 14px', backgroundColor: '#fffbeb', borderRadius: 8, marginBottom: 16, border: '1px solid #fcd34d', fontSize: 13, color: '#92400e'}}>
+                <strong>Lump Sum mode:</strong> The invoice will show ONE line item with the total — your material/labor breakdown stays private.
+              </div>
+            )}
+
             {/* Select All / None */}
             <div style={{display: 'flex', gap: 10, marginBottom: 16}}>
               <button
@@ -4778,16 +4813,28 @@ async function handleAddContractor() {
                     }]).select().single();
                     if (invErr) throw invErr;
 
-                    // Create invoice items from selected estimate items
-                    await supabase.from('invoice_items').insert(
-                      selectedItems.map(item => ({
+                    // Create invoice items — lump sum (1 line) or itemized (all lines)
+                    if (invoiceLumpSum) {
+                      // Single line item with total
+                      await supabase.from('invoice_items').insert([{
                         invoice_id: newInvoice.id,
-                        description: item.description,
-                        quantity: item.quantity || 1,
-                        unit_price: item.line_total || 0,
-                        total: item.line_total || 0,
-                      }))
-                    );
+                        description: `Electrical Services — ${project.name}`,
+                        quantity: 1,
+                        unit_price: invoiceTotal,
+                        total: invoiceTotal,
+                      }]);
+                    } else {
+                      // All individual line items
+                      await supabase.from('invoice_items').insert(
+                        selectedItems.map(item => ({
+                          invoice_id: newInvoice.id,
+                          description: item.description,
+                          quantity: item.quantity || 1,
+                          unit_price: item.line_total || 0,
+                          total: item.line_total || 0,
+                        }))
+                      );
+                    }
 
                     setShowLineItemSelectModal(false);
 
