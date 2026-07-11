@@ -93,7 +93,7 @@ export default function InvoicesList() {
       const { data, error } = await supabase
         .from("invoices")
         .select("*")
-        .order("created_at", { ascending: false });
+        .order("invoice_date", { ascending: false });
 
       if (error) throw error;
       
