@@ -4768,15 +4768,32 @@ async function handleAddContractor() {
               })}
             </div>
 
-            {/* Total of selected */}
-            {selectedLineItemIds.size > 0 && (
-              <div style={{padding: '12px 16px', backgroundColor: '#f0fdf4', borderRadius: 8, marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                <span style={{fontWeight: '700', color: '#111'}}>Invoice Total ({selectedLineItemIds.size} items):</span>
-                <span style={{fontSize: 20, fontWeight: '700', color: '#fc6b04'}}>
-                  ${estimateLineItems.filter(i => selectedLineItemIds.has(i.id)).reduce((s, i) => s + (i.line_total || 0), 0).toFixed(2)}
-                </span>
-              </div>
-            )}
+            {/* Total of selected — show selling price (markup applied) */}
+            {selectedLineItemIds.size > 0 && (() => {
+              const allCostTotal = estimateLineItems.reduce((s, i) => s + (i.line_total || 0), 0);
+              const ratio = (allCostTotal > 0 && estimateForInvoice?.total > 0)
+                ? estimateForInvoice.total / allCostTotal
+                : 1;
+              const sellingTotal = estimateLineItems
+                .filter(i => selectedLineItemIds.has(i.id))
+                .reduce((s, i) => s + ((i.line_total || 0) * ratio), 0);
+              const hasMark = Math.abs(ratio - 1) > 0.001;
+              return (
+                <div style={{padding: '12px 16px', backgroundColor: '#f0fdf4', borderRadius: 8, marginBottom: 20}}>
+                  <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                    <span style={{fontWeight: '700', color: '#111'}}>Invoice Total ({selectedLineItemIds.size} items):</span>
+                    <span style={{fontSize: 20, fontWeight: '700', color: '#fc6b04'}}>
+                      ${sellingTotal.toFixed(2)}
+                    </span>
+                  </div>
+                  {hasMark && (
+                    <div style={{fontSize: 12, color: '#059669', marginTop: 4}}>
+                      ✅ Includes {((ratio - 1) * 100).toFixed(1)}% markup — selling price applied
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             <div style={{display: 'flex', gap: 12, justifyContent: 'flex-end'}}>
               <button onClick={() => setShowLineItemSelectModal(false)} style={styles.cancelButton}>Cancel</button>
@@ -4805,14 +4822,15 @@ async function handleAddContractor() {
 
                     const selectedItems = estimateLineItems.filter(i => selectedLineItemIds.has(i.id));
 
-                    // Calculate markup ratio from the estimate (total with markup / subtotal at cost)
-                    // For Quick Estimates: user entered selling prices → ratio ≈ 1.0
-                    // For Full Bid Estimates: line_total is raw cost → ratio applies overhead + profit
-                    const markupRatio = (estimateForInvoice?.subtotal > 0 && estimateForInvoice?.total > 0)
-                      ? estimateForInvoice.total / estimateForInvoice.subtotal
+                    // Calculate markup ratio: estimate.total (selling price) ÷ sum of ALL loaded item costs
+                    // Using the actual loaded items as the denominator is more reliable than estimate.subtotal
+                    // because subtotal may differ from the sum of line_totals in some estimate types.
+                    const allItemsCostTotal = estimateLineItems.reduce((s, i) => s + (i.line_total || 0), 0);
+                    const markupRatio = (allItemsCostTotal > 0 && estimateForInvoice?.total > 0)
+                      ? estimateForInvoice.total / allItemsCostTotal
                       : 1;
 
-                    // Raw cost total → selling price total
+                    // Apply markup: raw cost → selling price
                     const invoiceTotal = selectedItems.reduce((s, i) => s + ((i.line_total || 0) * markupRatio), 0);
 
                     // Create invoice
