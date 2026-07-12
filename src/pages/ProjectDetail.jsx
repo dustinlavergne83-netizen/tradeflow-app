@@ -4849,30 +4849,41 @@ async function handleAddContractor() {
                     }]).select().single();
                     if (invErr) throw invErr;
 
+                    // Markup % to store when there is actual markup (ratio > 1)
+                    // Only inserted when > 0 so Invoice.jsx correctly shows cost + markup breakdown
+                    const markupPct = markupRatio > 1.0001
+                      ? parseFloat(((markupRatio - 1) * 100).toFixed(2))
+                      : 0;
+
                     // Create invoice items — lump sum (1 line) or itemized (all lines)
+                    // Store BASE COST in unit_price/total + markup % separately
+                    // so Invoice.jsx displays: COST (base) | MARKUP % | TOTAL (selling price)
                     if (invoiceLumpSum) {
-                      // Single line item with the selling total (markup already applied via markupRatio)
-                      await supabase.from('invoice_items').insert([{
+                      const baseCost = selectedItems.reduce((s, i) => s + (i.line_total || 0), 0);
+                      const lumpItem = {
                         invoice_id: newInvoice.id,
                         description: `Electrical Services — ${project.name}`,
                         quantity: 1,
-                        unit_price: parseFloat(invoiceTotal.toFixed(2)),
-                        total: parseFloat(invoiceTotal.toFixed(2)),
-                      }]);
+                        unit_price: parseFloat(baseCost.toFixed(2)),
+                        total: parseFloat(baseCost.toFixed(2)),
+                      };
+                      if (markupPct > 0) lumpItem.markup_percentage = markupPct;
+                      await supabase.from('invoice_items').insert([lumpItem]);
                     } else {
-                      // All individual line items — apply markup ratio to each
                       await supabase.from('invoice_items').insert(
                         selectedItems.map(item => {
                           const qty = item.quantity || 1;
-                          const sellingTotal = (item.line_total || 0) * markupRatio;
-                          const sellingUnitPrice = sellingTotal / qty;
-                          return {
+                          const baseCost = item.line_total || 0;
+                          const baseUnitPrice = parseFloat((baseCost / qty).toFixed(2));
+                          const lineItem = {
                             invoice_id: newInvoice.id,
                             description: item.description,
                             quantity: qty,
-                            unit_price: parseFloat(sellingUnitPrice.toFixed(2)),
-                            total: parseFloat(sellingTotal.toFixed(2)),
+                            unit_price: baseUnitPrice,
+                            total: parseFloat(baseCost.toFixed(2)),
                           };
+                          if (markupPct > 0) lineItem.markup_percentage = markupPct;
+                          return lineItem;
                         })
                       );
                     }
