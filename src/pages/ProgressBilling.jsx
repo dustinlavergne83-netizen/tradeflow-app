@@ -140,24 +140,31 @@ export default function ProgressBilling() {
       setTotalContractValue(contractValue);
 
       // Load previous progress billing invoices for this change order.
-      // Primary: query by source_change_order_id (bulletproof — set at invoice creation).
-      // Fallback: legacy [CO:xxx] notes tag for invoices created before the column existed.
-      let { data: coInvoices } = await supabase
-        .from("invoices")
-        .select("id")
-        .eq("source_change_order_id", coId);
-
-      if (!coInvoices || coInvoices.length === 0) {
-        const { data: legacyCoInvoices } = await supabase
+      // ALWAYS run both queries (primary + legacy) and merge/deduplicate by id.
+      // This ensures invoices created before the source_change_order_id column existed
+      // (legacy invoices with only notes tags) are never missed when newer invoices
+      // have already populated the source column.
+      const [{ data: coBySourceId }, { data: coByNotes }] = await Promise.all([
+        supabase
+          .from("invoices")
+          .select("id")
+          .eq("source_change_order_id", coId),
+        supabase
           .from("invoices")
           .select("id")
           .eq("project_name", coData.project_name)
-          .like("notes", `%[CO:${coId}]%`);
-        coInvoices = legacyCoInvoices;
-      }
+          .like("notes", `%[CO:${coId}]%`),
+      ]);
+
+      // Merge and deduplicate
+      const coAllIds = new Set([
+        ...((coBySourceId || []).map(i => i.id)),
+        ...((coByNotes   || []).map(i => i.id)),
+      ]);
+      const coInvoices = Array.from(coAllIds).map(id => ({ id }));
 
       // Sum ONLY the draw amount per invoice (parsed from notes — excludes extra line items)
-      const prevBilled = await sumDrawAmounts(coInvoices || []);
+      const prevBilled = await sumDrawAmounts(coInvoices);
       setPreviouslyBilled(prevBilled);
 
       setInvoiceDescription(`Change Order ${coData.change_order_number} - ${coData.title}`);
@@ -219,39 +226,50 @@ export default function ProgressBilling() {
       setTotalContractValue(contractValue);
 
       // Load previous progress billing for THIS proposal only.
-      // We tag each invoice note with [PROPOSAL:<id>] so we can query back precisely.
-      // Also parse "This draw: $X" from notes to avoid counting extra line items.
+      // ALWAYS run all queries (primary + all legacy fallbacks) and merge/deduplicate by id.
+      // This ensures invoices created before the source_proposal_id column existed
+      // (legacy invoices with only notes tags) are never missed when newer invoices
+      // have already populated the source column.
       const projectName = baseEstimate?.project_name || "";
       if (projectName) {
-        // Primary: query by source_proposal_id column (bulletproof — set at invoice creation).
-        let { data: proposalInvoices } = await supabase
-          .from("invoices")
-          .select("id")
-          .eq("source_proposal_id", proposalId);
-
-        // Fallback 1: legacy [PROPOSAL:xxx] notes tag
-        if (!proposalInvoices || proposalInvoices.length === 0) {
-          const { data: taggedInvoices } = await supabase
+        // Run all three queries in parallel
+        const [
+          { data: propBySourceId },
+          { data: propByNoteTag },
+          { data: propByLegacyEstNum },
+        ] = await Promise.all([
+          // Primary: source_proposal_id column
+          supabase
+            .from("invoices")
+            .select("id")
+            .eq("source_proposal_id", proposalId),
+          // Fallback 1: legacy [PROPOSAL:xxx] notes tag
+          supabase
             .from("invoices")
             .select("id")
             .eq("project_name", projectName)
-            .like("notes", `%[PROPOSAL:${proposalId}]%`);
-          proposalInvoices = taggedInvoices;
-        }
+            .like("notes", `%[PROPOSAL:${proposalId}]%`),
+          // Fallback 2: oldest legacy — estimate number in notes, no proposal tag
+          baseEstimate?.estimate_number
+            ? supabase
+                .from("invoices")
+                .select("id")
+                .eq("project_name", projectName)
+                .like("notes", `%Progress billing from estimate ${baseEstimate.estimate_number} |%`)
+                .not("notes", "like", "%[PROPOSAL:%")
+            : Promise.resolve({ data: [] }),
+        ]);
 
-        // Fallback 2: legacy estimate number pattern (oldest invoices before tagging)
-        if ((!proposalInvoices || proposalInvoices.length === 0) && baseEstimate?.estimate_number) {
-          const { data: legacyInvoices } = await supabase
-            .from("invoices")
-            .select("id")
-            .eq("project_name", projectName)
-            .like("notes", `%Progress billing from estimate ${baseEstimate.estimate_number} |%`)
-            .not("notes", "like", "%[PROPOSAL:%");
-          proposalInvoices = legacyInvoices;
-        }
+        // Merge and deduplicate by id
+        const propAllIds = new Set([
+          ...((propBySourceId    || []).map(i => i.id)),
+          ...((propByNoteTag     || []).map(i => i.id)),
+          ...((propByLegacyEstNum|| []).map(i => i.id)),
+        ]);
+        const proposalInvoices = Array.from(propAllIds).map(id => ({ id }));
 
         // Sum ONLY the draw amount per invoice (parsed from notes — excludes extra line items)
-        const prevBilled = await sumDrawAmounts(proposalInvoices || []);
+        const prevBilled = await sumDrawAmounts(proposalInvoices);
         setPreviouslyBilled(prevBilled);
       }
 
@@ -308,27 +326,36 @@ export default function ProgressBilling() {
       setTotalContractValue(contractValue);
 
       // Load previous progress billing invoices.
-      // Primary: query by source_estimate_id column (bulletproof — set at invoice creation).
-      // Fallback: legacy notes search for invoices created before the column was added.
+      // ALWAYS run both queries (primary + legacy) and merge/deduplicate by id.
+      // This ensures invoices created before the source_estimate_id column existed
+      // (legacy invoices with only notes tags) are never missed when newer invoices
+      // have already populated the source column.
       if (estimateData.project_name) {
-        let { data: estInvoices } = await supabase
-          .from("invoices")
-          .select("id")
-          .eq("source_estimate_id", estimateId);
-
-        if (!estInvoices || estInvoices.length === 0) {
-          const { data: legacyInvoices } = await supabase
+        const [{ data: estBySourceId }, { data: estByNotes }] = await Promise.all([
+          // Primary: source_estimate_id column
+          supabase
+            .from("invoices")
+            .select("id")
+            .eq("source_estimate_id", estimateId),
+          // Fallback: legacy notes pattern, excluding proposal/CO invoices
+          supabase
             .from("invoices")
             .select("id")
             .eq("project_name", estimateData.project_name)
             .like("notes", "%Progress billing%")
             .not("notes", "like", "%[PROPOSAL:%")
-            .not("notes", "like", "%[CO:%");
-          estInvoices = legacyInvoices;
-        }
+            .not("notes", "like", "%[CO:%"),
+        ]);
+
+        // Merge and deduplicate by id
+        const estAllIds = new Set([
+          ...((estBySourceId || []).map(i => i.id)),
+          ...((estByNotes    || []).map(i => i.id)),
+        ]);
+        const estInvoices = Array.from(estAllIds).map(id => ({ id }));
 
         // Sum ONLY the draw amount per invoice (parsed from notes — excludes extra line items)
-        const prevBilled = await sumDrawAmounts(estInvoices || []);
+        const prevBilled = await sumDrawAmounts(estInvoices);
         setPreviouslyBilled(prevBilled);
       }
 
