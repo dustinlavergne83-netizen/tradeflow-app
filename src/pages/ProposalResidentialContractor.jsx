@@ -58,6 +58,8 @@ export default function ProposalResidentialContractor() {
   const [alternates, setAlternates] = useState([]);
   const [showLineItems, setShowLineItems] = useState(true);   // false = summary only
   const [showItemPrices, setShowItemPrices] = useState(true); // false = itemized-no-price (items shown, per-item prices hidden)
+  const [depositRequired, setDepositRequired] = useState(false);
+  const [depositAmount, setDepositAmount] = useState('');
 
   // Open a dedicated print window containing ONLY the proposal HTML
   // This avoids the blank-page issue caused by the app layout's min-height:100vh
@@ -217,6 +219,8 @@ export default function ProposalResidentialContractor() {
           setShowLineItems(true);
         }
         setShowItemPrices(proposalData.show_item_prices !== false);
+        setDepositRequired(proposalData.deposit_required === true);
+        setDepositAmount(proposalData.deposit_amount ? String(proposalData.deposit_amount) : '');
       }
     } catch (err) {
       console.error("Error loading proposal:", err);
@@ -498,6 +502,8 @@ export default function ProposalResidentialContractor() {
         status: sendEmailAfter ? "sent" : "draft",
         show_line_items: showLineItems,
         show_item_prices: showItemPrices,
+        deposit_required: depositRequired,
+        deposit_amount: depositRequired && depositAmount ? parseFloat(depositAmount) : null,
       };
 
       let savedProposalId;
@@ -692,6 +698,43 @@ export default function ProposalResidentialContractor() {
                 style={{...styles.input, minHeight: 80, resize: "vertical"}}
                 placeholder="Any additional terms, conditions, or notes..."
               />
+            </div>
+
+            {/* Deposit */}
+            <div style={{marginTop: 20, padding: '16px 18px', background: '#fffbeb', border: '2px solid #f59e0b', borderRadius: 8}}>
+              <label style={{display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: depositRequired ? 14 : 0}}>
+                <input
+                  type="checkbox"
+                  checked={depositRequired}
+                  onChange={(e) => { setDepositRequired(e.target.checked); if (!e.target.checked) setDepositAmount(''); }}
+                  style={{width: 16, height: 16, cursor: 'pointer'}}
+                />
+                <span style={{fontSize: 15, fontWeight: 700, color: '#92400e'}}>Deposit required upon acceptance</span>
+              </label>
+              {depositRequired && (
+                <div style={{display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap'}}>
+                  <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
+                    <span style={{fontSize: 20, fontWeight: 700, color: '#92400e'}}>$</span>
+                    <input
+                      type="number"
+                      value={depositAmount}
+                      onChange={(e) => setDepositAmount(e.target.value)}
+                      placeholder="0.00"
+                      min="0"
+                      step="0.01"
+                      style={{...styles.input, width: 160, fontSize: 18, fontWeight: 700, color: '#92400e'}}
+                    />
+                  </div>
+                  {depositAmount && totalAmount > 0 && (
+                    <span style={{fontSize: 13, color: '#b45309'}}>
+                      ({((parseFloat(depositAmount) / totalAmount) * 100).toFixed(0)}% of total)
+                    </span>
+                  )}
+                  <span style={{fontSize: 13, color: '#78350f', fontStyle: 'italic'}}>
+                    Due upon acceptance of proposal
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -934,6 +977,32 @@ export default function ProposalResidentialContractor() {
                 </tbody>
               </table>
             </div>
+
+            {/* Deposit block */}
+            {depositRequired && depositAmount && (
+              <div style={{
+                margin: '16px 0',
+                padding: '14px 20px',
+                background: '#fffbeb',
+                border: '2px solid #f59e0b',
+                borderRadius: 8,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}>
+                <div>
+                  <div style={{fontSize: 13, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2}}>
+                    Deposit Required
+                  </div>
+                  <div style={{fontSize: 12, color: '#78350f'}}>
+                    Due upon acceptance of this proposal
+                  </div>
+                </div>
+                <div style={{fontSize: 26, fontWeight: 800, color: '#92400e'}}>
+                  ${parseFloat(depositAmount).toLocaleString('en-US', {minimumFractionDigits: 2})}
+                </div>
+              </div>
+            )}
 
             {/* Warranty and Payment Terms */}
             <div className="print-no-break proposal-info-boxes" style={styles.infoBoxes}>
