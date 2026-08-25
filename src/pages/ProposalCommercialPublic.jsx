@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+﻿import { useState, useEffect } from "react";
 import { useSearchParams, useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import logoImage from "../assets/LOGOD.jpg";
@@ -47,7 +47,7 @@ export default function ProposalCommercialPublic() {
   const [showLineItems, setShowLineItems] = useState(true);   // false = summary only
   const [showItemPrices, setShowItemPrices] = useState(true); // false = itemized-no-price
   const [depositRequired, setDepositRequired] = useState(false);
-  const [depositAmount, setDepositAmount] = useState('');
+  const [depositPercent, setDepositPercent] = useState('');
 
   useEffect(() => {
     if (proposalId) {
@@ -134,7 +134,7 @@ export default function ProposalCommercialPublic() {
       setShowItemPrices(proposalData.show_item_prices !== false);
       setDepositRequired(proposalData.deposit_required === true);
       setDepositAmount(proposalData.deposit_amount ? String(proposalData.deposit_amount) : '');
-
+      setDepositPercent(proposalData.deposit_percent ? String(proposalData.deposit_percent) : '');
       setIsEditing(false);
     } catch (err) {
       console.error("Error loading proposal:", err);
@@ -448,9 +448,9 @@ export default function ProposalCommercialPublic() {
         show_line_items: showLineItems,
         show_item_prices: showItemPrices,
         deposit_required: depositRequired,
-        deposit_amount: depositRequired && depositAmount ? parseFloat(depositAmount) : null,
+        deposit_percent: depositRequired && depositPercent ? parseFloat(depositPercent) : null,
+        deposit_amount: depositRequired && depositPercent ? parseFloat(((parseFloat(depositPercent) / 100) * totalAmount).toFixed(2)) : null,
       };
-
       let savedProposalId;
       
       if (proposalId) {
@@ -512,7 +512,7 @@ export default function ProposalCommercialPublic() {
       <ul style={{ margin: 0, paddingLeft: 18, textAlign: 'left', listStyleType: 'disc' }}>
         {lines.map((line, i) => (
           <li key={i} style={{ marginBottom: 2 }}>
-            {line.replace(/^[-•*]\s*/, '')}
+            {line.replace(/^[-â€¢*]\s*/, '')}
           </li>
         ))}
       </ul>
@@ -568,31 +568,31 @@ export default function ProposalCommercialPublic() {
               onClick={() => setShowPreview(!showPreview)}
               style={{...styles.button, background: showPreview ? "#666" : "#3b82f6"}}
             >
-              {showPreview ? "✏️ Edit" : "👁️ View"}
+              {showPreview ? "âœï¸ Edit" : "ðŸ‘ï¸ View"}
             </button>
             <button 
               onClick={handleSendEmail}
               style={{...styles.button, background: "#10b981"}}
               disabled={isSendingEmail}
             >
-              {isSendingEmail ? "Sending..." : "📧 Email"}
+              {isSendingEmail ? "Sending..." : "ðŸ“§ Email"}
             </button>
             {showPreview && (
               <button onClick={() => window.print()} style={{...styles.button, ...styles.printButton}}>
-                🖨️ Print
+                ðŸ–¨ï¸ Print
               </button>
             )}
             <button onClick={handleSave} style={{...styles.button, ...styles.saveButton}} disabled={isSaving}>
-              {isSaving ? "Saving..." : "💾 Save"}
+              {isSaving ? "Saving..." : "ðŸ’¾ Save"}
             </button>
             {proposalId && (
               <button onClick={() => setIsEditing(false)} style={{...styles.button, ...styles.cancelButton}}>
-                ❌ Cancel
+                âŒ Cancel
               </button>
             )}
             {!proposalId && (
               <button onClick={() => navigate(-1)} style={{...styles.button, ...styles.cancelButton}}>
-                ❌ Cancel
+                âŒ Cancel
               </button>
             )}
           </>
@@ -601,7 +601,7 @@ export default function ProposalCommercialPublic() {
             {user && (
           <>
             <button onClick={() => navigate(-1)} style={{...styles.button, background: "#666"}}>
-              ← Back
+              â† Back
             </button>
             <input
               type="text"
@@ -615,7 +615,7 @@ export default function ProposalCommercialPublic() {
               style={{...styles.button, background: "#10b981"}}
               disabled={isSendingEmail}
             >
-              {isSendingEmail ? "Sending..." : "📧 Email"}
+              {isSendingEmail ? "Sending..." : "ðŸ“§ Email"}
             </button>
           </>
             )}
@@ -629,7 +629,7 @@ export default function ProposalCommercialPublic() {
               }}
               style={{...styles.button, ...styles.printButton}}
             >
-              🖨️ Print
+              ðŸ–¨ï¸ Print
             </button>
           </>
         )}
@@ -725,9 +725,9 @@ export default function ProposalCommercialPublic() {
                 ))}
               </div>
 
-              {/* ── Line Item Display Mode ── */}
+              {/* â”€â”€ Line Item Display Mode â”€â”€ */}
               <div style={{marginTop: 24, paddingTop: 20, borderTop: '1px solid #f0f0f0'}}>
-                <h3 style={{...styles.cardSectionTitle, marginBottom: 12}}>📋 Line Item Display</h3>
+                <h3 style={{...styles.cardSectionTitle, marginBottom: 12}}>ðŸ“‹ Line Item Display</h3>
                 <label style={{display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: 10}}>
                   <input
                     type="checkbox"
@@ -739,7 +739,7 @@ export default function ProposalCommercialPublic() {
                 </label>
                 {!showLineItems && (
                   <p style={{fontSize: 12, color: '#666', marginLeft: 26, marginTop: 0}}>
-                    📄 Summary mode — shows description and total only, no itemised list
+                    ðŸ“„ Summary mode â€” shows description and total only, no itemised list
                   </p>
                 )}
                 {showLineItems && (
@@ -755,55 +755,54 @@ export default function ProposalCommercialPublic() {
                 )}
                 {showLineItems && !showItemPrices && (
                   <p style={{fontSize: 12, color: '#666', marginLeft: 52, marginTop: 4}}>
-                    💰 Items listed as scope of work — only the total is shown, no per-item pricing
+                    ðŸ’° Items listed as scope of work â€” only the total is shown, no per-item pricing
                   </p>
                 )}
               </div>
 
-              {/* ── Deposit ── */}
+              {/* â”€â”€ Deposit â”€â”€ */}
               <div style={{marginTop: 24, paddingTop: 20, borderTop: '1px solid #f0f0f0'}}>
                 <div style={{padding: '16px 18px', background: '#fffbeb', border: '2px solid #f59e0b', borderRadius: 8}}>
                   <label style={{display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: depositRequired ? 14 : 0}}>
                     <input
                       type="checkbox"
                       checked={depositRequired}
-                      onChange={(e) => { setDepositRequired(e.target.checked); if (!e.target.checked) setDepositAmount(''); }}
+                      onChange={(e) => { setDepositRequired(e.target.checked); if (!e.target.checked) setDepositPercent(''); }}
                       style={styles.cardCheckbox}
                     />
                     <span style={{fontSize: 14, fontWeight: 700, color: '#92400e'}}>Deposit required upon acceptance</span>
                   </label>
                   {depositRequired && (
-                    <div style={{display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap'}}>
-                      <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
-                        <span style={{fontSize: 20, fontWeight: 700, color: '#92400e'}}>$</span>
+                    <div style={{display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap'}}>
+                      <div style={{display: 'flex', alignItems: 'center', gap: 6}}>
                         <input
-                          type="number"
-                          value={depositAmount}
-                          onChange={(e) => setDepositAmount(e.target.value)}
-                          placeholder="0.00"
-                          min="0"
-                          step="0.01"
-                          style={{...styles.cardDateInput, width: 160, fontSize: 18, fontWeight: 700, color: '#92400e'}}
+                          type='number'
+                          value={depositPercent}
+                          onChange={(e) => setDepositPercent(e.target.value)}
+                          placeholder='0'
+                          min='1'
+                          max='100'
+                          step='1'
+                          style={{...styles.cardDateInput, width: 90, fontSize: 22, fontWeight: 700, color: '#92400e', textAlign: 'center'}}
                         />
+                        <span style={{fontSize: 22, fontWeight: 700, color: '#92400e'}}>%</span>
                       </div>
-                      {depositAmount && totalAmount > 0 && (
-                        <span style={{fontSize: 13, color: '#b45309'}}>
-                          ({((parseFloat(depositAmount) / totalAmount) * 100).toFixed(0)}% of total)
+                      {depositPercent && totalAmount > 0 && (
+                        <span style={{fontSize: 15, fontWeight: 600, color: '#78350f'}}>
+                          {"= $"}{((parseFloat(depositPercent) / 100) * totalAmount).toLocaleString("en-US", {minimumFractionDigits: 2})}
                         </span>
                       )}
-                      <span style={{fontSize: 13, color: '#78350f', fontStyle: 'italic'}}>
-                        Due upon acceptance of proposal
-                      </span>
+                      <span style={{fontSize: 13, color: '#78350f', fontStyle: 'italic'}}>Due upon acceptance of proposal</span>
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* ── Price Adjustment ── */}
+              {/* â”€â”€ Price Adjustment â”€â”€ */}
               <div style={{marginTop: 28, paddingTop: 24, borderTop: '2px dashed #e5e7eb'}}>
                 <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10}}>
                   <div>
-                    <h3 style={{...styles.cardSectionTitle, marginBottom: 4}}>💲 Price Adjustment</h3>
+                    <h3 style={{...styles.cardSectionTitle, marginBottom: 4}}>ðŸ’² Price Adjustment</h3>
                     <div style={{fontSize: 12, color: '#666'}}>
                       Add or subtract an amount from the calculated total for this contractor. Use negative numbers to reduce the price (e.g. <strong>-500</strong> to lower by $500).
                     </div>
@@ -837,7 +836,7 @@ export default function ProposalCommercialPublic() {
                       onClick={() => setPriceAdjustment('')}
                       style={{padding: '10px 14px', backgroundColor: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: 8, cursor: 'pointer', fontSize: 13, color: '#666'}}
                     >
-                      ✕ Clear
+                      âœ• Clear
                     </button>
                   )}
                 </div>
@@ -989,7 +988,7 @@ export default function ProposalCommercialPublic() {
           )}
         </div>
 
-        {/* Scope of Work / Description — pulled from estimate */}
+        {/* Scope of Work / Description â€” pulled from estimate */}
         {(baseEstimate.notes || baseEstimate.description) && (
           <div style={{
             margin: '0 0 18px 0',
@@ -1022,7 +1021,7 @@ export default function ProposalCommercialPublic() {
             </thead>
             <tbody>
               {!showLineItems ? (
-                /* Summary mode — one row per bid/alternate showing description + total */
+                /* Summary mode â€” one row per bid/alternate showing description + total */
                 <>
                   {baseBidAmount > 0 && (
                     <tr style={styles.tableRow}>
@@ -1057,7 +1056,7 @@ export default function ProposalCommercialPublic() {
                   ))}
                 </>
               ) : (
-                /* Itemized mode — one row per estimate line item */
+                /* Itemized mode â€” one row per estimate line item */
                 <>
                   {baseBidAmount > 0 && (
                     <tr style={styles.tableRow}>
@@ -1096,7 +1095,7 @@ export default function ProposalCommercialPublic() {
               )}
               <tr style={styles.totalRow}>
                 {showLineItems && !showItemPrices ? (
-                  /* No AMOUNT column exists — span all columns, show total inline */
+                  /* No AMOUNT column exists â€” span all columns, show total inline */
                   <td colSpan={2} style={{...styles.td, fontWeight: "bold", fontSize: 18, display: "flex", justifyContent: "space-between", alignItems: "center"}}>
                     <span>TOTAL INVESTMENT</span>
                     <span style={{fontSize: 24, color: BRAND.accent}}>
@@ -1118,29 +1117,49 @@ export default function ProposalCommercialPublic() {
           </table>
         </div>
 
-        {/* Deposit block */}
-        {depositRequired && depositAmount && (
+        {/* Deposit block — only shown when a deposit is required */}
+        {depositRequired && depositPercent && (
           <div style={{
             margin: '16px 0',
-            padding: '14px 20px',
+            padding: '16px 20px',
             background: '#fffbeb',
             border: '2px solid #f59e0b',
             borderRadius: 8,
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
           }}>
-            <div>
-              <div style={{fontSize: 13, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2}}>
-                Deposit Required
+            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8}}>
+              <div>
+                <div style={{fontSize: 13, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2}}>
+                  Deposit Required — {parseFloat(depositPercent).toFixed(0)}%
+                </div>
+                <div style={{fontSize: 12, color: '#78350f'}}>
+                  Due upon acceptance of this proposal
+                </div>
               </div>
-              <div style={{fontSize: 12, color: '#78350f'}}>
-                Due upon acceptance of this proposal
+              <div style={{fontSize: 26, fontWeight: 800, color: '#92400e'}}>
+                ${((parseFloat(depositPercent) / 100) * totalAmount).toLocaleString('en-US', {minimumFractionDigits: 2})}
               </div>
             </div>
-            <div style={{fontSize: 26, fontWeight: 800, color: '#92400e'}}>
-              ${parseFloat(depositAmount).toLocaleString('en-US', {minimumFractionDigits: 2})}
-            </div>
+            {proposal?.id && (
+              <div style={{marginTop: 10, paddingTop: 10, borderTop: '1px solid #fde68a'}}>
+                <a
+                  href={`${window.location.origin}/proposal/pay-deposit?proposalId=${proposal.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'inline-block',
+                    padding: '8px 18px',
+                    background: '#92400e',
+                    color: '#fff',
+                    borderRadius: 6,
+                    textDecoration: 'none',
+                    fontSize: 13,
+                    fontWeight: 700,
+                  }}
+                >
+                  Pay Deposit Online by Credit Card
+                </a>
+              </div>
+            )}
           </div>
         )}
 

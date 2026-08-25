@@ -59,7 +59,7 @@ export default function ProposalResidentialContractor() {
   const [showLineItems, setShowLineItems] = useState(true);   // false = summary only
   const [showItemPrices, setShowItemPrices] = useState(true); // false = itemized-no-price (items shown, per-item prices hidden)
   const [depositRequired, setDepositRequired] = useState(false);
-  const [depositAmount, setDepositAmount] = useState('');
+  const [depositPercent, setDepositPercent] = useState('');
 
   // Open a dedicated print window containing ONLY the proposal HTML
   // This avoids the blank-page issue caused by the app layout's min-height:100vh
@@ -220,7 +220,7 @@ export default function ProposalResidentialContractor() {
         }
         setShowItemPrices(proposalData.show_item_prices !== false);
         setDepositRequired(proposalData.deposit_required === true);
-        setDepositAmount(proposalData.deposit_amount ? String(proposalData.deposit_amount) : '');
+        setDepositPercent(proposalData.deposit_percent ? String(proposalData.deposit_percent) : '');
       }
     } catch (err) {
       console.error("Error loading proposal:", err);
@@ -503,7 +503,8 @@ export default function ProposalResidentialContractor() {
         show_line_items: showLineItems,
         show_item_prices: showItemPrices,
         deposit_required: depositRequired,
-        deposit_amount: depositRequired && depositAmount ? parseFloat(depositAmount) : null,
+        deposit_percent: depositRequired && depositPercent ? parseFloat(depositPercent) : null,
+        deposit_amount: depositRequired && depositPercent ? parseFloat(((parseFloat(depositPercent) / 100) * totalAmount).toFixed(2)) : null,
       };
 
       let savedProposalId;
@@ -706,28 +707,29 @@ export default function ProposalResidentialContractor() {
                 <input
                   type="checkbox"
                   checked={depositRequired}
-                  onChange={(e) => { setDepositRequired(e.target.checked); if (!e.target.checked) setDepositAmount(''); }}
+                  onChange={(e) => { setDepositRequired(e.target.checked); if (!e.target.checked) setDepositPercent(''); }}
                   style={{width: 16, height: 16, cursor: 'pointer'}}
                 />
                 <span style={{fontSize: 15, fontWeight: 700, color: '#92400e'}}>Deposit required upon acceptance</span>
               </label>
               {depositRequired && (
-                <div style={{display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap'}}>
-                  <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
-                    <span style={{fontSize: 20, fontWeight: 700, color: '#92400e'}}>$</span>
+                <div style={{display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap'}}>
+                  <div style={{display: 'flex', alignItems: 'center', gap: 6}}>
                     <input
                       type="number"
-                      value={depositAmount}
-                      onChange={(e) => setDepositAmount(e.target.value)}
-                      placeholder="0.00"
-                      min="0"
-                      step="0.01"
-                      style={{...styles.input, width: 160, fontSize: 18, fontWeight: 700, color: '#92400e'}}
+                      value={depositPercent}
+                      onChange={(e) => setDepositPercent(e.target.value)}
+                      placeholder="0"
+                      min="1"
+                      max="100"
+                      step="1"
+                      style={{...styles.input, width: 90, fontSize: 22, fontWeight: 700, color: '#92400e', textAlign: 'center'}}
                     />
+                    <span style={{fontSize: 22, fontWeight: 700, color: '#92400e'}}>%</span>
                   </div>
-                  {depositAmount && totalAmount > 0 && (
-                    <span style={{fontSize: 13, color: '#b45309'}}>
-                      ({((parseFloat(depositAmount) / totalAmount) * 100).toFixed(0)}% of total)
+                  {depositPercent && totalAmount > 0 && (
+                    <span style={{fontSize: 15, fontWeight: 600, color: '#78350f'}}>
+                      = ${((parseFloat(depositPercent) / 100) * totalAmount).toLocaleString('en-US', {minimumFractionDigits: 2})}
                     </span>
                   )}
                   <span style={{fontSize: 13, color: '#78350f', fontStyle: 'italic'}}>
@@ -978,29 +980,49 @@ export default function ProposalResidentialContractor() {
               </table>
             </div>
 
-            {/* Deposit block */}
-            {depositRequired && depositAmount && (
+            {/* Deposit block — only shown when a deposit is required */}
+            {depositRequired && depositPercent && (
               <div style={{
                 margin: '16px 0',
-                padding: '14px 20px',
+                padding: '16px 20px',
                 background: '#fffbeb',
                 border: '2px solid #f59e0b',
                 borderRadius: 8,
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
               }}>
-                <div>
-                  <div style={{fontSize: 13, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2}}>
-                    Deposit Required
+                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8}}>
+                  <div>
+                    <div style={{fontSize: 13, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2}}>
+                      Deposit Required — {parseFloat(depositPercent).toFixed(0)}%
+                    </div>
+                    <div style={{fontSize: 12, color: '#78350f'}}>
+                      Due upon acceptance of this proposal
+                    </div>
                   </div>
-                  <div style={{fontSize: 12, color: '#78350f'}}>
-                    Due upon acceptance of this proposal
+                  <div style={{fontSize: 26, fontWeight: 800, color: '#92400e'}}>
+                    ${((parseFloat(depositPercent) / 100) * totalAmount).toLocaleString('en-US', {minimumFractionDigits: 2})}
                   </div>
                 </div>
-                <div style={{fontSize: 26, fontWeight: 800, color: '#92400e'}}>
-                  ${parseFloat(depositAmount).toLocaleString('en-US', {minimumFractionDigits: 2})}
-                </div>
+                {proposal?.id && (
+                  <div style={{marginTop: 10, paddingTop: 10, borderTop: '1px solid #fde68a'}}>
+                    <a
+                      href={`${window.location.origin}/proposal/pay-deposit?proposalId=${proposal.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: 'inline-block',
+                        padding: '8px 18px',
+                        background: '#92400e',
+                        color: '#fff',
+                        borderRadius: 6,
+                        textDecoration: 'none',
+                        fontSize: 13,
+                        fontWeight: 700,
+                      }}
+                    >
+                      Pay Deposit Online by Credit Card
+                    </a>
+                  </div>
+                )}
               </div>
             )}
 

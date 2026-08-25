@@ -40,6 +40,7 @@ import InvoiceDetailedReport from "./pages/InvoiceDetailedReport";
 import InvoiceCommercialPublic from "./pages/InvoiceCommercialPublic";
 import ProposalCommercialPublic from "./pages/ProposalCommercialPublic";
 import ProposalView from "./pages/ProposalView";
+import ProposalPayDeposit from "./pages/ProposalPayDeposit";
 import ProgressBilling from "./pages/ProgressBilling";
 import Employees from "./pages/Employees";
 import Expenses from "./pages/Expenses";
@@ -472,6 +473,7 @@ function AppContent() {
           <Route path="/invoice/commercial-public" element={<InvoiceCommercialPublic />} />
           <Route path="/proposal/view" element={<ProposalView />} />
           <Route path="/proposal/commercial-public" element={<ProposalCommercialPublic />} />
+          <Route path="/proposal/pay-deposit" element={<ProposalPayDeposit />} />
           <Route
             path="/project/:projectId/progress-billing"
             element={
