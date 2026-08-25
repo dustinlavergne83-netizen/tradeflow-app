@@ -158,11 +158,12 @@ export default function ProposalResidentialContractor() {
         if (estimateData) {
           setBaseEstimate(estimateData);
           
-          // Load estimate items
+          // Load estimate items — only those checked/selected in the estimate (show_in_scope = true)
           const { data: itemsData } = await supabase
             .from("estimate_items")
             .select("*")
             .eq("estimate_id", proposalData.base_estimate_id)
+            .eq("show_in_scope", true)
             .order("sequence");
           if (itemsData) setEstimateItems(itemsData);
 
@@ -246,11 +247,12 @@ export default function ProposalResidentialContractor() {
           setShowItemPrices(true);
         }
         
-        // Load estimate items
+        // Load estimate items — only those checked/selected in the estimate (show_in_scope = true)
         const { data: itemsData } = await supabase
           .from("estimate_items")
           .select("*")
           .eq("estimate_id", id)
+          .eq("show_in_scope", true)
           .order("sequence");
         if (itemsData) setEstimateItems(itemsData);
 
