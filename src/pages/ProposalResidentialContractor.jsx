@@ -56,7 +56,8 @@ export default function ProposalResidentialContractor() {
   const [termsText, setTermsText] = useState("WARRANTY PROVISIONS: This 1-year warranty covers all labor and materials provided and installed by DML Electrical Service, LLC. Warranty does NOT apply to materials supplied by the customer; customer-supplied materials carry no warranty from DML. Labor warranty covers defects in installation performed by DML. Labor is NOT warranted for customer-supplied materials unless the failure was directly caused by improper installation by DML. All warranty claims must be reported within 30 days of discovery. DML's liability under this warranty is limited to repair or replacement of defective work or materials.");
 
   const [alternates, setAlternates] = useState([]);
-  const [showLineItems, setShowLineItems] = useState(true); // false = summary only
+  const [showLineItems, setShowLineItems] = useState(true);   // false = summary only
+  const [showItemPrices, setShowItemPrices] = useState(true); // false = itemized-no-price (items shown, per-item prices hidden)
 
   // Open a dedicated print window containing ONLY the proposal HTML
   // This avoids the blank-page issue caused by the app layout's min-height:100vh
@@ -204,12 +205,13 @@ export default function ProposalResidentialContractor() {
 
         setIncludeBaseBid(proposalData.base_bid_amount > 0);
         
-        // Restore summary/itemized toggle
+        // Restore summary/itemized/itemized-no-price display mode
         if (proposalData.show_line_items === false) {
           setShowLineItems(false);
         } else {
           setShowLineItems(true);
         }
+        setShowItemPrices(proposalData.show_item_prices !== false);
       }
     } catch (err) {
       console.error("Error loading proposal:", err);
@@ -227,6 +229,22 @@ export default function ProposalResidentialContractor() {
       if (estimateData) {
         console.log("Estimate loaded with description:", estimateData.description);
         setBaseEstimate(estimateData);
+
+        // Pre-populate line item display mode from the estimate's saved view_format
+        // summary            → no line items shown at all (showLineItems = false)
+        // itemized           → items + individual prices shown (showLineItems = true, showItemPrices = true)
+        // itemized-no-price  → items shown but per-item prices hidden (showLineItems = true, showItemPrices = false)
+        if (estimateData.view_format === 'summary') {
+          setShowLineItems(false);
+          setShowItemPrices(true);
+        } else if (estimateData.view_format === 'itemized-no-price') {
+          setShowLineItems(true);
+          setShowItemPrices(false);
+        } else {
+          // 'itemized' or any other/missing value → full itemized with prices
+          setShowLineItems(true);
+          setShowItemPrices(true);
+        }
         
         // Load estimate items
         const { data: itemsData } = await supabase
@@ -473,6 +491,7 @@ export default function ProposalResidentialContractor() {
           .split("T")[0],
         status: sendEmailAfter ? "sent" : "draft",
         show_line_items: showLineItems,
+        show_item_prices: showItemPrices,
       };
 
       let savedProposalId;
@@ -704,6 +723,26 @@ export default function ProposalResidentialContractor() {
               )}
             </div>
 
+            {showLineItems && (
+              <div style={styles.checkboxGroup}>
+                <label style={styles.checkboxLabel}>
+                  <input
+                    type="checkbox"
+                    checked={showItemPrices}
+                    onChange={(e) => setShowItemPrices(e.target.checked)}
+                  />
+                  <span style={styles.checkboxText}>
+                    Show individual prices per line item
+                  </span>
+                </label>
+                {!showItemPrices && (
+                  <p style={{fontSize: 12, color: '#666', marginTop: 4, marginLeft: 28}}>
+                    💰 Items listed but only the total is shown — no per-item pricing
+                  </p>
+                )}
+              </div>
+            )}
+
             {alternates.map(alt => (
               <div key={alt.id} style={styles.checkboxGroup}>
                 <label style={styles.checkboxLabel}>
@@ -796,9 +835,11 @@ export default function ProposalResidentialContractor() {
                           {estimateItems.map((item, idx) => (
                             <tr key={item.id} className="proposal-table-row" style={styles.tableRow}>
                               <td style={styles.td}>{item.description}</td>
-                              <td style={{...styles.td, textAlign: "right", fontWeight: "600"}}>
-                                ${(item.line_total || 0).toFixed(2)}
-                              </td>
+                              {showItemPrices && (
+                                <td style={{...styles.td, textAlign: "right", fontWeight: "600"}}>
+                                  ${(item.line_total || 0).toFixed(2)}
+                                </td>
+                              )}
                             </tr>
                           ))}
                         </>
@@ -808,9 +849,11 @@ export default function ProposalResidentialContractor() {
                       {includeBaseBid && estimateItems.length === 0 && baseEstimate.description && (
                         <tr style={styles.tableRow}>
                           <td style={styles.td}>{renderDescription(baseEstimate.description)}</td>
-                          <td style={{...styles.td, textAlign: "right", fontWeight: "600"}}>
-                            ${(baseEstimate.total || 0).toFixed(2)}
-                          </td>
+                          {showItemPrices && (
+                            <td style={{...styles.td, textAlign: "right", fontWeight: "600"}}>
+                              ${(baseEstimate.total || 0).toFixed(2)}
+                            </td>
+                          )}
                         </tr>
                       )}
 
@@ -821,9 +864,11 @@ export default function ProposalResidentialContractor() {
                             <td style={styles.td}>
                               {alt.alternate_title || `Alternate ${alt.alternate_number}`}
                             </td>
-                            <td style={{...styles.td, textAlign: "right", fontWeight: "600"}}>
-                              ${(alt.total || 0).toFixed(2)}
-                            </td>
+                            {showItemPrices && (
+                              <td style={{...styles.td, textAlign: "right", fontWeight: "600"}}>
+                                ${(alt.total || 0).toFixed(2)}
+                              </td>
+                            )}
                           </tr>
                         ))}
                     </>
@@ -844,12 +889,24 @@ export default function ProposalResidentialContractor() {
                     </tr>
                   )}
 
-                  <tr style={{...styles.tableRow, borderTop: "2px solid #333"}}>
-                    <td style={{...styles.td, fontWeight: "bold"}}>TOTAL INVESTMENT</td>
-                    <td style={{...styles.td, textAlign: "right", fontWeight: "bold", fontSize: 24, color: BRAND.accent}}>
-                      ${totalAmount.toFixed(2)}
-                    </td>
-                  </tr>
+                  {showLineItems && !showItemPrices ? (
+                    /* No price column — show total inline in a single spanning cell */
+                    <tr style={{...styles.tableRow, borderTop: "2px solid #333"}}>
+                      <td style={{...styles.td, fontWeight: "bold", display: "flex", justifyContent: "space-between", alignItems: "center"}}>
+                        <span>TOTAL INVESTMENT</span>
+                        <span style={{fontSize: 24, color: BRAND.accent, fontWeight: "bold"}}>
+                          ${totalAmount.toFixed(2)}
+                        </span>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr style={{...styles.tableRow, borderTop: "2px solid #333"}}>
+                      <td style={{...styles.td, fontWeight: "bold"}}>TOTAL INVESTMENT</td>
+                      <td style={{...styles.td, textAlign: "right", fontWeight: "bold", fontSize: 24, color: BRAND.accent}}>
+                        ${totalAmount.toFixed(2)}
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>

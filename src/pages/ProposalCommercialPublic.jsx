@@ -44,6 +44,8 @@ export default function ProposalCommercialPublic() {
   const [contractorEmail, setContractorEmail] = useState("");
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [priceAdjustment, setPriceAdjustment] = useState(""); // +/- dollar override
+  const [showLineItems, setShowLineItems] = useState(true);   // false = summary only
+  const [showItemPrices, setShowItemPrices] = useState(true); // false = itemized-no-price
 
   useEffect(() => {
     if (proposalId) {
@@ -125,6 +127,10 @@ export default function ProposalCommercialPublic() {
         setContractors(allContractors || []);
       }
       
+      // Restore display mode from saved proposal
+      setShowLineItems(proposalData.show_line_items !== false);
+      setShowItemPrices(proposalData.show_item_prices !== false);
+
       setIsEditing(false);
     } catch (err) {
       console.error("Error loading proposal:", err);
@@ -143,6 +149,18 @@ export default function ProposalCommercialPublic() {
 
       if (estError) throw estError;
       setBaseEstimate(estData);
+
+      // Pre-populate display mode from the estimate's saved view_format
+      if (estData.view_format === 'summary') {
+        setShowLineItems(false);
+        setShowItemPrices(true);
+      } else if (estData.view_format === 'itemized-no-price') {
+        setShowLineItems(true);
+        setShowItemPrices(false);
+      } else {
+        setShowLineItems(true);
+        setShowItemPrices(true);
+      }
 
       const { data: projData, error: projError } = await supabase
         .from("projects")
@@ -423,6 +441,8 @@ export default function ProposalCommercialPublic() {
         price_adjustment: adj !== 0 ? adj : null,
         valid_until: validUntil || null,
         created_at: new Date().toISOString(),
+        show_line_items: showLineItems,
+        show_item_prices: showItemPrices,
       };
 
       let savedProposalId;
@@ -699,6 +719,41 @@ export default function ProposalCommercialPublic() {
                 ))}
               </div>
 
+              {/* ── Line Item Display Mode ── */}
+              <div style={{marginTop: 24, paddingTop: 20, borderTop: '1px solid #f0f0f0'}}>
+                <h3 style={{...styles.cardSectionTitle, marginBottom: 12}}>📋 Line Item Display</h3>
+                <label style={{display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: 10}}>
+                  <input
+                    type="checkbox"
+                    checked={showLineItems}
+                    onChange={(e) => setShowLineItems(e.target.checked)}
+                    style={styles.cardCheckbox}
+                  />
+                  <span style={{fontSize: 14, fontWeight: 600, color: '#333'}}>Show individual line items on proposal</span>
+                </label>
+                {!showLineItems && (
+                  <p style={{fontSize: 12, color: '#666', marginLeft: 26, marginTop: 0}}>
+                    📄 Summary mode — shows description and total only, no itemised list
+                  </p>
+                )}
+                {showLineItems && (
+                  <label style={{display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginLeft: 26}}>
+                    <input
+                      type="checkbox"
+                      checked={showItemPrices}
+                      onChange={(e) => setShowItemPrices(e.target.checked)}
+                      style={styles.cardCheckbox}
+                    />
+                    <span style={{fontSize: 14, fontWeight: 600, color: '#333'}}>Show individual prices per line item</span>
+                  </label>
+                )}
+                {showLineItems && !showItemPrices && (
+                  <p style={{fontSize: 12, color: '#666', marginLeft: 52, marginTop: 4}}>
+                    💰 Items listed as scope of work — only the total is shown, no per-item pricing
+                  </p>
+                )}
+              </div>
+
               {/* ── Price Adjustment ── */}
               <div style={{marginTop: 28, paddingTop: 24, borderTop: '2px dashed #e5e7eb'}}>
                 <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10}}>
@@ -897,46 +952,104 @@ export default function ProposalCommercialPublic() {
               <tr style={styles.tableHeaderRow}>
                 <th style={{...styles.th, textAlign: "left", width: 100}}>ITEM</th>
                 <th style={{...styles.th, textAlign: "left"}}>DESCRIPTION</th>
-                <th style={{...styles.th, textAlign: "right", width: 120}}>AMOUNT</th>
+                {(showLineItems ? showItemPrices : true) && (
+                  <th style={{...styles.th, textAlign: "right", width: 120}}>AMOUNT</th>
+                )}
               </tr>
             </thead>
             <tbody>
-              {baseBidAmount > 0 && (
-                <tr style={styles.tableRow}>
-                  <td style={styles.td}>
-                    <span style={{...styles.badge, backgroundColor: BRAND.accent}}>BASE BID</span>
-                  </td>
-                  <td style={{...styles.td, fontSize: 13, color: "#666"}}>
-                    {renderDescription(baseEstimate.description || baseEstimate.project_description || "Base scope of work")}
-                  </td>
-                  <td style={{...styles.td, textAlign: "right", fontWeight: "600", fontSize: 16}}>
-                    ${(baseBidAmount + adjustmentValue).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                  </td>
-                </tr>
-              )}
+              {!showLineItems ? (
+                /* Summary mode — one row per bid/alternate showing description + total */
+                <>
+                  {baseBidAmount > 0 && (
+                    <tr style={styles.tableRow}>
+                      <td style={styles.td}>
+                        <span style={{...styles.badge, backgroundColor: BRAND.accent}}>BASE BID</span>
+                      </td>
+                      <td style={{...styles.td, fontSize: 13, color: "#666", lineHeight: 1.6}}>
+                        {renderDescription(baseEstimate.notes || baseEstimate.description || baseEstimate.project_description || "Base scope of work")}
+                        <div style={{fontSize: 12, color: "#888", marginTop: 4}}>
+                          Includes all labor, materials, and equipment necessary to complete the scope of work.
+                        </div>
+                      </td>
+                      <td style={{...styles.td, textAlign: "right", fontWeight: "600", fontSize: 16}}>
+                        ${(baseBidAmount + adjustmentValue).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                  )}
+                  {displayAlternates.map(alt => (
+                    <tr key={alt.id} style={styles.tableRow}>
+                      <td style={styles.td}>
+                        <span style={{...styles.badge, backgroundColor: "#8b5cf6"}}>
+                          ALT {alt.alternate_number}
+                        </span>
+                      </td>
+                      <td style={{...styles.td, fontSize: 13, color: "#666"}}>
+                        {alt.description || alt.title || alt.alternate_title || ""}
+                      </td>
+                      <td style={{...styles.td, textAlign: "right", fontWeight: "600", fontSize: 16}}>
+                        ${(alt.price || alt.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                  ))}
+                </>
+              ) : (
+                /* Itemized mode — one row per estimate line item */
+                <>
+                  {baseBidAmount > 0 && (
+                    <tr style={styles.tableRow}>
+                      <td style={styles.td}>
+                        <span style={{...styles.badge, backgroundColor: BRAND.accent}}>BASE BID</span>
+                      </td>
+                      <td style={{...styles.td, fontSize: 13, color: "#666"}}>
+                        {renderDescription(baseEstimate.description || baseEstimate.project_description || "Base scope of work")}
+                      </td>
+                      {showItemPrices && (
+                        <td style={{...styles.td, textAlign: "right", fontWeight: "600", fontSize: 16}}>
+                          ${(baseBidAmount + adjustmentValue).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </td>
+                      )}
+                    </tr>
+                  )}
 
-              {displayAlternates.map(alt => (
-                <tr key={alt.id} style={styles.tableRow}>
-                  <td style={styles.td}>
-                    <span style={{...styles.badge, backgroundColor: "#8b5cf6"}}>
-                      ALT {alt.alternate_number}
+                  {displayAlternates.map(alt => (
+                    <tr key={alt.id} style={styles.tableRow}>
+                      <td style={styles.td}>
+                        <span style={{...styles.badge, backgroundColor: "#8b5cf6"}}>
+                          ALT {alt.alternate_number}
+                        </span>
+                      </td>
+                      <td style={{...styles.td, fontSize: 13, color: "#666"}}>
+                        {alt.description || alt.title || alt.alternate_title || ""}
+                      </td>
+                      {showItemPrices && (
+                        <td style={{...styles.td, textAlign: "right", fontWeight: "600", fontSize: 16}}>
+                          ${(alt.price || alt.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </>
+              )}
+              <tr style={styles.totalRow}>
+                {showLineItems && !showItemPrices ? (
+                  /* No AMOUNT column exists — span all columns, show total inline */
+                  <td colSpan={2} style={{...styles.td, fontWeight: "bold", fontSize: 18, display: "flex", justifyContent: "space-between", alignItems: "center"}}>
+                    <span>TOTAL INVESTMENT</span>
+                    <span style={{fontSize: 24, color: BRAND.accent}}>
+                      ${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                     </span>
                   </td>
-                  <td style={{...styles.td, fontSize: 13, color: "#666"}}>
-                    {alt.description || alt.title || alt.alternate_title || ""}
-                  </td>
-                  <td style={{...styles.td, textAlign: "right", fontWeight: "600", fontSize: 16}}>
-                    ${(alt.price || alt.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                  </td>
-                </tr>
-              ))}
-              <tr style={styles.totalRow}>
-                <td colSpan="2" style={{...styles.td, fontWeight: "bold", fontSize: 18}}>
-                  TOTAL INVESTMENT
-                </td>
-                <td style={{...styles.td, textAlign: "right", fontWeight: "bold", fontSize: 24, color: BRAND.accent}}>
-                  ${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                </td>
+                ) : (
+                  <>
+                    <td colSpan={2} style={{...styles.td, fontWeight: "bold", fontSize: 18}}>
+                      TOTAL INVESTMENT
+                    </td>
+                    <td style={{...styles.td, textAlign: "right", fontWeight: "bold", fontSize: 24, color: BRAND.accent}}>
+                      ${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </td>
+                  </>
+                )}
               </tr>
             </tbody>
           </table>
