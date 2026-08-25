@@ -13,8 +13,8 @@ Deno.serve(async (req) => {
       throw new Error('RESEND_API_KEY is not set')
     }
 
-    const { 
-      to, 
+    const {
+      to,
       contractorName,
       projectName,
       proposalNumber,
@@ -22,6 +22,7 @@ Deno.serve(async (req) => {
       baseBidAmount,
       alternates,
       totalAmount,
+      proposalId,
       companyName = "DML Electrical Service, LLC"
     } = await req.json()
     const displayNumber = proposalNumber || estimateNumber || ''
@@ -31,7 +32,6 @@ Deno.serve(async (req) => {
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
       )
     }
-
     const fmtMoney = (val: number) =>
       (val || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
