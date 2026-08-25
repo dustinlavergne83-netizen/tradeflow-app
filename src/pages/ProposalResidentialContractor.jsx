@@ -596,7 +596,7 @@ export default function ProposalResidentialContractor() {
                         to: email,
                         contractorName: selectedContractor?.contractor_name,
                         projectName: project?.name,
-                        estimateNumber: baseEstimate.estimate_number?.replace('EST-', ''),
+                        proposalNumber: proposal?.proposal_number || proposalId?.slice(0, 8),
                         totalAmount: totalAmount,
                         proposalId: proposalId,
                       },

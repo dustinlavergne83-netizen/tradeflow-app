@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+﻿import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 
@@ -50,11 +50,12 @@ export default function ProposalView() {
       if (baseError) throw baseError;
       setBaseEstimate(baseEst);
 
-      // Load estimate line items
+      // Load estimate line items â€” only checked items (show_in_scope = true)
       const { data: itemsData } = await supabase
         .from("estimate_items")
         .select("*")
         .eq("estimate_id", proposalData.base_estimate_id)
+        .eq("show_in_scope", true)
         .order("sequence");
       if (itemsData) setEstimateItems(itemsData);
 
@@ -96,7 +97,7 @@ export default function ProposalView() {
       <ul style={{ margin: 0, paddingLeft: 18, textAlign: 'left', listStyleType: 'disc' }}>
         {lines.map((line, i) => (
           <li key={i} style={{ marginBottom: 2 }}>
-            {line.replace(/^[-•*]\s*/, '')}
+            {line.replace(/^[-â€¢*]\s*/, '')}
           </li>
         ))}
       </ul>
@@ -134,7 +135,7 @@ export default function ProposalView() {
       {/* Print Button - Hidden when printing */}
       <div style={styles.printButton} className="no-print">
         <button onClick={() => window.print()} style={styles.button}>
-          🖨️ Print Proposal
+          ðŸ–¨ï¸ Print Proposal
         </button>
       </div>
 
@@ -160,7 +161,9 @@ export default function ProposalView() {
           </div>
           <div style={styles.estimateTitle}>
             <h2 style={styles.estimateNumber}>
-              ESTIMATE #{baseEstimate.estimate_number?.replace('EST-', '')}
+              PROPOSAL #{proposal.proposal_number
+                ? proposal.proposal_number.replace('PROP-', '').replace('EST-', '').replace(/^\d{2}-/, '')
+                : baseEstimate.estimate_number?.replace('EST-', '').replace(/^\d{2}-/, '')}
             </h2>
           </div>
         </div>
@@ -182,81 +185,87 @@ export default function ProposalView() {
             </>
           )}
         </div>
+        {/* Scope of Work */}
+        {(baseEstimate.notes || baseEstimate.description) && (
+          <div style={{margin:'0 0 18px 0',padding:'14px 18px',background:'#f8f9fb',borderLeft:'4px solid #0b3ea8',borderRadius:6}}>
+            <div style={{fontSize:12,fontWeight:700,color:'#0b3ea8',textTransform:'uppercase',letterSpacing:1,marginBottom:6}}>Scope of Work</div>
+            <div style={{fontSize:14,color:'#333',lineHeight:1.6,whiteSpace:'pre-line'}}>{baseEstimate.notes || baseEstimate.description}</div>
+          </div>
+        )}
 
         {/* Proposal Summary Table */}
         <div style={styles.proposalTable}>
           <div style={styles.tableTitle}>PROPOSAL SUMMARY</div>
-          
           <table style={styles.table}>
             <thead>
               <tr style={styles.tableHeaderRow}>
-                <th style={{...styles.th, textAlign: "left", width: 150}}>ITEM</th>
-                <th style={{...styles.th, textAlign: "left"}}>DESCRIPTION</th>
-                <th style={{...styles.th, textAlign: "right", width: 150}}>AMOUNT</th>
+                <th style={{...styles.th, textAlign:'left', width: 150}}>ITEM</th>
+                <th style={{...styles.th, textAlign:'left'}}>DESCRIPTION</th>
+                {(proposal.show_line_items !== false ? proposal.show_item_prices !== false : true) && (
+                  <th style={{...styles.th, textAlign:'right', width: 150}}>AMOUNT</th>
+                )}
               </tr>
             </thead>
             <tbody>
-              {/* Base Bid - show each estimate item as its own row, or fall back to description */}
-              {estimateItems.length > 0 ? (
-                estimateItems.map((item, idx) => (
-                  <tr key={item.id} style={styles.tableRow}>
-                    {idx === 0 && (
-                      <td style={styles.td} rowSpan={estimateItems.length}>
-                        <span style={{...styles.badge, backgroundColor: BRAND.accent}}>BASE BID</span>
-                      </td>
-                    )}
-                    <td style={{...styles.td, fontSize: 13, color: "#333", textAlign: "left"}}>
-                      {item.description}
-                    </td>
-                    <td style={{...styles.td, textAlign: "right", fontWeight: "600", fontSize: 14}}>
-                      ${(item.line_total || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                    </td>
-                  </tr>
-                ))
-              ) : (
+              {proposal.show_line_items === false ? (
                 <tr style={styles.tableRow}>
-                  <td style={styles.td}>
-                    <span style={{...styles.badge, backgroundColor: BRAND.accent}}>BASE BID</span>
+                  <td style={styles.td}><span style={{...styles.badge,backgroundColor:BRAND.accent}}>BASE BID</span></td>
+                  <td style={{...styles.td,fontSize:13,color:'#666',lineHeight:1.6}}>
+                    {renderDescription(baseEstimate.notes||baseEstimate.description||baseEstimate.project_description||'Base scope of work')}
+                    <div style={{fontSize:12,color:'#888',marginTop:4}}>Includes all labor, materials, and equipment.</div>
                   </td>
-                  <td style={{...styles.td, fontSize: 13, color: "#666", textAlign: "left"}}>
-                    {renderDescription(baseEstimate.description || baseEstimate.project_description || "Base scope of work")}
-                  </td>
-                  <td style={{...styles.td, textAlign: "right", fontWeight: "600", fontSize: 16}}>
-                    ${(proposal.base_bid_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  <td style={{...styles.td,textAlign:'right',fontWeight:'600',fontSize:16}}>
+                    ${(proposal.base_bid_amount||0).toLocaleString('en-US',{minimumFractionDigits:2})}
                   </td>
                 </tr>
+              ) : (
+                <>
+                  {estimateItems.length > 0 ? estimateItems.map((item,idx) => (
+                    <tr key={item.id} style={styles.tableRow}>
+                      {idx===0 && <td style={styles.td} rowSpan={estimateItems.length}><span style={{...styles.badge,backgroundColor:BRAND.accent}}>BASE BID</span></td>}
+                      <td style={{...styles.td,fontSize:13,color:'#333'}}>{item.description}</td>
+                      {proposal.show_item_prices!==false && <td style={{...styles.td,textAlign:'right',fontWeight:'600',fontSize:14}}>${(item.line_total||0).toLocaleString('en-US',{minimumFractionDigits:2})}</td>}
+                    </tr>
+                  )) : (
+                    <tr style={styles.tableRow}>
+                      <td style={styles.td}><span style={{...styles.badge,backgroundColor:BRAND.accent}}>BASE BID</span></td>
+                      <td style={{...styles.td,fontSize:13,color:'#666'}}>{renderDescription(baseEstimate.notes||baseEstimate.description||'Base scope of work')}</td>
+                      {proposal.show_item_prices!==false && <td style={{...styles.td,textAlign:'right',fontWeight:'600',fontSize:16}}>${(proposal.base_bid_amount||0).toLocaleString('en-US',{minimumFractionDigits:2})}</td>}
+                    </tr>
+                  )}
+                  {proposalAlternates.map(alt => (
+                    <tr key={alt.id} style={styles.tableRow}>
+                      <td style={styles.td}><span style={{...styles.badge,backgroundColor:'#8b5cf6'}}>ALT {alt.alternate_number}</span></td>
+                      <td style={{...styles.td,fontSize:13,color:'#666'}}>{alt.alternate_title||''}</td>
+                      {proposal.show_item_prices!==false && <td style={{...styles.td,textAlign:'right',fontWeight:'600',fontSize:16}}>${(alt.amount||0).toLocaleString('en-US',{minimumFractionDigits:2})}</td>}
+                    </tr>
+                  ))}
+                </>
               )}
-
-              {/* Selected Alternates */}
-              {proposalAlternates.map(alt => (
-                <tr key={alt.id} style={styles.tableRow}>
-                  <td style={styles.td}>
-                    <span style={{...styles.badge, backgroundColor: "#8b5cf6"}}>
-                      ALT {alt.alternate_number}
-                    </span>
-                  </td>
-                  <td style={{...styles.td, fontSize: 13, color: "#666"}}>
-                    {alt.alternate_title || ""}
-                  </td>
-                  <td style={{...styles.td, textAlign: "right", fontWeight: "600", fontSize: 16}}>
-                    ${(alt.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                  </td>
-                </tr>
-              ))}
-
-              {/* Total Row */}
               <tr style={styles.totalRow}>
-                <td colSpan="2" style={{...styles.td, fontWeight: "bold", fontSize: 18}}>
-                  TOTAL INVESTMENT
-                </td>
-                <td style={{...styles.td, textAlign: "right", fontWeight: "bold", fontSize: 24, color: BRAND.accent}}>
-                  ${(proposal.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                </td>
+                <td colSpan={proposal.show_line_items!==false&&proposal.show_item_prices===false?3:2} style={{...styles.td,fontWeight:'bold',fontSize:18}}>TOTAL INVESTMENT</td>
+                {!(proposal.show_line_items!==false&&proposal.show_item_prices===false) && <td style={{...styles.td,textAlign:'right',fontWeight:'bold',fontSize:24,color:BRAND.accent}}>${(proposal.total_amount||0).toLocaleString('en-US',{minimumFractionDigits:2})}</td>}
               </tr>
             </tbody>
           </table>
         </div>
 
+        {proposal.deposit_required&&proposal.deposit_percent&&(
+          <div style={{margin:'16px 0',padding:'16px 20px',background:'#fffbeb',border:'2px solid #f59e0b',borderRadius:8}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:proposal.deposit_paid?8:0}}>
+              <div>
+                <div style={{fontSize:13,fontWeight:700,color:'#92400e',textTransform:'uppercase',letterSpacing:1,marginBottom:2}}>Deposit Required - {parseFloat(proposal.deposit_percent).toFixed(0)}%</div>
+                <div style={{fontSize:12,color:'#78350f'}}>{proposal.deposit_paid?'Deposit has been paid':'Due upon acceptance of this proposal'}</div>
+              </div>
+              <div style={{fontSize:26,fontWeight:800,color:proposal.deposit_paid?'#16a34a':'#92400e'}}>${((parseFloat(proposal.deposit_percent)/100)*parseFloat(proposal.total_amount||0)).toLocaleString('en-US',{minimumFractionDigits:2})}</div>
+            </div>
+            {!proposal.deposit_paid&&(
+              <div style={{marginTop:10,paddingTop:10,borderTop:'1px solid #fde68a'}}>
+                <a href={window.location.origin+'/proposal/pay-deposit?proposalId='+proposal.id} style={{display:'inline-block',padding:'8px 18px',background:'#92400e',color:'#fff',borderRadius:6,textDecoration:'none',fontSize:13,fontWeight:700}}>Pay Deposit Online by Credit Card</a>
+              </div>
+            )}
+          </div>
+        )}
         {/* Scope Statement */}
         <div style={styles.scopeStatement}>
           <p style={styles.scopeText}>

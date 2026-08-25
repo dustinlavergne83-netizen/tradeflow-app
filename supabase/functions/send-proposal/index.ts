@@ -1,4 +1,4 @@
-import { corsHeaders } from '../_shared/cors.ts'
+﻿import { corsHeaders } from '../_shared/cors.ts'
 
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
@@ -16,7 +16,7 @@ Deno.serve(async (req) => {
     const { 
       to, 
       contractorName,
-      projectName,
+      proposalNumber,
       estimateNumber,
       baseBidAmount,
       alternates,
@@ -24,7 +24,7 @@ Deno.serve(async (req) => {
       proposalId,
       companyName = "DML Electrical Service, LLC"
     } = await req.json()
-
+    const displayNumber = proposalNumber || estimateNumber || ''
     if (!to) {
       return new Response(
         JSON.stringify({ error: 'Recipient email is required' }),
@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Project Proposal - ${estimateNumber}</title>
+  <title>Project Proposal - ${displayNumber}</title>
 </head>
 <body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f5f5f5;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 20px;">
@@ -83,10 +83,10 @@ Deno.serve(async (req) => {
                 </tr>
                 <tr>
                   <td style="padding: 15px; border-bottom: 1px solid #e5e7eb; color: #666;">
-                    <strong>Estimate #:</strong>
+                    <strong>Proposal #:</strong>
                   </td>
                   <td style="padding: 15px; border-bottom: 1px solid #e5e7eb; text-align: right; color: #111;">
-                    ${estimateNumber}
+                    ${displayNumber}
                   </td>
                 </tr>
                 ${projectName ? `
@@ -140,7 +140,7 @@ Deno.serve(async (req) => {
                 <tr>
                   <td align="center">
                     <a href="${viewLink}" style="display: inline-block; padding: 16px 40px; background-color: #fc6b04; color: #ffffff; text-decoration: none; border-radius: 8px; font-size: 18px; font-weight: bold; box-shadow: 0 2px 4px rgba(252, 107, 4, 0.3);">
-                      📄 View &amp; Print Proposal
+                      ðŸ“„ View &amp; Print Proposal
                     </a>
                   </td>
                 </tr>
@@ -193,11 +193,11 @@ Deno.serve(async (req) => {
         reply_to: 'dustin@dmlelectrical.com',
         to: emailAddresses,
         bcc: ['dustin@dmlelectrical.com'],
-        subject: `Project Proposal #${estimateNumber}${projectName ? ` - ${projectName}` : ''}`,
+        subject: 'Project Proposal #' + displayNumber + (projectName ? ' - ' + projectName : ''),
         html: html,
         tags: [{ name: 'category', value: 'proposal' }],
         headers: {
-          'X-Entity-Ref-ID': `proposal-${proposalId || estimateNumber}`,
+          'X-Entity-Ref-ID': 'proposal-' + (proposalId || displayNumber),
         },
       }),
     })
@@ -213,7 +213,7 @@ Deno.serve(async (req) => {
           `Email domain not verified.\n\n` +
           `To fix:\n` +
           `1. Log into resend.com\n` +
-          `2. Go to "Domains" → "Add Domain"\n` +
+          `2. Go to "Domains" â†’ "Add Domain"\n` +
           `3. Enter: dmlelectrical.com\n` +
           `4. Add the DNS records to your domain registrar\n` +
           `5. Click "Verify" in Resend\n\n` +

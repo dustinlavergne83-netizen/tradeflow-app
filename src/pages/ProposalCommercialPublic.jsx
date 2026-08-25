@@ -361,7 +361,7 @@ export default function ProposalCommercialPublic() {
             to: email,
             contractorName: selectedContractor?.contractor_name || proposal?.contractor_name,
             projectName: project?.name,
-            estimateNumber: baseEstimate.estimate_number?.replace('EST-', ''),
+            proposalNumber: proposal?.proposal_number || savedProposalId?.slice(0, 8),
             baseBidAmount: baseBidAmt,
             alternates: selectedAlts.map(alt => ({
               number: alt.alternate_number,
