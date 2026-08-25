@@ -16,12 +16,12 @@ Deno.serve(async (req) => {
     const { 
       to, 
       contractorName,
+      projectName,
       proposalNumber,
       estimateNumber,
       baseBidAmount,
       alternates,
       totalAmount,
-      proposalId,
       companyName = "DML Electrical Service, LLC"
     } = await req.json()
     const displayNumber = proposalNumber || estimateNumber || ''
