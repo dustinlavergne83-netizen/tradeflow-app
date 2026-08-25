@@ -109,6 +109,7 @@ const NO_HEADER_PATHS = new Set([
   "/invoice/receipt",
   "/invoice/pay-success",
   "/proposal/view",
+  "/proposal/pay-deposit",
   "/estimate/quick/view",
   // portal & website pages have their own headers
   "/welcome",

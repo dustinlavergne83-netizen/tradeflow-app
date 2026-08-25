@@ -63,7 +63,7 @@ export default function ProposalPayDeposit() {
         const el=inst.elements().create("CARD",{styles:{body:{fontFamily:"sans-serif",fontSize:"15px",color:"#111"}}});
         el.mount(cardMountRef.current);
         setCloverObj({instance:inst,card:el});
-      }catch{setPayError("Could not initialise payment form.");}
+      }catch(e){console.error("Clover init error:",e);setPayError("Could not initialise payment form. Please refresh the page and try again. If the problem persists, call us at (337) 288-0395.");}
     },80);
     return()=>clearTimeout(tid);
   },[sdkReady,showPayForm]);  async function handlePay(){

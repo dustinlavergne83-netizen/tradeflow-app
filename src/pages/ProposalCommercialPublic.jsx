@@ -568,31 +568,31 @@ export default function ProposalCommercialPublic() {
               onClick={() => setShowPreview(!showPreview)}
               style={{...styles.button, background: showPreview ? "#666" : "#3b82f6"}}
             >
-              {showPreview ? "âœï¸ Edit" : "ðŸ‘ï¸ View"}
+{showPreview ? "Edit" : "View"}
             </button>
             <button 
               onClick={handleSendEmail}
               style={{...styles.button, background: "#10b981"}}
               disabled={isSendingEmail}
             >
-              {isSendingEmail ? "Sending..." : "ðŸ“§ Email"}
+              {isSendingEmail ? "Sending..." : "Email"}
             </button>
             {showPreview && (
               <button onClick={() => window.print()} style={{...styles.button, ...styles.printButton}}>
-                ðŸ–¨ï¸ Print
+              Print
               </button>
             )}
             <button onClick={handleSave} style={{...styles.button, ...styles.saveButton}} disabled={isSaving}>
-              {isSaving ? "Saving..." : "ðŸ’¾ Save"}
+{isSaving ? "Saving..." : "Save"}
             </button>
             {proposalId && (
               <button onClick={() => setIsEditing(false)} style={{...styles.button, ...styles.cancelButton}}>
-                âŒ Cancel
+              Cancel
               </button>
             )}
             {!proposalId && (
               <button onClick={() => navigate(-1)} style={{...styles.button, ...styles.cancelButton}}>
-                âŒ Cancel
+              Cancel
               </button>
             )}
           </>
@@ -601,7 +601,7 @@ export default function ProposalCommercialPublic() {
             {user && (
           <>
             <button onClick={() => navigate(-1)} style={{...styles.button, background: "#666"}}>
-              â† Back
+              Back
             </button>
             <input
               type="text"
@@ -615,7 +615,7 @@ export default function ProposalCommercialPublic() {
               style={{...styles.button, background: "#10b981"}}
               disabled={isSendingEmail}
             >
-              {isSendingEmail ? "Sending..." : "ðŸ“§ Email"}
+              {isSendingEmail ? "Sending..." : "Email"}
             </button>
           </>
             )}
@@ -629,7 +629,7 @@ export default function ProposalCommercialPublic() {
               }}
               style={{...styles.button, ...styles.printButton}}
             >
-              ðŸ–¨ï¸ Print
+              Print
             </button>
           </>
         )}
@@ -727,7 +727,7 @@ export default function ProposalCommercialPublic() {
 
               {/* â”€â”€ Line Item Display Mode â”€â”€ */}
               <div style={{marginTop: 24, paddingTop: 20, borderTop: '1px solid #f0f0f0'}}>
-                <h3 style={{...styles.cardSectionTitle, marginBottom: 12}}>ðŸ“‹ Line Item Display</h3>
+                <h3 style={{...styles.cardSectionTitle, marginBottom: 12}}>Line Item Display</h3>
                 <label style={{display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: 10}}>
                   <input
                     type="checkbox"
@@ -739,7 +739,7 @@ export default function ProposalCommercialPublic() {
                 </label>
                 {!showLineItems && (
                   <p style={{fontSize: 12, color: '#666', marginLeft: 26, marginTop: 0}}>
-                    ðŸ“„ Summary mode â€” shows description and total only, no itemised list
+                    Summary mode -- shows description and total only, no itemised list
                   </p>
                 )}
                 {showLineItems && (
@@ -755,7 +755,7 @@ export default function ProposalCommercialPublic() {
                 )}
                 {showLineItems && !showItemPrices && (
                   <p style={{fontSize: 12, color: '#666', marginLeft: 52, marginTop: 4}}>
-                    ðŸ’° Items listed as scope of work â€” only the total is shown, no per-item pricing
+                    Items listed as scope of work -- only the total is shown, no per-item pricing
                   </p>
                 )}
               </div>
@@ -802,7 +802,7 @@ export default function ProposalCommercialPublic() {
               <div style={{marginTop: 28, paddingTop: 24, borderTop: '2px dashed #e5e7eb'}}>
                 <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10}}>
                   <div>
-                    <h3 style={{...styles.cardSectionTitle, marginBottom: 4}}>ðŸ’² Price Adjustment</h3>
+                    <h3 style={{...styles.cardSectionTitle, marginBottom: 4}}>Price Adjustment</h3>
                     <div style={{fontSize: 12, color: '#666'}}>
                       Add or subtract an amount from the calculated total for this contractor. Use negative numbers to reduce the price (e.g. <strong>-500</strong> to lower by $500).
                     </div>
@@ -836,7 +836,7 @@ export default function ProposalCommercialPublic() {
                       onClick={() => setPriceAdjustment('')}
                       style={{padding: '10px 14px', backgroundColor: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: 8, cursor: 'pointer', fontSize: 13, color: '#666'}}
                     >
-                      âœ• Clear
+                      Clear
                     </button>
                   )}
                 </div>
