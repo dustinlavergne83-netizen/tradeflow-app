@@ -944,6 +944,24 @@ export default function ProposalCommercialPublic() {
           )}
         </div>
 
+        {/* Scope of Work / Description — pulled from estimate */}
+        {(baseEstimate.notes || baseEstimate.description) && (
+          <div style={{
+            margin: '0 0 18px 0',
+            padding: '14px 18px',
+            background: '#f8f9fb',
+            borderLeft: '4px solid #0b3ea8',
+            borderRadius: 6,
+          }}>
+            <div style={{fontSize: 12, fontWeight: 700, color: '#0b3ea8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6}}>
+              Scope of Work
+            </div>
+            <div style={{fontSize: 14, color: '#333', lineHeight: 1.6, whiteSpace: 'pre-line'}}>
+              {baseEstimate.notes || baseEstimate.description}
+            </div>
+          </div>
+        )}
+
         <div style={styles.proposalTable}>
           <div style={styles.tableTitle}>PROPOSAL SUMMARY</div>
           
