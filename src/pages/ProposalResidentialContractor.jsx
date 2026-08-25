@@ -562,22 +562,22 @@ export default function ProposalResidentialContractor() {
           {isEditing ? (
             <>
               <button onClick={() => navigate(-1)} style={styles.cancelButton}>
-                â† Back
+                Back
               </button>
               <button onClick={() => setIsEditing(false)} style={{...styles.cancelButton, marginLeft: 0}}>
                 Cancel
               </button>
               <button onClick={() => handleSave()} style={styles.saveButton} disabled={isSaving}>
-                {isSaving ? "Saving..." : "ðŸ’¾ Save"}
+                {isSaving ? "Saving..." : "Save"}
               </button>
             </>
           ) : (
             <>
               <button onClick={() => navigate(-1)} style={styles.cancelButton}>
-                â† Back
+                Back
               </button>
               <button onClick={handlePrint} style={{...styles.button, backgroundColor: "#3b82f6"}}>
-                ðŸ–¨ï¸ Print / PDF
+                Print / PDF
               </button>
               <button
                 onClick={async () => {
@@ -595,17 +595,17 @@ export default function ProposalResidentialContractor() {
                       },
                     });
                     if (error) throw error;
-                    notify(`âœ… Proposal sent to ${email}`);
+                    notify(`Proposal sent to ${email}`);
                   } catch (err) {
                     notify("Error sending email: " + err.message);
                   }
                 }}
                 style={{...styles.button, backgroundColor: "#10b981"}}
               >
-                ðŸ“§ Email
+                Email
               </button>
               <button onClick={() => setIsEditing(true)} style={styles.button}>
-                âœï¸ Edit
+                Edit
               </button>
             </>
           )}
@@ -724,7 +724,7 @@ export default function ProposalResidentialContractor() {
               </label>
               {!showLineItems && (
                 <p style={{fontSize: 12, color: '#666', marginTop: 4, marginLeft: 28}}>
-                  ðŸ“‹ Summary mode â€” only shows project description and total price
+                  Summary mode -- only shows project description and total price
                 </p>
               )}
             </div>
@@ -743,7 +743,7 @@ export default function ProposalResidentialContractor() {
                 </label>
                 {!showItemPrices && (
                   <p style={{fontSize: 12, color: '#666', marginTop: 4, marginLeft: 28}}>
-                    ðŸ’° Items listed but only the total is shown â€” no per-item pricing
+                    Items listed but only the total is shown -- no per-item pricing
                   </p>
                 )}
               </div>
