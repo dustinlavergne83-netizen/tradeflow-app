@@ -1140,15 +1140,26 @@ async function handleAddContractor() {
       setExpenses([]);
 
       // Load estimates for this project (exclude change orders - they have CO- prefix)
-      const { data: estimatesData, error: estimatesError } = await supabase
-        .from("estimates")
-        .select("*")
-        .eq("project_name", projectData.name)
-        .order("created_at", { ascending: false });
+      // Dual-lookup: fetch by project_id (new, stable link) PLUS any legacy estimates
+      // that still have project_id = NULL but match by project_name (safe fallback).
+      const [{ data: estById }, { data: estByName }] = await Promise.all([
+        supabase
+          .from("estimates")
+          .select("*")
+          .eq("project_id", id)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("estimates")
+          .select("*")
+          .eq("project_name", projectData.name)
+          .is("project_id", null)   // only unlinked legacy estimates — avoids duplicates
+          .order("created_at", { ascending: false }),
+      ]);
 
-      if (!estimatesError) {
-        // Filter out any estimates that are actually change orders (start with "CO-")
-        const realEstimates = (estimatesData || []).filter(est => 
+      {
+        const combined = [...(estById || []), ...(estByName || [])];
+        // Filter out change orders (CO- prefix)
+        const realEstimates = combined.filter(est =>
           !est.estimate_number || !est.estimate_number.startsWith('CO-')
         );
         setEstimates(realEstimates);
