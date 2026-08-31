@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import logoImage from "../assets/LOGOD.jpg";
@@ -160,7 +160,7 @@ export default function ProposalResidentialContractor() {
         if (estimateData) {
           setBaseEstimate(estimateData);
           
-          // Load estimate items â€” only those checked/selected in the estimate (show_in_scope = true)
+          // Load estimate items — only those checked/selected in the estimate (show_in_scope = true)
           const { data: itemsData } = await supabase
             .from("estimate_items")
             .select("*")
@@ -169,7 +169,7 @@ export default function ProposalResidentialContractor() {
             .order("sequence");
           if (itemsData) setEstimateItems(itemsData);
 
-          // Load project — prefer project_id (stable), fall back to name match (legacy)
+          // Load project � prefer project_id (stable), fall back to name match (legacy)
           let projectData = null;
           const lookupProjectId = proposalData.project_id || estimateData.project_id;
           if (lookupProjectId) {
@@ -240,9 +240,9 @@ export default function ProposalResidentialContractor() {
         setBaseEstimate(estimateData);
 
         // Pre-populate line item display mode from the estimate's saved view_format
-        // summary            â†’ no line items shown at all (showLineItems = false)
-        // itemized           â†’ items + individual prices shown (showLineItems = true, showItemPrices = true)
-        // itemized-no-price  â†’ items shown but per-item prices hidden (showLineItems = true, showItemPrices = false)
+        // summary            → no line items shown at all (showLineItems = false)
+        // itemized           → items + individual prices shown (showLineItems = true, showItemPrices = true)
+        // itemized-no-price  → items shown but per-item prices hidden (showLineItems = true, showItemPrices = false)
         if (estimateData.view_format === 'summary') {
           setShowLineItems(false);
           setShowItemPrices(true);
@@ -250,12 +250,12 @@ export default function ProposalResidentialContractor() {
           setShowLineItems(true);
           setShowItemPrices(false);
         } else {
-          // 'itemized' or any other/missing value â†’ full itemized with prices
+          // 'itemized' or any other/missing value → full itemized with prices
           setShowLineItems(true);
           setShowItemPrices(true);
         }
         
-        // Load estimate items â€” only those checked/selected in the estimate (show_in_scope = true)
+        // Load estimate items — only those checked/selected in the estimate (show_in_scope = true)
         const { data: itemsData } = await supabase
           .from("estimate_items")
           .select("*")
@@ -458,7 +458,7 @@ export default function ProposalResidentialContractor() {
       <ul style={{ margin: 0, paddingLeft: 18, textAlign: 'left', listStyleType: 'disc' }}>
         {lines.map((line, i) => (
           <li key={i} style={{ marginBottom: 2 }}>
-            {line.replace(/^[-â€¢*]\s*/, '')}
+            {line.replace(/^[-•*]\s*/, '')}
           </li>
         ))}
       </ul>
@@ -874,7 +874,7 @@ export default function ProposalResidentialContractor() {
               )}
             </div>
 
-            {/* Scope of Work / Description â€” pulled from estimate */}
+            {/* Scope of Work / Description — pulled from estimate */}
             {(baseEstimate.notes || baseEstimate.description) && (
               <div style={{
                 margin: '0 0 18px 0',
@@ -959,7 +959,7 @@ export default function ProposalResidentialContractor() {
                   )}
 
                   {showLineItems && !showItemPrices ? (
-                    /* No price column â€” show total inline in a single spanning cell */
+                    /* No price column — show total inline in a single spanning cell */
                     <tr style={{...styles.tableRow, borderTop: "2px solid #333"}}>
                       <td style={{...styles.td, fontWeight: "bold", display: "flex", justifyContent: "space-between", alignItems: "center"}}>
                         <span>TOTAL INVESTMENT</span>
@@ -980,7 +980,7 @@ export default function ProposalResidentialContractor() {
               </table>
             </div>
 
-            {/* Deposit block — only shown when a deposit is required */}
+            {/* Deposit block � only shown when a deposit is required */}
             {depositRequired && depositPercent && (
               <div style={{
                 margin: '16px 0',
@@ -992,7 +992,7 @@ export default function ProposalResidentialContractor() {
                 <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8}}>
                   <div>
                     <div style={{fontSize: 13, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2}}>
-                      Deposit Required — {parseFloat(depositPercent).toFixed(0)}%
+                      Deposit Required � {parseFloat(depositPercent).toFixed(0)}%
                     </div>
                     <div style={{fontSize: 12, color: '#78350f'}}>
                       Due upon acceptance of this proposal
@@ -1003,7 +1003,7 @@ export default function ProposalResidentialContractor() {
                   </div>
                 </div>
                 {proposal?.id && (
-                  <div style={{marginTop: 10, paddingTop: 10, borderTop: '1px solid #fde68a'}}>
+                  <div className="no-print" style={{marginTop: 10, paddingTop: 10, borderTop: "1px solid #fde68a"}}>
                     <a
                       href={`${window.location.origin}/proposal/pay-deposit?proposalId=${proposal.id}`}
                       target="_blank"
