@@ -402,6 +402,34 @@ export default function ProjectDetail() {
     if (id) loadProjectData();
   }, [id]);
 
+  // Load bank accounts proactively (as soon as the user is known) instead of
+  // only-on-click. Previously "Add Deposit" only fetched bank_accounts the
+  // first time it was clicked, cached forever (even on failure), and used
+  // `user.id` which can be undefined for a moment while auth is still
+  // hydrating — any of those meant the dropdown could come up empty with no
+  // indication of why. This effect re-runs whenever `user` changes, so it
+  // naturally retries once auth finishes loading.
+  useEffect(() => {
+    if (user?.id) loadBankAccounts();
+  }, [user?.id]);
+
+  async function loadBankAccounts() {
+    const { data: accts, error } = await supabase
+      .from('bank_accounts')
+      .select('*')
+      .eq('company_id', user.id)
+      .eq('is_active', true)
+      .order('account_name');
+
+    if (error) {
+      console.error('Error loading bank accounts:', error);
+      // Don't overwrite a previously-successful load with an empty array on
+      // a transient failure — leave whatever we had and let the user retry.
+      return;
+    }
+    setPdCashAccounts(accts || []);
+  }
+
   // Refresh data when the tab becomes visible again (user navigates back from estimate/invoice).
   // We intentionally do NOT listen to the window 'focus' event because await promptDialog() dialogs
   // cause focus to fire on every dialog dismiss, which would trigger multiple simultaneous
@@ -875,13 +903,7 @@ async function handleAddContractor() {
     setPayingInvoice(invoice);
 
     // Load bank accounts on demand — same tables InvoicesList uses
-    const { data: accts } = await supabase
-      .from('bank_accounts')
-      .select('*')
-      .eq('company_id', user.id)
-      .eq('is_active', true)
-      .order('account_name');
-    setPdCashAccounts(accts || []);
+    if (user?.id) await loadBankAccounts();
 
     const { data: holdAccts } = await supabase
       .from('accounts')
@@ -2442,10 +2464,11 @@ async function handleAddContractor() {
 
             <button onClick={() => setShowChangeOrderModal(true)} style={qaBtn('#f97316')}>🔄 Add Change Order</button>
             <button onClick={async () => {
-              if (pdCashAccounts.length === 0) {
-                const { data: accts } = await supabase.from('bank_accounts').select('*').eq('company_id', user.id).eq('is_active', true).order('account_name');
-                setPdCashAccounts(accts || []);
-              }
+              // Always refresh — previously this only fetched once and cached
+              // the result (even an empty/failed result) forever, so a slow
+              // auth hydration or a transient query error meant the dropdown
+              // could stay empty for the rest of the session.
+              if (user?.id) await loadBankAccounts();
               setShowAddDepositModal(true);
             }} style={qaBtn('#10b981')}>💰 Add Deposit</button>
           </div>
@@ -5083,8 +5106,20 @@ async function handleAddContractor() {
                 ))}
               </select>
               {pdCashAccounts.length === 0 && (
-                <div style={{fontSize: 12, color: '#f59e0b', marginTop: 6}}>
-                  ⚠️ No bank accounts found. A journal entry won't be created. Add one in Bank Accounts.
+                <div style={{fontSize: 12, color: '#f59e0b', marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap'}}>
+                  <span>
+                    ⚠️ No bank accounts loaded. A journal entry won't be created without one.
+                    {!user?.id ? ' Still loading your account…' : ' Add one in Bank Accounts, or retry below.'}
+                  </span>
+                  {user?.id && (
+                    <button
+                      type="button"
+                      onClick={loadBankAccounts}
+                      style={{padding: '4px 10px', fontSize: 12, fontWeight: 600, color: '#0369a1', backgroundColor: '#e0f2fe', border: '1px solid #7dd3fc', borderRadius: 6, cursor: 'pointer'}}
+                    >
+                      🔄 Retry
+                    </button>
+                  )}
                 </div>
               )}
             </div>
