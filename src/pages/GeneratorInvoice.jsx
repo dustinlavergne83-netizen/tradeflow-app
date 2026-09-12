@@ -3,6 +3,8 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { notify } from "../lib/notify";
+import DepositPicker from "../Components/DepositPicker";
+import { resolveProjectId, loadAvailableDeposits, applyDepositsToInvoice } from "../lib/deposits";
 
 const SERVICE_ITEMS = [
   "Annual Generator Maintenance",
@@ -79,6 +81,12 @@ export default function GeneratorInvoice() {
   const [lineItems, setLineItems] = useState([EMPTY_LINE()]);
   const [invoiceNotes, setInvoiceNotes] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+
+  // Deposits — Generator Invoice has no direct project link, but if this
+  // customer happens to have a project on file with un-applied deposits,
+  // offer to apply them after saving.
+  const [savedInvoiceId, setSavedInvoiceId] = useState(null);
+  const [availableDeposits, setAvailableDeposits] = useState([]);
 
   // ── Customers for search ───────────────────────────────────
   const [customers, setCustomers] = useState([]);
@@ -304,6 +312,18 @@ export default function GeneratorInvoice() {
 
       const typeLabel = isInstall ? "Installation" : "Service";
       notify(`⚡ Generator ${typeLabel} Invoice #${finalNum} saved!`);
+
+      // Check whether this customer has a project on file with un-applied
+      // deposits; if so, pause and offer to apply before leaving.
+      const resolvedProjectId = await resolveProjectId({ customerName });
+      const deposits = resolvedProjectId ? await loadAvailableDeposits(resolvedProjectId) : [];
+      if (deposits.length > 0) {
+        setAvailableDeposits(deposits);
+        setSavedInvoiceId(invoice.id);
+        setIsSaving(false);
+        return;
+      }
+
       navigate("/invoices");
     } catch (err) {
       console.error(err);
@@ -313,12 +333,41 @@ export default function GeneratorInvoice() {
     }
   }
 
+  async function handleApplyDeposits(selectedDeposits, total) {
+    try {
+      await applyDepositsToInvoice(savedInvoiceId, selectedDeposits);
+      notify(`💰 $${total.toFixed(2)} deposit applied to this invoice!`);
+    } catch (err) {
+      console.error("Error applying deposits:", err);
+      notify("Failed to apply deposits: " + err.message);
+    } finally {
+      navigate("/invoices");
+    }
+  }
+
   const filteredCustomers = customers.filter((c) =>
     c.customer?.toLowerCase().includes(custSearch.toLowerCase())
   );
 
   const isInstall = invoiceType === "install";
   const quickItems = isInstall ? INSTALL_ITEMS : SERVICE_ITEMS;
+
+  // After saving, if the customer has un-applied project deposits, offer
+  // to apply them before leaving the page.
+  if (savedInvoiceId) {
+    return (
+      <div style={{ maxWidth: 820, margin: "0 auto", padding: "20px 16px" }}>
+        <h1 style={{ margin: "0 0 20px", fontSize: 24, fontWeight: 900, color: "#111" }}>
+          Invoice Saved
+        </h1>
+        <DepositPicker
+          deposits={availableDeposits}
+          onApply={handleApplyDeposits}
+          onSkip={() => navigate("/invoices")}
+        />
+      </div>
+    );
+  }
 
   // ── UI ────────────────────────────────────────────────────
   return (

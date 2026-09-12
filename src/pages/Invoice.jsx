@@ -13,6 +13,7 @@ import { createInvoiceJournalEntry } from "../utils/accountingJournals";
 
 import { formatDate } from "../utils/dateUtils";
 import { notify, confirmDialog, promptDialog } from '../lib/notify';
+import { loadAvailableDeposits, resolveProjectId } from '../lib/deposits';
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -363,77 +364,15 @@ export default function Invoice() {
         }
       }
 
-      // Redirect to the newly created invoice
-      navigate(`/invoice?invoiceId=${newInvoice.id}`, { replace: true });
+      // Redirect to the newly created invoice. Keep projectId in the URL so
+      // the reload that follows (loadInvoice, triggered by the invoiceId
+      // change below) can resolve deposits by ID instead of falling back to
+      // a fragile name lookup.
+      navigate(`/invoice?invoiceId=${newInvoice.id}&projectId=${projectId}`, { replace: true });
     } catch (err) {
       console.error("Error creating invoice for project:", err);
       notify("Failed to create invoice");
       setLoading(false);
-    }
-  }
-  
-  async function loadDeposits(projectName) {
-    if (!projectName) return;
-    
-    try {
-      const { data, error } = await supabase
-        .from("project_deposits")
-        .select("*")
-        .eq("project_id", (
-          await supabase
-            .from("projects")
-            .select("id")
-            .ilike("name", projectName)
-            .single()
-        ).data?.id)
-        .eq("status", "received")
-        .order("deposit_date", { ascending: false });
-      
-      if (error && error.code !== "PGRST116") {
-        console.error("Error loading deposits:", error);
-        return;
-      }
-      
-      setAvailableDeposits(data || []);
-    } catch (err) {
-      console.error("Error loading deposits:", err);
-    }
-  }
-  
-  async function loadDepositsForProject(projectName) {
-    if (!projectName) return;
-    
-    try {
-      // First, find the project ID
-      const { data: projectData, error: projectError } = await supabase
-        .from("projects")
-        .select("id")
-        .ilike("name", projectName)
-        .single();
-      
-      if (projectError) {
-        console.log("Project not found, skipping deposits load");
-        return;
-      }
-      
-      if (!projectData) return;
-      
-      // Then load available deposits for this project
-      const { data: depositsData, error: depositsError } = await supabase
-        .from("project_deposits")
-        .select("*")
-        .eq("project_id", projectData.id)
-        .eq("status", "received")
-        .order("deposit_date", { ascending: false });
-      
-      if (depositsError) {
-        console.log("Error loading deposits:", depositsError);
-        return;
-      }
-      
-      setAvailableDeposits(depositsData || []);
-    } catch (err) {
-      console.error("Error loading deposits:", err);
     }
   }
   
@@ -615,9 +554,15 @@ export default function Invoice() {
         }
       }
       
-      // Load available deposits for this project
-      if (invoiceData.project_name) {
-        await loadDepositsForProject(invoiceData.project_name);
+      // Load available (un-applied) deposits for this project — prefer the
+      // projectId from the URL (reliable) over a name lookup (fragile: throws
+      // if the name doesn't match exactly one project, silently hiding deposits).
+      const resolvedProjectId = projectId || (
+        await resolveProjectId({ projectName: invoiceData.project_name })
+      );
+      if (resolvedProjectId) {
+        const deposits = await loadAvailableDeposits(resolvedProjectId);
+        setAvailableDeposits(deposits);
       }
     } catch (err) {
       console.error("Error loading invoice:", err);

@@ -3,6 +3,8 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { notify } from '../lib/notify';
+import DepositPicker from "../Components/DepositPicker";
+import { loadAvailableDeposits, applyDepositsToInvoice, resolveProjectId } from "../lib/deposits";
 
 export default function QuickInvoice() {
   const navigate = useNavigate();
@@ -17,6 +19,11 @@ export default function QuickInvoice() {
   const [projectId, setProjectId] = useState(null);
   const [pendingDepositIds, setPendingDepositIds] = useState([]);
   const [pendingDepositTotal, setPendingDepositTotal] = useState(0);
+  // Deposits the user can choose to apply (shown as a prompt, nothing
+  // pre-selected). Separate from the pendingDeposit* state above, which is
+  // for deposits already pre-selected by ProjectDetail via URL params.
+  const [availableDeposits, setAvailableDeposits] = useState([]);
+  const [savedInvoiceId, setSavedInvoiceId] = useState(null);
   const [description, setDescription] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0]);
   const [invoiceNumber, setInvoiceNumber] = useState("");
@@ -48,6 +55,20 @@ export default function QuickInvoice() {
   useEffect(() => {
     loadCustomers();
   }, [user]);
+
+  // Always check for un-applied project deposits so the picker can show —
+  // previously Quick Invoice only knew about deposits pre-selected via URL
+  // (from ProjectDetail's flow), so opening it directly skipped them entirely.
+  useEffect(() => {
+    async function checkDeposits() {
+      if (pendingDepositIds.length > 0) return; // already have pre-selected deposits
+      const resolvedId = await resolveProjectId({ projectId, projectName });
+      if (!resolvedId) return;
+      const deposits = await loadAvailableDeposits(resolvedId);
+      setAvailableDeposits(deposits);
+    }
+    if (projectId || projectName) checkDeposits();
+  }, [projectId, projectName, pendingDepositIds.length]);
 
   async function loadCustomers() {
     if (!user) {
@@ -213,6 +234,15 @@ export default function QuickInvoice() {
       const depositMsg = pendingDepositIds.length > 0 ? `\n💰 $${pendingDepositTotal.toFixed(2)} deposit applied!` : '';
       notify(`Quick Invoice #${finalInvoiceNumber} saved successfully!${depositMsg}`);
 
+      // If this project has other un-applied deposits (and none were already
+      // pre-selected via URL), pause here and let the user choose whether to
+      // apply any of them before leaving the page.
+      if (pendingDepositIds.length === 0 && availableDeposits.length > 0) {
+        setSavedInvoiceId(invoice.id);
+        setIsSaving(false);
+        return;
+      }
+
       if (projectId) {
         navigate(`/project/${projectId}`);
       } else {
@@ -225,6 +255,40 @@ export default function QuickInvoice() {
       setIsSaving(false);
     }
   };
+
+  function goToNext() {
+    if (projectId) navigate(`/project/${projectId}`);
+    else navigate("/invoices");
+  }
+
+  async function handleApplyDeposits(selectedDeposits, total) {
+    try {
+      await applyDepositsToInvoice(savedInvoiceId, selectedDeposits);
+      notify(`💰 $${total.toFixed(2)} deposit applied to this invoice!`);
+    } catch (err) {
+      console.error("Error applying deposits:", err);
+      notify("Failed to apply deposits: " + err.message);
+    } finally {
+      goToNext();
+    }
+  }
+
+  // After saving, if there are un-applied project deposits to offer, show
+  // the picker instead of the invoice form.
+  if (savedInvoiceId) {
+    return (
+      <div style={styles.container}>
+        <div style={styles.header}>
+          <h1 style={styles.title}>Quick Invoice Saved</h1>
+        </div>
+        <DepositPicker
+          deposits={availableDeposits}
+          onApply={handleApplyDeposits}
+          onSkip={goToNext}
+        />
+      </div>
+    );
+  }
 
   return (
     <div style={styles.container}>

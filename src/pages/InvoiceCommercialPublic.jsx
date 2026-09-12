@@ -3,6 +3,8 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import logoImage from "../assets/LOGOD.jpg";
 import { notify } from '../lib/notify';
+import DepositPicker from "../Components/DepositPicker";
+import { resolveProjectId, loadAvailableDeposits, applyDepositsToInvoice } from "../lib/deposits";
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -34,6 +36,12 @@ export default function InvoiceCommercialPublic() {
     { description: "", quantity: "", unit_price: "", total: 0 },
     { description: "", quantity: "", unit_price: "", total: 0 },
   ]);
+
+  // Deposits — this invoice type only tracks project_name (text), so we
+  // resolve the actual project by name after saving and offer any
+  // un-applied deposits found for it.
+  const [depositPromptInvoiceId, setDepositPromptInvoiceId] = useState(null);
+  const [availableDeposits, setAvailableDeposits] = useState([]);
 
   useEffect(() => {
     if (invoiceId) {
@@ -179,16 +187,37 @@ export default function InvoiceCommercialPublic() {
 
       notify("Invoice saved successfully!");
       setIsEditing(false);
-      
+
       // Update URL with invoice ID
       if (!invoiceId) {
         navigate(`/invoice/commercial-public?invoiceId=${savedInvoiceId}`, { replace: true });
+      }
+
+      // Check whether the linked project has un-applied deposits on file;
+      // if so, prompt before considering the invoice fully done.
+      const resolvedProjectId = await resolveProjectId({ projectName: invoiceToSave.project_name });
+      const deposits = resolvedProjectId ? await loadAvailableDeposits(resolvedProjectId) : [];
+      if (deposits.length > 0) {
+        setAvailableDeposits(deposits);
+        setDepositPromptInvoiceId(savedInvoiceId);
       }
     } catch (err) {
       console.error("Error saving invoice:", err);
       notify("Error saving invoice: " + err.message);
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function handleApplyDeposits(selectedDeposits, total) {
+    try {
+      await applyDepositsToInvoice(depositPromptInvoiceId, selectedDeposits);
+      notify(`💰 $${total.toFixed(2)} deposit applied to this invoice!`);
+    } catch (err) {
+      console.error("Error applying deposits:", err);
+      notify("Failed to apply deposits: " + err.message);
+    } finally {
+      setDepositPromptInvoiceId(null);
     }
   }
 
@@ -203,6 +232,23 @@ export default function InvoiceCommercialPublic() {
 
   return (
     <div style={styles.container}>
+      {/* Deposit prompt — shown after saving if the project has un-applied deposits */}
+      {depositPromptInvoiceId && (
+        <div style={{
+          position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          zIndex: 1000, padding: 20,
+        }}>
+          <div style={{ maxWidth: 560, width: "100%", maxHeight: "90vh", overflowY: "auto" }}>
+            <DepositPicker
+              deposits={availableDeposits}
+              onApply={handleApplyDeposits}
+              onSkip={() => setDepositPromptInvoiceId(null)}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Action Buttons - Hidden when printing */}
       <div style={styles.actionButtons} className="no-print">
         {isEditing ? (
