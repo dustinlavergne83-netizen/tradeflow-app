@@ -43,6 +43,10 @@ export default function ProgressBilling() {
   const [deposits, setDeposits] = useState([]);
   const [selectedDeposits, setSelectedDeposits] = useState(new Set());
 
+  // Per-line contract items (from estimate_items) — lets the user bill each
+  // scope-of-work line separately instead of one lumped draw.
+  const [contractItems, setContractItems] = useState([]);
+
   // Extra line items (don't affect contract %)
   const [extraLineItems, setExtraLineItems] = useState([]);
 
@@ -84,6 +88,79 @@ export default function ProgressBilling() {
       // Fallback: use total (for very old invoices without the draw tag)
       return sum + (inv.total || 0);
     }, 0);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Load the scope-of-work line items for this contract (estimate/proposal/CO)
+  // and figure out how much of each has already been billed on prior progress
+  // invoices, so the user can bill per-line instead of one lump sum.
+  //
+  // `filterFn` — a function that applies the correct .eq(...) to the
+  //   estimate_items query (estimate_id vs change_order_id).
+  // `contractValue` — the proposal/estimate/CO total. Proposal totals include
+  //   markup/price adjustments that raw estimate_items totals don't, so we
+  //   pro-rate each item's value to sum exactly to contractValue. This keeps
+  //   the contract total the customer agreed to unchanged.
+  // `priorInvoiceIds` — ids of previously created progress invoices for this
+  //   contract (already deduplicated by each loader).
+  // ─────────────────────────────────────────────────────────────────────────
+  async function loadContractItems(filterFn, contractValue, priorInvoiceIds, previouslyBilledLump) {
+    try {
+      let query = supabase.from("estimate_items").select("*").order("sequence");
+      query = filterFn(query);
+      const { data: items, error } = await query;
+
+      if (error || !items || items.length === 0) {
+        setContractItems([]);
+        return;
+      }
+
+      const rawTotal = items.reduce((s, it) => s + (Number(it.line_total) || 0), 0);
+      // Pro-rate so line values sum exactly to the agreed contract value.
+      const scale = rawTotal > 0 && contractValue > 0 ? contractValue / rawTotal : 1;
+
+      // Fetch per-line amounts already billed on prior progress invoices.
+      let prevByItem = {};
+      if (priorInvoiceIds && priorInvoiceIds.length > 0) {
+        const { data: prevLineItems } = await supabase
+          .from("invoice_items")
+          .select("estimate_item_id, total, invoice_id")
+          .in("invoice_id", priorInvoiceIds)
+          .not("estimate_item_id", "is", null);
+
+        (prevLineItems || []).forEach(li => {
+          prevByItem[li.estimate_item_id] = (prevByItem[li.estimate_item_id] || 0) + (Number(li.total) || 0);
+        });
+      }
+
+      // If no invoice_items carry an estimate_item_id yet (legacy invoices, or
+      // this contract has never had a per-line bill), fall back to spreading
+      // the previously-parsed lump "previouslyBilled" total across all lines
+      // pro-rata by contract value, so remaining-per-line still makes sense.
+      const hasPerLineHistory = Object.keys(prevByItem).length > 0;
+      const lumpTotal = Number(previouslyBilledLump) || 0;
+
+      const built = items.map(it => {
+        const contractVal = (Number(it.line_total) || 0) * scale;
+        const prevBilled = hasPerLineHistory
+          ? (prevByItem[it.id] || 0)
+          : (contractValue > 0 ? (contractVal / contractValue) * lumpTotal : 0);
+        return {
+          id: it.id,
+          description: it.description || "Line item",
+          contractValue: contractVal,
+          prevBilled,
+          selected: true,
+          billDollar: "",
+          billPercent: "",
+        };
+      });
+
+      setContractItems(built);
+    } catch (err) {
+      console.error("Error loading contract line items:", err);
+      setContractItems([]);
+    }
   }
 
   useEffect(() => {
@@ -166,6 +243,14 @@ export default function ProgressBilling() {
       // Sum ONLY the draw amount per invoice (parsed from notes — excludes extra line items)
       const prevBilled = await sumDrawAmounts(coInvoices);
       setPreviouslyBilled(prevBilled);
+
+      // Load per-line scope-of-work items for this change order
+      await loadContractItems(
+        (q) => q.eq("change_order_id", coId),
+        contractValue,
+        coInvoices.map(i => i.id),
+        prevBilled
+      );
 
       setInvoiceDescription(`Change Order ${coData.change_order_number} - ${coData.title}`);
     } catch (err) {
@@ -271,6 +356,17 @@ export default function ProgressBilling() {
         // Sum ONLY the draw amount per invoice (parsed from notes — excludes extra line items)
         const prevBilled = await sumDrawAmounts(proposalInvoices);
         setPreviouslyBilled(prevBilled);
+
+        // Load per-line scope-of-work items from the base estimate, pro-rated
+        // to this proposal's total (which includes markup/adjustments).
+        if (baseEstimate?.id) {
+          await loadContractItems(
+            (q) => q.eq("estimate_id", baseEstimate.id),
+            contractValue,
+            proposalInvoices.map(i => i.id),
+            prevBilled
+          );
+        }
       }
 
       // Use proposal number (what the customer sees) instead of the internal estimate number
@@ -357,6 +453,14 @@ export default function ProgressBilling() {
         // Sum ONLY the draw amount per invoice (parsed from notes — excludes extra line items)
         const prevBilled = await sumDrawAmounts(estInvoices);
         setPreviouslyBilled(prevBilled);
+
+        // Load per-line scope-of-work items for this estimate
+        await loadContractItems(
+          (q) => q.eq("estimate_id", estimateId),
+          contractValue,
+          estInvoices.map(i => i.id),
+          prevBilled
+        );
       }
 
       setInvoiceDescription(`Progress billing from estimate ${estimateData.estimate_number || ''}`);
@@ -370,9 +474,66 @@ export default function ProgressBilling() {
 
   // Calculate derived values
   const remainingToBill = totalContractValue - previouslyBilled;
-  const currentBillingAmount = billingMode === "dollar"
-    ? Math.min(parseFloat(billingAmount) || 0, remainingToBill)
-    : Math.min((remainingToBill * (parseFloat(billingPercentage) || 0)) / 100, remainingToBill);
+
+  // Whether we have real per-line scope-of-work items to bill individually.
+  // Falls back to the legacy single lump-sum draw when there are none
+  // (e.g. an estimate with no line items, or data that failed to load).
+  const hasLineItems = contractItems.length > 0;
+
+  function itemRemaining(item) {
+    return Math.max(0, item.contractValue - item.prevBilled);
+  }
+
+  function itemBilledAmount(item) {
+    if (!item.selected) return 0;
+    return Math.min(parseFloat(item.billDollar) || 0, itemRemaining(item));
+  }
+
+  // Update a single line item's dollar amount (and keep % in sync)
+  function updateItemDollar(id, val) {
+    setContractItems(prev => prev.map(item => {
+      if (item.id !== id) return item;
+      const remaining = itemRemaining(item);
+      const amt = parseFloat(val) || 0;
+      const pct = remaining > 0 ? ((amt / remaining) * 100).toFixed(1) : "0";
+      return { ...item, billDollar: val, billPercent: pct };
+    }));
+  }
+
+  // Update a single line item's percentage (and keep $ in sync)
+  function updateItemPercent(id, val) {
+    setContractItems(prev => prev.map(item => {
+      if (item.id !== id) return item;
+      const remaining = itemRemaining(item);
+      const pct = parseFloat(val) || 0;
+      const amt = ((remaining * pct) / 100).toFixed(2);
+      return { ...item, billPercent: val, billDollar: amt };
+    }));
+  }
+
+  function toggleItemSelected(id) {
+    setContractItems(prev => prev.map(item =>
+      item.id === id ? { ...item, selected: !item.selected } : item
+    ));
+  }
+
+  // Apply a quick-select percentage to every currently-selected line item
+  function applyQuickPercentageToAll(pct) {
+    setContractItems(prev => prev.map(item => {
+      if (!item.selected) return item;
+      const remaining = itemRemaining(item);
+      const amt = (remaining * pct) / 100;
+      return { ...item, billPercent: pct.toString(), billDollar: amt.toFixed(2) };
+    }));
+  }
+
+  const lineItemsBillingTotal = contractItems.reduce((sum, item) => sum + itemBilledAmount(item), 0);
+
+  const currentBillingAmount = hasLineItems
+    ? lineItemsBillingTotal
+    : (billingMode === "dollar"
+        ? Math.min(parseFloat(billingAmount) || 0, remainingToBill)
+        : Math.min((remainingToBill * (parseFloat(billingPercentage) || 0)) / 100, remainingToBill));
 
   const extraItemsTotal = extraLineItems.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
 
@@ -545,18 +706,62 @@ export default function ProgressBilling() {
 
       if (invoiceError) throw invoiceError;
 
-      // Create the main progress draw line item
-      const { error: itemError } = await supabase
-        .from('invoice_items')
-        .insert([{
-          invoice_id: newInvoice.id,
-          description: lineDescription,
-          quantity: 1,
-          unit_price: currentBillingAmount,
-          total: currentBillingAmount
-        }]);
+      // Create the progress draw line item(s).
+      // When the contract has real scope-of-work line items, bill each one
+      // separately (tagged with estimate_item_id so future "previously
+      // billed" lookups are accurate per-line). Otherwise fall back to the
+      // legacy single lumped draw row.
+      const billedItems = hasLineItems
+        ? contractItems.filter(item => item.selected && itemBilledAmount(item) > 0)
+        : [];
 
-      if (itemError) throw itemError;
+      if (billedItems.length > 0) {
+        const rows = billedItems.map(item => ({
+          invoice_id: newInvoice.id,
+          estimate_item_id: item.id,
+          description: item.description,
+          quantity: 1,
+          unit_price: itemBilledAmount(item),
+          total: itemBilledAmount(item),
+        }));
+
+        const { error: itemsError } = await supabase
+          .from('invoice_items')
+          .insert(rows);
+
+        if (itemsError) throw itemsError;
+
+        // Record per-line billing history for auditing / future reporting.
+        const historyRows = billedItems.map(item => ({
+          estimate_item_id: item.id,
+          invoice_id: newInvoice.id,
+          original_amount: item.contractValue,
+          billed_amount: itemBilledAmount(item),
+          billing_type: item.billPercent !== "" ? 'percentage' : 'fixed',
+          billing_value: item.billPercent !== "" ? (parseFloat(item.billPercent) || 0) : itemBilledAmount(item),
+        }));
+        const { error: historyError } = await supabase
+          .from('estimate_item_billing_history')
+          .insert(historyRows);
+        if (historyError) {
+          // Non-fatal — the invoice_items rows are the source of truth for billing;
+          // this table is only used for auditing/reporting.
+          console.warn("⚠️ Could not save estimate_item_billing_history:", historyError);
+        }
+      } else {
+        // Legacy fallback: one lumped draw row
+        const { error: itemError } = await supabase
+          .from('invoice_items')
+          .insert([{
+            invoice_id: newInvoice.id,
+            description: lineDescription,
+            quantity: 1,
+            unit_price: currentBillingAmount,
+            total: currentBillingAmount
+          }]);
+
+        if (itemError) throw itemError;
+      }
 
       // Save extra line items one-by-one
       // NOTE: We do NOT use .select().single() here — it can fail in Supabase when
@@ -741,6 +946,128 @@ export default function ProgressBilling() {
         </div>
 
         {/* Billing Amount */}
+        {hasLineItems ? (
+          <div style={styles.card}>
+            <h2 style={styles.cardTitle}>How Much to Invoice?</h2>
+            <p style={{fontSize: 14, color: '#666', marginBottom: 20}}>
+              Bill each scope-of-work line separately — set a % or $ amount per line.
+            </p>
+
+            <div style={{marginBottom: 20}}>
+              <div style={{fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 10}}>
+                Quick Select (applies to all checked lines):
+              </div>
+              <div style={{display: 'flex', gap: 10, flexWrap: 'wrap'}}>
+                {[10, 25, 33, 50, 75, 100].map(pct => (
+                  <button
+                    key={pct}
+                    onClick={() => applyQuickPercentageToAll(pct)}
+                    style={{
+                      padding: '10px 16px',
+                      border: '2px solid #d1d5db',
+                      borderRadius: 8,
+                      backgroundColor: '#fff',
+                      cursor: 'pointer',
+                      fontSize: 14,
+                      fontWeight: '600',
+                      color: '#374151',
+                    }}
+                  >
+                    {pct}%
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{overflowX: 'auto'}}>
+              <table style={{width: '100%', borderCollapse: 'collapse', fontSize: 13}}>
+                <thead>
+                  <tr style={{backgroundColor: '#f3f4f6'}}>
+                    {['', 'Description', 'Contract Value', 'Prev. Billed', 'Remaining', 'Bill This Time ($)', '%'].map(h => (
+                      <th key={h} style={{
+                        padding: '8px 10px', textAlign: h === 'Description' ? 'left' : (h === '' ? 'center' : 'right'),
+                        fontSize: 11, fontWeight: 'bold', color: '#6b7280',
+                        textTransform: 'uppercase', letterSpacing: 0.4,
+                        borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap'
+                      }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {contractItems.map(item => {
+                    const remaining = itemRemaining(item);
+                    return (
+                      <tr key={item.id} style={{opacity: item.selected ? 1 : 0.45}}>
+                        <td style={{padding: '8px 10px', textAlign: 'center', borderBottom: '1px solid #f0f0f0'}}>
+                          <input
+                            type="checkbox"
+                            checked={item.selected}
+                            onChange={() => toggleItemSelected(item.id)}
+                            style={{width: 16, height: 16, cursor: 'pointer', accentColor: BRAND.accent}}
+                          />
+                        </td>
+                        <td style={{padding: '8px 10px', fontWeight: 600, color: '#111', borderBottom: '1px solid #f0f0f0'}}>
+                          {item.description}
+                        </td>
+                        <td style={{padding: '8px 10px', textAlign: 'right', color: '#374151', borderBottom: '1px solid #f0f0f0'}}>
+                          ${item.contractValue.toFixed(2)}
+                        </td>
+                        <td style={{padding: '8px 10px', textAlign: 'right', color: '#6b7280', borderBottom: '1px solid #f0f0f0'}}>
+                          ${item.prevBilled.toFixed(2)}
+                        </td>
+                        <td style={{padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: '#16a34a', borderBottom: '1px solid #f0f0f0'}}>
+                          ${remaining.toFixed(2)}
+                        </td>
+                        <td style={{padding: '8px 10px', borderBottom: '1px solid #f0f0f0'}}>
+                          <input
+                            type="number"
+                            value={item.billDollar}
+                            disabled={!item.selected}
+                            onChange={(e) => updateItemDollar(item.id, e.target.value)}
+                            style={{...styles.amountInput, minWidth: 90}}
+                            placeholder="0.00"
+                            min="0"
+                            max={remaining}
+                            step="0.01"
+                          />
+                        </td>
+                        <td style={{padding: '8px 10px', borderBottom: '1px solid #f0f0f0'}}>
+                          <input
+                            type="number"
+                            value={item.billPercent}
+                            disabled={!item.selected}
+                            onChange={(e) => updateItemPercent(item.id, e.target.value)}
+                            style={{...styles.amountInput, minWidth: 70}}
+                            placeholder="0"
+                            min="0"
+                            max="100"
+                            step="0.1"
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colSpan={5} style={{padding: '10px', textAlign: 'right', fontWeight: 700, color: '#374151'}}>
+                      This Invoice Total:
+                    </td>
+                    <td colSpan={2} style={{padding: '10px', textAlign: 'left', fontWeight: 700, fontSize: 16, color: BRAND.accent}}>
+                      ${lineItemsBillingTotal.toFixed(2)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            {currentBillingAmount > remainingToBill && (
+              <div style={{marginTop: 12, padding: 10, backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, color: '#dc2626', fontSize: 13}}>
+                ⚠️ Amount exceeds remaining contract balance.
+              </div>
+            )}
+          </div>
+        ) : (
         <div style={styles.card}>
           <h2 style={styles.cardTitle}>How Much to Invoice?</h2>
           <p style={{fontSize: 14, color: '#666', marginBottom: 20}}>
@@ -830,6 +1157,7 @@ export default function ProgressBilling() {
             </div>
           )}
         </div>
+        )}
 
         {/* Invoice Details */}
         <div style={styles.card}>

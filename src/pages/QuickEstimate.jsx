@@ -454,6 +454,13 @@ export default function QuickEstimate() {
     setActiveDescDropdown(null);
   }
 
+  // Safely coerce a value to a finite number, defaulting to 0 (prevents
+  // empty-string inputs from being sent to numeric DB columns).
+  const num = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+
   const addLineItem = () => {
     const newId = Math.max(...lineItems.map(item => item.id)) + 1;
     setLineItems([...lineItems, { id: newId, description: "", quantity: 1, material: 0, lbrHrs: 0, showInScope: true }]);
@@ -524,7 +531,7 @@ export default function QuickEstimate() {
 
     setIsSaving(true);
     try {
-      const total = getFinalTotal();
+      const total = num(getFinalTotal());
       
       if (isChangeOrder) {
         // CHANGE ORDER LOGIC
@@ -553,19 +560,19 @@ export default function QuickEstimate() {
 
           // Insert new items FIRST — if this fails, old items are still intact
           const coItems = lineItems.map((item, index) => {
-            const extMat = Number(item.quantity) * Number(item.material);
-            const lbrExt = Number(item.quantity) * Number(item.lbrHrs);
-            const lbrCost = lbrExt * Number(hourlyRate);
+            const extMat = num(item.quantity) * num(item.material);
+            const lbrExt = num(item.quantity) * num(item.lbrHrs);
+            const lbrCost = lbrExt * num(hourlyRate);
             return {
               change_order_id: coId,
               line_type: 'material',
               description: item.description,
-              quantity: item.quantity,
+              quantity: num(item.quantity),
               unit: 'ea',
-              material_unit_cost: item.material,
+              material_unit_cost: num(item.material),
               material_total: extMat,
-              labor_hours: item.lbrHrs,
-              labor_rate: hourlyRate,
+              labor_hours: num(item.lbrHrs),
+              labor_rate: num(hourlyRate),
               labor_total: lbrCost,
               line_total: extMat + lbrCost,
               show_in_scope: item.showInScope !== false,
@@ -661,19 +668,19 @@ export default function QuickEstimate() {
 
           // Create change order items
           const items = lineItems.map((item, index) => {
-            const extMat = Number(item.quantity) * Number(item.material);
-            const lbrExt = Number(item.quantity) * Number(item.lbrHrs);
-            const lbrCost = lbrExt * Number(hourlyRate);
+            const extMat = num(item.quantity) * num(item.material);
+            const lbrExt = num(item.quantity) * num(item.lbrHrs);
+            const lbrCost = lbrExt * num(hourlyRate);
             return {
               change_order_id: changeOrder.id,
               line_type: 'material',
               description: item.description,
-              quantity: item.quantity,
+              quantity: num(item.quantity),
               unit: 'ea',
-              material_unit_cost: item.material,
+              material_unit_cost: num(item.material),
               material_total: extMat,
-              labor_hours: item.lbrHrs,
-              labor_rate: hourlyRate,
+              labor_hours: num(item.lbrHrs),
+              labor_rate: num(hourlyRate),
               labor_total: lbrCost,
               line_total: extMat + lbrCost,
               show_in_scope: item.showInScope !== false,
@@ -723,19 +730,19 @@ export default function QuickEstimate() {
 
           // Insert new items FIRST — if this fails, old items are still intact
           const items = lineItems.map((item, index) => {
-            const extMat = Number(item.quantity) * Number(item.material);
-            const lbrExt = Number(item.quantity) * Number(item.lbrHrs);
-            const lbrCost = lbrExt * Number(hourlyRate);
+            const extMat = num(item.quantity) * num(item.material);
+            const lbrExt = num(item.quantity) * num(item.lbrHrs);
+            const lbrCost = lbrExt * num(hourlyRate);
             return {
               estimate_id: estimateId,
               line_type: 'material',
               description: item.description,
-              quantity: item.quantity,
+              quantity: num(item.quantity),
               unit: 'ea',
-              material_unit_cost: item.material,
+              material_unit_cost: num(item.material),
               material_total: extMat,
-              labor_hours: item.lbrHrs,
-              labor_rate: hourlyRate,
+              labor_hours: num(item.lbrHrs),
+              labor_rate: num(hourlyRate),
               labor_total: lbrCost,
               line_total: extMat + lbrCost,
               show_in_scope: item.showInScope !== false,
@@ -826,19 +833,19 @@ export default function QuickEstimate() {
           if (estimateError) throw estimateError;
 
           const items = lineItems.map((item, index) => {
-            const extMat = Number(item.quantity) * Number(item.material);
-            const lbrExt = Number(item.quantity) * Number(item.lbrHrs);
-            const lbrCost = lbrExt * Number(hourlyRate);
+            const extMat = num(item.quantity) * num(item.material);
+            const lbrExt = num(item.quantity) * num(item.lbrHrs);
+            const lbrCost = lbrExt * num(hourlyRate);
             return {
               estimate_id: estimate.id,
               line_type: 'material',
               description: item.description,
-              quantity: item.quantity,
+              quantity: num(item.quantity),
               unit: 'ea',
-              material_unit_cost: item.material,
+              material_unit_cost: num(item.material),
               material_total: extMat,
-              labor_hours: item.lbrHrs,
-              labor_rate: hourlyRate,
+              labor_hours: num(item.lbrHrs),
+              labor_rate: num(hourlyRate),
               labor_total: lbrCost,
               line_total: extMat + lbrCost,
               show_in_scope: item.showInScope !== false,
@@ -1269,6 +1276,7 @@ export default function QuickEstimate() {
                     type="number"
                     value={hourlyRate}
                     onChange={(e) => setHourlyRate(e.target.value)}
+                    onBlur={(e) => { if (e.target.value === "") setHourlyRate(0); }}
                     style={{
                       width: 100,
                       padding: '8px 10px',
@@ -1323,6 +1331,7 @@ export default function QuickEstimate() {
                             type="number"
                             value={item.quantity}
                             onChange={(e) => updateLineItem(item.id, "quantity", e.target.value)}
+                            onBlur={(e) => { if (e.target.value === "") updateLineItem(item.id, "quantity", 0); }}
                             style={{...styles.tableInput, textAlign: "center"}}
                             min="0"
                             step="0.01"
@@ -1395,6 +1404,7 @@ export default function QuickEstimate() {
                             type="number"
                             value={item.material}
                             onChange={(e) => updateLineItem(item.id, "material", e.target.value)}
+                            onBlur={(e) => { if (e.target.value === "") updateLineItem(item.id, "material", 0); }}
                             style={{...styles.tableInput, textAlign: "right"}}
                             min="0"
                             step="0.01"
@@ -1410,6 +1420,7 @@ export default function QuickEstimate() {
                             type="number"
                             value={item.lbrHrs}
                             onChange={(e) => updateLineItem(item.id, "lbrHrs", e.target.value)}
+                            onBlur={(e) => { if (e.target.value === "") updateLineItem(item.id, "lbrHrs", 0); }}
                             style={{...styles.tableInput, textAlign: "center"}}
                             min="0"
                             step="0.01"
@@ -1535,6 +1546,7 @@ export default function QuickEstimate() {
                               type="number"
                               value={item.material}
                               onChange={(e) => updateLineItem(item.id, "material", e.target.value)}
+                              onBlur={(e) => { if (e.target.value === "") updateLineItem(item.id, "material", 0); }}
                               style={{...styles.tableInput, textAlign: "right"}}
                               min="0"
                               step="0.01"

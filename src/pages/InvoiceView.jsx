@@ -279,8 +279,16 @@ export default function InvoiceView() {
           const pb = parseProgressNotes(invoice.notes);
 
           if (pb) {
-            // The first invoice_item is the draw itself; remaining are extras
-            const extraItems = items.slice(1);
+            // Draw items carry an estimate_item_id (one row per scope-of-work
+            // line billed on this invoice); anything without one is an extra
+            // charge (per diem, equipment rental, etc). Older invoices created
+            // before per-line billing existed have a single lumped draw row
+            // with no estimate_item_id — treat that as a draw row too.
+            const drawItems = items.filter(i => i.estimate_item_id) ;
+            const extraItems = drawItems.length > 0
+              ? items.filter(i => !i.estimate_item_id)
+              : items.slice(1); // legacy: first row is the lump draw, rest are extras
+            const summaryRows = drawItems.length > 0 ? drawItems : items.slice(0, 1);
             const totalBilled = pb.prevBilled + pb.thisDraw;
             const totalContract = pb.contractValue;
             const pctComplete = totalContract > 0 ? ((totalBilled / totalContract) * 100).toFixed(1) : '0.0';
@@ -310,26 +318,68 @@ export default function InvoiceView() {
                       </tr>
                     </thead>
                     <tbody>
-                      <tr>
-                        <td style={{padding:"10px 8px", fontSize:13, fontWeight:600, color:"#111", borderBottom:"1px solid #f0f0f0"}}>
-                          {pb.description}
-                        </td>
-                        <td style={{padding:"10px 8px", textAlign:"right", fontSize:13, color:"#374151", borderBottom:"1px solid #f0f0f0"}}>
-                          {fmtMoney(pb.contractValue)}
-                        </td>
-                        <td style={{padding:"10px 8px", textAlign:"right", fontSize:14, fontWeight:"bold", color:ACCENT, borderBottom:"1px solid #f0f0f0"}}>
-                          {fmtMoney(pb.thisDraw)}
-                        </td>
-                        <td style={{padding:"10px 8px", textAlign:"right", fontSize:13, fontWeight:600, color:"#374151", borderBottom:"1px solid #f0f0f0"}}>
-                          {pb.pctOfContract.toFixed(1)}%
-                        </td>
-                        <td style={{padding:"10px 8px", textAlign:"right", fontSize:13, color:"#6b7280", borderBottom:"1px solid #f0f0f0"}}>
-                          {fmtMoney(pb.prevBilled)}
-                        </td>
-                        <td style={{padding:"10px 8px", textAlign:"right", fontSize:13, fontWeight:600, color:"#16a34a", borderBottom:"1px solid #f0f0f0"}}>
-                          {fmtMoney(pb.remaining)}
-                        </td>
-                      </tr>
+                      {summaryRows.length > 1 ? (
+                        // Per-line-item draw: one row per scope-of-work line billed
+                        // on this invoice, plus a totals row using the aggregate
+                        // contract %/prev-billed/remaining from the invoice notes.
+                        <>
+                          {summaryRows.map((row) => (
+                            <tr key={row.id}>
+                              <td style={{padding:"10px 8px", fontSize:13, fontWeight:600, color:"#111", borderBottom:"1px solid #f0f0f0"}}>
+                                {row.description}
+                              </td>
+                              <td style={{padding:"10px 8px", textAlign:"right", fontSize:13, color:"#9ca3af", borderBottom:"1px solid #f0f0f0"}}>—</td>
+                              <td style={{padding:"10px 8px", textAlign:"right", fontSize:14, fontWeight:"bold", color:ACCENT, borderBottom:"1px solid #f0f0f0"}}>
+                                {fmtMoney(itemTotal(row))}
+                              </td>
+                              <td style={{padding:"10px 8px", textAlign:"right", fontSize:13, color:"#9ca3af", borderBottom:"1px solid #f0f0f0"}}>—</td>
+                              <td style={{padding:"10px 8px", textAlign:"right", fontSize:13, color:"#9ca3af", borderBottom:"1px solid #f0f0f0"}}>—</td>
+                              <td style={{padding:"10px 8px", textAlign:"right", fontSize:13, color:"#9ca3af", borderBottom:"1px solid #f0f0f0"}}>—</td>
+                            </tr>
+                          ))}
+                          <tr>
+                            <td style={{padding:"10px 8px", fontSize:13, fontWeight:700, color:"#111", borderTop:"2px solid #e5e7eb"}}>
+                              Total This Draw
+                            </td>
+                            <td style={{padding:"10px 8px", textAlign:"right", fontSize:13, color:"#374151", borderTop:"2px solid #e5e7eb"}}>
+                              {fmtMoney(pb.contractValue)}
+                            </td>
+                            <td style={{padding:"10px 8px", textAlign:"right", fontSize:14, fontWeight:"bold", color:ACCENT, borderTop:"2px solid #e5e7eb"}}>
+                              {fmtMoney(pb.thisDraw)}
+                            </td>
+                            <td style={{padding:"10px 8px", textAlign:"right", fontSize:13, fontWeight:600, color:"#374151", borderTop:"2px solid #e5e7eb"}}>
+                              {pb.pctOfContract.toFixed(1)}%
+                            </td>
+                            <td style={{padding:"10px 8px", textAlign:"right", fontSize:13, color:"#6b7280", borderTop:"2px solid #e5e7eb"}}>
+                              {fmtMoney(pb.prevBilled)}
+                            </td>
+                            <td style={{padding:"10px 8px", textAlign:"right", fontSize:13, fontWeight:600, color:"#16a34a", borderTop:"2px solid #e5e7eb"}}>
+                              {fmtMoney(pb.remaining)}
+                            </td>
+                          </tr>
+                        </>
+                      ) : (
+                        <tr>
+                          <td style={{padding:"10px 8px", fontSize:13, fontWeight:600, color:"#111", borderBottom:"1px solid #f0f0f0"}}>
+                            {summaryRows[0]?.description || pb.description}
+                          </td>
+                          <td style={{padding:"10px 8px", textAlign:"right", fontSize:13, color:"#374151", borderBottom:"1px solid #f0f0f0"}}>
+                            {fmtMoney(pb.contractValue)}
+                          </td>
+                          <td style={{padding:"10px 8px", textAlign:"right", fontSize:14, fontWeight:"bold", color:ACCENT, borderBottom:"1px solid #f0f0f0"}}>
+                            {fmtMoney(pb.thisDraw)}
+                          </td>
+                          <td style={{padding:"10px 8px", textAlign:"right", fontSize:13, fontWeight:600, color:"#374151", borderBottom:"1px solid #f0f0f0"}}>
+                            {pb.pctOfContract.toFixed(1)}%
+                          </td>
+                          <td style={{padding:"10px 8px", textAlign:"right", fontSize:13, color:"#6b7280", borderBottom:"1px solid #f0f0f0"}}>
+                            {fmtMoney(pb.prevBilled)}
+                          </td>
+                          <td style={{padding:"10px 8px", textAlign:"right", fontSize:13, fontWeight:600, color:"#16a34a", borderBottom:"1px solid #f0f0f0"}}>
+                            {fmtMoney(pb.remaining)}
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
