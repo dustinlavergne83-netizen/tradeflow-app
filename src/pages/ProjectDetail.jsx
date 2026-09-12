@@ -4964,8 +4964,15 @@ async function handleAddContractor() {
                       ? estimateForInvoice.total / allItemsCostTotal
                       : 1;
 
-                    // Apply markup: raw cost → selling price
-                    const invoiceTotal = selectedItems.reduce((s, i) => s + ((i.line_total || 0) * markupRatio), 0);
+                    // Apply markup: raw cost → selling price. Rounded to cents up
+                    // front so the invoice total always matches the sum of the
+                    // line items exactly — previously the total was reconstructed
+                    // later from a markup_percentage rounded to 2 decimals
+                    // (DECIMAL(5,2) in the DB), which could drift the displayed
+                    // total by a few cents from the price you actually set.
+                    const invoiceTotal = parseFloat(
+                      selectedItems.reduce((s, i) => s + ((i.line_total || 0) * markupRatio), 0).toFixed(2)
+                    );
 
                     // Create invoice
                     const { data: newInvoice, error: invErr } = await supabase.from('invoices').insert([{
@@ -4983,43 +4990,48 @@ async function handleAddContractor() {
                     }]).select().single();
                     if (invErr) throw invErr;
 
-                    // Markup % to store when there is actual markup (ratio > 1)
-                    // Only inserted when > 0 so Invoice.jsx correctly shows cost + markup breakdown
-                    const markupPct = markupRatio > 1.0001
-                      ? parseFloat(((markupRatio - 1) * 100).toFixed(2))
-                      : 0;
-
-                    // Create invoice items — lump sum (1 line) or itemized (all lines)
-                    // Store BASE COST in unit_price/total + markup % separately
-                    // so Invoice.jsx displays: COST (base) | MARKUP % | TOTAL (selling price)
+                    // Create invoice items — lump sum (1 line) or itemized (all lines).
+                    // Store the final SELLING PRICE directly in unit_price/total
+                    // (markup_percentage always 0 / omitted — markup is never shown
+                    // to the customer). This guarantees the invoice total always
+                    // equals exactly what was set on the estimate/price adjustment,
+                    // instead of being reconstructed later from a rounded percentage.
                     if (invoiceLumpSum) {
-                      const baseCost = selectedItems.reduce((s, i) => s + (i.line_total || 0), 0);
                       const lumpItem = {
                         invoice_id: newInvoice.id,
                         description: `Electrical Services — ${project.name}`,
                         quantity: 1,
-                        unit_price: parseFloat(baseCost.toFixed(2)),
-                        total: parseFloat(baseCost.toFixed(2)),
+                        unit_price: invoiceTotal,
+                        total: invoiceTotal,
                       };
-                      if (markupPct > 0) lumpItem.markup_percentage = markupPct;
                       await supabase.from('invoice_items').insert([lumpItem]);
                     } else {
-                      await supabase.from('invoice_items').insert(
-                        selectedItems.map(item => {
-                          const qty = item.quantity || 1;
-                          const baseCost = item.line_total || 0;
-                          const baseUnitPrice = parseFloat((baseCost / qty).toFixed(2));
-                          const lineItem = {
-                            invoice_id: newInvoice.id,
-                            description: item.description,
-                            quantity: qty,
-                            unit_price: baseUnitPrice,
-                            total: parseFloat(baseCost.toFixed(2)),
-                          };
-                          if (markupPct > 0) lineItem.markup_percentage = markupPct;
-                          return lineItem;
-                        })
-                      );
+                      // Apply the markup ratio per line, rounded to cents, then
+                      // reconcile any leftover cents onto the last line so the
+                      // sum of all lines always equals invoiceTotal exactly.
+                      const lineItems = selectedItems.map(item => {
+                        const qty = item.quantity || 1;
+                        const baseCost = item.line_total || 0;
+                        const sellingTotal = parseFloat((baseCost * markupRatio).toFixed(2));
+                        const sellingUnitPrice = parseFloat((sellingTotal / qty).toFixed(2));
+                        return {
+                          invoice_id: newInvoice.id,
+                          description: item.description,
+                          quantity: qty,
+                          unit_price: sellingUnitPrice,
+                          total: sellingTotal,
+                        };
+                      });
+
+                      const linesSum = parseFloat(lineItems.reduce((s, li) => s + li.total, 0).toFixed(2));
+                      const drift = parseFloat((invoiceTotal - linesSum).toFixed(2));
+                      if (drift !== 0 && lineItems.length > 0) {
+                        const last = lineItems[lineItems.length - 1];
+                        last.total = parseFloat((last.total + drift).toFixed(2));
+                        last.unit_price = parseFloat((last.total / (last.quantity || 1)).toFixed(2));
+                      }
+
+                      await supabase.from('invoice_items').insert(lineItems);
                     }
 
                     setShowLineItemSelectModal(false);
