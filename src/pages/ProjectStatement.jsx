@@ -119,28 +119,39 @@ export default function ProjectStatement() {
       // 6. Load ALL proposals for this project by project_id (base + change orders)
       const { data: allProposals } = await supabase
         .from("proposals")
-        .select("id, total_amount, base_estimate_id, change_order_id, created_at")
+        .select("id, total_amount, base_estimate_id, change_order_id, created_at, is_active_contract")
         .eq("project_id", projectId)
         .order("created_at", { ascending: true });
       setProposals(allProposals || []);
-      // Find the base proposal that the progress invoices are actually tied to
-      // Invoices store a [PROPOSAL:proposalId] tag in their notes field
+      // Find the base proposal(s) the progress invoices are actually tied to.
+      // A project can have MULTIPLE simultaneously-active base proposals (e.g.
+      // one per trade/contractor) — the contract total is the sum of all of
+      // them, not just one. Invoices store a [PROPOSAL:proposalId] tag in
+      // their notes field, which we use to find every distinct base proposal
+      // that's actually been billed against.
       const baseProps = (allProposals || []).filter(p => !p.change_order_id);
-      let linkedBaseProp = null;
+      const linkedBasePropIds = new Set();
       // Check base invoices (non-CO) for a [PROPOSAL:xxx] tag
       const baseInvoices = (invList || []).filter(inv => !String(inv.invoice_number || "").match(/CO\d+/i));
       for (const inv of baseInvoices) {
         const tagMatch = String(inv.notes || "").match(/\[PROPOSAL:([^\]]+)\]/);
-        if (tagMatch) {
-          linkedBaseProp = (allProposals || []).find(p => p.id === tagMatch[1]);
-          if (linkedBaseProp) break;
+        if (tagMatch && baseProps.some(p => p.id === tagMatch[1])) {
+          linkedBasePropIds.add(tagMatch[1]);
         }
       }
-      // Fallback: use the latest base proposal if no tag found
-      if (!linkedBaseProp) {
-        linkedBaseProp = baseProps.length > 0 ? baseProps[baseProps.length - 1] : null;
+      // If no invoices are tagged yet, fall back to whichever base proposals
+      // are explicitly marked active (multi-select aware); if none are
+      // flagged either (legacy data), fall back to the single latest one.
+      let linkedBaseProps;
+      if (linkedBasePropIds.size > 0) {
+        linkedBaseProps = baseProps.filter(p => linkedBasePropIds.has(p.id));
+      } else {
+        const activeBaseProps = baseProps.filter(p => p.is_active_contract);
+        linkedBaseProps = activeBaseProps.length > 0
+          ? activeBaseProps
+          : (baseProps.length > 0 ? [baseProps[baseProps.length - 1]] : []);
       }
-      setBaseContractAmount(linkedBaseProp?.total_amount || 0);
+      setBaseContractAmount(linkedBaseProps.reduce((sum, p) => sum + (p.total_amount || 0), 0));
 
     } catch (err) {
       console.error("Error loading statement:", err);

@@ -95,7 +95,12 @@ export default function ProjectDetail() {
   // Actions dropdown — tracks which row's menu is open (by estimate/invoice ID)
   const [openActionMenu, setOpenActionMenu] = useState(null);
   const [showWinningProposalModal, setShowWinningProposalModal] = useState(false);
-  const [selectedWinningProposal, setSelectedWinningProposal] = useState(null);
+  // Multiple proposals can be active on the same project at once (e.g. one
+  // per trade/contractor). selectedWinningProposalIds holds the full set;
+  // selectedWinningProposal (singular) is kept as a convenience alias for
+  // the first/primary selection so existing single-proposal code paths
+  // (like the auto-select-if-only-one-proposal case) still work untouched.
+  const [selectedWinningProposalIds, setSelectedWinningProposalIds] = useState(new Set());
   const [allProjectProposals, setAllProjectProposals] = useState([]);
   const [showEditProjectModal, setShowEditProjectModal] = useState(false);
   const [editProjectForm, setEditProjectForm] = useState({
@@ -2201,9 +2206,15 @@ async function handleAddContractor() {
                     const enrichedProposals = await enrichProposalsWithEmails(allProposals);
                     // Show winning proposal modal
                     setAllProjectProposals(enrichedProposals);
-                    // Auto-select if only one proposal
-                    if (enrichedProposals.length === 1) {
-                      setSelectedWinningProposal(enrichedProposals[0]);
+                    // Pre-select whichever proposals are already marked active,
+                    // or auto-select if there's only one proposal to choose from
+                    const alreadyActive = enrichedProposals.filter(p => p.is_active_contract).map(p => p.id);
+                    if (alreadyActive.length > 0) {
+                      setSelectedWinningProposalIds(new Set(alreadyActive));
+                    } else if (enrichedProposals.length === 1) {
+                      setSelectedWinningProposalIds(new Set([enrichedProposals[0].id]));
+                    } else {
+                      setSelectedWinningProposalIds(new Set());
                     }
                     setShowWinningProposalModal(true);
                     return; // Don't update status yet
@@ -3198,7 +3209,11 @@ async function handleAddContractor() {
                 estimateProposals.map(proposal => {
                   const linkedEstimate = estimates.find(e => e.id === estimateId);
                   const menuId = `prop-${proposal.id}`;
-                  const isWinner = project.winning_proposal_id === proposal.id;
+                  // A proposal shows as "active" if it's explicitly flagged (supports
+                  // multiple simultaneously-active proposals), OR — for data saved
+                  // before this flag existed — if it matches the legacy single
+                  // winning_proposal_id.
+                  const isWinner = proposal.is_active_contract || project.winning_proposal_id === proposal.id;
                   return (
                     <div
                       key={proposal.id}
@@ -3302,8 +3317,16 @@ async function handleAddContractor() {
                                   action: () => { setOpenActionMenu(null); navigate(`/project/${id}/proposal?proposalId=${proposal.id}&estimateId=${estimateId}&type=${project.project_type || 'commercial-public'}`); }},
                                 { label: '📊 Progress Invoice', color: '#8b5cf6',
                                   action: () => { setOpenActionMenu(null); navigate(`/project/${id}/progress-billing?proposalId=${proposal.id}`); }},
-                                !isWinner ? { label: '⭐ Set as Winning Bid', color: '#059669',
-                                  action: () => { setOpenActionMenu(null); setAllProjectProposals(Object.values(proposals).flat()); setSelectedWinningProposal(proposal); setShowWinningProposalModal(true); }} : null,
+                                !isWinner ? { label: '⭐ Add to Active Proposals', color: '#059669',
+                                  action: () => {
+                                    setOpenActionMenu(null);
+                                    const allProps = Object.values(proposals).flat();
+                                    setAllProjectProposals(allProps);
+                                    // Keep whatever's already active, plus this one
+                                    const alreadyActive = allProps.filter(p => p.is_active_contract).map(p => p.id);
+                                    setSelectedWinningProposalIds(new Set([...alreadyActive, proposal.id]));
+                                    setShowWinningProposalModal(true);
+                                  }} : null,
                                 { label: '🗑️ Delete Proposal', color: '#ef4444',
                                   action: async () => {
                                     setOpenActionMenu(null);
@@ -4032,27 +4055,44 @@ async function handleAddContractor() {
 {showWinningProposalModal && (
   <div style={styles.modalOverlay} onClick={() => setShowWinningProposalModal(false)}>
     <div style={{...styles.modal, maxWidth: 700}} onClick={(e) => e.stopPropagation()}>
-      <h2 style={styles.modalTitle}>🏆 Select Winning Proposal</h2>
+      <h2 style={styles.modalTitle}>🏆 Select Active Proposal(s)</h2>
       <p style={{fontSize: 14, color: '#666', marginBottom: 20}}>
-        Which contractor/proposal won this job? This will set the project budget and contractor.
+        Check every contractor/proposal that's under contract for this job. You can select
+        more than one — their contract values will be combined into the project's total.
       </p>
       
-      <div style={{maxHeight: 400, overflowY: 'auto', marginBottom: 20}}>
-        {allProjectProposals.map((proposal) => (
+      <div style={{maxHeight: 400, overflowY: 'auto', marginBottom: 12}}>
+        {allProjectProposals.map((proposal) => {
+          const checked = selectedWinningProposalIds.has(proposal.id);
+          return (
           <div 
             key={proposal.id}
-            onClick={() => setSelectedWinningProposal(proposal)}
+            onClick={() => {
+              setSelectedWinningProposalIds(prev => {
+                const next = new Set(prev);
+                if (next.has(proposal.id)) next.delete(proposal.id);
+                else next.add(proposal.id);
+                return next;
+              });
+            }}
             style={{
               padding: 16,
-              backgroundColor: selectedWinningProposal?.id === proposal.id ? '#e0f2fe' : '#f9fafb',
+              backgroundColor: checked ? '#e0f2fe' : '#f9fafb',
               borderRadius: 8,
               marginBottom: 12,
-              border: selectedWinningProposal?.id === proposal.id ? '2px solid #3b82f6' : '1px solid #e5e7eb',
+              border: checked ? '2px solid #3b82f6' : '1px solid #e5e7eb',
               cursor: 'pointer',
               transition: 'all 0.2s',
             }}
           >
-            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12}}>
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() => {}}
+                onClick={(e) => e.stopPropagation()}
+                style={{width: 20, height: 20, cursor: 'pointer', accentColor: '#3b82f6', flexShrink: 0}}
+              />
               <div style={{flex: 1}}>
                 <div style={{fontWeight: 'bold', fontSize: 16, color: '#111', marginBottom: 4}}>
                   {proposal.contractor_name || 'No Contractor'}
@@ -4068,14 +4108,32 @@ async function handleAddContractor() {
               </div>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
+
+      {selectedWinningProposalIds.size > 0 && (
+        <div style={{
+          padding: '12px 16px', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0',
+          borderRadius: 8, marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        }}>
+          <span style={{fontSize: 14, fontWeight: 600, color: '#166534'}}>
+            {selectedWinningProposalIds.size} proposal{selectedWinningProposalIds.size > 1 ? 's' : ''} selected
+          </span>
+          <span style={{fontSize: 18, fontWeight: 'bold', color: '#166534'}}>
+            Combined contract value: ${allProjectProposals
+              .filter(p => selectedWinningProposalIds.has(p.id))
+              .reduce((sum, p) => sum + (p.total_amount || 0), 0)
+              .toFixed(2)}
+          </span>
+        </div>
+      )}
       
       <div style={styles.modalActions}>
         <button 
           onClick={() => {
             setShowWinningProposalModal(false);
-            setSelectedWinningProposal(null);
+            setSelectedWinningProposalIds(new Set());
           }} 
           style={styles.cancelButton}
         >
@@ -4083,93 +4141,135 @@ async function handleAddContractor() {
         </button>
         <button 
           onClick={async () => {
-            if (!selectedWinningProposal) {
-              notify("Please select a proposal");
+            const selectedProposals = allProjectProposals.filter(p => selectedWinningProposalIds.has(p.id));
+            if (selectedProposals.length === 0) {
+              notify("Please select at least one proposal");
               return;
             }
-            
-            try {
-              // Get the base estimate to calculate internal cost (budget)
+
+            // Helper: internal cost (budget) for one proposal's base estimate,
+            // same calculation the single-proposal flow always used.
+            async function computeInternalBudget(baseEstimateId) {
               const { data: baseEstimate, error: estimateError } = await supabase
                 .from("estimates")
                 .select("*")
-                .eq("id", selectedWinningProposal.base_estimate_id)
+                .eq("id", baseEstimateId)
                 .single();
-              
               if (estimateError) throw estimateError;
-              
-              // Calculate internal budget (costs without markup)
+
               const materialsCost = baseEstimate.material_subtotal || 0;
               const laborCost = (baseEstimate.labor_hours_total || 0) * (baseEstimate.labor_cost_rate || 25);
-              const feesCost = (baseEstimate.mobilization || 0) + 
-                              (baseEstimate.room_board || 0) + 
-                              (baseEstimate.equipment_rental || 0) + 
-                              (baseEstimate.material_storage || 0) + 
-                              (baseEstimate.misc_expenses || 0) + 
+              const feesCost = (baseEstimate.mobilization || 0) +
+                              (baseEstimate.room_board || 0) +
+                              (baseEstimate.equipment_rental || 0) +
+                              (baseEstimate.material_storage || 0) +
+                              (baseEstimate.misc_expenses || 0) +
                               (baseEstimate.permit_fees || 0);
-              const packagesCost = (baseEstimate.lighting_package_cost || 0) + 
-                                  (baseEstimate.switchgear_package_cost || 0) + 
-                                  (baseEstimate.special_systems_cost || 0) + 
+              const packagesCost = (baseEstimate.lighting_package_cost || 0) +
+                                  (baseEstimate.switchgear_package_cost || 0) +
+                                  (baseEstimate.special_systems_cost || 0) +
                                   (baseEstimate.subcontractors_cost || 0);
-              
+
               let internalBudget = materialsCost + laborCost + feesCost + packagesCost;
-              
-              // If estimate-level cost fields are empty, calculate from estimate items
+
               if (internalBudget === 0) {
                 const { data: estItems } = await supabase
                   .from("estimate_items")
                   .select("material_cost, labor_cost, line_total, quantity, unit_price")
-                  .eq("estimate_id", selectedWinningProposal.base_estimate_id);
-                
+                  .eq("estimate_id", baseEstimateId);
+
                 if (estItems && estItems.length > 0) {
                   internalBudget = estItems.reduce((sum, item) => {
-                    // Use material_cost + labor_cost if available, otherwise use line_total as cost
                     const itemCost = (item.material_cost || 0) + (item.labor_cost || 0);
                     return sum + (itemCost > 0 ? itemCost : (item.line_total || (item.quantity || 0) * (item.unit_price || 0)));
                   }, 0);
                 }
-                
-                // If still 0, use estimate subtotal (cost before markup) or half the total as rough estimate
+
                 if (internalBudget === 0) {
                   internalBudget = baseEstimate.subtotal || baseEstimate.cost_subtotal || (baseEstimate.total * 0.5) || 0;
                 }
               }
-              
+              return internalBudget;
+            }
+
+            try {
+              // Compute + sum budget and contract value across ALL selected proposals
+              let totalBudget = 0;
+              let totalWorth = 0;
+              const contractorNames = [];
+              for (const proposal of selectedProposals) {
+                totalBudget += await computeInternalBudget(proposal.base_estimate_id);
+                totalWorth += proposal.total_amount || 0;
+                if (proposal.contractor_name && !contractorNames.includes(proposal.contractor_name)) {
+                  contractorNames.push(proposal.contractor_name);
+                }
+              }
+
+              // Mark every selected proposal as an active contract; clear the
+              // flag on any proposal for this project that was previously
+              // active but is no longer selected.
+              const nowIso = new Date().toISOString();
+              const selectedIds = selectedProposals.map(p => p.id);
+              const deselectedIds = allProjectProposals
+                .filter(p => p.is_active_contract && !selectedWinningProposalIds.has(p.id))
+                .map(p => p.id);
+
+              const { error: activateError } = await supabase
+                .from("proposals")
+                .update({ is_active_contract: true, activated_at: nowIso })
+                .in("id", selectedIds);
+              if (activateError) throw activateError;
+
+              if (deselectedIds.length > 0) {
+                const { error: deactivateError } = await supabase
+                  .from("proposals")
+                  .update({ is_active_contract: false })
+                  .in("id", deselectedIds);
+                if (deactivateError) throw deactivateError;
+              }
+
+              // winning_proposal_id kept for backward compatibility — points at
+              // the largest-value selected proposal ("primary" contract).
+              const primaryProposal = selectedProposals.reduce((a, b) =>
+                (b.total_amount || 0) > (a.total_amount || 0) ? b : a
+              );
+
               const { error } = await supabase
                 .from("projects")
                 .update({
                   status: 'active',
-                  budget: internalBudget, // Use internal cost as budget
-                  active_worth: selectedWinningProposal.total_amount, // What customer will pay
-                  contractor: selectedWinningProposal.contractor_name,
-                  winning_proposal_id: selectedWinningProposal.id
+                  budget: totalBudget,
+                  active_worth: totalWorth,
+                  contractor: contractorNames.join(", "),
+                  winning_proposal_id: primaryProposal.id
                 })
                 .eq("id", id);
-              
+
               if (error) throw error;
-              
+
               setProject({
                 ...project,
                 status: 'active',
-                budget: internalBudget,
-                active_worth: selectedWinningProposal.total_amount,
-                contractor: selectedWinningProposal.contractor_name,
-                winning_proposal_id: selectedWinningProposal.id
+                budget: totalBudget,
+                active_worth: totalWorth,
+                contractor: contractorNames.join(", "),
+                winning_proposal_id: primaryProposal.id
               });
-              
+
               setShowWinningProposalModal(false);
-              setSelectedWinningProposal(null);
-              
-              notify(`Project activated!\nActive Worth: $${selectedWinningProposal.total_amount.toFixed(2)}\nBudget (Cost): $${internalBudget.toFixed(2)}`);
+              setSelectedWinningProposalIds(new Set());
+
+              notify(`Project activated!\n${selectedProposals.length} proposal(s) active.\nActive Worth: $${totalWorth.toFixed(2)}\nBudget (Cost): $${totalBudget.toFixed(2)}`);
+              loadProjectData();
             } catch (err) {
-              console.error("Error setting winning proposal:", err);
-              notify("Failed to set winning proposal");
+              console.error("Error setting active proposal(s):", err);
+              notify("Failed to set active proposal(s)");
             }
           }}
           style={styles.submitButton}
-          disabled={!selectedWinningProposal}
+          disabled={selectedWinningProposalIds.size === 0}
         >
-          Confirm Winner
+          Confirm {selectedWinningProposalIds.size > 1 ? `${selectedWinningProposalIds.size} Proposals` : 'Winner'}
         </button>
       </div>
     </div>
