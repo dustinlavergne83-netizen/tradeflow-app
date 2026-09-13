@@ -8,9 +8,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import { useUnread } from "../../lib/UnreadContext";
-
-const BLUE = "#0b3ea8";
-const ORANGE = "#fc6b04";
+import { useBrand } from "../../lib/useBrand";
 
 function formatPhone(num: string = "") {
   const d = num.replace(/\D/g, "").slice(-10);
@@ -32,6 +30,7 @@ function formatTime(ts: string) {
 const TYPE_ICONS: Record<string, string> = { sms: "💬", call: "📞", ai_call: "🤖", voicemail: "🎙️" };
 
 export default function InboxScreen() {
+  const brand = useBrand();
   const { setSmsCount } = useUnread();
   const [threads, setThreads] = useState<any[]>([]);
   const [search, setSearch] = useState("");
@@ -127,7 +126,7 @@ export default function InboxScreen() {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color={BLUE} />
+        <ActivityIndicator size="large" color={brand.primary} />
       </View>
     );
   }
@@ -137,10 +136,10 @@ export default function InboxScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerRow}>
-          <Text style={styles.title}>
+          <Text style={[styles.title, { color: brand.primary }]}>
             📬 Inbox
             {totalUnread > 0 && (
-              <Text style={styles.badge}> {totalUnread}</Text>
+              <Text style={[styles.badge, { color: brand.accent }]}> {totalUnread}</Text>
             )}
           </Text>
         </View>
@@ -163,7 +162,7 @@ export default function InboxScreen() {
             <TouchableOpacity
               key={f}
               onPress={() => setFilter(f)}
-              style={[styles.filterBtn, filter === f && styles.filterBtnActive]}
+              style={[styles.filterBtn, filter === f && { backgroundColor: brand.primary }]}
             >
               <Text style={[styles.filterText, filter === f && styles.filterTextActive]}>
                 {f === "all" ? "All" : f === "sms" ? "Texts" : f === "call" ? "Calls" : "Voicemail"}
@@ -191,7 +190,7 @@ export default function InboxScreen() {
             onPress={() => router.push(`/chat/${encodeURIComponent(t.contactNumber)}?name=${encodeURIComponent(t.customer_name || "")}&customerId=${t.customer_id || ""}`)}
           >
             {/* Avatar */}
-            <View style={[styles.avatar, { backgroundColor: t.unread > 0 ? BLUE : "#e5e7eb" }]}>
+            <View style={[styles.avatar, { backgroundColor: t.unread > 0 ? brand.primary : "#e5e7eb" }]}>
               <Text style={[styles.avatarText, { color: t.unread > 0 ? "#fff" : "#374151" }]}>
                 {(t.customer_name || "?")[0].toUpperCase()}
               </Text>
@@ -211,7 +210,7 @@ export default function InboxScreen() {
                   {t.ai_summary || t.body || (t.type === "voicemail" ? "Voicemail" : "View conversation")}
                 </Text>
                 {t.unread > 0 && (
-                  <View style={styles.unreadDot}>
+                  <View style={[styles.unreadDot, { backgroundColor: brand.primary }]}>
                     <Text style={styles.unreadCount}>{t.unread}</Text>
                   </View>
                 )}
@@ -229,13 +228,12 @@ const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
   header: { backgroundColor: "#fff", paddingTop: 56, paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: "#e5e7eb" },
   headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
-  title: { fontSize: 22, fontWeight: "900", color: BLUE },
-  badge: { fontSize: 14, color: ORANGE, fontWeight: "800" },
+  title: { fontSize: 22, fontWeight: "900" },
+  badge: { fontSize: 14, fontWeight: "800" },
   searchBox: { flexDirection: "row", alignItems: "center", backgroundColor: "#f3f4f6", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 10 },
   searchInput: { flex: 1, fontSize: 14, color: "#111" },
   filters: { flexDirection: "row", gap: 8 },
   filterBtn: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, backgroundColor: "#f3f4f6" },
-  filterBtnActive: { backgroundColor: BLUE },
   filterText: { fontSize: 12, fontWeight: "600", color: "#374151" },
   filterTextActive: { color: "#fff" },
   empty: { flex: 1, alignItems: "center", paddingTop: 80 },
@@ -251,6 +249,6 @@ const styles = StyleSheet.create({
   threadTime: { fontSize: 11, color: "#9ca3af" },
   threadBottom: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   threadPreview: { fontSize: 13, color: "#6b7280", flex: 1 },
-  unreadDot: { backgroundColor: BLUE, borderRadius: 10, minWidth: 20, height: 20, justifyContent: "center", alignItems: "center", paddingHorizontal: 5 },
+  unreadDot: { borderRadius: 10, minWidth: 20, height: 20, justifyContent: "center", alignItems: "center", paddingHorizontal: 5 },
   unreadCount: { color: "#fff", fontSize: 11, fontWeight: "800" },
 });

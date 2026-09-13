@@ -2,11 +2,14 @@ import { useEffect, useState } from "react";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { supabase } from "../lib/supabase";
 import { View, ActivityIndicator } from "react-native";
+import { CompanyProvider } from "../lib/CompanyContext";
+import { useBrand } from "../lib/useBrand";
 
-export default function RootLayout() {
+function RootLayoutInner() {
   const [session, setSession] = useState<any>(undefined); // undefined = still loading
   const router = useRouter();
   const segments = useSegments();
+  const brand = useBrand();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -40,7 +43,7 @@ export default function RootLayout() {
   // Show loading spinner while checking auth
   if (session === undefined) {
     return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#0b3ea8" }}>
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: brand.primary }}>
         <ActivityIndicator size="large" color="#fff" />
       </View>
     );
@@ -57,11 +60,19 @@ export default function RootLayout() {
           headerShown: true,
           headerTitle: "",
           headerBackTitle: "Back",
-          headerStyle: { backgroundColor: "#0b3ea8" },
+          headerStyle: { backgroundColor: brand.primary },
           headerTintColor: "#fff",
           presentation: "card",
         }}
       />
     </Stack>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <CompanyProvider>
+      <RootLayoutInner />
+    </CompanyProvider>
   );
 }

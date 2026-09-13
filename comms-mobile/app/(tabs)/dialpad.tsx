@@ -5,9 +5,8 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
+import { useBrand } from "../../lib/useBrand";
 
-const BLUE = "#0b3ea8";
-const ORANGE = "#fc6b04";
 const GREEN = "#22c55e";
 
 const KEYS = [
@@ -26,6 +25,7 @@ function formatDisplay(num: string) {
 }
 
 export default function DialPadScreen() {
+  const brand = useBrand();
   const [number, setNumber] = useState("");
   const [message, setMessage] = useState("");
   const [mode, setMode] = useState<"call" | "text">("call");
@@ -112,10 +112,10 @@ export default function DialPadScreen() {
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
       <View style={styles.header}>
         <View style={styles.titleRow}>
-          <Text style={styles.title}>☎️ Dial Pad</Text>
+          <Text style={[styles.title, { color: brand.primary }]}>☎️ Dial Pad</Text>
           {bizPhone && (
             <View style={styles.bizBadge}>
-              <Text style={styles.bizBadgeText}>📞 {formatDisplay(bizPhone)}</Text>
+              <Text style={[styles.bizBadgeText, { color: brand.primary }]}>📞 {formatDisplay(bizPhone)}</Text>
             </View>
           )}
         </View>
@@ -124,13 +124,13 @@ export default function DialPadScreen() {
             style={[styles.modeBtn, mode === "call" && styles.modeBtnActive]}
             onPress={() => setMode("call")}
           >
-            <Text style={[styles.modeTxt, mode === "call" && styles.modeTxtActive]}>📞 Call</Text>
+            <Text style={[styles.modeTxt, mode === "call" && { color: brand.primary, fontWeight: "800" }]}>📞 Call</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.modeBtn, mode === "text" && styles.modeBtnActive]}
             onPress={() => setMode("text")}
           >
-            <Text style={[styles.modeTxt, mode === "text" && styles.modeTxtActive]}>💬 Text</Text>
+            <Text style={[styles.modeTxt, mode === "text" && { color: brand.primary, fontWeight: "800" }]}>💬 Text</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -194,7 +194,7 @@ export default function DialPadScreen() {
 
       {/* Action Button */}
       <TouchableOpacity
-        style={[styles.actionBtn, { backgroundColor: mode === "call" ? GREEN : BLUE }, loading && { opacity: 0.6 }]}
+        style={[styles.actionBtn, { backgroundColor: mode === "call" ? GREEN : brand.primary }, loading && { opacity: 0.6 }]}
         onPress={mode === "call" ? makeCall : sendText}
         disabled={loading}
       >
@@ -226,14 +226,13 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f3f4f6" },
   header: { backgroundColor: "#fff", paddingTop: 56, paddingHorizontal: 16, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: "#e5e7eb" },
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
-  title: { fontSize: 22, fontWeight: "900", color: BLUE },
+  title: { fontSize: 22, fontWeight: "900" },
   bizBadge: { backgroundColor: "#eff6ff", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: "#bfdbfe" },
-  bizBadgeText: { fontSize: 12, fontWeight: "700", color: BLUE },
+  bizBadgeText: { fontSize: 12, fontWeight: "700" },
   modeSwitch: { flexDirection: "row", backgroundColor: "#f3f4f6", borderRadius: 10, padding: 3 },
   modeBtn: { flex: 1, paddingVertical: 7, borderRadius: 8, alignItems: "center" },
   modeBtnActive: { backgroundColor: "#fff", shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 4, elevation: 2 },
   modeTxt: { fontSize: 13, fontWeight: "600", color: "#6b7280" },
-  modeTxtActive: { color: BLUE, fontWeight: "800" },
   display: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", paddingHorizontal: 24, paddingVertical: 20, position: "relative" },
   displayText: { flex: 1, fontSize: 30, fontWeight: "300", color: "#111", letterSpacing: 2 },
   backspace: { padding: 8 },

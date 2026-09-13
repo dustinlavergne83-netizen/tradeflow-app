@@ -2,13 +2,13 @@ import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { UnreadProvider, useUnread } from "../../lib/UnreadContext";
-
-const BLUE = "#0b3ea8";
+import { useBrand } from "../../lib/useBrand";
 
 // Inner component — reads context after provider mounts
 function TabsWithBadges() {
   const insets = useSafeAreaInsets();
   const { counts } = useUnread();
+  const brand = useBrand();
 
   return (
     <Tabs
@@ -23,7 +23,7 @@ function TabsWithBadges() {
           borderTopColor: "#e5e7eb",
         },
         tabBarLabelStyle: { fontSize: 10, fontWeight: "700" },
-        tabBarActiveTintColor: BLUE,
+        tabBarActiveTintColor: brand.primary,
         tabBarInactiveTintColor: "#9ca3af",
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: any = "ellipse";
@@ -63,8 +63,8 @@ function TabsWithBadges() {
         name="ai"
         options={{
           title: "AI",
-          tabBarActiveTintColor: "#fc6b04",
-          tabBarBadgeStyle: { backgroundColor: "#fc6b04" },
+          tabBarActiveTintColor: brand.accent,
+          tabBarBadgeStyle: { backgroundColor: brand.accent },
         }}
       />
       <Tabs.Screen name="settings" options={{ title: "Settings" }} />

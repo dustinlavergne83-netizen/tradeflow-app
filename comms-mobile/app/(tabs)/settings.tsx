@@ -3,21 +3,15 @@ import { View, Text, TouchableOpacity, StyleSheet, Alert, Linking, ScrollView } 
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { supabase } from "../../lib/supabase";
-
-const BLUE = "#0b3ea8";
-const ORANGE = "#fc6b04";
+import { useBrand } from "../../lib/useBrand";
 
 export default function SettingsScreen() {
+  const brand = useBrand();
   const [user, setUser] = useState<any>(null);
-  const [companyName, setCompanyName] = useState("DML Electrical");
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       setUser(user);
-      if (user) {
-        supabase.from("companies").select("name").eq("id", user.id).maybeSingle()
-          .then(({ data }) => { if (data?.name) setCompanyName(data.name); });
-      }
     });
   }, []);
 
@@ -47,15 +41,15 @@ export default function SettingsScreen() {
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>⚙️ Settings</Text>
+        <Text style={[styles.title, { color: brand.primary }]}>⚙️ Settings</Text>
       </View>
 
       {/* Account */}
       <View style={styles.card}>
-        <View style={styles.avatar}>
+        <View style={[styles.avatar, { backgroundColor: brand.primary }]}>
           <Text style={styles.avatarText}>{(user?.email || "?")[0].toUpperCase()}</Text>
         </View>
-        <Text style={styles.userName}>{companyName}</Text>
+        <Text style={styles.userName}>{brand.name}</Text>
         <Text style={styles.userEmail}>{user?.email || ""}</Text>
       </View>
 
@@ -103,7 +97,7 @@ export default function SettingsScreen() {
         <View style={styles.row}>
           <Text style={styles.rowIcon}>📱</Text>
           <View style={{ flex: 1 }}>
-            <Text style={styles.rowLabel}>DML Comms</Text>
+            <Text style={styles.rowLabel}>{brand.appName}</Text>
             <Text style={styles.rowSub}>Version 1.0.0</Text>
           </View>
         </View>
@@ -127,9 +121,9 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f3f4f6" },
   header: { backgroundColor: "#fff", paddingTop: 56, paddingHorizontal: 16, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: "#e5e7eb" },
-  title: { fontSize: 22, fontWeight: "900", color: BLUE },
+  title: { fontSize: 22, fontWeight: "900" },
   card: { backgroundColor: "#fff", margin: 16, borderRadius: 16, padding: 24, alignItems: "center", shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 8, elevation: 2 },
-  avatar: { width: 72, height: 72, borderRadius: 36, backgroundColor: BLUE, justifyContent: "center", alignItems: "center", marginBottom: 12 },
+  avatar: { width: 72, height: 72, borderRadius: 36, justifyContent: "center", alignItems: "center", marginBottom: 12 },
   avatarText: { fontSize: 32, fontWeight: "800", color: "#fff" },
   userName: { fontSize: 18, fontWeight: "800", color: "#111" },
   userEmail: { fontSize: 13, color: "#6b7280", marginTop: 2 },

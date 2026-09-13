@@ -11,6 +11,7 @@ import * as Notifications from "expo-notifications";
 import { useFocusEffect } from "@react-navigation/native";
 import { supabase } from "../../lib/supabase";
 import { useUnread } from "../../lib/UnreadContext";
+import { useBrand } from "../../lib/useBrand";
 
 // Web-safe storage: localStorage on browser, SecureStore on native
 const storage = {
@@ -29,8 +30,6 @@ const storage = {
 };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const BLUE   = "#0b3ea8";
-const ORANGE = "#fc6b04";
 const GREEN  = "#22c55e";
 const TENANT = "9bd3d089-ecc6-4777-9198-41f0d40f95d6";
 const CLIENT = "1101ddc0-5dc1-4275-beb6-34b2ef897452";
@@ -58,6 +57,7 @@ function formatTime(ts: string) {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function EmailScreen() {
+  const brand = useBrand();
   const redirectUri = AuthSession.makeRedirectUri({ scheme: "dmlcomms", path: "auth" });
 
   const [request, response, promptAsync] = AuthSession.useAuthRequest(
@@ -394,7 +394,7 @@ export default function EmailScreen() {
   if (authLoading) {
     return (
       <SafeAreaView style={styles.center}>
-        <ActivityIndicator size="large" color={BLUE} />
+        <ActivityIndicator size="large" color={brand.primary} />
         <Text style={styles.loadingText}>Connecting to Outlook...</Text>
       </SafeAreaView>
     );
@@ -414,12 +414,12 @@ export default function EmailScreen() {
         )}
         <Text style={styles.redirectNote}>
           📋 Redirect URI to add in Azure AD (Mobile/Desktop):{"\n"}
-          <Text style={{ fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", fontSize: 11, color: BLUE }}>
+          <Text style={{ fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", fontSize: 11, color: brand.primary }}>
             {redirectUri}
           </Text>
         </Text>
         <TouchableOpacity
-          style={[styles.btn, styles.btnBlue, { paddingHorizontal: 40, paddingVertical: 14 }]}
+          style={[styles.btn, { backgroundColor: brand.primary }, { paddingHorizontal: 40, paddingVertical: 14 }]}
           onPress={async () => {
             // Save PKCE verifier so app/auth.tsx can complete the exchange on web
             if (request?.codeVerifier) {
@@ -442,7 +442,7 @@ export default function EmailScreen() {
         {/* Header */}
         <View style={styles.detailHeader}>
           <TouchableOpacity onPress={() => setSelectedEmail(null)} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={22} color={BLUE} />
+            <Ionicons name="arrow-back" size={22} color={brand.primary} />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
             <Text style={styles.detailSubject} numberOfLines={2}>
@@ -481,7 +481,7 @@ export default function EmailScreen() {
           {/* Attachments */}
           {attachments.length > 0 && (
             <View style={styles.attSection}>
-              <Text style={styles.attHeader}>📎 Attachments ({attachments.length})</Text>
+              <Text style={[styles.attHeader, { color: brand.primary }]}>📎 Attachments ({attachments.length})</Text>
               {attachments.map((att, i) => {
                 const isPdf = att.contentType === "application/pdf" || att.name?.toLowerCase().endsWith(".pdf");
                 return (
@@ -507,7 +507,7 @@ export default function EmailScreen() {
         </ScrollView>
 
         {/* Compose FAB */}
-        <TouchableOpacity style={styles.fab} onPress={openCompose}>
+        <TouchableOpacity style={[styles.fab, { backgroundColor: brand.primary, shadowColor: brand.primary }]} onPress={openCompose}>
           <Ionicons name="create-outline" size={26} color="#fff" />
         </TouchableOpacity>
 
@@ -523,10 +523,10 @@ export default function EmailScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerRow}>
-          <Text style={styles.title}>📧 Email</Text>
+          <Text style={[styles.title, { color: brand.primary }]}>📧 Email</Text>
           <View style={{ flexDirection: "row", gap: 8 }}>
             <TouchableOpacity onPress={() => loadEmails()} disabled={loading} style={styles.headerBtn}>
-              <Ionicons name="refresh" size={20} color={loading ? "#d1d5db" : BLUE} />
+              <Ionicons name="refresh" size={20} color={loading ? "#d1d5db" : brand.primary} />
             </TouchableOpacity>
             <TouchableOpacity onPress={handleSignOut} style={styles.headerBtn}>
               <Ionicons name="log-out-outline" size={20} color="#9ca3af" />
@@ -546,7 +546,7 @@ export default function EmailScreen() {
 
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={BLUE} />
+          <ActivityIndicator size="large" color={brand.primary} />
           <Text style={styles.loadingText}>Loading emails...</Text>
         </View>
       ) : (
@@ -568,8 +568,8 @@ export default function EmailScreen() {
                 onPress={() => handleSelectEmail(email)}
               >
                 {/* Avatar */}
-                <View style={[styles.avatar, { backgroundColor: email.isRead ? "#e0e7ff" : BLUE }]}>
-                  <Text style={[styles.avatarText, { color: email.isRead ? BLUE : "#fff" }]}>
+                <View style={[styles.avatar, { backgroundColor: email.isRead ? "#e0e7ff" : brand.primary }]}>
+                  <Text style={[styles.avatarText, { color: email.isRead ? brand.primary : "#fff" }]}>
                     {sender[0].toUpperCase()}
                   </Text>
                 </View>
@@ -594,7 +594,7 @@ export default function EmailScreen() {
       )}
 
       {/* Compose FAB */}
-      <TouchableOpacity style={styles.fab} onPress={openCompose}>
+      <TouchableOpacity style={[styles.fab, { backgroundColor: brand.primary, shadowColor: brand.primary }]} onPress={openCompose}>
         <Ionicons name="create-outline" size={26} color="#fff" />
       </TouchableOpacity>
 
@@ -619,7 +619,7 @@ export default function EmailScreen() {
               <TouchableOpacity
                 onPress={handleSendEmail}
                 disabled={composeSending || !composeTo.trim() || !composeBody.trim()}
-                style={[styles.sendBtn, (!composeTo.trim() || !composeBody.trim()) && { opacity: 0.4 }]}
+                style={[styles.sendBtn, { backgroundColor: brand.primary }, (!composeTo.trim() || !composeBody.trim()) && { opacity: 0.4 }]}
               >
                 {composeSending
                   ? <ActivityIndicator size="small" color="#fff" />
@@ -678,14 +678,13 @@ const styles = StyleSheet.create({
   errorBox:      { flexDirection: "row", justifyContent: "space-between", alignItems: "center", backgroundColor: "#ef4444", margin: 12, padding: 12, borderRadius: 8 },
   errorText:     { color: "#fff", fontSize: 13, flex: 1 },
   btn:           { borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8, alignItems: "center", justifyContent: "center" },
-  btnBlue:       { backgroundColor: BLUE },
   btnGreen:      { backgroundColor: GREEN },
   btnText:       { color: "#fff", fontWeight: "800", fontSize: 15 },
   btnTextSm:     { color: "#fff", fontWeight: "700", fontSize: 13 },
   // Header
   header:        { backgroundColor: "#fff", paddingTop: 16, paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: "#e5e7eb" },
   headerRow:     { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  title:         { fontSize: 22, fontWeight: "900", color: BLUE },
+  title:         { fontSize: 22, fontWeight: "900" },
   headerBtn:     { padding: 6 },
   // List
   emailRow:      { flexDirection: "row", backgroundColor: "#fff", padding: 14, borderBottomWidth: 1, borderBottomColor: "#f3f4f6", alignItems: "flex-start", gap: 12 },
@@ -700,7 +699,7 @@ const styles = StyleSheet.create({
   empty:         { flex: 1, alignItems: "center", paddingTop: 80 },
   emptyText:     { fontSize: 16, color: "#9ca3af", marginTop: 12 },
   // FAB
-  fab:           { position: "absolute", bottom: 24, right: 20, width: 56, height: 56, borderRadius: 28, backgroundColor: BLUE, justifyContent: "center", alignItems: "center", shadowColor: BLUE, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 8 },
+  fab:           { position: "absolute", bottom: 24, right: 20, width: 56, height: 56, borderRadius: 28, justifyContent: "center", alignItems: "center", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 8 },
   // Detail
   detailHeader:  { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#fff", padding: 14, borderBottomWidth: 1, borderBottomColor: "#e5e7eb" },
   backBtn:       { padding: 4 },
@@ -712,7 +711,7 @@ const styles = StyleSheet.create({
   bodyText:      { fontSize: 14, color: "#374151", lineHeight: 22 },
   previewNote:   { marginTop: 12, fontSize: 11, color: "#9ca3af", fontStyle: "italic" },
   attSection:    { backgroundColor: "#fff", borderRadius: 10, padding: 16, borderWidth: 1, borderColor: "#e5e7eb" },
-  attHeader:     { fontSize: 14, fontWeight: "800", color: BLUE, marginBottom: 12 },
+  attHeader:     { fontSize: 14, fontWeight: "800", marginBottom: 12 },
   attCard:       { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#f9fafb", borderRadius: 8, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: "#e5e7eb" },
   attIcon:       { fontSize: 24 },
   attName:       { fontSize: 13, fontWeight: "700", color: "#111" },
@@ -720,7 +719,7 @@ const styles = StyleSheet.create({
   // Compose Modal
   modalHeader:   { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, borderBottomWidth: 1, borderBottomColor: "#e5e7eb", backgroundColor: "#fff" },
   modalTitle:    { fontSize: 16, fontWeight: "800", color: "#111" },
-  sendBtn:       { backgroundColor: BLUE, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
+  sendBtn:       { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
   sendBtnText:   { color: "#fff", fontWeight: "800", fontSize: 14 },
   fieldRow:      { flexDirection: "row", alignItems: "center", borderBottomWidth: 1, borderBottomColor: "#e5e7eb", paddingVertical: 10, marginBottom: 4 },
   fieldLabel:    { fontSize: 13, fontWeight: "700", color: "#6b7280", width: 60 },

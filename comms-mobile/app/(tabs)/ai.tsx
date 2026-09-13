@@ -22,11 +22,7 @@ import Constants from "expo-constants";
 import * as FileSystem from "expo-file-system/legacy";
 import { supabase } from "../../lib/supabase";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
-// ── Constants ────────────────────────────────────────────────────────────────
-const BLUE = "#0b3ea8";
-const ORANGE = "#fc6b04";
-const LIGHT_BLUE = "#e8eeff";
+import { useBrand } from "../../lib/useBrand";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface Message {
@@ -100,6 +96,7 @@ async function registerForPushNotifications(): Promise<string | null> {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function AIAssistantTab() {
+  const brand = useBrand();
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
 
@@ -109,7 +106,7 @@ export default function AIAssistantTab() {
       id: "welcome",
       role: "assistant",
       content:
-        "👋 Hey Dustin! I'm your DML AI assistant.\n\nI can help you:\n• 🎤 Dictate material lists\n• 📅 Set reminders\n• ✨ Generate proposals & invoices\n• 📊 Check project & invoice status\n\nHold the mic button to talk, or type below!",
+        `👋 Hey! I'm your ${brand.name} AI assistant.\n\nI can help you:\n• 🎤 Dictate material lists\n• 📅 Set reminders\n• ✨ Generate proposals & invoices\n• 📊 Check project & invoice status\n\nHold the mic button to talk, or type below!`,
       timestamp: new Date(),
     },
   ]);
@@ -380,12 +377,12 @@ export default function AIAssistantTab() {
         style={[styles.messageBubble, isUser ? styles.userBubble : styles.aiBubble]}
       >
         {!isUser && (
-          <View style={styles.aiAvatar}>
+          <View style={[styles.aiAvatar, { backgroundColor: brand.primary }]}>
             <Text style={styles.aiAvatarText}>🤖</Text>
           </View>
         )}
 
-        <View style={[styles.bubbleContent, isUser ? styles.userContent : styles.aiContent]}>
+        <View style={[styles.bubbleContent, isUser ? [styles.userContent, { backgroundColor: brand.primary }] : styles.aiContent]}>
           {msg.isVoice && !msg.transcript && (
             <View style={styles.voiceIndicator}>
               <Ionicons name="mic" size={14} color="#fff" />
@@ -409,7 +406,7 @@ export default function AIAssistantTab() {
                 </View>
               ) : (
                 <TouchableOpacity
-                  style={styles.actionBtn}
+                  style={[styles.actionBtn, { backgroundColor: brand.accent }]}
                   onPress={() => {
                     Clipboard.setString(
                       msg.actionData.materials
@@ -437,7 +434,7 @@ export default function AIAssistantTab() {
 
           {msg.action === "invoice_created" && msg.actionData && (
             <View style={styles.savedBadge}>
-              <Ionicons name="document-text-outline" size={16} color="#0b3ea8" />
+              <Ionicons name="document-text-outline" size={16} color={brand.primary} />
               <Text style={styles.savedBadgeText}>
                 Invoice #{msg.actionData.invoiceNumber} created (Draft)
               </Text>
@@ -446,7 +443,7 @@ export default function AIAssistantTab() {
 
           {msg.action === "estimate_created" && msg.actionData && (
             <View style={styles.savedBadge}>
-              <Ionicons name="calculator-outline" size={16} color="#0b3ea8" />
+              <Ionicons name="calculator-outline" size={16} color={brand.primary} />
               <Text style={styles.savedBadgeText}>
                 Estimate created for {msg.actionData.customerName} (Draft)
               </Text>
@@ -458,7 +455,7 @@ export default function AIAssistantTab() {
             msg.actionData?.text && (
               <View style={styles.actionButtons}>
                 <TouchableOpacity
-                  style={styles.actionBtn}
+                  style={[styles.actionBtn, { backgroundColor: brand.accent }]}
                   onPress={() => {
                     Clipboard.setString(msg.actionData.text);
                     Alert.alert("✅ Copied!", "Text copied to clipboard. Paste it into your estimate or proposal.");
@@ -472,7 +469,7 @@ export default function AIAssistantTab() {
 
           {msg.action === "set_reminder" && (
             <View style={styles.reminderConfirm}>
-              <Ionicons name="alarm-outline" size={16} color={ORANGE} />
+              <Ionicons name="alarm-outline" size={16} color={brand.accent} />
               <Text style={styles.reminderConfirmText}>Push notification scheduled</Text>
             </View>
           )}
@@ -490,16 +487,16 @@ export default function AIAssistantTab() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: brand.primary }]}>
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
       >
         {/* Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, { backgroundColor: brand.primary }]}>
           <View style={styles.headerLeft}>
-            <Text style={styles.headerTitle}>🤖 DML AI Assistant</Text>
+            <Text style={styles.headerTitle}>🤖 {brand.name} AI Assistant</Text>
             <Text style={styles.headerSubtitle}>Voice & text • Reminders • Estimates</Text>
           </View>
           <TouchableOpacity
@@ -543,11 +540,11 @@ export default function AIAssistantTab() {
 
           {isLoading && (
             <View style={[styles.messageBubble, styles.aiBubble]}>
-              <View style={styles.aiAvatar}>
+              <View style={[styles.aiAvatar, { backgroundColor: brand.primary }]}>
                 <Text style={styles.aiAvatarText}>🤖</Text>
               </View>
               <View style={[styles.bubbleContent, styles.aiContent, styles.loadingBubble]}>
-                <ActivityIndicator size="small" color={BLUE} />
+                <ActivityIndicator size="small" color={brand.primary} />
                 <Text style={styles.loadingText}>Thinking...</Text>
               </View>
             </View>
@@ -583,6 +580,7 @@ export default function AIAssistantTab() {
             <TouchableOpacity
               style={[
                 styles.sendBtn,
+                { backgroundColor: brand.primary },
                 (!textInput.trim() || isLoading) && styles.sendBtnDisabled,
               ]}
               onPress={sendTextMessage}
@@ -605,6 +603,7 @@ export default function AIAssistantTab() {
               <Animated.View
                 style={[
                   styles.micButton,
+                  { backgroundColor: brand.primary, shadowColor: brand.primary },
                   isRecording && styles.micButtonActive,
                   isLoading && styles.micButtonLoading,
                   { transform: [{ scale: pulseAnim }] },
@@ -631,14 +630,12 @@ export default function AIAssistantTab() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: BLUE,
   },
   container: {
     flex: 1,
     backgroundColor: "#f3f4f6",
   },
   header: {
-    backgroundColor: BLUE,
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 12,
@@ -684,7 +681,6 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: BLUE,
     justifyContent: "center",
     alignItems: "center",
     marginRight: 8,
@@ -699,7 +695,6 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   userContent: {
-    backgroundColor: BLUE,
     borderBottomRightRadius: 4,
     alignSelf: "flex-end",
     marginLeft: "auto",
@@ -755,7 +750,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: ORANGE,
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 20,
@@ -839,7 +833,6 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: BLUE,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -869,10 +862,8 @@ const styles = StyleSheet.create({
     width: 76,
     height: 76,
     borderRadius: 38,
-    backgroundColor: BLUE,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: BLUE,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 8,

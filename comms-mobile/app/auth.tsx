@@ -9,6 +9,7 @@ import { View, Text, ActivityIndicator, StyleSheet, Platform } from "react-nativ
 import { useLocalSearchParams, router } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import * as AuthSession from "expo-auth-session";
+import { useBrand } from "../lib/useBrand";
 
 // Web-safe storage (same pattern as email.tsx)
 const storage = {
@@ -26,7 +27,6 @@ const storage = {
       : SecureStore.deleteItemAsync(key),
 };
 
-const BLUE   = "#0b3ea8";
 const TENANT = "9bd3d089-ecc6-4777-9198-41f0d40f95d6";
 const CLIENT = "1101ddc0-5dc1-4275-beb6-34b2ef897452";
 const SCOPES = ["openid", "offline_access", "Mail.Read", "Mail.ReadBasic", "Mail.Send"];
@@ -34,6 +34,7 @@ const SCOPES = ["openid", "offline_access", "Mail.Read", "Mail.ReadBasic", "Mail
 const TOKEN_ENDPOINT = `https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/token`;
 
 export default function AuthCallback() {
+  const brand = useBrand();
   const params = useLocalSearchParams<{ code?: string; error?: string; error_description?: string }>();
   const [status, setStatus] = useState("Completing sign in...");
 
@@ -102,7 +103,7 @@ export default function AuthCallback() {
 
   return (
     <View style={styles.container}>
-      <ActivityIndicator size="large" color={BLUE} style={{ marginBottom: 16 }} />
+      <ActivityIndicator size="large" color={brand.primary} style={{ marginBottom: 16 }} />
       <Text style={styles.status}>{status}</Text>
     </View>
   );

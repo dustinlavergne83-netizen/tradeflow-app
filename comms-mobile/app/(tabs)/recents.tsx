@@ -8,11 +8,10 @@ import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { Audio } from "expo-av";
 import { supabase } from "../../lib/supabase";
+import { useBrand } from "../../lib/useBrand";
 
-const BLUE = "#0b3ea8";
 const RED = "#ef4444";
 const GREEN = "#22c55e";
-const ORANGE = "#fc6b04";
 
 function formatPhone(num: string = "") {
   const d = num.replace(/\D/g, "").slice(-10);
@@ -34,6 +33,7 @@ function formatDuration(sec: number) {
 }
 
 export default function RecentsScreen() {
+  const brand = useBrand();
   const [tab, setTab] = useState<"calls" | "voicemail">("calls");
   const [calls, setCalls] = useState<any[]>([]);
   const [voicemails, setVoicemails] = useState<any[]>([]);
@@ -107,27 +107,27 @@ export default function RecentsScreen() {
     setRefreshing(false);
   };
 
-  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color={BLUE} /></View>;
+  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color={brand.primary} /></View>;
 
   return (
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>📞 Recents</Text>
+        <Text style={[styles.title, { color: brand.primary }]}>📞 Recents</Text>
         <View style={styles.tabRow}>
           <TouchableOpacity
-            style={[styles.tabBtn, tab === "calls" && styles.tabBtnActive]}
+            style={[styles.tabBtn, tab === "calls" && { borderBottomColor: brand.primary }]}
             onPress={() => setTab("calls")}
           >
-            <Text style={[styles.tabText, tab === "calls" && styles.tabTextActive]}>
+            <Text style={[styles.tabText, tab === "calls" && { color: brand.primary, fontWeight: "800" }]}>
               Calls ({calls.length})
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.tabBtn, tab === "voicemail" && styles.tabBtnActive]}
+            style={[styles.tabBtn, tab === "voicemail" && { borderBottomColor: brand.primary }]}
             onPress={() => setTab("voicemail")}
           >
-            <Text style={[styles.tabText, tab === "voicemail" && styles.tabTextActive]}>
+            <Text style={[styles.tabText, tab === "voicemail" && { color: brand.primary, fontWeight: "800" }]}>
               🎙️ Voicemail ({voicemails.filter((v) => !v.read_at).length} new)
             </Text>
           </TouchableOpacity>
@@ -173,7 +173,7 @@ export default function RecentsScreen() {
                       body: { to_customer: num, company_id: companyId, customer_name: item.customer_name, record: false }
                     }).then(() => Alert.alert("📞 Calling", "Your phone will ring shortly"))}
                   >
-                    <Text style={styles.callBack}>Call back</Text>
+                    <Text style={[styles.callBack, { color: brand.primary }]}>Call back</Text>
                   </TouchableOpacity>
                 </View>
               </TouchableOpacity>
@@ -188,7 +188,7 @@ export default function RecentsScreen() {
           ListEmptyComponent={<View style={styles.empty}><Text style={styles.emptyText}>No voicemails</Text></View>}
           renderItem={({ item }) => (
             <View style={[styles.item, !item.read_at && { backgroundColor: "#eff6ff" }]}>
-              <TouchableOpacity onPress={() => playVoicemail(item)} style={[styles.playBtn, { backgroundColor: playingId === item.id ? RED : BLUE }]}>
+              <TouchableOpacity onPress={() => playVoicemail(item)} style={[styles.playBtn, { backgroundColor: playingId === item.id ? RED : brand.primary }]}>
                 <Ionicons name={playingId === item.id ? "stop" : "play"} size={20} color="#fff" />
               </TouchableOpacity>
               <View style={styles.itemContent}>
@@ -198,12 +198,12 @@ export default function RecentsScreen() {
                 ) : (
                   <Text style={styles.itemSub}>{formatDuration(item.duration_seconds) || "New voicemail"}</Text>
                 )}
-                {!item.read_at && <View style={styles.newBadge}><Text style={styles.newBadgeText}>NEW</Text></View>}
+                {!item.read_at && <View style={[styles.newBadge, { backgroundColor: brand.accent }]}><Text style={styles.newBadgeText}>NEW</Text></View>}
               </View>
               <View style={{ alignItems: "flex-end" }}>
                 <Text style={styles.itemTime}>{formatTime(item.created_at)}</Text>
                 <TouchableOpacity onPress={() => Linking.openURL(`tel:${item.from_number}`)}>
-                  <Text style={styles.callBack}>Call back</Text>
+                  <Text style={[styles.callBack, { color: brand.primary }]}>Call back</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -221,12 +221,10 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f3f4f6" },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
   header: { backgroundColor: "#fff", paddingTop: 56, paddingHorizontal: 16, paddingBottom: 0, borderBottomWidth: 1, borderBottomColor: "#e5e7eb" },
-  title: { fontSize: 22, fontWeight: "900", color: BLUE, marginBottom: 12 },
+  title: { fontSize: 22, fontWeight: "900", marginBottom: 12 },
   tabRow: { flexDirection: "row" },
   tabBtn: { paddingVertical: 10, paddingHorizontal: 16, borderBottomWidth: 2, borderBottomColor: "transparent" },
-  tabBtnActive: { borderBottomColor: BLUE },
   tabText: { fontSize: 13, fontWeight: "600", color: "#9ca3af" },
-  tabTextActive: { color: BLUE, fontWeight: "800" },
   empty: { paddingTop: 60, alignItems: "center" },
   emptyText: { color: "#9ca3af", fontSize: 14 },
   item: { flexDirection: "row", backgroundColor: "#fff", padding: 14, borderBottomWidth: 1, borderBottomColor: "#f3f4f6", alignItems: "center" },
@@ -237,7 +235,7 @@ const styles = StyleSheet.create({
   itemSub: { fontSize: 12, color: "#6b7280", marginTop: 2 },
   itemTime: { fontSize: 11, color: "#9ca3af" },
   transcript: { fontSize: 12, color: "#374151", fontStyle: "italic", marginTop: 2 },
-  callBack: { fontSize: 12, color: BLUE, fontWeight: "700", marginTop: 4 },
-  newBadge: { backgroundColor: ORANGE, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2, alignSelf: "flex-start", marginTop: 4 },
+  callBack: { fontSize: 12, fontWeight: "700", marginTop: 4 },
+  newBadge: { borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2, alignSelf: "flex-start", marginTop: 4 },
   newBadgeText: { color: "#fff", fontSize: 10, fontWeight: "800" },
 });

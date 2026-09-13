@@ -7,8 +7,8 @@ import { useLocalSearchParams, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Audio } from "expo-av";
 import { supabase } from "../../lib/supabase";
+import { useBrand } from "../../lib/useBrand";
 
-const BLUE = "#0b3ea8";
 const GREEN = "#22c55e";
 
 function formatPhone(num: string = "") {
@@ -27,6 +27,7 @@ export default function ChatScreen() {
   const contactNumber = decodeURIComponent(id || "");
   const contactName = decodeURIComponent(name || "");
   const navigation = useNavigation();
+  const brand = useBrand();
 
   const [messages, setMessages] = useState<any[]>([]);
   const [companyId, setCompanyId] = useState<string | null>(null);
@@ -220,7 +221,7 @@ export default function ChatScreen() {
           {msg.recording_url ? (
             <TouchableOpacity
               onPress={() => playRecording(msg)}
-              style={[styles.playBtn, { backgroundColor: isPlaying ? "#ef4444" : BLUE }]}
+              style={[styles.playBtn, { backgroundColor: isPlaying ? "#ef4444" : brand.primary }]}
             >
               <Ionicons name={isPlaying ? "stop" : "play"} size={16} color="#fff" />
             </TouchableOpacity>
@@ -233,7 +234,7 @@ export default function ChatScreen() {
             <Text style={styles.callLabel}>
               {msg.type === "voicemail" ? "Voicemail" : msg.type === "ai_call" ? "AI Call" : msg.direction === "inbound" ? "Inbound Call" : "Outbound Call"}
               {msg.status === "missed" && <Text style={{ color: "#ef4444" }}> • Missed</Text>}
-              {msg.recording_url && <Text style={{ color: BLUE }}> • 🔴 Recorded</Text>}
+              {msg.recording_url && <Text style={{ color: brand.primary }}> • 🔴 Recorded</Text>}
             </Text>
             {msg.ai_summary && <Text style={styles.callSummary} numberOfLines={2}>{msg.ai_summary}</Text>}
             {msg.duration_seconds > 0 && (
@@ -250,7 +251,7 @@ export default function ChatScreen() {
 
     return (
       <View style={[styles.bubbleRow, isOutbound ? styles.bubbleRight : styles.bubbleLeft]}>
-        <View style={[styles.bubble, isOutbound ? styles.bubbleOut : styles.bubbleIn]}>
+        <View style={[styles.bubble, isOutbound ? [styles.bubbleOut, { backgroundColor: brand.primary }] : styles.bubbleIn]}>
           <Text style={[styles.bubbleText, isOutbound && { color: "#fff" }]}>{msg.body}</Text>
           <Text style={[styles.bubbleTime, isOutbound && { color: "rgba(255,255,255,0.7)" }]}>
             {formatTime(msg.created_at)}
@@ -292,7 +293,7 @@ export default function ChatScreen() {
           maxLength={1600}
         />
         <TouchableOpacity
-          style={[styles.sendBtn, (!newMsg.trim() || sending) && { opacity: 0.4 }]}
+          style={[styles.sendBtn, { backgroundColor: brand.primary }, (!newMsg.trim() || sending) && { opacity: 0.4 }]}
           onPress={sendMessage}
           disabled={!newMsg.trim() || sending}
         >
@@ -311,7 +312,7 @@ const styles = StyleSheet.create({
   bubbleRight: { justifyContent: "flex-end" },
   bubble: { maxWidth: "72%", borderRadius: 18, padding: 12, shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 },
   bubbleIn: { backgroundColor: "#fff", borderBottomLeftRadius: 4, borderWidth: 1, borderColor: "#e5e7eb" },
-  bubbleOut: { backgroundColor: BLUE, borderBottomRightRadius: 4 },
+  bubbleOut: { borderBottomRightRadius: 4 },
   bubbleText: { fontSize: 15, color: "#111", lineHeight: 20 },
   bubbleTime: { fontSize: 10, color: "#9ca3af", marginTop: 4, textAlign: "right" },
   callBubble: { flexDirection: "row", alignItems: "center", gap: 10, alignSelf: "center", backgroundColor: "#f3f4f6", borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: "#e5e7eb" },
@@ -324,5 +325,5 @@ const styles = StyleSheet.create({
   inputRow: { flexDirection: "row", alignItems: "flex-end", backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 1, borderTopColor: "#e5e7eb", gap: 8 },
   callBtn: { width: 40, height: 40, justifyContent: "center", alignItems: "center" },
   input: { flex: 1, backgroundColor: "#f3f4f6", borderRadius: 20, paddingHorizontal: 14, paddingVertical: 10, fontSize: 15, maxHeight: 100, color: "#111" },
-  sendBtn: { width: 40, height: 40, backgroundColor: BLUE, borderRadius: 20, justifyContent: "center", alignItems: "center" },
+  sendBtn: { width: 40, height: 40, borderRadius: 20, justifyContent: "center", alignItems: "center" },
 });

@@ -5,11 +5,10 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { supabase } from "../lib/supabase";
-
-const BLUE = "#0b3ea8";
-const ORANGE = "#fc6b04";
+import { useBrand } from "../lib/useBrand";
 
 export default function SignIn() {
+  const brand = useBrand();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -31,15 +30,15 @@ export default function SignIn() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[styles.container, { backgroundColor: brand.primary }]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
       <View style={styles.inner}>
         {/* Logo / Header */}
         <View style={styles.header}>
-          <Text style={styles.appName}>DML Comms</Text>
+          <Text style={styles.appName}>{brand.appName}</Text>
           <Text style={styles.tagline}>Business Communications Hub</Text>
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: brand.accent }]} />
         </View>
 
         {/* Form */}
@@ -68,7 +67,7 @@ export default function SignIn() {
           />
 
           <TouchableOpacity
-            style={[styles.btn, loading && styles.btnDisabled]}
+            style={[styles.btn, { backgroundColor: brand.primary }, loading && styles.btnDisabled]}
             onPress={handleSignIn}
             disabled={loading}
           >
@@ -89,12 +88,12 @@ export default function SignIn() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: BLUE },
+  container: { flex: 1 },
   inner: { flex: 1, justifyContent: "center", paddingHorizontal: 32 },
   header: { alignItems: "center", marginBottom: 48 },
   appName: { fontSize: 36, fontWeight: "900", color: "#fff", letterSpacing: -1 },
   tagline: { fontSize: 14, color: "rgba(255,255,255,0.7)", marginTop: 4 },
-  divider: { width: 60, height: 3, backgroundColor: ORANGE, borderRadius: 2, marginTop: 16 },
+  divider: { width: 60, height: 3, borderRadius: 2, marginTop: 16 },
   form: { backgroundColor: "#fff", borderRadius: 20, padding: 24, shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 20, elevation: 10 },
   label: { fontSize: 13, fontWeight: "700", color: "#374151", marginBottom: 6, marginTop: 12 },
   input: {
@@ -102,7 +101,7 @@ const styles = StyleSheet.create({
     padding: 14, fontSize: 15, color: "#111", backgroundColor: "#f9fafb",
   },
   btn: {
-    backgroundColor: BLUE, borderRadius: 12, padding: 16,
+    borderRadius: 12, padding: 16,
     alignItems: "center", marginTop: 24,
   },
   btnDisabled: { opacity: 0.6 },
