@@ -74,6 +74,9 @@ export default function ProjectDetail() {
     expense_date: new Date().toISOString().split('T')[0],
   });
   const [savingExpense, setSavingExpense] = useState(false);
+  const [editingTimeEntry, setEditingTimeEntry] = useState(null);
+  const [timeEntryForm, setTimeEntryForm] = useState({ date: '', startTime: '', endTime: '', is_lunch: false });
+  const [savingTimeEntry, setSavingTimeEntry] = useState(false);
   const [showMaterialFilterModal, setShowMaterialFilterModal] = useState(false);
   const [materialReportCategories, setMaterialReportCategories] = useState([]);
   const [includeLaborInMaterialReport, setIncludeLaborInMaterialReport] = useState(false);
@@ -625,6 +628,100 @@ async function handleAddContractor() {
     }
   }
 
+  // ── Time entry edit / delete (keeps parent shifts row in sync) ──────────
+  function toLocalYMD(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+  function toLocalHM(d) {
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+
+  function handleEditTimeEntry(entry) {
+    const start = new Date(entry.clock_in);
+    const end = entry.clock_out ? new Date(entry.clock_out) : null;
+    setTimeEntryForm({
+      date: toLocalYMD(start),
+      startTime: toLocalHM(start),
+      endTime: end ? toLocalHM(end) : "",
+      is_lunch: !!entry.is_lunch,
+    });
+    setEditingTimeEntry(entry);
+  }
+
+  // Recompute a shift's clock_in/clock_out envelope from its live segments,
+  // so the parent `shifts` row always coincides with what's shown here.
+  // If no segments remain, the (now-empty) shift row is deleted.
+  async function syncParentShift(shiftId) {
+    if (!shiftId) return;
+    const { data: siblings, error } = await supabase
+      .from("shift_segments")
+      .select("start_at, end_at")
+      .eq("shift_id", shiftId);
+    if (error) { console.error("syncParentShift lookup failed:", error); return; }
+
+    if (!siblings || siblings.length === 0) {
+      await supabase.from("shifts").delete().eq("id", shiftId);
+      return;
+    }
+
+    const starts = siblings.map(s => new Date(s.start_at).getTime());
+    const stillOpen = siblings.some(s => !s.end_at);
+    const ends = siblings.filter(s => s.end_at).map(s => new Date(s.end_at).getTime());
+
+    const clockIn = new Date(Math.min(...starts)).toISOString();
+    const clockOut = stillOpen ? null : (ends.length ? new Date(Math.max(...ends)).toISOString() : null);
+
+    await supabase.from("shifts").update({ clock_in: clockIn, clock_out: clockOut }).eq("id", shiftId);
+  }
+
+  async function handleSaveTimeEntry() {
+    if (!editingTimeEntry) return;
+    if (!timeEntryForm.date || !timeEntryForm.startTime) {
+      notify("Please enter a date and start time.");
+      return;
+    }
+    setSavingTimeEntry(true);
+    try {
+      const newStart = new Date(`${timeEntryForm.date}T${timeEntryForm.startTime}:00`);
+      let newEnd = timeEntryForm.endTime ? new Date(`${timeEntryForm.date}T${timeEntryForm.endTime}:00`) : null;
+      if (newEnd && newEnd <= newStart) newEnd.setDate(newEnd.getDate() + 1);
+
+      const { error } = await supabase
+        .from("shift_segments")
+        .update({
+          start_at: newStart.toISOString(),
+          end_at: newEnd ? newEnd.toISOString() : null,
+          is_lunch: timeEntryForm.is_lunch,
+        })
+        .eq("id", editingTimeEntry.id);
+      if (error) throw error;
+
+      await syncParentShift(editingTimeEntry.shift_id);
+
+      setEditingTimeEntry(null);
+      loadProjectData();
+      notify("✅ Time entry updated.");
+    } catch (err) {
+      console.error("Error saving time entry:", err);
+      notify("Failed to save time entry: " + err.message);
+    } finally {
+      setSavingTimeEntry(false);
+    }
+  }
+
+  async function handleDeleteTimeEntry(entry) {
+    if (!await confirmDialog("Delete this time entry? This cannot be undone.")) return;
+    try {
+      const { error } = await supabase.from("shift_segments").delete().eq("id", entry.id);
+      if (error) throw error;
+      await syncParentShift(entry.shift_id);
+      loadProjectData();
+    } catch (err) {
+      console.error("Error deleting time entry:", err);
+      notify("Failed to delete time entry: " + err.message);
+    }
+  }
+
   async function handleCreateInvoice(changeOrderId = null) {
     console.log("🔵 handleCreateInvoice called with changeOrderId:", changeOrderId);
     
@@ -1097,7 +1194,7 @@ async function handleAddContractor() {
       // Query WITHOUT the employees join (which causes 400 errors)
       const { data: timeByIdData, error: timeByIdError } = await supabase
         .from("shift_segments")
-        .select("id, user_id, start_at, end_at, project_task, is_lunch")
+        .select("id, user_id, shift_id, start_at, end_at, project_task, is_lunch")
         .eq("project_id", id)
         .not("end_at", "is", null)
         .order("start_at", { ascending: false });
@@ -1107,7 +1204,7 @@ async function handleAddContractor() {
       // Also query by project_task name
       const { data: timeByNameData, error: timeByNameError } = await supabase
         .from("shift_segments")
-        .select("id, user_id, start_at, end_at, project_task, is_lunch")
+        .select("id, user_id, shift_id, start_at, end_at, project_task, is_lunch")
         .ilike("project_task", `%${projectData.name}%`)
         .not("end_at", "is", null)
         .order("start_at", { ascending: false });
@@ -2561,7 +2658,7 @@ async function handleAddContractor() {
               <table style={{width:'100%', borderCollapse:'collapse', fontSize: 14}}>
                 <thead>
                   <tr style={{backgroundColor:'#f3f4f6', position:'sticky', top:0, zIndex:1}}>
-                    {['Employee','Date','Day','Clock In','Clock Out','Hrs','Lunch','Rate (burdened)','Cost'].map(h => (
+                    {['Employee','Date','Day','Clock In','Clock Out','Hrs','Lunch','Rate (burdened)','Cost','Actions'].map(h => (
                       <th key={h} style={{padding:'10px 12px', textAlign:'left', fontSize:12, fontWeight:'700', color:'#555', textTransform:'uppercase', borderBottom:'2px solid #e5e7eb', whiteSpace:'nowrap', backgroundColor:'#f3f4f6'}}>{h}</th>
                     ))}
                   </tr>
@@ -2589,6 +2686,18 @@ async function handleAddContractor() {
                         <td style={{padding:'10px 12px', textAlign:'center'}}>{entry.is_lunch ? <span style={{color:'#10b981',fontWeight:'700'}}>-0.5h</span> : <span style={{color:'#d1d5db'}}>—</span>}</td>
                         <td style={{padding:'10px 12px', color:'#666'}}>${costRate.toFixed(2)}/hr{empRate > 0 ? '' : <span style={{fontSize:11, color:'#f59e0b'}}> (default)</span>}</td>
                         <td style={{padding:'10px 12px', fontWeight:'700', color: BRAND.accent}}>{co ? `$${cost.toFixed(2)}` : '—'}</td>
+                        <td style={{padding:'10px 12px', whiteSpace:'nowrap'}}>
+                          <div style={{display:'flex', gap:6}}>
+                            <button onClick={() => handleEditTimeEntry(entry)}
+                              style={{padding:'4px 10px', backgroundColor:'#3b82f6', color:'#fff', border:'none', borderRadius:5, cursor:'pointer', fontSize:12, fontWeight:600}}>
+                              ✏️ Edit
+                            </button>
+                            <button onClick={() => handleDeleteTimeEntry(entry)}
+                              style={{padding:'4px 10px', backgroundColor:'#ef4444', color:'#fff', border:'none', borderRadius:5, cursor:'pointer', fontSize:12, fontWeight:600}}>
+                              🗑️
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     );
                   })}
@@ -2600,6 +2709,7 @@ async function handleAddContractor() {
                     <td style={{padding:'12px'}}></td>
                     <td style={{padding:'12px', color:'#fff', fontSize:13}}>avg ${laborRate.toFixed(2)}/hr</td>
                     <td style={{padding:'12px', color:'#f97316', fontWeight:'700', fontSize:15}}>${laborCost.toFixed(2)}</td>
+                    <td style={{padding:'12px'}}></td>
                   </tr>
                 </tfoot>
               </table>
@@ -6058,6 +6168,87 @@ async function handleAddContractor() {
             <div style={styles.modalActions}>
               <button onClick={() => setShowInvoicePayModal(false)} style={styles.cancelButton}>Cancel</button>
               <button onClick={handleInvoicePayment} style={styles.submitButton}>💰 Record Payment</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Time Entry Modal ─────────────────────────────────────── */}
+      {editingTimeEntry && (
+        <div style={styles.modalOverlay} onClick={() => setEditingTimeEntry(null)}>
+          <div style={{...styles.modal, maxWidth: 460}} onClick={(e) => e.stopPropagation()}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 20}}>
+              <h2 style={{...styles.modalTitle, marginBottom: 0}}>✏️ Edit Time Entry</h2>
+              <button onClick={() => setEditingTimeEntry(null)} style={{background:'none', border:'none', fontSize:22, cursor:'pointer', color:'#666'}}>×</button>
+            </div>
+
+            <div style={{backgroundColor:'#f9fafb', borderRadius:8, padding:'10px 14px', marginBottom:16, fontSize:14, color:'#374151', fontWeight:600}}>
+              {editingTimeEntry.employees ? `${editingTimeEntry.employees.first_name} ${editingTimeEntry.employees.last_name}` : 'Unknown Employee'}
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.modalLabel}>Date</label>
+              <input
+                type="date"
+                value={timeEntryForm.date}
+                onChange={(e) => setTimeEntryForm({...timeEntryForm, date: e.target.value})}
+                style={{...styles.select, padding:'10px'}}
+              />
+            </div>
+
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:16}}>
+              <div style={styles.field}>
+                <label style={styles.modalLabel}>Clock In</label>
+                <input
+                  type="time"
+                  step="900"
+                  value={timeEntryForm.startTime}
+                  onChange={(e) => setTimeEntryForm({...timeEntryForm, startTime: e.target.value})}
+                  style={{...styles.select, padding:'10px'}}
+                />
+              </div>
+              <div style={styles.field}>
+                <label style={styles.modalLabel}>Clock Out</label>
+                <input
+                  type="time"
+                  step="900"
+                  value={timeEntryForm.endTime}
+                  onChange={(e) => setTimeEntryForm({...timeEntryForm, endTime: e.target.value})}
+                  style={{...styles.select, padding:'10px'}}
+                />
+              </div>
+            </div>
+
+            <label style={{display:'flex', alignItems:'center', gap:8, marginBottom:16, cursor:'pointer', fontSize:14, color:'#374151'}}>
+              <input type="checkbox" checked={timeEntryForm.is_lunch}
+                onChange={(e) => setTimeEntryForm({...timeEntryForm, is_lunch: e.target.checked})}
+                style={{accentColor:'#f59e0b', width:16, height:16}} />
+              <span>🍽 Lunch break (deduct 30 min)</span>
+            </label>
+
+            {timeEntryForm.startTime && timeEntryForm.endTime && (
+              <div style={{backgroundColor:'#f0fdf4', borderRadius:8, padding:'10px 14px', marginBottom:16, fontSize:14, color:'#111'}}>
+                Hours: <strong>{(() => {
+                  const [sh, sm] = timeEntryForm.startTime.split(":").map(Number);
+                  const [eh, em] = timeEntryForm.endTime.split(":").map(Number);
+                  let mins = (eh * 60 + em) - (sh * 60 + sm);
+                  if (mins < 0) mins += 1440;
+                  if (timeEntryForm.is_lunch) mins -= 30;
+                  return Math.max(0, mins / 60).toFixed(2);
+                })()}h</strong>
+                {timeEntryForm.is_lunch && <span style={{color:'#f59e0b', marginLeft:8, fontSize:12}}>(30 min lunch deducted)</span>}
+              </div>
+            )}
+
+            <div style={styles.modalActions}>
+              <button onClick={() => setEditingTimeEntry(null)} style={styles.cancelButton}>Cancel</button>
+              <button
+                onClick={handleSaveTimeEntry}
+                style={{...styles.submitButton, opacity: savingTimeEntry ? 0.6 : 1}}
+                disabled={savingTimeEntry}
+              >
+                {savingTimeEntry ? '⏳ Saving...' : '💾 Save Changes'}
+              </button>
             </div>
           </div>
         </div>
