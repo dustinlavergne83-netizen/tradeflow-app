@@ -7,7 +7,7 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
 # Navigate to the timeclock-mobile directory
-$projectDir = "c:\Users\dusti\estimator-react\timeclock-mobile"
+$projectDir = "c:\Users\Tradeflow\dml\timeclock-mobile"
 
 Write-Host "Navigating to: $projectDir" -ForegroundColor Yellow
 Set-Location -Path $projectDir

@@ -7,7 +7,7 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
 # Navigate to the comms-mobile directory
-$projectDir = "c:\Users\dusti\estimator-react\comms-mobile"
+$projectDir = "c:\Users\Tradeflow\dml\comms-mobile"
 
 Write-Host "Navigating to: $projectDir" -ForegroundColor Yellow
 Set-Location -Path $projectDir
