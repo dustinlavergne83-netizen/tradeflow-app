@@ -1295,7 +1295,7 @@ function Action({ label, onClick, primary }) {
 const styles = {
   pageWrapper: {
     minHeight: "100vh",
-    backgroundColor: BRAND.bg,
+    backgroundColor: "#0b3ea8",
   },
   container: {
     padding: "24px",
@@ -1427,7 +1427,7 @@ const styles = {
   mapsButton: {
     width: "100%",
     padding: "10px",
-    backgroundColor: BRAND.primary,
+    backgroundColor: "#fc6b04",
     color: "#fff",
     border: "none",
     borderRadius: 6,
@@ -1454,9 +1454,9 @@ const styles = {
     width: "100%",
     padding: 12,
     backgroundColor: "transparent",
-    border: `2px solid ${BRAND.primary}`,
+    border: `2px solid #fc6b04`,
     borderRadius: 8,
-    color: BRAND.primary,
+    color: "#fc6b04",
     fontSize: 14,
     fontWeight: 600,
     cursor: "pointer",
@@ -1479,7 +1479,7 @@ const styles = {
     transition: "all 0.2s",
   },
   primaryButton: {
-    background: BRAND.primary,
+    background: "#fc6b04",
     border: "none",
     color: "#fff",
   },
@@ -1512,7 +1512,7 @@ const styles = {
   },
   viewReportButton: {
     padding: "10px 20px",
-    backgroundColor: BRAND.primary,
+    backgroundColor: "#fc6b04",
     color: "#fff",
     border: "none",
     borderRadius: 8,
@@ -1625,7 +1625,7 @@ const styles = {
   totalHours: {
     fontSize: 20,
     fontWeight: 700,
-    color: BRAND.primary,
+    color: "#fc6b04",
   },
   projectsList: {
     display: "flex",
@@ -1702,7 +1702,7 @@ const styles = {
     textAlign: "center",
     fontSize: 15,
     fontWeight: 700,
-    color: BRAND.primary,
+    color: "#fc6b04",
     backgroundColor: "#fef3c7",
   },
 };
