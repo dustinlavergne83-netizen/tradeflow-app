@@ -40,6 +40,8 @@ export default function BankTransactions() {
   const [showMatchReview, setShowMatchReview] = useState(false);
   const [matchReviewIndex, setMatchReviewIndex] = useState(0);
   const [matchCandidateIndex, setMatchCandidateIndex] = useState(0);
+  const [linkedInvoices, setLinkedInvoices] = useState([]); // full list of invoices linked to selectedTransaction (multi-link)
+  const [multiSelectInvoiceIds, setMultiSelectInvoiceIds] = useState(new Set()); // checkbox selections while linking
   
   const [transactionForm, setTransactionForm] = useState({
     transaction_date: getTodayLocalDate(),
@@ -420,9 +422,150 @@ export default function BankTransactions() {
   }
 
 
+  async function loadLinkedInvoices(transactionId) {
+    try {
+      const { data, error } = await supabase
+        .from('bank_transaction_invoices')
+        .select('id, invoice_id, amount_applied')
+        .eq('bank_transaction_id', transactionId);
+
+      if (error) throw error;
+
+      const withInvoiceInfo = (data || []).map(row => ({
+        ...row,
+        invoice: invoices.find(i => i.id === row.invoice_id) || null
+      }));
+      setLinkedInvoices(withInvoiceInfo);
+      setMultiSelectInvoiceIds(new Set(withInvoiceInfo.map(r => r.invoice_id)));
+    } catch (err) {
+      console.error('Error loading linked invoices:', err);
+      setLinkedInvoices([]);
+      setMultiSelectInvoiceIds(new Set());
+    }
+  }
+
+  function toggleMultiSelectInvoice(invoiceId) {
+    setMultiSelectInvoiceIds(prev => {
+      const next = new Set(prev);
+      if (next.has(invoiceId)) next.delete(invoiceId);
+      else next.add(invoiceId);
+      return next;
+    });
+  }
+
+  function getMultiSelectTotal() {
+    return Array.from(multiSelectInvoiceIds).reduce((sum, id) => {
+      const inv = invoices.find(i => i.id === id);
+      return sum + (parseFloat(inv?.total_amount) || 0);
+    }, 0);
+  }
+
+  // Link the transaction to every invoice currently checked in multiSelectInvoiceIds.
+  // Requires the selected invoices' totals to sum exactly to the transaction amount
+  // (within a 2-cent rounding tolerance).
+  async function handleLinkMultipleInvoices(transaction) {
+    try {
+      const selectedIds = Array.from(multiSelectInvoiceIds);
+
+      if (selectedIds.length === 0) {
+        notify('Select at least one invoice');
+        return;
+      }
+
+      const txAmount = Math.abs(parseFloat(transaction.amount) || 0);
+      const total = getMultiSelectTotal();
+
+      if (Math.abs(total - txAmount) > 0.02) {
+        notify(`Selected invoices total ${formatCurrency(total)}, which doesn't match the deposit amount ${formatCurrency(txAmount)}. Adjust your selection.`);
+        return;
+      }
+
+      // Replace any existing multi-links for this transaction with the new selection
+      const { error: deleteError } = await supabase
+        .from('bank_transaction_invoices')
+        .delete()
+        .eq('bank_transaction_id', transaction.id);
+
+      if (deleteError) throw deleteError;
+
+      const rows = selectedIds.map(invoiceId => {
+        const inv = invoices.find(i => i.id === invoiceId);
+        return {
+          bank_transaction_id: transaction.id,
+          invoice_id: invoiceId,
+          amount_applied: parseFloat(inv?.total_amount) || 0,
+          company_id: user.id,
+          created_by: user.id
+        };
+      });
+
+      const { error: insertError } = await supabase
+        .from('bank_transaction_invoices')
+        .insert(rows);
+
+      if (insertError) throw insertError;
+
+      // Keep linked_invoice_id populated (first invoice) for backward compatibility
+      // with existing single-invoice reporting/reconciliation code.
+      const primaryInvoiceId = selectedIds[0];
+      const primaryInvoice = invoices.find(i => i.id === primaryInvoiceId);
+
+      const { error: updateError } = await supabase
+        .from('bank_transactions')
+        .update({
+          linked_invoice_id: primaryInvoiceId,
+          is_reconciled: true,
+          reconciled_at: new Date().toISOString(),
+          reconciled_by: user.id,
+          payee: primaryInvoice?.customer_name || null
+        })
+        .eq('id', transaction.id);
+
+      if (updateError) throw updateError;
+
+      notify(`Linked ${selectedIds.length} invoice${selectedIds.length > 1 ? 's' : ''} to this transaction`);
+      await loadData();
+      await loadLinkedInvoices(transaction.id);
+    } catch (err) {
+      console.error('Error linking multiple invoices:', err);
+      notify('Failed to link invoices');
+    }
+  }
+
+  async function handleUnlinkAllInvoices(transaction) {
+    try {
+      const { error: deleteError } = await supabase
+        .from('bank_transaction_invoices')
+        .delete()
+        .eq('bank_transaction_id', transaction.id);
+
+      if (deleteError) throw deleteError;
+
+      const { error: updateError } = await supabase
+        .from('bank_transactions')
+        .update({
+          linked_invoice_id: null,
+          is_reconciled: false,
+          reconciled_at: null,
+          reconciled_by: null
+        })
+        .eq('id', transaction.id);
+
+      if (updateError) throw updateError;
+
+      setLinkedInvoices([]);
+      setMultiSelectInvoiceIds(new Set());
+      await loadData();
+    } catch (err) {
+      console.error('Error unlinking invoices:', err);
+      notify('Failed to unlink invoices');
+    }
+  }
+
   function openMatchesModal(transaction) {
     setSelectedTransaction(transaction);
     setShowMatchesModal(true);
+    loadLinkedInvoices(transaction.id);
   }
 
   // ── Scoring-based match functions ──────────────────────────────────────────
@@ -2525,7 +2668,32 @@ export default function BankTransactions() {
                       </button>
                     </div>
                   )}
-                  {selectedTransaction.linked_invoice_id && (
+                  {linkedInvoices.length > 1 ? (
+                    <>
+                      {linkedInvoices.map(row => (
+                        <div key={row.invoice_id} style={styles.linkedItem}>
+                          <div>
+                            <strong>Invoice:</strong> #{row.invoice?.invoice_number || 'Unknown'}
+                            <br />
+                            <span style={{fontSize: 13, color: '#666'}}>
+                              {formatDate(row.invoice?.invoice_date)} - {formatCurrency(row.amount_applied)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8}}>
+                        <span style={{fontSize: 13, color: '#666'}}>
+                          {linkedInvoices.length} invoices — total {formatCurrency(linkedInvoices.reduce((s, r) => s + (parseFloat(r.amount_applied) || 0), 0))}
+                        </span>
+                        <button
+                          onClick={() => handleUnlinkAllInvoices(selectedTransaction)}
+                          style={styles.unlinkButton}
+                        >
+                          🔗 Unlink All
+                        </button>
+                      </div>
+                    </>
+                  ) : selectedTransaction.linked_invoice_id && (
                     <div style={styles.linkedItem}>
                       <div>
                         <strong>Invoice:</strong> #{invoices.find(i => i.id === selectedTransaction.linked_invoice_id)?.invoice_number || 'Unknown'}
@@ -2603,16 +2771,28 @@ export default function BankTransactions() {
                 <div style={styles.matchesSection}>
                   <h3 style={styles.sectionTitle}>
                     💰 Matching Invoices ({getMatchingInvoices(selectedTransaction).length})
+                    {selectedTransaction.amount > 0 && (
+                      <span style={{fontSize: 12, fontWeight: 400, color: '#666', marginLeft: 8}}>
+                        — check multiple to split a deposit across invoices
+                      </span>
+                    )}
                   </h3>
                   <div style={styles.matchesList}>
                     {getMatchingInvoices(selectedTransaction).map(invoice => (
-                      <div 
-                        key={invoice.id} 
+                      <label
+                        key={invoice.id}
                         style={{
                           ...styles.matchCard,
-                          backgroundColor: selectedTransaction.linked_invoice_id === invoice.id ? '#dcfce7' : '#fff'
+                          backgroundColor: multiSelectInvoiceIds.has(invoice.id) ? '#dcfce7' : '#fff',
+                          cursor: 'pointer'
                         }}
                       >
+                        <input
+                          type="checkbox"
+                          checked={multiSelectInvoiceIds.has(invoice.id)}
+                          onChange={() => toggleMultiSelectInvoice(invoice.id)}
+                          style={{width: 18, height: 18, marginRight: 12, cursor: 'pointer'}}
+                        />
                         <div style={styles.matchCardContent}>
                           <div style={styles.matchCardHeader}>
                             <strong style={{fontSize: 16}}>Invoice #{invoice.invoice_number}</strong>
@@ -2625,17 +2805,7 @@ export default function BankTransactions() {
                             {invoice.customer_id && <div>👤 Customer: {invoice.customer_id}</div>}
                           </div>
                         </div>
-                        <button
-                          onClick={() => handleLinkInvoice(selectedTransaction.id, invoice.id)}
-                          style={{
-                            ...styles.linkButton,
-                            backgroundColor: selectedTransaction.linked_invoice_id === invoice.id ? '#9ca3af' : '#10b981'
-                          }}
-                          disabled={selectedTransaction.linked_invoice_id === invoice.id}
-                        >
-                          {selectedTransaction.linked_invoice_id === invoice.id ? '✓ Linked' : '🔗 Link'}
-                        </button>
-                      </div>
+                      </label>
                     ))}
                   </div>
                 </div>
@@ -2650,7 +2820,7 @@ export default function BankTransactions() {
                       No automatic match found for <strong>{formatCurrency(selectedTransaction.amount)}</strong>
                     </p>
                     <p style={{fontSize: 13, color: '#999', margin: 0}}>
-                      Manually link this transaction to an invoice below:
+                      Manually link this transaction to one or more invoices below — check multiple to split a deposit across invoices:
                     </p>
                   </div>
                   <div style={{...styles.matchesSection, marginBottom: 0}}>
@@ -2660,14 +2830,21 @@ export default function BankTransactions() {
                         <p style={{color: '#999', fontSize: 14, padding: 12}}>No invoices found.</p>
                       ) : (
                         invoices.map(invoice => (
-                          <div
+                          <label
                             key={invoice.id}
                             style={{
                               ...styles.matchCard,
-                              backgroundColor: selectedTransaction.linked_invoice_id === invoice.id ? '#dcfce7' : '#fff',
-                              alignItems: 'center'
+                              backgroundColor: multiSelectInvoiceIds.has(invoice.id) ? '#dcfce7' : '#fff',
+                              alignItems: 'center',
+                              cursor: 'pointer'
                             }}
                           >
+                            <input
+                              type="checkbox"
+                              checked={multiSelectInvoiceIds.has(invoice.id)}
+                              onChange={() => toggleMultiSelectInvoice(invoice.id)}
+                              style={{width: 18, height: 18, marginRight: 12, cursor: 'pointer'}}
+                            />
                             <div style={styles.matchCardContent}>
                               <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                                 <strong style={{fontSize: 15}}>Invoice #{invoice.invoice_number}</strong>
@@ -2685,21 +2862,55 @@ export default function BankTransactions() {
                                 {invoice.customer_id && <span style={{marginLeft: 12}}>👤 {invoice.customer_id}</span>}
                               </div>
                             </div>
-                            <button
-                              onClick={() => handleLinkInvoice(selectedTransaction.id, invoice.id)}
-                              style={{
-                                ...styles.linkButton,
-                                backgroundColor: selectedTransaction.linked_invoice_id === invoice.id ? '#9ca3af' : '#10b981'
-                              }}
-                              disabled={selectedTransaction.linked_invoice_id === invoice.id}
-                            >
-                              {selectedTransaction.linked_invoice_id === invoice.id ? '✓ Linked' : '🔗 Link'}
-                            </button>
-                          </div>
+                          </label>
                         ))
                       )}
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* Multi-select summary + Link action */}
+              {selectedTransaction.amount > 0 && (getMatchingInvoices(selectedTransaction).length > 0 || (getMatchCount(selectedTransaction) === 0 && !selectedTransaction.linked_expense_id)) && (
+                <div style={{
+                  position: 'sticky',
+                  bottom: 0,
+                  marginTop: 12,
+                  padding: '12px 16px',
+                  backgroundColor: '#f9fafb',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: 8,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 12
+                }}>
+                  <div style={{fontSize: 13, color: '#374151'}}>
+                    {multiSelectInvoiceIds.size === 0 ? (
+                      <span style={{color: '#999'}}>No invoices selected</span>
+                    ) : (
+                      <>
+                        <strong>{multiSelectInvoiceIds.size}</strong> invoice{multiSelectInvoiceIds.size > 1 ? 's' : ''} selected — {formatCurrency(getMultiSelectTotal())}
+                        {' '}of{' '}{formatCurrency(Math.abs(selectedTransaction.amount))}
+                        {Math.abs(getMultiSelectTotal() - Math.abs(selectedTransaction.amount)) > 0.02 && (
+                          <span style={{color: '#ef4444', marginLeft: 6}}>
+                            ({formatCurrency(Math.abs(selectedTransaction.amount) - getMultiSelectTotal())} remaining)
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => handleLinkMultipleInvoices(selectedTransaction)}
+                    disabled={multiSelectInvoiceIds.size === 0 || Math.abs(getMultiSelectTotal() - Math.abs(selectedTransaction.amount)) > 0.02}
+                    style={{
+                      ...styles.linkButton,
+                      backgroundColor: (multiSelectInvoiceIds.size === 0 || Math.abs(getMultiSelectTotal() - Math.abs(selectedTransaction.amount)) > 0.02) ? '#9ca3af' : '#10b981',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    🔗 Link {multiSelectInvoiceIds.size > 1 ? `${multiSelectInvoiceIds.size} Invoices` : 'Invoice'}
+                  </button>
                 </div>
               )}
             </div>
@@ -3426,7 +3637,6 @@ const styles = {
   },
   matchReviewBody: {
     display: "flex",
-    gap: 0,
     flex: 1,
     overflow: "hidden",
     padding: "24px 20px",
