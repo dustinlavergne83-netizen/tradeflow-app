@@ -453,7 +453,23 @@ export default function BankTransactions() {
     });
   }
 
+  // Returns the amount of an invoice that actually hits the bank — net of
+  // processing fees when available, falling back to the gross total
+  // (mirrors the precedence used by scoreInvoiceMatch above).
+  function getInvoiceDepositAmount(invoice) {
+    const net = parseFloat(invoice?.net_deposit_amount) || 0;
+    const gross = parseFloat(invoice?.total_amount) || 0;
+    return net > 0 ? net : gross;
+  }
+
   function getMultiSelectTotal() {
+    return Array.from(multiSelectInvoiceIds).reduce((sum, id) => {
+      const inv = invoices.find(i => i.id === id);
+      return sum + getInvoiceDepositAmount(inv);
+    }, 0);
+  }
+
+  function getMultiSelectGrossTotal() {
     return Array.from(multiSelectInvoiceIds).reduce((sum, id) => {
       const inv = invoices.find(i => i.id === id);
       return sum + (parseFloat(inv?.total_amount) || 0);
@@ -493,7 +509,7 @@ export default function BankTransactions() {
         return {
           bank_transaction_id: transaction.id,
           invoice_id: invoiceId,
-          amount_applied: parseFloat(inv?.total_amount) || 0,
+          amount_applied: getInvoiceDepositAmount(inv),
           company_id: user.id,
           created_by: user.id
         };
@@ -2798,6 +2814,11 @@ export default function BankTransactions() {
                             <strong style={{fontSize: 16}}>Invoice #{invoice.invoice_number}</strong>
                             <span style={{fontSize: 18, fontWeight: 'bold', color: '#10b981'}}>
                               {formatCurrency(invoice.total_amount)}
+                              {invoice.net_deposit_amount && invoice.net_deposit_amount !== invoice.total_amount && (
+                                <span style={{fontSize: 12, color: '#666', marginLeft: 6, fontWeight: 400}}>
+                                  (net {formatCurrency(invoice.net_deposit_amount)})
+                                </span>
+                              )}
                             </span>
                           </div>
                           <div style={styles.matchCardDetails}>
@@ -2890,12 +2911,17 @@ export default function BankTransactions() {
                       <span style={{color: '#999'}}>No invoices selected</span>
                     ) : (
                       <>
-                        <strong>{multiSelectInvoiceIds.size}</strong> invoice{multiSelectInvoiceIds.size > 1 ? 's' : ''} selected — {formatCurrency(getMultiSelectTotal())}
+                        <strong>{multiSelectInvoiceIds.size}</strong> invoice{multiSelectInvoiceIds.size > 1 ? 's' : ''} selected — {formatCurrency(getMultiSelectTotal())} net
                         {' '}of{' '}{formatCurrency(Math.abs(selectedTransaction.amount))}
                         {Math.abs(getMultiSelectTotal() - Math.abs(selectedTransaction.amount)) > 0.02 && (
                           <span style={{color: '#ef4444', marginLeft: 6}}>
                             ({formatCurrency(Math.abs(selectedTransaction.amount) - getMultiSelectTotal())} remaining)
                           </span>
+                        )}
+                        {getMultiSelectGrossTotal() !== getMultiSelectTotal() && (
+                          <div style={{fontSize: 12, color: '#999', marginTop: 2}}>
+                            {formatCurrency(getMultiSelectGrossTotal())} gross − {formatCurrency(getMultiSelectGrossTotal() - getMultiSelectTotal())} processing fees
+                          </div>
                         )}
                       </>
                     )}
