@@ -1506,8 +1506,16 @@ async function handleAddContractor() {
     const costRate = empRate > 0 ? empRate * BURDEN_MULTIPLIER : fallbackRate;
     return sum + hours * costRate;
   }, 0);
-  // Keep a display-only blended rate for the UI label
-  const laborRate = laborHours > 0 ? laborCost / laborHours : fallbackRate;
+  // Combined crew rate: sum each distinct employee's burdened hourly rate
+  // (NOT an average — e.g. a $30/hr and a $20/hr employee = $70/hr combined, not $25/hr)
+  const crewRateMap = new Map();
+  timeEntries.forEach(entry => {
+    if (!entry.clock_out || !entry.user_id) return;
+    const empRate = entry.employees?.hourly_rate;
+    crewRateMap.set(entry.user_id, empRate > 0 ? empRate * BURDEN_MULTIPLIER : fallbackRate);
+  });
+  const laborRate = Array.from(crewRateMap.values()).reduce((sum, r) => sum + r, 0);
+  const crewCount = crewRateMap.size;
 
   // Calculate material costs from project_expenses
   const expensesCost = projectExpenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
@@ -1637,7 +1645,7 @@ async function handleAddContractor() {
 
     section('LABOR COSTS');
     row('Total Hours', `${laborHours.toFixed(2)} hrs`);
-    row('Avg Effective Rate', `$${laborRate.toFixed(2)}/hr`);
+    row('Combined Crew Rate', `$${laborRate.toFixed(2)}/hr${crewCount > 0 ? ` (${crewCount} crew)` : ''}`);
     row('Labor Cost (burdened @ 1.4×)', `$${laborCost.toFixed(2)}`);
     y += 4;
 
@@ -2209,8 +2217,8 @@ async function handleAddContractor() {
             <span style={styles.value}>${laborCost.toFixed(2)}</span>
           </div>
           <div style={{...styles.row, paddingLeft: 12, opacity: 0.8}}>
-            <span style={{...styles.label, fontSize: 13}}>Avg effective rate</span>
-            <span style={{...styles.value, fontSize: 13}}>${laborRate.toFixed(2)}/hr</span>
+            <span style={{...styles.label, fontSize: 13}}>Combined crew rate</span>
+            <span style={{...styles.value, fontSize: 13}}>${laborRate.toFixed(2)}/hr{crewCount > 0 ? ` · ${crewCount} crew` : ''}</span>
           </div>
 
           <div style={styles.row}>
@@ -2707,7 +2715,7 @@ async function handleAddContractor() {
                     <td colSpan={5} style={{padding:'12px', color:'#fff', fontWeight:'700', fontSize:14}}>TOTALS</td>
                     <td style={{padding:'12px', color:'#fff', fontWeight:'700', fontSize:14}}>{laborHours.toFixed(2)} hrs</td>
                     <td style={{padding:'12px'}}></td>
-                    <td style={{padding:'12px', color:'#fff', fontSize:13}}>avg ${laborRate.toFixed(2)}/hr</td>
+                    <td style={{padding:'12px', color:'#fff', fontSize:13}}>crew ${laborRate.toFixed(2)}/hr</td>
                     <td style={{padding:'12px', color:'#f97316', fontWeight:'700', fontSize:15}}>${laborCost.toFixed(2)}</td>
                     <td style={{padding:'12px'}}></td>
                   </tr>
