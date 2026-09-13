@@ -79,6 +79,7 @@ import Communications from "./pages/Communications";
 import EmailInbox from "./pages/EmailInbox";
 import TwilioSettings from "./pages/TwilioSettings";
 import SuperAdmin from "./pages/SuperAdmin";
+import CompanyFeatures from "./pages/CompanyFeatures";
 import TimeclockAdmin from "./pages/TimeclockAdmin";
 import Generators from "./pages/Generators";
 import GeneratorInvoice from "./pages/GeneratorInvoice";
@@ -776,6 +777,19 @@ function AppContent() {
             element={
               <ProtectedRoute>
                 <SuperAdmin />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ── Company Features (platform owner only) — per-company feature
+               flag toggles (companies.settings JSONB). Separate from
+               /super-admin so it can be reached directly from the TradeFlow
+               Hub as its own card. ────────────────────────────────────── */}
+          <Route
+            path="/company-features"
+            element={
+              <ProtectedRoute>
+                <CompanyFeatures />
               </ProtectedRoute>
             }
           />
