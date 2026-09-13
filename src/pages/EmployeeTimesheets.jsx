@@ -5,6 +5,7 @@ import jsPDF from "jspdf";
 import "jspdf-autotable";
 import logoUrl from "../assets/LOGOD.jpg";
 import { notify, confirmDialog } from '../lib/notify';
+import { useAuth } from "../contexts/AuthContext";
 
 const BRAND = { bg: "#0b3ea8", accent: "#fc6b04ff", primary: "#0b3ea8" };
 
@@ -80,6 +81,7 @@ function elapsed(start) {
 // ─── component ───────────────────────────────────────────────────────────────
 export default function EmployeeTimesheets() {
   const navigate = useNavigate();
+  const { employee, company } = useAuth();
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()));
   const [loading, setLoading] = useState(true);
   const [employees, setEmployees] = useState([]);
@@ -121,7 +123,7 @@ export default function EmployeeTimesheets() {
     setLoading(true);
     try {
       const [{ data: emps }, { data: segs }, { data: open }, { data: projs }] = await Promise.all([
-        supabase.from("employees").select("user_id, first_name, last_name, employment_type, hourly_rate").order("first_name"),
+        supabase.from("employees").select("user_id, first_name, last_name, employment_type, hourly_rate, company_id").order("first_name"),
         supabase.from("shift_segments")
           .select("id, user_id, start_at, end_at, is_lunch, project_task, project_id")
           .gte("start_at", weekDays[0] + "T00:00:00")
@@ -272,6 +274,11 @@ export default function EmployeeTimesheets() {
   async function createSeg(form, uid) {
     if (!uid) { notify("Please select an employee."); return; }
     if (!form.startTime) { notify("Please enter a start time."); return; }
+    // RLS on shifts/shift_segments requires company_id to match the caller's company —
+    // resolve it from the target employee's own record (falls back to the logged-in admin's company)
+    const targetEmp = employees.find((e) => e.user_id === uid);
+    const companyId = targetEmp?.company_id || employee?.company_id || company?.id || null;
+    if (!companyId) { notify("Company not loaded yet — please refresh and try again."); return; }
     setSaving(true);
     try {
       const rStart = roundTimeStrTo15(form.startTime);
@@ -285,6 +292,7 @@ export default function EmployeeTimesheets() {
         .from("shifts")
         .insert({
           user_id: uid,
+          company_id: companyId,
           clock_in: newStart.toISOString(),
           clock_out: newEnd ? newEnd.toISOString() : null,
         })
@@ -294,6 +302,7 @@ export default function EmployeeTimesheets() {
 
       const { error } = await supabase.from("shift_segments").insert({
         user_id: uid,
+        company_id: companyId,
         shift_id: shiftData.id,
         start_at: newStart.toISOString(),
         end_at: newEnd ? newEnd.toISOString() : null,

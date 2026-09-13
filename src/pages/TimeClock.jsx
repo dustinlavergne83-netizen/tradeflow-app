@@ -7,6 +7,7 @@ import DesktopHeader from "../Components/DesktopHeader";
 
 import { formatDate } from "../utils/dateUtils";
 import { notify } from '../lib/notify';
+import { useAuth } from "../contexts/AuthContext";
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -15,6 +16,7 @@ const BRAND = {
 };
 
 export default function TimeClock() {
+  const { employee, company } = useAuth();
   const [loading, setLoading] = useState(true);
   const [employeeStatuses, setEmployeeStatuses] = useState([]);
   const [weeklyTimesheet, setWeeklyTimesheet] = useState([]);
@@ -389,7 +391,7 @@ export default function TimeClock() {
       // Get all active employees
       const { data: employees, error: empError } = await supabase
         .from("employees")
-        .select("id, user_id, first_name, last_name, preferred_name")
+        .select("id, user_id, first_name, last_name, preferred_name, company_id")
         .eq("is_active", true)
         .order("last_name", { ascending: true });
 
@@ -412,6 +414,7 @@ export default function TimeClock() {
         const row = {
           employeeId: emp.id,
           userId: emp.user_id,
+          companyId: emp.company_id,
           employeeName: `${displayName} ${emp.last_name}`,
           days: {},
           weekTotal: 0,
@@ -638,6 +641,14 @@ export default function TimeClock() {
         return;
       }
       const targetUserId = targetEmpRow.userId;
+      // RLS on shifts/shift_segments requires company_id to match the caller's company —
+      // resolve it from the target employee's own record (falls back to the logged-in admin's company)
+      const companyId = targetEmpRow.companyId || employee?.company_id || company?.id || null;
+      if (!companyId) {
+        notify("Company not loaded yet — please refresh and try again.");
+        setPasteSaving(false);
+        return;
+      }
 
       // Find existing shift for target employee on this day
       const { data: existingShifts } = await supabase
@@ -654,7 +665,7 @@ export default function TimeClock() {
       } else {
         const { data: newShift, error: shiftErr } = await supabase
           .from("shifts")
-          .insert({ user_id: targetUserId, clock_in: copiedTime.rawStart, clock_out: copiedTime.rawEnd || null })
+          .insert({ user_id: targetUserId, company_id: companyId, clock_in: copiedTime.rawStart, clock_out: copiedTime.rawEnd || null })
           .select()
           .single();
         if (shiftErr) throw shiftErr;
@@ -666,6 +677,7 @@ export default function TimeClock() {
         .insert({
           shift_id: shiftId,
           user_id: targetUserId,
+          company_id: companyId,
           start_at: copiedTime.rawStart,
           end_at: copiedTime.rawEnd || null,
           project_task: copiedTime.project !== 'No Project' ? copiedTime.project : null,
