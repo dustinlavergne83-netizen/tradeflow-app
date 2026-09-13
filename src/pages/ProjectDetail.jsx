@@ -6,6 +6,7 @@ import { formatDate } from "../utils/dateUtils";
 import jsPDF from "jspdf";
 import { getNextJournalEntryNumber, createInvoicePaymentJournalEntry } from "../utils/accountingJournals";
 import { notify, confirmDialog, promptDialog } from '../lib/notify';
+import { useFeatures } from "../lib/useFeatures";
 
 const BRAND = {
   bg: "#0b3ea8",
@@ -54,6 +55,7 @@ export default function ProjectDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const features = useFeatures();
   const [project, setProject] = useState(null);
   const [timeEntries, setTimeEntries] = useState([]);
   const [expenses, setExpenses] = useState([]);
@@ -2044,7 +2046,7 @@ async function handleAddContractor() {
           >
             ✏️ Edit Project
           </button>
-          {!["residential-contractor", "commercial-private", "residential-owner"].includes(project.project_type) && (
+          {features.takeoff && !["residential-contractor", "commercial-private", "residential-owner"].includes(project.project_type) && (
             <button 
               onClick={() => navigate(`/project/${id}/plans`)} 
               style={{...styles.backButton, background: '#8b5cf6', color: '#fff', border: 'none'}}
