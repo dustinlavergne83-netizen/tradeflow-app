@@ -260,7 +260,7 @@ export default function ProposalView() {
               <div style={{fontSize:26,fontWeight:800,color:proposal.deposit_paid?'#16a34a':'#92400e'}}>${((parseFloat(proposal.deposit_percent)/100)*parseFloat(proposal.total_amount||0)).toLocaleString('en-US',{minimumFractionDigits:2})}</div>
             </div>
             {!proposal.deposit_paid&&(
-              <div style={{marginTop:10,paddingTop:10,borderTop:'1px solid #fde68a'}}>
+              <div className="no-print" style={{marginTop:10,paddingTop:10,borderTop:"1px solid #fde68a"}}>
                 <a href={window.location.origin+'/proposal/pay-deposit?proposalId='+proposal.id} style={{display:'inline-block',padding:'8px 18px',background:'#92400e',color:'#fff',borderRadius:6,textDecoration:'none',fontSize:13,fontWeight:700}}>Pay Deposit Online by Credit Card</a>
               </div>
             )}

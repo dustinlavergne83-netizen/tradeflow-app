@@ -7,6 +7,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [employee, setEmployee] = useState(null);
   const [customer, setCustomer] = useState(null);
+  const [company, setCompany] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -28,6 +29,7 @@ export function AuthProvider({ children }) {
       } else {
         setEmployee(null);
         setCustomer(null);
+        setCompany(null);
         setLoading(false);
       }
     });
@@ -59,6 +61,19 @@ export function AuthProvider({ children }) {
         empData.full_name = `${empData.first_name || ""} ${empData.last_name || ""}`.trim();
         setEmployee(empData);
         setCustomer(null);
+
+        // ── Load company record for branding ──────────────────────────────
+        if (empData.company_id) {
+          const { data: compData } = await supabase
+            .from("companies")
+            .select("id, name, slug, primary_color, secondary_color, logo_url")
+            .eq("id", empData.company_id)
+            .maybeSingle();
+          setCompany(compData || null);
+        } else {
+          setCompany(null);
+        }
+
         setLoading(false);
         return;
       }
@@ -73,6 +88,19 @@ export function AuthProvider({ children }) {
       if (custData) {
         setCustomer(custData);
         setEmployee(null);
+
+        // Load company for customer branding too
+        if (custData.company_id) {
+          const { data: compData } = await supabase
+            .from("companies")
+            .select("id, name, slug, primary_color, secondary_color, logo_url")
+            .eq("id", custData.company_id)
+            .maybeSingle();
+          setCompany(compData || null);
+        } else {
+          setCompany(null);
+        }
+
         setLoading(false);
         return;
       }
@@ -80,6 +108,7 @@ export function AuthProvider({ children }) {
       // ── 3. Not found in either table ─────────────────────────────────────
       setEmployee(null);
       setCustomer(null);
+      setCompany(null);
     } catch (err) {
       console.error("AuthContext loadUserData error:", err);
       setEmployee(null);
@@ -100,12 +129,14 @@ export function AuthProvider({ children }) {
     setUser(null);
     setEmployee(null);
     setCustomer(null);
+    setCompany(null);
   }
 
   const value = {
     user,
     employee,
     customer,
+    company,
     isAdmin: employee?.role === "admin",
     isSuperAdmin: !!employee?.is_super_admin,
     isEmployee: !!employee,

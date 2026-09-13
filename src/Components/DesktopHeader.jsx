@@ -1,11 +1,7 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import logo from "../assets/LOGOD.jpg";
 import { useAuth } from "../contexts/AuthContext";
-
-const BRAND = {
-  bg: "#0b3ea8",
-  text: "#f97316",
-};
+import { useBrand } from "../lib/useBrand";
 
 function titleFromPath(pathname) {
   // map common routes to friendly titles
@@ -49,6 +45,8 @@ export default function DesktopHeader({ title: propTitle }) {
   const navigate = useNavigate();
   const { employee, isAdmin, signOut } = useAuth();
   const { pathname } = useLocation();
+  const BRAND = useBrand();
+  const styles = makeStyles(BRAND);
 
   const title = propTitle || titleFromPath(pathname);
 
@@ -66,8 +64,8 @@ export default function DesktopHeader({ title: propTitle }) {
     <div className="siteHeader" style={styles.header}>
       <div className="headerInner">
         <div style={styles.leftBrand}>
-          <div style={styles.brandTitle}>TradeFlow</div>
-          <div style={styles.tagline}>Built for the Trades</div>
+          <div style={styles.brandTitle}>{BRAND.name}</div>
+          <div style={styles.tagline}>{BRAND.tagline}</div>
         </div>
 
         <div style={styles.center}>
@@ -99,134 +97,135 @@ export default function DesktopHeader({ title: propTitle }) {
               Sign Out
             </button>
           </div>
-          <img src={logo} alt="Logo" style={styles.logo} />
+          <img src={BRAND.logo_url || logo} alt="Logo" style={styles.logo} />
         </div>
       </div>
     </div>
   );
 }
 
-const styles = {
-  header: {
-    backgroundColor: BRAND.bg,
-    padding: "8px 18px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    height: 70,
-  },
-
-  brand: {
-    width: 240,
-    display: "flex",
-    alignItems: "center",
-  },
-  logoSmall: {
-    height: 62,
-    width: "auto",
-    objectFit: "contain",
-  },
-  logo: {
-    height: 50,
-    width: "auto",
-    objectFit: "contain",
-    marginLeft: 12,
-  },
-  leftBrand: {
-    width: 240,
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "center",
-    alignItems: "flex-start",
-  },
-  brandTitle: {
-    color: BRAND.text,
-    fontSize: 24,
-    fontWeight: 900,
-    fontStyle: "italic",
-    marginBottom: 2,
-  },
-  tagline: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: 700,
-    marginTop: 0,
-  },
-  dashboardBtn: {
-    padding: '6px 10px',
-    background: '#ff6210',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 8,
-    fontWeight: 800,
-    cursor: 'pointer',
-    boxShadow: '0 1px 0 rgba(0,0,0,0.2)'
-  },
-  center: {
-    flex: 1,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  pageTitle: {
-    color: BRAND.text,
-    fontSize: 28,
-    fontWeight: 900,
-    letterSpacing: 0.5,
-  },
-  rightSection: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    gap: 20,
-  },
-  userInfo: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-  },
-  userName: {
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: 600,
-  },
-  adminBadge: {
-    backgroundColor: BRAND.text,
-    color: "#fff",
-    padding: "4px 8px",
-    borderRadius: 4,
-    fontSize: 11,
-    fontWeight: 700,
-    letterSpacing: 0.5,
-  },
-  switchButton: {
-    padding: "7px 14px",
-    backgroundColor: "#fc6b04",
-    border: "none",
-    color: "#fff",
-    borderRadius: 6,
-    cursor: "pointer",
-    fontSize: 13,
-    fontWeight: 700,
-  },
-  websiteButton: {
-    padding: "7px 14px",
-    backgroundColor: "rgba(255,255,255,0.12)",
-    border: "1px solid rgba(255,255,255,0.35)",
-    color: "#fff",
-    borderRadius: 6,
-    cursor: "pointer",
-    fontSize: 13,
-    fontWeight: 600,
-  },
-  signOutButton: {
-    padding: "8px 16px",
-    backgroundColor: "transparent",
-    border: "2px solid #fff",
-    color: "#fff",
-    borderRadius: 6,
-    cursor: "pointer",
-    fontSize: 14,
-    fontWeight: 600,
-  },
-};
+function makeStyles(brand) {
+  return {
+    header: {
+      backgroundColor: brand.bg,
+      padding: "8px 18px",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      height: 70,
+    },
+    brand: {
+      width: 240,
+      display: "flex",
+      alignItems: "center",
+    },
+    logoSmall: {
+      height: 62,
+      width: "auto",
+      objectFit: "contain",
+    },
+    logo: {
+      height: 50,
+      width: "auto",
+      objectFit: "contain",
+      marginLeft: 12,
+    },
+    leftBrand: {
+      width: 240,
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: "center",
+      alignItems: "flex-start",
+    },
+    brandTitle: {
+      color: brand.accent,
+      fontSize: 24,
+      fontWeight: 900,
+      fontStyle: "italic",
+      marginBottom: 2,
+    },
+    tagline: {
+      color: "#fff",
+      fontSize: 13,
+      fontWeight: 700,
+      marginTop: 0,
+    },
+    dashboardBtn: {
+      padding: "6px 10px",
+      background: brand.accent,
+      color: "#fff",
+      border: "none",
+      borderRadius: 8,
+      fontWeight: 800,
+      cursor: "pointer",
+      boxShadow: "0 1px 0 rgba(0,0,0,0.2)",
+    },
+    center: {
+      flex: 1,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    pageTitle: {
+      color: brand.accent,
+      fontSize: 28,
+      fontWeight: 900,
+      letterSpacing: 0.5,
+    },
+    rightSection: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "flex-end",
+      gap: 20,
+    },
+    userInfo: {
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+    },
+    userName: {
+      color: "#fff",
+      fontSize: 15,
+      fontWeight: 600,
+    },
+    adminBadge: {
+      backgroundColor: brand.accent,
+      color: "#fff",
+      padding: "4px 8px",
+      borderRadius: 4,
+      fontSize: 11,
+      fontWeight: 700,
+      letterSpacing: 0.5,
+    },
+    switchButton: {
+      padding: "7px 14px",
+      backgroundColor: brand.accent,
+      border: "none",
+      color: "#fff",
+      borderRadius: 6,
+      cursor: "pointer",
+      fontSize: 13,
+      fontWeight: 700,
+    },
+    websiteButton: {
+      padding: "7px 14px",
+      backgroundColor: "rgba(255,255,255,0.12)",
+      border: "1px solid rgba(255,255,255,0.35)",
+      color: "#fff",
+      borderRadius: 6,
+      cursor: "pointer",
+      fontSize: 13,
+      fontWeight: 600,
+    },
+    signOutButton: {
+      padding: "8px 16px",
+      backgroundColor: "transparent",
+      border: "2px solid #fff",
+      color: "#fff",
+      borderRadius: 6,
+      cursor: "pointer",
+      fontSize: 14,
+      fontWeight: 600,
+    },
+  };
+}

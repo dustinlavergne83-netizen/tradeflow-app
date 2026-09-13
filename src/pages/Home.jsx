@@ -4,15 +4,12 @@ import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAx
 import { useAuth } from "../contexts/AuthContext";
 import { supabase } from "../lib/supabase";
 import { formatDate, toLocalDateString } from "../utils/dateUtils";
-
-const BRAND = {
-  bg: "#0b3ea8",
-  primary: "#fc6b04ff",
-};
+import { useBrand } from "../lib/useBrand";
 
 export default function Home() {
   const navigate = useNavigate();
   const { isAdmin, user } = useAuth();
+  const BRAND = useBrand();
   const [stats, setStats] = useState({
     activeProjects: 0,
     totalInvoices: 0,

@@ -1140,7 +1140,7 @@ export default function ProposalCommercialPublic() {
               </div>
             </div>
             {proposal?.id && (
-              <div style={{marginTop: 10, paddingTop: 10, borderTop: '1px solid #fde68a'}}>
+              <div className="no-print" style={{marginTop:10,paddingTop:10,borderTop:"1px solid #fde68a"}}>
                 <a
                   href={`${window.location.origin}/proposal/pay-deposit?proposalId=${proposal.id}`}
                   target="_blank"
