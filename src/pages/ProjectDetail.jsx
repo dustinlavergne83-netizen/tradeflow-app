@@ -1517,6 +1517,27 @@ async function handleAddContractor() {
   const laborRate = Array.from(crewRateMap.values()).reduce((sum, r) => sum + r, 0);
   const crewCount = crewRateMap.size;
 
+  // Per-employee subtotals — makes the "hours × rate, added up" math explicit
+  // (crew rate × total man-hours would double-count when multiple people work the same hours)
+  const laborByEmployee = (() => {
+    const map = new Map();
+    timeEntries.forEach(entry => {
+      if (!entry.clock_out || !entry.user_id) return;
+      const start = new Date(entry.clock_in).getTime();
+      const end = new Date(entry.clock_out).getTime();
+      let hours = (end - start) / (1000 * 60 * 60);
+      if (entry.is_lunch) hours = Math.max(0, hours - 0.5);
+      const empRate = entry.employees?.hourly_rate;
+      const costRate = empRate > 0 ? empRate * BURDEN_MULTIPLIER : fallbackRate;
+      const name = entry.employees ? `${entry.employees.first_name} ${entry.employees.last_name}` : 'Unknown';
+      const existing = map.get(entry.user_id) || { name, rate: costRate, hours: 0, cost: 0 };
+      existing.hours += hours;
+      existing.cost += hours * costRate;
+      map.set(entry.user_id, existing);
+    });
+    return Array.from(map.values()).sort((a, b) => b.cost - a.cost);
+  })();
+
   // Calculate material costs from project_expenses
   const expensesCost = projectExpenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
 
@@ -2715,12 +2736,29 @@ async function handleAddContractor() {
                     <td colSpan={5} style={{padding:'12px', color:'#fff', fontWeight:'700', fontSize:14}}>TOTALS</td>
                     <td style={{padding:'12px', color:'#fff', fontWeight:'700', fontSize:14}}>{laborHours.toFixed(2)} hrs</td>
                     <td style={{padding:'12px'}}></td>
-                    <td style={{padding:'12px', color:'#fff', fontSize:13}}>crew ${laborRate.toFixed(2)}/hr</td>
+                    <td style={{padding:'12px'}}></td>
                     <td style={{padding:'12px', color:'#f97316', fontWeight:'700', fontSize:15}}>${laborCost.toFixed(2)}</td>
                     <td style={{padding:'12px'}}></td>
                   </tr>
                 </tfoot>
               </table>
+            </div>
+          )}
+
+          {/* Per-employee subtotals — shows exactly how the total was added up */}
+          {laborByEmployee.length > 0 && (
+            <div style={{marginTop: 14, backgroundColor:'#f9fafb', border:'1px solid #e5e7eb', borderRadius: 8, padding: '10px 14px'}}>
+              <div style={{fontSize:12, fontWeight:700, color:'#6b7280', textTransform:'uppercase', marginBottom: 8}}>Labor Cost Breakdown</div>
+              {laborByEmployee.map((emp, i) => (
+                <div key={i} style={{display:'flex', justifyContent:'space-between', fontSize:13, color:'#374151', padding:'3px 0'}}>
+                  <span>{emp.name} — {emp.hours.toFixed(2)} hrs @ ${emp.rate.toFixed(2)}/hr</span>
+                  <span style={{fontWeight:700, color:'#111'}}>${emp.cost.toFixed(2)}</span>
+                </div>
+              ))}
+              <div style={{display:'flex', justifyContent:'space-between', fontSize:14, fontWeight:800, color:'#0b3ea8', borderTop:'1px solid #e5e7eb', marginTop:6, paddingTop:6}}>
+                <span>Total ({crewCount} crew, combined ${laborRate.toFixed(2)}/hr)</span>
+                <span style={{color: BRAND.accent}}>${laborCost.toFixed(2)}</span>
+              </div>
             </div>
           )}
         </div>
