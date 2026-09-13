@@ -28,6 +28,18 @@ const BRAND = {
   card: "#ffffff",
 };
 
+// ── Feature flags — read by src/lib/useFeatures.js (web) and
+// comms-mobile/lib/useBrand.ts useFeatures() (mobile). Stored per-company
+// in companies.settings (JSONB). Absent key = ON, so unchecking here writes
+// an explicit `false` and leaves everything else untouched.
+const FEATURE_FLAGS = [
+  { key: "takeoff", label: "Plans & Takeoffs", hint: "Web — Project Detail page" },
+  { key: "accounting", label: "Accounting", hint: "Web — not yet gated to a specific page" },
+  { key: "aiAssistant", label: "AI Assistant", hint: "Comms app — AI tab" },
+  { key: "dialpad", label: "Dial Pad", hint: "Comms app — Dial Pad tab" },
+  { key: "email", label: "Email", hint: "Comms app — Email tab" },
+];
+
 export default function SuperAdmin() {
   const { employee } = useAuth();
   const navigate = useNavigate();
@@ -56,6 +68,7 @@ export default function SuperAdmin() {
     subscription_tier: "basic",
     subscription_status: "active",
     max_employees: 50,
+    settings: {},
   });
 
   // Guard: only super admins
@@ -133,6 +146,7 @@ export default function SuperAdmin() {
       subscription_tier: "basic",
       subscription_status: "active",
       max_employees: 50,
+      settings: {},
     });
   }
 
@@ -182,6 +196,7 @@ export default function SuperAdmin() {
           subscription_tier: form.subscription_tier,
           subscription_status: form.subscription_status,
           max_employees: parseInt(form.max_employees) || 50,
+          settings: form.settings,
           updated_at: new Date().toISOString(),
         })
         .eq("id", editingCompany.id);
@@ -282,6 +297,7 @@ export default function SuperAdmin() {
       subscription_tier: company.subscription_tier || "basic",
       subscription_status: company.subscription_status || "active",
       max_employees: company.max_employees || 50,
+      settings: company.settings || {},
     });
     setShowAddForm(false);
   }
@@ -513,6 +529,40 @@ export default function SuperAdmin() {
             style={inputStyle}
             min={1}
           />
+        </div>
+      </div>
+
+      <div style={{ marginTop: 16, padding: 16, background: "#f9fafb", borderRadius: 8, border: "1px solid #e5e7eb" }}>
+        <label style={{ ...labelStyle, marginBottom: 8, display: "block" }}>Features</label>
+        <p style={{ fontSize: 12, color: "#6b7280", marginTop: 0, marginBottom: 12 }}>
+          Turn features on/off for this company only — other companies are unaffected.
+          Mobile app users must sign out and back in to see changes.
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          {FEATURE_FLAGS.map((f) => (
+            <label
+              key={f.key}
+              style={{ display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer" }}
+              title={f.hint}
+            >
+              <input
+                type="checkbox"
+                checked={form.settings?.[f.key] !== false}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    settings: { ...form.settings, [f.key]: e.target.checked },
+                  })
+                }
+                style={{ marginTop: 3 }}
+              />
+              <span>
+                <span style={{ fontWeight: 600, fontSize: 13 }}>{f.label}</span>
+                <br />
+                <span style={{ fontSize: 11, color: "#9ca3af" }}>{f.hint}</span>
+              </span>
+            </label>
+          ))}
         </div>
       </div>
 
