@@ -19,14 +19,17 @@ const EMERGENCY_KEYWORDS = [
   'exposed wire','wire down','pole down','emergency','urgent','dangerous'
 ]
 
-// Load company settings from twilio_config table (keyed by phone number called)
+// Load company settings from twilio_config table (keyed strictly by the Twilio
+// number that was called). Previously this also fell back to `company_id.eq.
+// DEFAULT_COMPANY_ID`, which meant a call to ANY unconfigured number could
+// silently load DML's config — a cross-tenant leak. Now a call only ever
+// loads the config belonging to the number that was actually dialed.
 async function loadConfig(supabase: ReturnType<typeof createClient>, toNumber: string) {
   try {
-    // Try to find by the Twilio number being called
     const { data } = await supabase
       .from('twilio_config')
       .select('*')
-      .or(`phone_number.eq.${toNumber},company_id.eq.${DEFAULT_COMPANY_ID}`)
+      .eq('phone_number', toNumber)
       .limit(1)
       .maybeSingle()
     return data || {}
@@ -51,12 +54,18 @@ serve(async (req) => {
   const url = new URL(req.url)
   const step = url.searchParams.get('step') || 'initial'
 
-  // Parse Twilio form-encoded body
+  // Parse Twilio form-encoded body.
+  // IMPORTANT: in application/x-www-form-urlencoded, a literal '+' is escaped
+  // as "%2B" and a literal space is encoded as "+". The replace-then-decode
+  // order matters: '+' must become a space BEFORE percent-decoding, otherwise
+  // "%2B13377171182" (a phone number) decodes to "+13377171182" and then the
+  // '+' → ' ' replace mangles it into " 13377171182" — silently breaking every
+  // phone_number lookup (From/To) on every inbound call/SMS.
   const body = await req.text()
   const params: Record<string, string> = {}
   for (const pair of body.split('&')) {
     const [k, v] = pair.split('=')
-    if (k) params[decodeURIComponent(k)] = decodeURIComponent(v || '').replace(/\+/g, ' ')
+    if (k) params[decodeURIComponent(k.replace(/\+/g, ' '))] = decodeURIComponent((v || '').replace(/\+/g, ' '))
   }
 
   const from    = params.From    || ''
@@ -80,6 +89,12 @@ serve(async (req) => {
   const BUSINESS_NAME   = cfg.business_name          || DEFAULT_BUSINESS_NAME
   const customGreeting  = (cfg.ai_greeting || '').replace('{owner}', OWNER_NAME)
   const vipNumbers: { number: string }[] = cfg.vip_numbers || []
+  // Optional "who would you like to speak with" routing — lets a company with
+  // multiple people (owner + partner/employee) have callers pick who they want
+  // instead of always ringing a single forward_to_number. Falls back to the
+  // normal single-forward AI flow when this list is empty (e.g. DML today).
+  const routingContacts: { digit: string; name: string; number: string; keywords: string[] }[] =
+    cfg.routing_contacts || []
   const supaUrl         = Deno.env.get('SUPABASE_URL')!
   const ADMIN_EMAIL     = cfg.notification_email || Deno.env.get('ADMIN_EMAIL') || 'dustin@dmlelectrical.com'
   const RESEND_KEY      = Deno.env.get('RESEND_API_KEY') || ''
@@ -198,6 +213,22 @@ serve(async (req) => {
       `)
     }
 
+    // Unknown caller with multiple routable contacts configured (e.g. owner +
+    // business partner) → ask who they want to speak with before falling
+    // back to the general AI screening flow.
+    if (routingContacts.length > 0) {
+      const names = routingContacts.map(r => r.name).join(' or ')
+      const greeting = customGreeting
+        || `Thanks for calling ${BUSINESS_NAME}! Who would you like to speak with — ${names}? You can say their name, or press ${routingContacts.map(r => r.digit).join(', ')}. If you're not sure, just tell me what you need and I'll take a message.`
+      const routeUrl = `${supaUrl}/functions/v1/twilio-voice-inbound?step=route&from=${encodeURIComponent(from)}&sid=${encodeURIComponent(callSid)}`
+      return twiml(`
+        <Gather input="dtmf speech" action="${xu(routeUrl)}" numDigits="1" timeout="15" speechTimeout="auto" language="en-US">
+          <Say voice="Polly.Joanna-Neural">${greeting}</Say>
+        </Gather>
+        <Redirect>${xu(routeUrl)}</Redirect>
+      `)
+    }
+
     // Unknown caller → AI greeting + gather speech
     const greeting = customGreeting || `Hey, thanks for calling ${BUSINESS_NAME}! I'm the virtual assistant. Go ahead and tell me what you need, and I'll make sure ${OWNER_NAME} gets back to you.`
     const gatherUrl = `${supaUrl}/functions/v1/twilio-voice-inbound?step=analyze&from=${encodeURIComponent(from)}&sid=${encodeURIComponent(callSid)}`
@@ -208,6 +239,50 @@ serve(async (req) => {
         <Say voice="Polly.Joanna-Neural">I'm listening, go ahead.</Say>
       </Gather>
       <Say voice="Polly.Joanna-Neural">I didn't quite catch that. Go ahead and leave your name and number after the tone and ${OWNER_NAME} will call you right back.</Say>
+      <Record maxLength="60" action="${xu(voicemailUrl)}" />
+    `)
+  }
+
+  // ── Step: route — resolve who the caller wants to speak with ─────────────
+  if (step === 'route') {
+    const digits  = params.Digits || ''
+    const speech  = (params.SpeechResult || '').toLowerCase()
+    const fromNum = url.searchParams.get('from') || from
+    const sid     = url.searchParams.get('sid') || callSid
+    const actionUrl = `${supaUrl}/functions/v1/twilio-voice-inbound?step=status`
+
+    // Resolution order: exact digit press (most reliable) → spoken keyword
+    // match → fall through to the general AI screening flow.
+    let match = routingContacts.find(r => digits && r.digit === digits)
+    if (!match && speech) {
+      match = routingContacts.find(r => (r.keywords || []).some(kw => speech.includes(kw.toLowerCase())))
+    }
+
+    if (match) {
+      await supabase.from('communications')
+        .update({ status: 'ringing', ai_summary: `Caller asked for ${match.name}` })
+        .eq('call_sid', sid)
+
+      const whisperUrl = `${supaUrl}/functions/v1/twilio-voice-inbound?step=whisper&from=${encodeURIComponent(fromNum)}`
+      return twiml(`
+        <Say voice="Polly.Joanna-Neural">Sure thing! Connecting you to ${match.name} now.</Say>
+        <Dial callerId="${BUSINESS_NUMBER}" action="${actionUrl}">
+          <Number url="${xu(whisperUrl)}">${match.number}</Number>
+        </Dial>
+        <Say voice="Polly.Joanna-Neural">Looks like ${match.name} isn't available right now. Go ahead and leave a message after the tone and they'll call you right back.</Say>
+        <Record maxLength="60" action="${actionUrl}" />
+      `)
+    }
+
+    // No confident match (caller unsure, or said something unrelated) →
+    // hand off to the normal AI screening flow so we still capture the call.
+    const gatherUrl = `${supaUrl}/functions/v1/twilio-voice-inbound?step=analyze&from=${encodeURIComponent(fromNum)}&sid=${encodeURIComponent(sid)}`
+    const voicemailUrl = `${supaUrl}/functions/v1/twilio-voice-inbound?step=voicemail&from=${encodeURIComponent(fromNum)}&sid=${encodeURIComponent(sid)}`
+    return twiml(`
+      <Gather input="speech" action="${xu(gatherUrl)}" timeout="15" speechTimeout="auto" language="en-US">
+        <Say voice="Polly.Joanna-Neural">No problem — go ahead and tell me what you need, and I'll make sure the right person gets back to you.</Say>
+      </Gather>
+      <Say voice="Polly.Joanna-Neural">I didn't quite catch that. Go ahead and leave your name and number after the tone.</Say>
       <Record maxLength="60" action="${xu(voicemailUrl)}" />
     `)
   }

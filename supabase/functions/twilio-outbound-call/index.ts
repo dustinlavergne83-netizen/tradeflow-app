@@ -1,14 +1,12 @@
 // twilio-outbound-call — makes an outbound call from the comms app
-// Shows business caller ID (337) 288-0395 to the customer
-// Rings Dustin's personal cell first, then bridges to customer
+// Shows the calling company's business number as caller ID to the customer
+// Rings the company's forward_to_number (owner's cell) first, then bridges to customer
+//
+// Fully multi-tenant: everything (numbers + Twilio credentials) is loaded from
+// the twilio_config row for the requesting company_id. No hardcoded company data.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-
-const TWILIO_NUMBER   = '+13377171182'   // Twilio number (for logging)
-const BUSINESS_NUMBER = '+13372880395'   // Shows as caller ID to customer
-const PERSONAL_CELL   = '+13377177234'   // Rings Dustin first
-const COMPANY_ID      = 'c8e7a2a2-f2c4-4bfe-b35b-d81d1a4e5f3b'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -26,16 +24,60 @@ serve(async (req) => {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       })
     }
+    if (!company_id) {
+      return new Response(JSON.stringify({ error: 'company_id required' }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
 
-    const twSid  = Deno.env.get('TWILIO_ACCOUNT_SID')
-    const twAuth = Deno.env.get('TWILIO_AUTH_TOKEN')
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
+    const supabase = createClient(
+      supabaseUrl,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    )
 
-    // TwiML that bridges Dustin's answered call to the customer
-    // When Dustin picks up, it dials out to the customer
-    const twimlUrl = `${supabaseUrl}/functions/v1/twilio-outbound-bridge?to=${encodeURIComponent(to_customer)}&caller=${encodeURIComponent(BUSINESS_NUMBER)}`
+    // Load this company's Twilio configuration — required, no DML fallback
+    const { data: cfg, error: cfgError } = await supabase
+      .from('twilio_config')
+      .select('*')
+      .eq('company_id', company_id)
+      .maybeSingle()
 
-    // Create the call: ring Dustin's personal cell first
+    if (cfgError || !cfg) {
+      return new Response(JSON.stringify({ error: 'Twilio is not configured for this company' }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+    if (!cfg.forward_to_number) {
+      return new Response(JSON.stringify({ error: 'No forward-to number configured for this company' }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+
+    const businessNumber = cfg.business_number || cfg.phone_number
+    const forwardToNumber = cfg.forward_to_number
+
+    // Prefer this company's own Twilio credentials; fall back to the global
+    // account secrets so a company can share the platform account until it
+    // gets its own subaccount/credentials.
+    const twSid  = cfg.account_sid || Deno.env.get('TWILIO_ACCOUNT_SID')
+    const twAuth = cfg.auth_token  || Deno.env.get('TWILIO_AUTH_TOKEN')
+
+    if (!twSid || !twAuth) {
+      return new Response(JSON.stringify({ error: 'Twilio credentials are not configured for this company' }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+
+    // TwiML that bridges the owner's answered call to the customer
+    // When the owner picks up, it dials out to the customer
+    const twimlUrl = `${supabaseUrl}/functions/v1/twilio-outbound-bridge`
+      + `?to=${encodeURIComponent(to_customer)}`
+      + `&caller=${encodeURIComponent(businessNumber)}`
+      + `&company_id=${encodeURIComponent(company_id)}`
+      + `&record=${record ? 'true' : 'false'}`
+
+    // Create the call: ring the owner's cell first
     const resp = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twSid}/Calls.json`, {
       method: 'POST',
       headers: {
@@ -43,9 +85,9 @@ serve(async (req) => {
         'Content-Type': 'application/x-www-form-urlencoded'
       },
       body: new URLSearchParams({
-        From: BUSINESS_NUMBER,   // Business number rings Dustin's cell
-        To:   PERSONAL_CELL,    // Rings Dustin first
-        Url:  twimlUrl,         // When Dustin answers, bridge to customer
+        From: businessNumber,     // Business number rings the owner's cell
+        To:   forwardToNumber,    // Rings the owner first
+        Url:  twimlUrl,           // When the owner answers, bridge to customer
         StatusCallback: `${supabaseUrl}/functions/v1/twilio-voice-inbound?step=status`,
         StatusCallbackMethod: 'POST',
       })
@@ -61,15 +103,11 @@ serve(async (req) => {
     }
 
     // Log the outbound call
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    )
     await supabase.from('communications').insert({
-      company_id: company_id || COMPANY_ID,
+      company_id,
       type: 'call',
       direction: 'outbound',
-      from_number: BUSINESS_NUMBER,
+      from_number: businessNumber,
       to_number: to_customer,
       customer_name: customer_name || null,
       status: 'initiated',
@@ -86,3 +124,4 @@ serve(async (req) => {
     })
   }
 })
+

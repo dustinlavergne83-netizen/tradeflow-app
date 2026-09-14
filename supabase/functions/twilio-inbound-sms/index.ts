@@ -16,12 +16,15 @@ serve(async (req) => {
     const Body      = params.get("Body") || "";
     const MessageSid = params.get("MessageSid") || "";
 
-    // Find company by Twilio number
+    // Find company by Twilio number.
+    // Uses maybeSingle() instead of single() — single() throws (and drops the
+    // inbound message entirely) if more than one row ever shares a phone_number.
     const { data: config } = await supabase
       .from("twilio_config")
       .select("*")
       .eq("phone_number", To)
-      .single();
+      .limit(1)
+      .maybeSingle();
 
     if (!config) {
       return new Response('<Response></Response>', { headers: { "Content-Type": "text/xml" } });
