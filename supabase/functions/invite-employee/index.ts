@@ -86,6 +86,23 @@ Deno.serve(async (req) => {
     // Always use the caller's own company_id — prevents cross-company invites
     const companyId = callerEmp.company_id
 
+    // Look up the inviting company's branding so both the email and the
+    // /set-password landing page can be branded correctly. We deliberately
+    // key everything off the INVITER's company, not the invitee's email
+    // domain — new employees typically have personal (gmail, etc.) emails,
+    // so there's no reliable company signal in the address itself.
+    const { data: companyRow } = await supabaseAdmin
+      .from('companies')
+      .select('name, slug, primary_color, secondary_color, logo_url')
+      .eq('id', companyId)
+      .maybeSingle()
+
+    const brandName    = companyRow?.name || 'TradeFlow'
+    const brandSlug    = companyRow?.slug || ''
+    const brandPrimary = companyRow?.primary_color || '#0b3ea8'
+    const brandAccent  = companyRow?.secondary_color || '#fc6b04'
+    const brandLogo    = companyRow?.logo_url || ''
+
     // Normalise optional fields
     const safeFirst = (firstName || '').trim()
     const safeLast  = (lastName  || '').trim()
@@ -95,11 +112,14 @@ Deno.serve(async (req) => {
 
     // Generate an invite link via Supabase admin (doesn't send email — we send via Resend)
     const SITE_URL = Deno.env.get('SITE_URL') || 'https://tradeflow-app.vercel.app'
+    // ?company=<slug> lets /set-password brand itself immediately, even
+    // before Supabase finishes processing the auth hash and a session exists.
+    const redirectTo = `${SITE_URL}/set-password${brandSlug ? `?company=${encodeURIComponent(brandSlug)}` : ''}`
     const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
       type: 'invite',
       email: cleanEmail,
       options: {
-        redirectTo: `${SITE_URL}/set-password`,
+        redirectTo,
         data: {
           first_name: safeFirst,
           last_name:  safeLast,
@@ -140,7 +160,14 @@ Deno.serve(async (req) => {
       const { data: fallbackData, error: fallbackError } = await supabaseAdmin.auth.admin.generateLink({
         type: fallbackType as any,
         email: cleanEmail,
-        options: { redirectTo: `${SITE_URL}/set-password` },
+        options: {
+          redirectTo,
+          data: {
+            first_name: safeFirst,
+            last_name:  safeLast,
+            company_id: companyId,
+          },
+        },
       })
       if (fallbackError) {
         console.error(`generateLink(${fallbackType}) error:`, fallbackError.message)
@@ -200,8 +227,10 @@ Deno.serve(async (req) => {
     <tr><td align="center">
       <table width="520" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.12);">
         <tr>
-          <td style="background-color:#0b3ea8;padding:32px;text-align:center;">
-            <h1 style="color:#fc6b04;margin:0 0 8px 0;font-size:28px;">🔧 TradeFlow</h1>
+          <td style="background-color:${brandPrimary};padding:32px;text-align:center;">
+            ${brandLogo
+              ? `<img src="${brandLogo}" alt="${brandName}" style="max-height:48px;margin:0 0 8px 0;" />`
+              : `<h1 style="color:${brandAccent};margin:0 0 8px 0;font-size:28px;">🔧 ${brandName}</h1>`}
             <p style="color:#ffffff;margin:0;font-size:16px;">You've been invited!</p>
           </td>
         </tr>
@@ -209,29 +238,28 @@ Deno.serve(async (req) => {
           <td style="padding:32px;">
             <p style="font-size:16px;color:#111;margin:0 0 16px 0;">Hi${safeFirst ? ' ' + safeFirst : ''},</p>
             <p style="font-size:15px;color:#374151;line-height:1.7;margin:0 0 24px 0;">
-              You've been invited to join <strong>TradeFlow</strong> — the all-in-one platform for managing your work schedule, timesheets, and payroll.
+              You've been invited to join <strong>${brandName}</strong> on TradeFlow — the all-in-one platform for managing your work schedule, timesheets, and payroll.
             </p>
             <table width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;">
               <tr><td align="center">
-                <a href="${inviteLink}" style="display:inline-block;padding:16px 40px;background-color:#fc6b04;color:#ffffff;text-decoration:none;border-radius:8px;font-size:17px;font-weight:bold;">
+                <a href="${inviteLink}" style="display:inline-block;padding:16px 40px;background-color:${brandAccent};color:#ffffff;text-decoration:none;border-radius:8px;font-size:17px;font-weight:bold;">
                   ✅ Accept Invite &amp; Set Password
                 </a>
               </td></tr>
             </table>
             <p style="font-size:13px;color:#6b7280;margin:0 0 8px 0;">Button not working? Copy and paste this link:</p>
-            <p style="font-size:12px;color:#0b3ea8;word-break:break-all;margin:0 0 24px 0;">${inviteLink}</p>
+            <p style="font-size:12px;color:${brandPrimary};word-break:break-all;margin:0 0 24px 0;">${inviteLink}</p>
             <div style="background-color:#fef3c7;border-left:4px solid #f59e0b;border-radius:4px;padding:12px 16px;margin-bottom:24px;">
               <p style="margin:0;font-size:13px;color:#92400e;">⏰ This link expires in <strong>24 hours</strong>. If it expires, ask your admin to resend the invite.</p>
             </div>
             <p style="font-size:14px;color:#374151;margin:0;">
-              Once you set your password you can sign in at:<br>
-              <a href="https://app.tradeflowllc.com" style="color:#0b3ea8;">https://app.tradeflowllc.com</a>
+              Once you set your password you can sign in from the ${brandName} app.
             </p>
           </td>
         </tr>
         <tr>
           <td style="background-color:#f9fafb;padding:16px 32px;text-align:center;border-top:1px solid #e5e7eb;">
-            <p style="margin:0;font-size:12px;color:#6b7280;">TradeFlow — Built for the Trades</p>
+            <p style="margin:0;font-size:12px;color:#6b7280;">${brandName} — powered by TradeFlow</p>
           </td>
         </tr>
       </table>
@@ -248,9 +276,14 @@ Deno.serve(async (req) => {
           'Authorization': `Bearer ${RESEND_API_KEY}`,
         },
         body: JSON.stringify({
-          from: 'DML Electrical Service <noreply@dmlelectrical.com>',
+          // Resend requires a verified sending domain — dmlelectrical.com is
+          // the only one currently verified, so it stays as the envelope
+          // From regardless of which company the invite is for. The visible
+          // brand name in the header/body/subject still reflects the
+          // inviting company.
+          from: `${brandName} <noreply@dmlelectrical.com>`,
           to: [cleanEmail],
-          subject: `Action required: Set up your TradeFlow account [${uniqueId}]`,
+          subject: `Action required: Set up your ${brandName} account [${uniqueId}]`,
           html: emailHtml,
           headers: { 'X-Entity-Ref-ID': `invite-${cleanEmail}-${uniqueId}` },
         }),

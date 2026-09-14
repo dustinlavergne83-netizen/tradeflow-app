@@ -1,4 +1,5 @@
 import { Tabs } from "expo-router";
+import { View, ActivityIndicator } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { UnreadProvider, useUnread } from "../../lib/UnreadContext";
@@ -10,6 +11,19 @@ function TabsWithBadges() {
   const { counts } = useUnread();
   const brand = useBrand();
   const features = useFeatures();
+
+  // Wait for the real company row before rendering the tab bar. Expo Router
+  // bakes each <Tabs.Screen>'s `href` in on its first render and does not
+  // re-register a screen when the flag later flips — so mounting <Tabs> while
+  // features are still resolving to their un-loaded defaults can permanently
+  // hide a tab (e.g. Email) for the rest of that session.
+  if (features.loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#fff" }}>
+        <ActivityIndicator size="large" color={brand.primary} />
+      </View>
+    );
+  }
 
   return (
     <Tabs
