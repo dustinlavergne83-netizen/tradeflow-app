@@ -1,0 +1,67 @@
+{
+  "project_info": {
+    "project_number": "943904314721",
+    "project_id": "tradeflow-475c6",
+    "storage_bucket": "tradeflow-475c6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:943904314721:android:c966a67365b1e8a2e42120",
+        "android_client_info": {
+          "package_name": "com.dmlelectric.comms"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAds3fn-fh8VbGSVU8Jcas0LdEBw5usJBY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:943904314721:android:fe2965536fce2bd3e42120",
+        "android_client_info": {
+          "package_name": "com.dmlelectric.timeclockmobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAds3fn-fh8VbGSVU8Jcas0LdEBw5usJBY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:943904314721:android:8239ae87bfc76efde42120",
+        "android_client_info": {
+          "package_name": "com.dmlelectric.tradeflow"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAds3fn-fh8VbGSVU8Jcas0LdEBw5usJBY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
