@@ -5,6 +5,117 @@ import { useAuth } from "../contexts/AuthContext";
 import { createInvoicePaymentJournalEntry, getNextJournalEntryNumber } from "../utils/accountingJournals";
 import { notify, confirmDialog } from '../lib/notify';
 
+// Clears the Customer Deposits (2700) liability for an invoice once it's fully
+// paid, by creating a "Debit Customer Deposits / Credit AR" journal entry.
+// Shared by both the full payment-recording flow (handlePayment) and the
+// quick "Mark Paid" shortcut (handleQuickPaid) - previously only the former
+// ever cleared the liability, so invoices marked paid via the quick action
+// left their deposit sitting in Customer Deposits forever.
+async function clearDepositLiabilityIfNeeded(invoice, entryDate, userId) {
+  const depositAmount = parseFloat(invoice.deposit_received) || 0;
+  if (depositAmount <= 0) return { cleared: false };
+
+  try {
+    const { data: arAccount } = await supabase
+      .from('accounts')
+      .select('id')
+      .eq('account_number', '1100')
+      .maybeSingle();
+
+    if (!arAccount?.id) {
+      console.warn('Cannot clear deposit liability: Accounts Receivable (1100) not found');
+      return { cleared: false, error: 'AR account not found' };
+    }
+
+    // Only match on account number 2700 or an explicitly-named deposit/unearned
+    // revenue account - deliberately NOT falling back to "any liability account",
+    // which could silently mispost deposits to an unrelated account like
+    // Accounts Payable or Sales Tax Payable.
+    let unearnedRevenueAccount = null;
+    const { data: acct2700 } = await supabase
+      .from('accounts')
+      .select('id, account_name')
+      .eq('account_number', '2700')
+      .maybeSingle();
+
+    if (acct2700) {
+      unearnedRevenueAccount = acct2700;
+    } else {
+      const { data: namedAccounts } = await supabase
+        .from('accounts')
+        .select('id, account_name')
+        .eq('account_type', 'Liability')
+        .or('account_name.ilike.%Unearned%,account_name.ilike.%Deferred%,account_name.ilike.%Deposit%,account_name.ilike.%Customer%');
+      if (namedAccounts && namedAccounts.length > 0) {
+        unearnedRevenueAccount = namedAccounts[0];
+      }
+    }
+
+    if (!unearnedRevenueAccount?.id) {
+      console.warn('Cannot clear deposit liability: no Customer Deposits / Unearned Revenue account found (looking for #2700)');
+      return { cleared: false, error: 'Customer Deposits account not found' };
+    }
+
+    const entryNumber = await getNextJournalEntryNumber(userId);
+    const { data: newEntry, error: entryError } = await supabase
+      .from('journal_entries')
+      .insert([{
+        entry_number: entryNumber,
+        entry_date: entryDate,
+        description: `Clear deposit liability - Invoice #${invoice.invoice_number} fully paid`,
+        reference_type: 'invoice_payment',
+        reference_id: invoice.id,
+        created_by: userId,
+        company_id: userId
+      }])
+      .select()
+      .single();
+
+    if (entryError || !newEntry) {
+      console.error('Failed to create deposit-clearing journal entry:', entryError);
+      return { cleared: false, error: entryError?.message };
+    }
+
+    const { error: linesError } = await supabase
+      .from('journal_entry_lines')
+      .insert([
+        {
+          entry_id: newEntry.id,
+          line_number: 1,
+          account_id: unearnedRevenueAccount.id,
+          debit: depositAmount,
+          credit: 0,
+          description: 'Clear deposit liability'
+        },
+        {
+          entry_id: newEntry.id,
+          line_number: 2,
+          account_id: arAccount.id,
+          debit: 0,
+          credit: depositAmount,
+          description: 'Offset deposit in AR'
+        }
+      ]);
+
+    if (linesError) {
+      console.error('Failed to create deposit-clearing journal entry lines:', linesError);
+      return { cleared: false, error: linesError.message };
+    }
+
+    try {
+      await supabase.rpc('post_journal_entry', { p_entry_id: newEntry.id, p_user_id: userId });
+    } catch (postErr) {
+      console.warn('Could not post deposit-clearing entry:', postErr);
+    }
+
+    console.log(`✅ Cleared $${depositAmount} deposit liability for invoice #${invoice.invoice_number}`);
+    return { cleared: true, amount: depositAmount };
+  } catch (err) {
+    console.error('Error clearing deposit liability:', err);
+    return { cleared: false, error: err.message };
+  }
+}
+
 export default function InvoicesList() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -244,18 +355,37 @@ export default function InvoicesList() {
     }
 
     try {
+      const today = new Date().toISOString().split('T')[0];
+      const depositAmount = parseFloat(invoice.deposit_received) || 0;
+
       const { error } = await supabase
         .from('invoices')
         .update({
           payment_status: 'paid',
           amount_paid: invoice.total,
-          payment_date: new Date().toISOString().split('T')[0],
-          payment_method: 'check'
+          balance_due: 0,
+          payment_date: today,
+          payment_method: 'check',
+          // Clear the deposit field so it doesn't keep showing as outstanding -
+          // the liability itself is cleared via the journal entry below.
+          deposit_received: 0,
+          deposit_date: null
         })
         .eq('id', invoice.id);
 
       if (error) throw error;
-      
+
+      // If this invoice had a customer deposit, clear the Customer Deposits
+      // liability now that the invoice is fully paid (previously this quick
+      // "mark paid" shortcut never did this, leaving deposits stuck in 2700).
+      if (depositAmount > 0) {
+        await clearDepositLiabilityIfNeeded(
+          { ...invoice, deposit_received: depositAmount },
+          today,
+          user.id
+        );
+      }
+
       notify('Invoice marked as paid!');
       loadInvoices();
     } catch (err) {
@@ -538,125 +668,17 @@ export default function InvoicesList() {
               notify(`Payment recorded and journal entry created but not posted: ${postError.message}`);
             } else {
               console.log('✅ Payment recorded and journal entry posted');
-              
-              // **CRITICAL: If there's a deposit on this invoice AND it's now fully paid,
-              // create an additional journal entry to clear the Unearned Revenue liability**
-              if (paymentStatus === 'paid' && selectedInvoice.deposit_received && selectedInvoice.deposit_received > 0) {
-                console.log(`💰 Invoice is fully paid with deposit of $${selectedInvoice.deposit_received}. Clearing Unearned Revenue...`);
-                
-                try {
-                  // Get the Unearned Revenue / Customer Deposits account (2700 first, then name search)
-                  let unearnedRevenueAccount = null;
-                  
-                  // Strategy 1: Account number 2700 (Customer Deposits)
-                  const { data: acct2700 } = await supabase
-                    .from('accounts')
-                    .select('id, account_name')
-                    .eq('account_number', '2700')
-                    .maybeSingle();
-                  if (acct2700) {
-                    unearnedRevenueAccount = acct2700;
-                    console.log(`✅ Found Customer Deposits account 2700: ${unearnedRevenueAccount.account_name}`);
-                  } else {
-                    // Strategy 2: Look for accounts with specific names
-                    const { data: namedAccounts } = await supabase
-                      .from('accounts')
-                      .select('id, account_name')
-                      .eq('company_id', user.id)
-                      .eq('account_type', 'Liability')
-                      .or(`account_name.ilike.%Unearned%,account_name.ilike.%Deferred%,account_name.ilike.%Deposit%,account_name.ilike.%Customer%`);
-                    if (namedAccounts && namedAccounts.length > 0) {
-                      unearnedRevenueAccount = namedAccounts[0];
-                      console.log(`✅ Found Unearned Revenue account: ${unearnedRevenueAccount.account_name}`);
-                    } else {
-                      // Strategy 3: Just get any liability account as fallback
-                      const { data: liabilityAccounts } = await supabase
-                        .from('accounts')
-                        .select('id, account_name')
-                        .eq('company_id', user.id)
-                        .eq('account_type', 'Liability')
-                        .limit(1);
-                      if (liabilityAccounts && liabilityAccounts.length > 0) {
-                        unearnedRevenueAccount = liabilityAccounts[0];
-                        console.log(`⚠️ Using fallback liability account: ${unearnedRevenueAccount.account_name}`);
-                      }
-                    }
-                  }
 
-                  if (unearnedRevenueAccount?.id) {
-                    // Create a second journal entry to clear the Unearned Revenue
-                    const { data: lastEntry2 } = await supabase
-                      .from('journal_entries')
-                      .select('entry_number')
-                      .eq('company_id', user.id)
-                      .order('entry_number', { ascending: false })
-                      .limit(1)
-                      .maybeSingle();
-
-                    const nextEntryNumber2 = await getNextJournalEntryNumber(user.id);
-
-                    const clearDepositEntry = {
-                      entry_number: nextEntryNumber2,
-                      entry_date: paymentForm.date,
-                      description: `Clear deposit liability - Invoice #${selectedInvoice.invoice_number} fully paid`,
-                      reference_type: 'invoice_payment',
-                      reference_id: selectedInvoice.id,
-                      created_by: user.id,
-                      company_id: user.id
-                    };
-
-                    const { data: newEntry2, error: entryError2 } = await supabase
-                      .from('journal_entries')
-                      .insert([clearDepositEntry])
-                      .select()
-                      .single();
-
-                    if (newEntry2 && !entryError2) {
-                      // Create lines: Debit Unearned Revenue, Credit AR
-                      // This moves the deposit from liability to eliminate the outstanding balance
-                      const depositClearLines = [
-                        {
-                          entry_id: newEntry2.id,
-                          line_number: 1,
-                          account_id: unearnedRevenueAccount.id,
-                          debit: selectedInvoice.deposit_received,
-                          credit: 0,
-                          description: 'Clear deposit liability'
-                        },
-                        {
-                          entry_id: newEntry2.id,
-                          line_number: 2,
-                          account_id: arAccount.id,
-                          debit: 0,
-                          credit: selectedInvoice.deposit_received,
-                          description: 'Offset deposit in AR'
-                        }
-                      ];
-
-                      const { error: linesError2 } = await supabase
-                        .from('journal_entry_lines')
-                        .insert(depositClearLines);
-
-                      if (!linesError2) {
-                        // Post the deposit clearing entry
-                        try {
-                          await supabase.rpc('post_journal_entry', {
-                            p_entry_id: newEntry2.id,
-                            p_user_id: user.id
-                          });
-                          console.log(`✅ Deposit clearing entry posted. Unearned Revenue liability cleared!`);
-                        } catch (postErr2) {
-                          console.error('⚠️ Warning: Could not post deposit clearing entry:', postErr2);
-                        }
-                      }
-                    }
-                  }
-                } catch (err) {
-                  console.error('⚠️ Warning: Error creating deposit clearing entry:', err);
-                  // Don't fail the main payment, just warn
-                }
+              // If there's a deposit on this invoice AND it's now fully paid,
+              // create an additional journal entry to clear the Customer Deposits liability.
+              if (paymentStatus === 'paid' && depositAmountToClare > 0) {
+                console.log(`💰 Invoice is fully paid with deposit of $${depositAmountToClare}. Clearing Customer Deposits...`);
+                await clearDepositLiabilityIfNeeded(
+                  { ...selectedInvoice, deposit_received: depositAmountToClare },
+                  paymentForm.date,
+                  user.id
+                );
               }
-              
               notify('Payment recorded successfully! Journal entry created. Bank balance will update when payment clears.');
             }
           }
