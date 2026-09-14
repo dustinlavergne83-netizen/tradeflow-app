@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase";
 import { View, ActivityIndicator } from "react-native";
 import { CompanyProvider } from "../lib/CompanyContext";
 import { useBrand } from "../lib/useBrand";
+import { registerForVoiceCalls, attachVoiceListeners } from "../lib/TwilioVoice";
 
 function RootLayoutInner() {
   const [session, setSession] = useState<any>(undefined); // undefined = still loading
@@ -22,6 +23,18 @@ function RootLayoutInner() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // In-app softphone: once signed in, register this device to receive
+  // Twilio Voice calls (Android only — see lib/TwilioVoice.ts). No-ops
+  // safely everywhere else (iOS, Expo Go, or if not yet configured), so
+  // the server-side call-forwarding flow keeps working regardless.
+  useEffect(() => {
+    if (!session) return;
+    registerForVoiceCalls();
+    attachVoiceListeners(() => {
+      router.push("/incoming-call");
+    });
+  }, [session]);
 
   // Handle auth-based routing
   useEffect(() => {
@@ -54,6 +67,10 @@ function RootLayoutInner() {
       <Stack.Screen name="index" />
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="sign-in" />
+      <Stack.Screen
+        name="incoming-call"
+        options={{ presentation: "fullScreenModal", animation: "fade", gestureEnabled: false }}
+      />
       <Stack.Screen
         name="chat/[id]"
         options={{

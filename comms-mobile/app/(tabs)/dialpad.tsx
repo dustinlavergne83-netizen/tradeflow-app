@@ -6,6 +6,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import { useBrand } from "../../lib/useBrand";
+import { connectVoiceCall, isVoiceSdkAvailable } from "../../lib/TwilioVoice";
 
 const GREEN = "#22c55e";
 
@@ -78,6 +79,23 @@ export default function DialPadScreen() {
     setLoading(true);
     try {
       const cid = await getCompanyId();
+
+      // Prefer the in-app softphone (rings instantly inside the app, no
+      // "we're calling your cell first" hop). Falls back to the server-side
+      // bridge call if the SDK isn't available (iOS, Expo Go, not registered,
+      // or the company has no Voice softphone configured yet).
+      if (isVoiceSdkAvailable()) {
+        const call = await connectVoiceCall({
+          to_customer: toNumber,
+          company_id: cid || "",
+          record: record ? "true" : "false",
+        });
+        if (call) {
+          setNumber("");
+          return;
+        }
+      }
+
       const { error } = await supabase.functions.invoke("twilio-outbound-call", {
         body: { to_customer: toNumber, company_id: cid, record },
       });

@@ -93,7 +93,7 @@ serve(async (req) => {
   // multiple people (owner + partner/employee) have callers pick who they want
   // instead of always ringing a single forward_to_number. Falls back to the
   // normal single-forward AI flow when this list is empty (e.g. DML today).
-  const routingContacts: { digit: string; name: string; number: string; keywords: string[] }[] =
+  const routingContacts: { digit: string; name: string; number: string; keywords: string[]; client_identity?: string }[] =
     cfg.routing_contacts || []
   const supaUrl         = Deno.env.get('SUPABASE_URL')!
   const ADMIN_EMAIL     = cfg.notification_email || Deno.env.get('ADMIN_EMAIL') || 'dustin@dmlelectrical.com'
@@ -264,9 +264,19 @@ serve(async (req) => {
         .eq('call_sid', sid)
 
       const whisperUrl = `${supaUrl}/functions/v1/twilio-voice-inbound?step=whisper&from=${encodeURIComponent(fromNum)}`
+      // Dual-dial: if this person has registered the in-app softphone
+      // (client_identity, set via lib/TwilioVoice.ts register()), ring BOTH
+      // the app and their cell simultaneously — whichever answers first wins.
+      // This makes the in-app softphone purely additive: if it's not
+      // registered, offline, or push fails, the cell still rings exactly as
+      // before.
+      const clientLeg = match.client_identity
+        ? `<Client url="${xu(whisperUrl)}">${match.client_identity}</Client>`
+        : ''
       return twiml(`
         <Say voice="Polly.Joanna-Neural">Sure thing! Connecting you to ${match.name} now.</Say>
         <Dial callerId="${BUSINESS_NUMBER}" action="${actionUrl}">
+          ${clientLeg}
           <Number url="${xu(whisperUrl)}">${match.number}</Number>
         </Dial>
         <Say voice="Polly.Joanna-Neural">Looks like ${match.name} isn't available right now. Go ahead and leave a message after the tone and they'll call you right back.</Say>
