@@ -1106,7 +1106,7 @@ const styles = {
   },
   button: {
     padding: "12px 24px",
-    backgroundColor: BRAND.accent,
+    backgroundColor: STATIC_BRAND.accent,
     color: "#fff",
     border: "none",
     borderRadius: 8,
@@ -1262,7 +1262,7 @@ const styles = {
   },
   divider: {
     border: "none",
-    borderTop: "3px solid " + BRAND.accent,
+    borderTop: "3px solid " + STATIC_BRAND.accent,
     margin: "50px 0 50px 0",
   },
   titleSection: {

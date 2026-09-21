@@ -1147,7 +1147,7 @@ const styles = {
     margin: 0,
   },
   inviteButton: {
-    backgroundColor: BRAND.primary,
+    backgroundColor: STATIC_BRAND.primary,
     color: "#fff",
     border: "none",
     padding: "12px 24px",
@@ -1202,7 +1202,7 @@ const styles = {
     boxSizing: "border-box",
   },
   submitButton: {
-    backgroundColor: BRAND.primary,
+    backgroundColor: STATIC_BRAND.primary,
     color: "#fff",
     border: "none",
     padding: "14px 28px",
@@ -1359,7 +1359,7 @@ const styles = {
     justifyContent: "flex-end",
   },
   modalCloseButton: {
-    backgroundColor: BRAND.primary,
+    backgroundColor: STATIC_BRAND.primary,
     color: "#fff",
     border: "none",
     padding: "12px 32px",

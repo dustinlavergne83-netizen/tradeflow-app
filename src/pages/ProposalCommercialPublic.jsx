@@ -1354,7 +1354,7 @@ const styles = {
     backgroundColor: "#6b7280",
   },
   printButton: {
-    backgroundColor: BRAND.accent,
+    backgroundColor: STATIC_BRAND.accent,
   },
   configCard: {
     maxWidth: 900,
@@ -1462,7 +1462,7 @@ const styles = {
   cardTotal: {
     marginTop: 30,
     paddingTop: 25,
-    borderTop: "3px solid " + BRAND.accent,
+    borderTop: "3px solid " + STATIC_BRAND.accent,
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
@@ -1475,7 +1475,7 @@ const styles = {
   cardTotalValue: {
     fontSize: 28,
     fontWeight: "bold",
-    color: BRAND.accent,
+    color: STATIC_BRAND.accent,
   },
   summaryCard: {
     maxWidth: 900,
@@ -1536,14 +1536,14 @@ const styles = {
   summaryContractorName: {
     fontSize: 26,
     fontWeight: "bold",
-    color: BRAND.accent,
+    color: STATIC_BRAND.accent,
     textAlign: "center",
     marginBottom: 10,
   },
   summaryProjectName: {
     fontSize: 26,
     fontWeight: "bold",
-    color: BRAND.accent,
+    color: STATIC_BRAND.accent,
     textAlign: "center",
     marginBottom: 20,
   },
@@ -1621,7 +1621,7 @@ const styles = {
   },
   divider: {
     border: "none",
-    borderTop: "3px solid " + BRAND.accent,
+    borderTop: "3px solid " + STATIC_BRAND.accent,
     margin: "30px 0 30px 0",
   },
   titleSection: {
@@ -1645,7 +1645,7 @@ const styles = {
   },
   proposalBigValue: {
     fontSize: 24,
-    color: BRAND.accent,
+    color: STATIC_BRAND.accent,
     fontWeight: "700",
     marginTop: 2,
     marginBottom: 0,
@@ -1653,10 +1653,10 @@ const styles = {
   contractorSelect: {
     fontSize: 20,
     padding: "8px 12px",
-    border: "2px solid " + BRAND.accent,
+    border: "2px solid " + STATIC_BRAND.accent,
     borderRadius: 4,
     backgroundColor: "#fff",
-    color: BRAND.accent,
+    color: STATIC_BRAND.accent,
     fontWeight: "700",
     width: "100%",
     maxWidth: 500,
@@ -1699,7 +1699,7 @@ const styles = {
   },
   totalRow: {
     backgroundColor: "#f9fafb",
-    borderTop: "2px solid " + BRAND.accent,
+    borderTop: "2px solid " + STATIC_BRAND.accent,
   },
   badge: {
     padding: "3px 10px",

@@ -393,7 +393,7 @@ const styles = {
   },
   printBtn: {
     padding: "10px 24px",
-    backgroundColor: BRAND.bg,
+    backgroundColor: STATIC_BRAND.bg,
     border: "none",
     color: "#fff",
     borderRadius: 8,
@@ -486,7 +486,7 @@ const styles = {
   },
   divider: {
     border: "none",
-    borderTop: "3px solid " + BRAND.accent,
+    borderTop: "3px solid " + STATIC_BRAND.accent,
     margin: "16px 0",
   },
   dividerLight: {

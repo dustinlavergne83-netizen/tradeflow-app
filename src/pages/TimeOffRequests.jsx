@@ -403,7 +403,7 @@ const styles = {
     margin: 0,
   },
   newRequestBtn: {
-    backgroundColor: BRAND.primary,
+    backgroundColor: STATIC_BRAND.primary,
     color: "#fff",
     border: "none",
     padding: "12px 24px",
@@ -497,7 +497,7 @@ const styles = {
     fontStyle: "italic",
   },
   submitBtn: {
-    backgroundColor: BRAND.primary,
+    backgroundColor: STATIC_BRAND.primary,
     color: "#fff",
     border: "none",
     padding: "14px 28px",

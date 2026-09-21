@@ -524,7 +524,7 @@ const styles = {
   },
   title: {
     fontSize: 36,
-    color: BRAND.text,
+    color: STATIC_BRAND.text,
     margin: 0,
   },
   backButton: {
@@ -552,7 +552,7 @@ const styles = {
   statValue: {
     fontSize: 32,
     fontWeight: "bold",
-    color: BRAND.accent,
+    color: STATIC_BRAND.accent,
     marginBottom: 8,
   },
   statLabel: {
@@ -606,7 +606,7 @@ const styles = {
   },
   newButton: {
     padding: "12px 24px",
-    backgroundColor: BRAND.accent,
+    backgroundColor: STATIC_BRAND.accent,
     border: "none",
     color: "#fff",
     borderRadius: 8,
@@ -634,7 +634,7 @@ const styles = {
   },
   emptyButton: {
     padding: "14px 28px",
-    backgroundColor: BRAND.accent,
+    backgroundColor: STATIC_BRAND.accent,
     border: "none",
     color: "#fff",
     borderRadius: 10,

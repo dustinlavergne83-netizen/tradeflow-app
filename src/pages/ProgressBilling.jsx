@@ -1433,7 +1433,7 @@ const styles = {
   },
   title: {
     fontSize: 36,
-    color: BRAND.text,
+    color: STATIC_BRAND.text,
     margin: 0,
   },
   subtitle: {
@@ -1545,7 +1545,7 @@ const styles = {
   },
   createButton: {
     padding: "16px 32px",
-    backgroundColor: BRAND.accent,
+    backgroundColor: STATIC_BRAND.accent,
     border: "none",
     color: "#fff",
     borderRadius: 10,
@@ -1567,7 +1567,7 @@ const styles = {
   },
   button: {
     padding: "14px 28px",
-    backgroundColor: BRAND.accent,
+    backgroundColor: STATIC_BRAND.accent,
     border: "none",
     color: "#fff",
     borderRadius: 10,

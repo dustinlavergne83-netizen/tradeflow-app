@@ -259,7 +259,7 @@ const styles = {
   title: {
     fontSize: 28,
     fontWeight: 900,
-    color: BRAND.primary,
+    color: STATIC_BRAND.primary,
     textAlign: "center",
     margin: "0 0 8px 0",
     fontStyle: "italic",
@@ -322,7 +322,7 @@ const styles = {
     color: "#111",
   },
   button: {
-    backgroundColor: BRAND.primary,
+    backgroundColor: STATIC_BRAND.primary,
     color: "#fff",
     border: "none",
     padding: 14,

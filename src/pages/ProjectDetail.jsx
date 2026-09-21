@@ -6738,7 +6738,7 @@ const styles = {
   },
   title: {
     fontSize: 36,
-    color: BRAND.text,
+    color: STATIC_BRAND.text,
     margin: 0,
     marginBottom: 8,
   },
@@ -6874,7 +6874,7 @@ const styles = {
   },
   button: {
     padding: "14px 28px",
-    backgroundColor: BRAND.accent,
+    backgroundColor: STATIC_BRAND.accent,
     border: "none",
     color: "#fff",
     borderRadius: 10,
@@ -6886,7 +6886,7 @@ const styles = {
   },
   addEstimateButton: {
     padding: "10px 20px",
-    backgroundColor: BRAND.accent,
+    backgroundColor: STATIC_BRAND.accent,
     border: "none",
     color: "#fff",
     borderRadius: 8,
@@ -6913,7 +6913,7 @@ const styles = {
   },
   estimateButton: {
     padding: "6px 12px",
-    backgroundColor: BRAND.accent,
+    backgroundColor: STATIC_BRAND.accent,
     border: "none",
     color: "#fff",
     borderRadius: 6,
@@ -7081,7 +7081,7 @@ const styles = {
   },
   submitButton: {
     padding: "14px 28px",
-    backgroundColor: BRAND.accent,
+    backgroundColor: STATIC_BRAND.accent,
     border: "none",
     color: "#fff",
     borderRadius: 10,

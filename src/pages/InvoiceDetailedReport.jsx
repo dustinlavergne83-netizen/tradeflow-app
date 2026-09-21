@@ -594,7 +594,7 @@ const styles = {
   },
   title: {
     fontSize: 36,
-    color: BRAND.text,
+    color: STATIC_BRAND.text,
     margin: 0,
   },
   exportButton: {

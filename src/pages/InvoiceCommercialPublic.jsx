@@ -517,10 +517,10 @@ const styles = {
     backgroundColor: "#6b7280",
   },
   editButton: {
-    backgroundColor: BRAND.bg,
+    backgroundColor: STATIC_BRAND.bg,
   },
   printButton: {
-    backgroundColor: BRAND.accent,
+    backgroundColor: STATIC_BRAND.accent,
   },
   emailButton: {
     backgroundColor: "#8b5cf6",
@@ -592,14 +592,14 @@ const styles = {
     fontSize: 20,
     fontWeight: "bold",
     padding: "8px",
-    border: "2px solid " + BRAND.accent,
+    border: "2px solid " + STATIC_BRAND.accent,
     borderRadius: 4,
     textAlign: "right",
     width: "200px",
   },
   divider: {
     border: "none",
-    borderTop: "3px solid " + BRAND.accent,
+    borderTop: "3px solid " + STATIC_BRAND.accent,
     margin: "40px 0 30px 0",
   },
   infoSection: {
@@ -710,7 +710,7 @@ const styles = {
   balanceDueValue: {
     fontSize: 24,
     fontWeight: "bold",
-    color: BRAND.accent,
+    color: STATIC_BRAND.accent,
   },
   notesSection: {
     marginBottom: 40,

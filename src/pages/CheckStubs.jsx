@@ -1365,7 +1365,7 @@ const styles = {
     cursor: "pointer",
   },
   uploadButton: {
-    backgroundColor: BRAND.primary,
+    backgroundColor: STATIC_BRAND.primary,
     color: "#fff",
     border: "none",
     padding: "14px 28px",
