@@ -5,13 +5,16 @@ import logoImage from "../assets/LOGOD.jpg";
 import { useAuth } from "../contexts/AuthContext";
 import { notify } from '../lib/notify';
 
-const BRAND = {
+import { useBrand } from "../lib/useBrand";
+
+const STATIC_BRAND = {
   bg: "#0b3ea8",
   text: "#f97316",
   accent: "#fc6b04ff",
 };
 
 export default function ProposalCommercialPublic() {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const [searchParams] = useSearchParams();
   const { id: projectIdFromPath } = useParams();
   const navigate = useNavigate();
@@ -1365,7 +1368,7 @@ const styles = {
     fontSize: 24,
     fontWeight: "bold",
     color: "#fff",
-    backgroundColor: BRAND.bg,
+    backgroundColor: STATIC_BRAND.bg,
     padding: "20px 30px",
     margin: 0,
   },
@@ -1418,7 +1421,7 @@ const styles = {
   cardSectionTitle: {
     fontSize: 18,
     fontWeight: "bold",
-    color: BRAND.bg,
+    color: STATIC_BRAND.bg,
     marginBottom: 20,
   },
   lineItemsGrid: {
@@ -1517,7 +1520,7 @@ const styles = {
   summaryProposalTitle: {
     fontSize: 32,
     fontWeight: "bold",
-    color: BRAND.bg,
+    color: STATIC_BRAND.bg,
     textAlign: "center",
     margin: "0 0 20px 0",
     letterSpacing: "2px",
@@ -1547,7 +1550,7 @@ const styles = {
   summarySubtitle: {
     fontSize: 20,
     fontWeight: "bold",
-    color: BRAND.bg,
+    color: STATIC_BRAND.bg,
     textAlign: "center",
     marginTop: 30,
     marginBottom: 5,
@@ -1628,7 +1631,7 @@ const styles = {
   proposalTitle: {
     fontSize: 32,
     fontWeight: "bold",
-    color: BRAND.bg,
+    color: STATIC_BRAND.bg,
     margin: 0,
     letterSpacing: "2px",
   },
@@ -1666,7 +1669,7 @@ const styles = {
   tableTitle: {
     fontSize: 18,
     fontWeight: "bold",
-    color: BRAND.bg,
+    color: STATIC_BRAND.bg,
     marginBottom: 16,
     paddingBottom: 8,
     borderBottom: "2px solid #e5e7eb",

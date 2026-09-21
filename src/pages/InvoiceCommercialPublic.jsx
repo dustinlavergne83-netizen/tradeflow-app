@@ -6,13 +6,16 @@ import { notify } from '../lib/notify';
 import DepositPicker from "../Components/DepositPicker";
 import { resolveProjectId, loadAvailableDeposits, applyDepositsToInvoice } from "../lib/deposits";
 
-const BRAND = {
+import { useBrand } from "../lib/useBrand";
+
+const STATIC_BRAND = {
   bg: "#0b3ea8",
   text: "#f97316",
   accent: "#fc6b04ff",
 };
 
 export default function InvoiceCommercialPublic() {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const invoiceId = searchParams.get("invoiceId");

@@ -6,7 +6,9 @@ import { formatDate } from "../utils/dateUtils";
 import jsPDF from "jspdf";
 import { notify, confirmDialog } from '../lib/notify';
 
-const BRAND = {
+import { useBrand } from "../lib/useBrand";
+
+const STATIC_BRAND = {
   bg: "#0b3ea8",
   text: "#f97316",
   accent: "#fc6b04ff",
@@ -30,6 +32,7 @@ const JOB_SECTIONS = [
 ];
 
 export default function ProjectReportsPhotos() {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -638,7 +641,7 @@ export default function ProjectReportsPhotos() {
   }
 
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
       <div style={styles.header}>
         <div>
           <h1 style={styles.title}>📸 Reports & Photos</h1>
@@ -2105,7 +2108,7 @@ const styles = {
     maxWidth: 1400,
     margin: "0 auto",
     minHeight: "100vh",
-    backgroundColor: BRAND.bg,
+    backgroundColor: STATIC_BRAND.bg,
   },
   header: {
     display: "flex",

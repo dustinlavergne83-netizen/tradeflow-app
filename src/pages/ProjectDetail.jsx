@@ -7,8 +7,9 @@ import jsPDF from "jspdf";
 import { getNextJournalEntryNumber, createInvoicePaymentJournalEntry } from "../utils/accountingJournals";
 import { notify, confirmDialog, promptDialog } from '../lib/notify';
 import { useFeatures } from "../lib/useFeatures";
+import { useBrand } from "../lib/useBrand";
 
-const BRAND = {
+const STATIC_BRAND = {
   bg: "#0b3ea8",
   text: "#f97316",
   accent: "#fc6b04ff",
@@ -52,6 +53,7 @@ const PROJECT_TYPES = [
 ];
 
 export default function ProjectDetail() {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -1467,7 +1469,7 @@ async function handleAddContractor() {
 
   if (loading) {
     return (
-      <div style={styles.container}>
+      <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
         <div style={styles.loading}>Loading project...</div>
       </div>
     );
@@ -1475,7 +1477,7 @@ async function handleAddContractor() {
 
   if (!project) {
     return (
-      <div style={styles.container}>
+      <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
         <div style={styles.error}>Project not found</div>
         <button onClick={() => navigate("/projects")} style={styles.button}>
           Back to Projects
@@ -2008,7 +2010,7 @@ async function handleAddContractor() {
   }
 
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
       <div style={styles.header}>
         <div>
           <h1 style={styles.title}>{project.name}</h1>
@@ -6726,7 +6728,7 @@ const styles = {
     maxWidth: 1400,
     margin: "0 auto",
     minHeight: "100vh",
-    backgroundColor: BRAND.bg,
+    backgroundColor: STATIC_BRAND.bg,
   },
   header: {
     display: "flex",

@@ -5,7 +5,7 @@ import { useAuth } from "../contexts/AuthContext";
 import DesktopHeader from "../Components/DesktopHeader";
 import { notify, confirmDialog } from '../lib/notify';
 
-const BRAND = { bg: "#0b3ea8", primary: "#fc6b04ff" };
+import { useBrand } from "../lib/useBrand";
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DAY_FULL   = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
@@ -32,6 +32,7 @@ const BLANK_FORM = {
 
 // ── NotificationCard — top-level so it never remounts ────────────────────────
 function NotificationCard({ sn, employees, onToggleEnabled, onEdit, onDelete, onSendNow, sendingNow }) {
+  const BRAND = useBrand();
   const dayStr = sn.days_of_week
     .sort((a, b) => a - b)
     .map((d) => DAY_LABELS[d])
@@ -104,6 +105,7 @@ function NotificationCard({ sn, employees, onToggleEnabled, onEdit, onDelete, on
 
 // ── NotificationForm — top-level so inputs never lose focus ──────────────────
 function NotificationForm({ form, setForm, employees, saving, onSave, onCancel, isEditing }) {
+  const BRAND = useBrand();
   function toggleDay(d) {
     setForm((f) => ({
       ...f,
@@ -281,6 +283,7 @@ function NotificationForm({ form, setForm, employees, saving, onSave, onCancel, 
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function ScheduledNotifications() {
+  const BRAND = useBrand();
   const nav = useNavigate();
   const { user } = useAuth();
 

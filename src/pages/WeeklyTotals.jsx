@@ -5,7 +5,9 @@ import { useNavigate } from "react-router-dom";
 import { formatDate } from "../utils/dateUtils";
 import { notify } from '../lib/notify';
 
-const BRAND = {
+import { useBrand } from "../lib/useBrand";
+
+const STATIC_BRAND = {
   bg: "#0b3ea8",        // dark blue/black background
   text: "#f97316",      // light text
   cardBg: "#e5e7eb",    // card background
@@ -89,6 +91,7 @@ function dayTotalMinutes(segmentsForThatDate, lunchChecked) {
 }
 
 export default function WeeklyTotals() {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const nav = useNavigate();
 
   const isMobileApp = useMemo(() => {

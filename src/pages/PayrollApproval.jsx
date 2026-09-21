@@ -4,7 +4,9 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { notify } from '../lib/notify';
 
-const BRAND = {
+import { useBrand } from "../lib/useBrand";
+
+const STATIC_BRAND = {
   bg: "#0b3ea8",
   primary: "#f97316",
   green: "#22c55e",
@@ -24,6 +26,7 @@ const formatDate = (d) => {
 };
 
 export default function PayrollApproval() {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const navigate = useNavigate();
   const { user } = useAuth();
 

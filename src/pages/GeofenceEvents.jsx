@@ -2,13 +2,10 @@ import React, { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useNavigate } from "react-router-dom";
 import DesktopHeader from "../Components/DesktopHeader";
-
-const BRAND = {
-  bg: "#0b3ea8",
-  primary: "#fc6b04ff",
-};
+import { useBrand } from "../lib/useBrand";
 
 export default function GeofenceEvents() {
+  const BRAND = useBrand();
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all'); // all, entry, exit

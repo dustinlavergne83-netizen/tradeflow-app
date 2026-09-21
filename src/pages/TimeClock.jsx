@@ -9,13 +9,16 @@ import { formatDate } from "../utils/dateUtils";
 import { notify } from '../lib/notify';
 import { useAuth } from "../contexts/AuthContext";
 
-const BRAND = {
+import { useBrand } from "../lib/useBrand";
+
+const STATIC_BRAND = {
   bg: "#0b3ea8",
   primary: "#fc6b04ff",
   danger: "#f97316",
 };
 
 export default function TimeClock() {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const { employee, company } = useAuth();
   const [loading, setLoading] = useState(true);
   const [employeeStatuses, setEmployeeStatuses] = useState([]);

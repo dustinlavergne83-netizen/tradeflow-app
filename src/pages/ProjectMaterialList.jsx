@@ -5,7 +5,9 @@ import { useAuth } from "../contexts/AuthContext";
 import { formatDate } from "../utils/dateUtils";
 import { notify, confirmDialog } from '../lib/notify';
 
-const BRAND = {
+import { useBrand } from "../lib/useBrand";
+
+const STATIC_BRAND = {
   bg: "#0b3ea8",
   text: "#f97316", 
   accent: "#fc6b04ff",
@@ -24,6 +26,7 @@ const MATERIAL_CATEGORIES = [
 ];
 
 export default function ProjectMaterialList() {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -444,16 +447,16 @@ export default function ProjectMaterialList() {
   }
 
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
       <div style={styles.header}>
         <div>
-          <h1 style={styles.title}>📋 Material Lists</h1>
+          <h1 style={{ ...styles.title, color: BRAND.text }}>📋 Material Lists</h1>
           <p style={styles.subtitle}>Project: {project.name}</p>
         </div>
         <div style={{display: 'flex', gap: 12}}>
           <button 
             onClick={() => setShowAddListModal(true)}
-            style={styles.addButton}
+            style={{ ...styles.addButton, backgroundColor: BRAND.accent }}
           >
             + New Material List
           </button>
@@ -475,7 +478,7 @@ export default function ProjectMaterialList() {
               <p>No material lists created yet.</p>
               <button 
                 onClick={() => setShowAddListModal(true)}
-                style={styles.primaryButton}
+                style={{ ...styles.primaryButton, backgroundColor: BRAND.accent }}
               >
                 Create Your First Material List
               </button>
@@ -627,7 +630,7 @@ export default function ProjectMaterialList() {
               </button>
               <button
                 onClick={handleCreateList}
-                style={styles.primaryButton}
+                style={{ ...styles.primaryButton, backgroundColor: BRAND.accent }}
               >
                 Create List
               </button>
@@ -820,7 +823,7 @@ export default function ProjectMaterialList() {
                     setSavingItems(false);
                   }
                 }}
-                style={{...styles.primaryButton, opacity: savingItems ? 0.6 : 1}}
+                style={{...styles.primaryButton, backgroundColor: BRAND.accent, opacity: savingItems ? 0.6 : 1}}
                 disabled={savingItems}
               >
                 {savingItems ? '⏳ Saving...' : `💾 Save Items`}
@@ -880,7 +883,7 @@ export default function ProjectMaterialList() {
               </button>
               <button
                 onClick={handleUpdateList}
-                style={styles.primaryButton}
+                style={{ ...styles.primaryButton, backgroundColor: BRAND.accent }}
               >
                 💾 Save Changes
               </button>
@@ -1139,6 +1142,7 @@ export default function ProjectMaterialList() {
 }
 
 function FileUploadModal({ isOpen, onClose, projectId, materialListId, listTitle, uploading, setUploading }) {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const { user } = useAuth();
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [fileDescriptions, setFileDescriptions] = useState({});
@@ -1396,6 +1400,7 @@ function FileUploadModal({ isOpen, onClose, projectId, materialListId, listTitle
 }
 
 function MaterialListItems({ listId, refreshKey, onRefresh }) {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingItemId, setEditingItemId] = useState(null);
@@ -1511,7 +1516,7 @@ function MaterialListItems({ listId, refreshKey, onRefresh }) {
     <div style={styles.itemsContainer}>
       <div style={styles.itemsHeader}>
         <span>Items ({items.length})</span>
-        <span style={styles.totalCost}>Total: ${totalCost.toFixed(2)}</span>
+        <span style={{ ...styles.totalCost, color: BRAND.accent }}>Total: ${totalCost.toFixed(2)}</span>
       </div>
 
       <div style={styles.itemsList}>
@@ -1580,7 +1585,7 @@ function MaterialListItems({ listId, refreshKey, onRefresh }) {
                         <option key={cat} value={cat}>{cat}</option>
                       ))}
                     </select>
-                    <span style={{...styles.totalCost, alignSelf: 'center', fontSize: 14}}>
+                    <span style={{...styles.totalCost, color: BRAND.accent, alignSelf: 'center', fontSize: 14}}>
                       = ${((parseFloat(editItemForm.quantity) || 0) * (parseFloat(editItemForm.unit_cost) || 0)).toFixed(2)}
                     </span>
                   </div>
@@ -1652,7 +1657,7 @@ const styles = {
     maxWidth: 1400,
     margin: "0 auto",
     minHeight: "100vh",
-    backgroundColor: BRAND.bg,
+    backgroundColor: STATIC_BRAND.bg,
   },
   header: {
     display: "flex",
@@ -1662,7 +1667,7 @@ const styles = {
   },
   title: {
     fontSize: 36,
-    color: BRAND.text,
+    color: STATIC_BRAND.text,
     margin: 0,
     marginBottom: 8,
   },
@@ -1682,7 +1687,7 @@ const styles = {
   },
   addButton: {
     padding: "10px 20px",
-    backgroundColor: BRAND.accent,
+    backgroundColor: STATIC_BRAND.accent,
     border: "none",
     color: "#fff",
     borderRadius: 8,
@@ -1711,7 +1716,7 @@ const styles = {
   },
   primaryButton: {
     padding: "12px 24px",
-    backgroundColor: BRAND.accent,
+    backgroundColor: STATIC_BRAND.accent,
     border: "none",
     color: "#fff",
     borderRadius: 8,
@@ -1893,7 +1898,7 @@ const styles = {
     fontWeight: "600",
   },
   totalCost: {
-    color: BRAND.accent,
+    color: STATIC_BRAND.accent,
     fontWeight: "bold",
   },
   itemsList: {

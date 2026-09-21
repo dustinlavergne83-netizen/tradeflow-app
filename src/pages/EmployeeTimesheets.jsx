@@ -7,7 +7,7 @@ import logoUrl from "../assets/LOGOD.jpg";
 import { notify, confirmDialog } from '../lib/notify';
 import { useAuth } from "../contexts/AuthContext";
 
-const BRAND = { bg: "#0b3ea8", accent: "#fc6b04ff", primary: "#0b3ea8" };
+import { useBrand } from "../lib/useBrand";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 function getMonday(date) {
@@ -80,6 +80,7 @@ function elapsed(start) {
 
 // ─── component ───────────────────────────────────────────────────────────────
 export default function EmployeeTimesheets() {
+  const BRAND = useBrand();
   const navigate = useNavigate();
   const { employee, company } = useAuth();
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()));

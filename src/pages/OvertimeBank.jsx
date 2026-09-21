@@ -4,11 +4,12 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { notify, confirmDialog } from '../lib/notify';
 
-const BRAND = { bg: "#0b3ea8", accent: "#fc6b04ff" };
+import { useBrand } from "../lib/useBrand";
 
 const TABS = ["🏦 Banked OT", "💸 Pay Out", "📋 History", "👥 Enrolled Crew"];
 
 export default function OvertimeBank() {
+  const BRAND = useBrand();
   const navigate = useNavigate();
   const { user } = useAuth();
   const [tab, setTab] = useState(0);

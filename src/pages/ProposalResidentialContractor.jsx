@@ -7,13 +7,16 @@ import { useAuth } from "../contexts/AuthContext";
 import { formatDate } from "../utils/dateUtils";
 import { notify, promptDialog } from '../lib/notify';
 
-const BRAND = {
+import { useBrand } from "../lib/useBrand";
+
+const STATIC_BRAND = {
   bg: "#0b3ea8",
   text: "#f97316",
   accent: "#fc6b04ff",
 };
 
 export default function ProposalResidentialContractor() {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -169,7 +172,7 @@ export default function ProposalResidentialContractor() {
             .order("sequence");
           if (itemsData) setEstimateItems(itemsData);
 
-          // Load project — prefer project_id (stable), fall back to name match (legacy)
+          // Load project ï¿½ prefer project_id (stable), fall back to name match (legacy)
           let projectData = null;
           const lookupProjectId = proposalData.project_id || estimateData.project_id;
           if (lookupProjectId) {
@@ -980,7 +983,7 @@ export default function ProposalResidentialContractor() {
               </table>
             </div>
 
-            {/* Deposit block — only shown when a deposit is required */}
+            {/* Deposit block ï¿½ only shown when a deposit is required */}
             {depositRequired && depositPercent && (
               <div style={{
                 margin: '16px 0',
@@ -992,7 +995,7 @@ export default function ProposalResidentialContractor() {
                 <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8}}>
                   <div>
                     <div style={{fontSize: 13, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2}}>
-                      Deposit Required — {parseFloat(depositPercent).toFixed(0)}%
+                      Deposit Required ï¿½ {parseFloat(depositPercent).toFixed(0)}%
                     </div>
                     <div style={{fontSize: 12, color: '#78350f'}}>
                       Due upon acceptance of this proposal

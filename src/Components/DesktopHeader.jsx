@@ -88,7 +88,7 @@ export default function DesktopHeader({ title: propTitle }) {
               🔀 Switch Company
             </button>
             <button
-              onClick={() => window.open("/", "_blank")}
+              onClick={() => window.open("/welcome", "_blank")}
               style={styles.websiteButton}
             >
               🌐 Website

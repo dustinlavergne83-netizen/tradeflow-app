@@ -5,13 +5,16 @@ import { getSiteUrl } from "../lib/siteUrl";
 import logoImage from "../assets/LOGOD.jpg";
 import { notify, confirmDialog } from '../lib/notify';
 
-const BRAND = {
+import { useBrand } from "../lib/useBrand";
+
+const STATIC_BRAND = {
   bg: "#0b3ea8",
   text: "#f97316",
   accent: "#fc6b04ff",
 };
 
 export default function InvoiceReceipt() {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const invoiceId = searchParams.get("invoiceId");

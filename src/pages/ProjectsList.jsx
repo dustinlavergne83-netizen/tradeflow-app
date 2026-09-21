@@ -3,7 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { notify, confirmDialog } from '../lib/notify';
 
-const BRAND = {
+import { useBrand } from "../lib/useBrand";
+
+const STATIC_BRAND = {
   bg: "#0b3ea8",
   text: "#f97316",
   accent: "#fc6b04ff",
@@ -49,6 +51,7 @@ const PROJECT_TYPES = [
 ];
 
 export default function ProjectsList() {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const navigate = useNavigate();
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -236,7 +239,7 @@ export default function ProjectsList() {
   };
 
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
       <div style={styles.header}>
         <h1 style={styles.title}>Projects</h1>
         <button
@@ -511,7 +514,7 @@ const styles = {
     maxWidth: 1400,
     margin: "0 auto",
     minHeight: "100vh",
-    backgroundColor: BRAND.bg,
+    backgroundColor: STATIC_BRAND.bg,
   },
   header: {
     display: "flex",

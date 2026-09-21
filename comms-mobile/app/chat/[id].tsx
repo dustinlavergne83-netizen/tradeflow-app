@@ -111,12 +111,18 @@ export default function ChatScreen() {
     if (!newMsg.trim() || !companyId || sending) return;
     setSending(true);
     try {
+      // Only sign the FIRST outbound text in a thread with the business name
+      // (e.g. "— DT Specialties") so the customer knows who's texting even
+      // though caller-ID doesn't exist for SMS. Skip it on every reply after
+      // that so the signature doesn't repeat in an ongoing conversation.
+      const alreadyIntroduced = messages.some((m) => m.direction === "outbound");
       const { error } = await supabase.functions.invoke("send-sms", {
         body: {
           to: contactNumber,
           body: newMsg.trim(),
           company_id: companyId,
           customer_name: contactName || null,
+          no_signature: alreadyIntroduced,
         },
       });
       if (error) throw error;

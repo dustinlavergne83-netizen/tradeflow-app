@@ -4,7 +4,9 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { notify } from '../lib/notify';
 
-const BRAND = {
+import { useBrand } from "../lib/useBrand";
+
+const STATIC_BRAND = {
   bg: "#0b3ea8",
   text: "#f97316",
   accent: "#fc6b04ff",
@@ -126,6 +128,7 @@ function AutocompleteInput({ name, value, onChange, options, placeholder, label,
 }
 
 export default function ProjectSetup() {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const navigate = useNavigate();
   const { user, employee } = useAuth();
   const [searchParams] = useSearchParams();
@@ -296,7 +299,7 @@ export default function ProjectSetup() {
   }
 
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
       <div style={styles.header}>
         <h1 style={styles.title}>Create New Project</h1>
         <button onClick={() => navigate("/projects")} style={styles.backButton}>
@@ -654,7 +657,7 @@ const styles = {
     maxWidth: 900,
     margin: "0 auto",
     minHeight: "100vh",
-    backgroundColor: BRAND.bg,
+    backgroundColor: STATIC_BRAND.bg,
   },
   header: {
     display: "flex",

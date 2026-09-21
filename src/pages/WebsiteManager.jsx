@@ -1,14 +1,17 @@
-import { useState, useEffect, useRef } from "react";
+﻿import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { confirmDialog } from '../lib/notify';
 
-const BRAND = { blue: "#0b3ea8", orange: "#fc6b04", dark: "#092d7e" };
-const TABS = ["🖼️ Gallery", "📢 Announcements", "✏️ Page Text"];
+import { useBrand } from "../lib/useBrand";
+
+const TABS = ["ðŸ–¼ï¸ Gallery", "ðŸ“¢ Announcements", "âœï¸ Page Text"];
 const CATEGORIES = ["work", "residential", "commercial", "industrial", "team", "equipment"];
 
 export default function WebsiteManager() {
+  const brand = useBrand();
+  const BRAND = { blue: brand.bg, orange: brand.accent, dark: brand.bg };
   const navigate = useNavigate();
   const { employee } = useAuth();
   const [tab, setTab] = useState(0);
@@ -58,7 +61,7 @@ export default function WebsiteManager() {
       active: map.announcement?.active || false,
     });
     setTextContent({
-      hero_tagline: map.hero_tagline?.content_value || "Residential • Commercial • Industrial",
+      hero_tagline: map.hero_tagline?.content_value || "Residential â€¢ Commercial â€¢ Industrial",
       about_text: map.about_text?.content_value || "",
     });
   }
@@ -68,7 +71,7 @@ export default function WebsiteManager() {
     setTimeout(() => setToast(null), 3500);
   }
 
-  // ── GALLERY UPLOAD ──────────────────────────────────────────────────────────
+  // â”€â”€ GALLERY UPLOAD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   function handleFileSelect(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -102,7 +105,7 @@ export default function WebsiteManager() {
       });
       if (dbErr) throw dbErr;
 
-      showToast("Photo added to website! ✅");
+      showToast("Photo added to website! âœ…");
       setNewPhoto({ title: "", description: "", category: "work", file: null, preview: null });
       setShowAddPhoto(false);
       fileInputRef.current.value = "";
@@ -149,22 +152,22 @@ export default function WebsiteManager() {
     if (!error) {
       setGallery((g) => g.map((p) => p.id === editPhoto.id ? { ...p, ...editPhoto } : p));
       setEditPhoto(null);
-      showToast("Photo details saved ✅");
+      showToast("Photo details saved âœ…");
     }
   }
 
-  // ── ANNOUNCEMENT ──────────────────────────────────────────────────────────
+  // â”€â”€ ANNOUNCEMENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async function saveAnnouncement() {
     setSaving(true);
     const { error } = await supabase
       .from("website_content")
       .upsert({ content_key: "announcement", content_value: announcement.text, content_type: "announcement", active: announcement.active, updated_at: new Date().toISOString() }, { onConflict: "content_key" });
     setSaving(false);
-    if (!error) showToast("Announcement saved! ✅");
+    if (!error) showToast("Announcement saved! âœ…");
     else showToast("Save failed: " + error.message, "error");
   }
 
-  // ── TEXT CONTENT ────────────────────────────────────────────────────────────
+  // â”€â”€ TEXT CONTENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async function saveTextContent() {
     setSaving(true);
     try {
@@ -172,7 +175,7 @@ export default function WebsiteManager() {
         supabase.from("website_content").upsert({ content_key: "hero_tagline", content_value: textContent.hero_tagline, updated_at: new Date().toISOString() }, { onConflict: "content_key" }),
         supabase.from("website_content").upsert({ content_key: "about_text", content_value: textContent.about_text, updated_at: new Date().toISOString() }, { onConflict: "content_key" }),
       ]);
-      showToast("Website text saved! ✅");
+      showToast("Website text saved! âœ…");
     } catch (err) {
       showToast("Save failed", "error");
     } finally {
@@ -188,11 +191,11 @@ export default function WebsiteManager() {
       {/* Header */}
       <div style={styles.header}>
         <div>
-          <h1 style={styles.headerTitle}>🌐 Website Manager</h1>
+          <h1 style={styles.headerTitle}>ðŸŒ Website Manager</h1>
           <p style={styles.headerSub}>Add photos, announcements, and content to dmlelectrical.com</p>
         </div>
         <button style={styles.previewBtn} onClick={() => window.open("/", "_blank")}>
-          👁️ Preview Website
+          ðŸ‘ï¸ Preview Website
         </button>
       </div>
 
@@ -236,12 +239,12 @@ export default function WebsiteManager() {
       ) : (
         <div style={styles.tabContent}>
 
-          {/* ── GALLERY TAB ── */}
+          {/* â”€â”€ GALLERY TAB â”€â”€ */}
           {tab === 0 && (
             <div>
               {/* Upload zone */}
               <div style={styles.uploadZone}>
-                <div style={{ fontSize: 40, marginBottom: 8 }}>📷</div>
+                <div style={{ fontSize: 40, marginBottom: 8 }}>ðŸ“·</div>
                 <div style={styles.uploadTitle}>Add Photos to Website Gallery</div>
                 <div style={styles.uploadSub}>Upload photos of your work, projects, team, and equipment. They'll appear in the "Our Work" section on dmlelectrical.com.</div>
                 <input
@@ -252,14 +255,14 @@ export default function WebsiteManager() {
                   onChange={handleFileSelect}
                 />
                 <button style={styles.uploadBtn} onClick={() => fileInputRef.current?.click()}>
-                  📁 Choose Photo to Upload
+                  ðŸ“ Choose Photo to Upload
                 </button>
               </div>
 
               {/* Add photo form (shown after file selected) */}
               {showAddPhoto && newPhoto.preview && (
                 <div style={styles.addPhotoForm}>
-                  <h3 style={styles.formTitle}>📋 Photo Details</h3>
+                  <h3 style={styles.formTitle}>ðŸ“‹ Photo Details</h3>
                   <div style={styles.addPhotoGrid}>
                     <img src={newPhoto.preview} alt="preview" style={styles.previewImg} />
                     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -299,7 +302,7 @@ export default function WebsiteManager() {
                           onClick={handleUploadPhoto}
                           disabled={uploading}
                         >
-                          {uploading ? "⏳ Uploading..." : "✅ Add to Website"}
+                          {uploading ? "â³ Uploading..." : "âœ… Add to Website"}
                         </button>
                         <button
                           style={styles.cancelBtn}
@@ -342,21 +345,21 @@ export default function WebsiteManager() {
                           onClick={() => toggleVisible(photo)}
                           title={photo.visible ? "Hide from website" : "Show on website"}
                         >
-                          {photo.visible ? "👁️ Showing" : "🚫 Hidden"}
+                          {photo.visible ? "ðŸ‘ï¸ Showing" : "ðŸš« Hidden"}
                         </button>
                         <button
                           style={styles.actionBtnEdit}
                           onClick={() => setEditPhoto({ ...photo })}
                           title="Edit details"
                         >
-                          ✏️
+                          âœï¸
                         </button>
                         <button
                           style={styles.actionBtnDelete}
                           onClick={() => deletePhoto(photo)}
                           title="Delete photo"
                         >
-                          🗑️
+                          ðŸ—‘ï¸
                         </button>
                       </div>
                     </div>
@@ -366,11 +369,11 @@ export default function WebsiteManager() {
             </div>
           )}
 
-          {/* ── ANNOUNCEMENTS TAB ── */}
+          {/* â”€â”€ ANNOUNCEMENTS TAB â”€â”€ */}
           {tab === 1 && (
             <div style={styles.contentSection}>
               <div style={styles.announcementPreview}>
-                <div style={{ fontSize: 20, marginBottom: 8 }}>📢</div>
+                <div style={{ fontSize: 20, marginBottom: 8 }}>ðŸ“¢</div>
                 <h3 style={styles.formTitle}>Website Announcement Banner</h3>
                 <p style={styles.formHint}>
                   This shows as a colored banner at the very top of your public website. Use it for promotions, seasonal offers, emergency alerts, or any important message.
@@ -383,7 +386,7 @@ export default function WebsiteManager() {
                   style={{ ...styles.input, minHeight: 100, fontSize: 16, resize: "vertical" }}
                   value={announcement.text}
                   onChange={(e) => setAnnouncement((a) => ({ ...a, text: e.target.value }))}
-                  placeholder="e.g. 🎉 Summer Special: 10% off panel upgrades through August! Call (337) 288-0395 to schedule."
+                  placeholder="e.g. ðŸŽ‰ Summer Special: 10% off panel upgrades through August! Call (337) 288-0395 to schedule."
                 />
               </div>
 
@@ -396,7 +399,7 @@ export default function WebsiteManager() {
                   style={announcement.active ? styles.toggleOn : styles.toggleOff}
                   onClick={() => setAnnouncement((a) => ({ ...a, active: !a.active }))}
                 >
-                  {announcement.active ? "✅ ON" : "⭕ OFF"}
+                  {announcement.active ? "âœ… ON" : "â­• OFF"}
                 </button>
               </div>
 
@@ -420,12 +423,12 @@ export default function WebsiteManager() {
               )}
 
               <button style={styles.saveBtn} onClick={saveAnnouncement} disabled={saving}>
-                {saving ? "⏳ Saving..." : "💾 Save Announcement"}
+                {saving ? "â³ Saving..." : "ðŸ’¾ Save Announcement"}
               </button>
             </div>
           )}
 
-          {/* ── PAGE TEXT TAB ── */}
+          {/* â”€â”€ PAGE TEXT TAB â”€â”€ */}
           {tab === 2 && (
             <div style={styles.contentSection}>
               <h3 style={styles.formTitle}>Edit Website Text</h3>
@@ -438,7 +441,7 @@ export default function WebsiteManager() {
                   style={styles.input}
                   value={textContent.hero_tagline}
                   onChange={(e) => setTextContent((t) => ({ ...t, hero_tagline: e.target.value }))}
-                  placeholder="Residential • Commercial • Industrial"
+                  placeholder="Residential â€¢ Commercial â€¢ Industrial"
                 />
               </div>
 
@@ -454,7 +457,7 @@ export default function WebsiteManager() {
               </div>
 
               <button style={styles.saveBtn} onClick={saveTextContent} disabled={saving}>
-                {saving ? "⏳ Saving..." : "💾 Save Text Changes"}
+                {saving ? "â³ Saving..." : "ðŸ’¾ Save Text Changes"}
               </button>
             </div>
           )}
@@ -465,7 +468,7 @@ export default function WebsiteManager() {
       {editPhoto && (
         <div style={styles.modalOverlay} onClick={() => setEditPhoto(null)}>
           <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <h3 style={styles.modalTitle}>✏️ Edit Photo Details</h3>
+            <h3 style={styles.modalTitle}>âœï¸ Edit Photo Details</h3>
             <img src={editPhoto.image_url} alt="edit" style={{ width: "100%", maxHeight: 200, objectFit: "cover", borderRadius: 8, marginBottom: 16 }} />
             <div style={styles.formGroup}>
               <label style={styles.label}>Title</label>
@@ -483,7 +486,7 @@ export default function WebsiteManager() {
             </div>
             <div style={{ display: "flex", gap: 10 }}>
               <button style={{ ...styles.saveBtn, flex: 1 }} onClick={saveEditPhoto} disabled={saving}>
-                {saving ? "Saving..." : "✅ Save Changes"}
+                {saving ? "Saving..." : "âœ… Save Changes"}
               </button>
               <button style={styles.cancelBtn} onClick={() => setEditPhoto(null)}>Cancel</button>
             </div>
@@ -511,19 +514,19 @@ const styles = {
   header: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 16, marginBottom: 24 },
   headerTitle: { fontSize: 28, fontWeight: 900, color: "#111", margin: "0 0 4px 0" },
   headerSub: { fontSize: 15, color: "#6b7280", margin: 0 },
-  previewBtn: { padding: "10px 20px", backgroundColor: BRAND.blue, color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: "pointer" },
+  previewBtn: { padding: "10px 20px", backgroundColor: "#0b3ea8", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: "pointer" },
   statsRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 16, marginBottom: 24 },
   statCard: { backgroundColor: "#fff", borderRadius: 12, padding: "16px 20px", textAlign: "center", boxShadow: "0 1px 6px rgba(0,0,0,0.06)" },
-  statNum: { fontSize: 28, fontWeight: 900, color: BRAND.blue, lineHeight: 1 },
+  statNum: { fontSize: 28, fontWeight: 900, color: "#0b3ea8", lineHeight: 1 },
   statLabel: { fontSize: 12, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", marginTop: 4 },
   tabs: { display: "flex", gap: 8, marginBottom: 24, flexWrap: "wrap" },
   tabBtn: { padding: "10px 20px", backgroundColor: "#f3f4f6", border: "2px solid #e5e7eb", borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: "pointer", color: "#374151" },
-  tabBtnActive: { backgroundColor: BRAND.blue, color: "#fff", borderColor: BRAND.blue },
+  tabBtnActive: { backgroundColor: "#0b3ea8", color: "#fff", borderColor: "#0b3ea8" },
   tabContent: { backgroundColor: "#fff", borderRadius: 16, padding: 28, boxShadow: "0 1px 8px rgba(0,0,0,0.06)" },
   uploadZone: { border: "3px dashed #d1d5db", borderRadius: 16, padding: "40px 24px", textAlign: "center", marginBottom: 28, backgroundColor: "#f9fafb" },
   uploadTitle: { fontSize: 18, fontWeight: 800, color: "#111", marginBottom: 8 },
   uploadSub: { fontSize: 14, color: "#6b7280", maxWidth: 480, margin: "0 auto 20px" },
-  uploadBtn: { padding: "12px 28px", backgroundColor: BRAND.blue, color: "#fff", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer" },
+  uploadBtn: { padding: "12px 28px", backgroundColor: "#0b3ea8", color: "#fff", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer" },
   addPhotoForm: { backgroundColor: "#f0f9ff", border: "2px solid #bae6fd", borderRadius: 14, padding: 24, marginBottom: 28 },
   addPhotoGrid: { display: "grid", gridTemplateColumns: "200px 1fr", gap: 24, alignItems: "start" },
   previewImg: { width: "100%", height: 180, objectFit: "cover", borderRadius: 10 },
@@ -560,7 +563,7 @@ const styles = {
   toggleOff: { padding: "10px 20px", backgroundColor: "#f3f4f6", color: "#6b7280", border: "2px solid #e5e7eb", borderRadius: 8, fontSize: 14, fontWeight: 800, cursor: "pointer" },
   previewBox: { backgroundColor: "#f8fafc", borderRadius: 10, padding: 16, marginBottom: 20 },
   previewLabel: { fontSize: 11, fontWeight: 800, color: "#9ca3af", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 },
-  saveBtn: { padding: "13px 28px", backgroundColor: BRAND.orange, color: "#fff", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer" },
+  saveBtn: { padding: "13px 28px", backgroundColor: "#fc6b04", color: "#fff", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer" },
   cancelBtn: { padding: "13px 20px", backgroundColor: "#f3f4f6", color: "#374151", border: "2px solid #e5e7eb", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer" },
   modalOverlay: { position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 },
   modal: { backgroundColor: "#fff", borderRadius: 16, padding: 28, width: "100%", maxWidth: 480, boxShadow: "0 8px 40px rgba(0,0,0,0.2)" },

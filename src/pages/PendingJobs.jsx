@@ -4,14 +4,10 @@ import DesktopHeader from "../Components/DesktopHeader";
 
 import { formatDate } from "../utils/dateUtils";
 import { notify, confirmDialog } from '../lib/notify';
-
-const BRAND = {
-  bg: "#0b3ea8",
-  primary: "#fc6b04ff",
-  danger: "#f97316",
-};
+import { useBrand } from "../lib/useBrand";
 
 export default function PendingJobs() {
+  const BRAND = useBrand();
   const [loading, setLoading] = useState(true);
   const [pendingJobs, setPendingJobs] = useState([]);
   const [projects, setProjects] = useState([]);

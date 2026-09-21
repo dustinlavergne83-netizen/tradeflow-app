@@ -15,10 +15,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
 
-const BRAND = {
-  bg: "#0b3ea8",
-  primary: "#fc6b04ff",
-};
+import { useBrand } from "../lib/useBrand";
 
 // Child component that listens for map clicks and handles flying to a new center
 function LocationMarker({ position, setPosition, flyTo }) {
@@ -40,6 +37,7 @@ function LocationMarker({ position, setPosition, flyTo }) {
 }
 
 export default function ProjectGeofence() {
+  const BRAND = useBrand();
   const { projectId } = useParams();
   const nav = useNavigate();
   const [project, setProject] = useState(null);

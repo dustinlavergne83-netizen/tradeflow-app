@@ -4,14 +4,16 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { formatDate } from "../utils/dateUtils";
 import { notify } from '../lib/notify';
+import { useBrand } from "../lib/useBrand";
 
-const BRAND = {
+const STATIC_BRAND = {
   bg: "#0b3ea8",
   text: "#f97316",
   accent: "#fc6b04ff",
 };
 
 export default function ProgressBilling() {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const navigate = useNavigate();
   const { projectId } = useParams();
   const [searchParams] = useSearchParams();
@@ -846,7 +848,7 @@ export default function ProgressBilling() {
 
   if (loading) {
     return (
-      <div style={styles.container}>
+      <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
         <div style={styles.loading}>Loading...</div>
       </div>
     );
@@ -854,7 +856,7 @@ export default function ProgressBilling() {
 
   if (!estimate) {
     return (
-      <div style={styles.container}>
+      <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
         <div style={styles.error}>Estimate not found</div>
         <button onClick={() => navigate(-1)} style={styles.button}>Go Back</button>
       </div>
@@ -865,7 +867,7 @@ export default function ProgressBilling() {
   const percentThisDraw = totalContractValue > 0 ? (currentBillingAmount / totalContractValue) * 100 : 0;
 
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
       <div style={styles.header}>
         <div>
           <h1 style={styles.title}>📊 Progress Invoice</h1>
@@ -1421,7 +1423,7 @@ const styles = {
     maxWidth: 900,
     margin: "0 auto",
     minHeight: "100vh",
-    backgroundColor: BRAND.bg,
+    backgroundColor: STATIC_BRAND.bg,
   },
   header: {
     display: "flex",

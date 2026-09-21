@@ -3,13 +3,15 @@ import { supabase } from "../lib/supabase";
 
 import { formatDate } from "../utils/dateUtils";
 import { notify, confirmDialog } from '../lib/notify';
+import { useBrand } from "../lib/useBrand";
 
-const BRAND = {
+const STATIC_BRAND = {
   bg: "#0b3ea8",
   primary: "#fc6b04ff",
 };
 
 export default function Employees() {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showInviteForm, setShowInviteForm] = useState(false);
@@ -353,7 +355,7 @@ export default function Employees() {
   }
 
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
       
       <div style={styles.content}>
         <div style={styles.headerSection}>
@@ -1123,7 +1125,7 @@ export default function Employees() {
 
 const styles = {
   container: {
-    backgroundColor: BRAND.bg,
+    backgroundColor: STATIC_BRAND.bg,
     minHeight: "100vh",
     paddingTop: 120,
   },

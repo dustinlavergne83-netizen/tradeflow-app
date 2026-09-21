@@ -15,13 +15,16 @@ import { formatDate } from "../utils/dateUtils";
 import { notify, confirmDialog, promptDialog } from '../lib/notify';
 import { loadAvailableDeposits, resolveProjectId } from '../lib/deposits';
 
-const BRAND = {
+import { useBrand } from "../lib/useBrand";
+
+const STATIC_BRAND = {
   bg: "#0b3ea8",
   text: "#f97316",
   accent: "#fc6b04ff",
 };
 
 export default function Invoice() {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const invoiceId = searchParams.get("invoiceId");
@@ -1298,7 +1301,7 @@ export default function Invoice() {
 
   if (loading) {
     return (
-      <div style={styles.container}>
+      <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
         <div style={styles.loading}>Loading invoice...</div>
       </div>
     );
@@ -1306,7 +1309,7 @@ export default function Invoice() {
 
   if (!invoice) {
     return (
-      <div style={styles.container}>
+      <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
         <div style={styles.error}>Invoice not found</div>
         <button onClick={() => navigate(projectId ? `/project/${projectId}` : -1)} style={styles.button}>
           Go Back
@@ -1320,7 +1323,7 @@ export default function Invoice() {
   const balanceDue = subtotal - totalDeductions;
 
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
       <div style={styles.header}>
         <h1 style={styles.title}>Invoice #{invoiceNumber}</h1>
         <div style={{display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'flex-end'}}>
@@ -2220,7 +2223,7 @@ const styles = {
     maxWidth: 1200,
     margin: "0 auto",
     minHeight: "100vh",
-    backgroundColor: BRAND.bg,
+    backgroundColor: STATIC_BRAND.bg,
   },
   header: {
     display: "flex",

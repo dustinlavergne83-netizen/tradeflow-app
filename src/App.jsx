@@ -1,8 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, Component } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
-import { AuthProvider } from "./contexts/AuthContext";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import GlobalNotifications from "./Components/GlobalNotifications";
 import { notify } from "./lib/notify";
+import { useBrand } from "./lib/useBrand";
 import ProtectedRoute from "./Components/ProtectedRoute";
 import CustomerRoute from "./Components/CustomerRoute";
 import SignIn from "./pages/SignIn";
@@ -10,6 +11,8 @@ import SignUp from "./pages/SignUp";
 import ProfileSetup from "./pages/ProfileSetup";
 import Home from "./pages/Home";
 import Landing from "./pages/Landing";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
+import TermsOfService from "./pages/TermsOfService";
 import TimeClock from "./pages/TimeClock";
 import WeeklyTotals from "./pages/WeeklyTotals";
 import EmployeeTimesheets from "./pages/EmployeeTimesheets";
@@ -104,6 +107,7 @@ import EmployeePortal from "./pages/employee/EmployeePortal";
 const NO_HEADER_PATHS = new Set([
   "/set-password",
   "/",
+  "/welcome",
   "/proposal/commercial-public",
   "/invoice/commercial-public",
   "/invoice/view",
@@ -143,14 +147,80 @@ function isPortalPath(path) {
   return parts.length === 1 || (parts.length === 2 && PORTAL_SUB_PAGES.has(parts[1]));
 }
 
+// Catches any render-time error anywhere in the route tree and shows a
+// readable message + reload button instead of a silent blank page. Without
+// this, a bug like a conditional React hook (e.g. the old Landing.jsx gate
+// that crashed only on the DT deployment) unmounts the entire app with zero
+// on-screen indication of what happened.
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    console.error("Unhandled render error:", error, info);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{
+          minHeight: "100vh", display: "flex", flexDirection: "column",
+          alignItems: "center", justifyContent: "center", gap: 16,
+          padding: 24, textAlign: "center", background: "#111827", color: "#fff",
+        }}>
+          <h2 style={{ margin: 0 }}>Something went wrong</h2>
+          <p style={{ margin: 0, maxWidth: 480, color: "#d1d5db", fontSize: 14 }}>
+            {this.state.error?.message || String(this.state.error)}
+          </p>
+          <button
+            onClick={() => { this.setState({ error: null }); window.location.href = "/"; }}
+            style={{
+              padding: "10px 20px", borderRadius: 8, border: "none",
+              background: "#fc6b04", color: "#fff", fontWeight: 700, cursor: "pointer",
+            }}
+          >
+            Reload
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// Root route ("/") always goes straight to sign-in (or the dashboard, if a
+// session already exists) for every deployment — DML included. The DML
+// public marketing website (previously shown at "/") now lives at
+// /welcome only; see Landing.jsx and DesktopHeader's "🌐 Website" button.
+function RootRedirect() {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  return <Navigate to={user ? "/dashboard" : "/signin"} replace />;
+}
+
 function AppContent() {
   const location = useLocation();
   const path = location.pathname;
+  const brand = useBrand();
 
   // Replace all native browser alert() calls app-wide with styled toasts
   useEffect(() => {
     window.alert = (msg) => notify(String(msg ?? ''));
   }, []);
+
+  // Global page background is hardcoded to DML blue in index.css (:root, body,
+  // #root) so every page — even ones that don't set their own background —
+  // showed DML's blue for every company, including DT Specialties (purple).
+  // Override it here at runtime once the company's brand color is known.
+  useEffect(() => {
+    document.documentElement.style.backgroundColor = brand.bg;
+    document.body.style.backgroundColor = brand.bg;
+    const root = document.getElementById("root");
+    if (root) root.style.backgroundColor = brand.bg;
+  }, [brand.bg]);
 
   const isNoHeader =
     NO_HEADER_PATHS.has(path) ||
@@ -165,8 +235,13 @@ function AppContent() {
       <div className={isNoHeader ? "" : "content"}>
         <Routes>
           {/* ── Public website ──────────────────────────────────────────── */}
-          <Route path="/" element={<Landing />} />
+          <Route path="/" element={<RootRedirect />} />
           <Route path="/welcome" element={<Landing />} />
+          {/* Public legal pages — required for Google Play / App Store listings
+              and Twilio A2P 10DLC campaign registration. Pass ?company=dml or
+              ?company=dt-specialties to render the right brand/contact info. */}
+          <Route path="/privacy" element={<PrivacyPolicy />} />
+          <Route path="/terms" element={<TermsOfService />} />
 
           {/* ── Auth (employees/admin) ───────────────────────────────────── */}
           <Route path="/signin" element={<SignIn />} />
@@ -811,10 +886,12 @@ function AppContent() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <AppContent />
-      </BrowserRouter>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <BrowserRouter>
+          <AppContent />
+        </BrowserRouter>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }

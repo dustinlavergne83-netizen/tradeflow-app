@@ -5,7 +5,9 @@ import { useAuth } from "../contexts/AuthContext";
 import { formatDate } from "../utils/dateUtils";
 import { notify, confirmDialog } from '../lib/notify';
 
-const BRAND = {
+import { useBrand } from "../lib/useBrand";
+
+const STATIC_BRAND = {
   bg: "#0b3ea8",
   text: "#f97316", 
   accent: "#fc6b04ff",
@@ -13,6 +15,7 @@ const BRAND = {
 };
 
 export default function ProjectInfoSheet() {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -154,10 +157,10 @@ export default function ProjectInfoSheet() {
   }
 
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
       <div style={styles.header}>
         <div>
-          <h1 style={styles.title}>📄 Info Sheets</h1>
+          <h1 style={{ ...styles.title, color: BRAND.text }}>📄 Info Sheets</h1>
           <p style={styles.subtitle}>Project: {project.name}</p>
         </div>
         <div style={{display: 'flex', gap: 12}}>
@@ -167,7 +170,7 @@ export default function ProjectInfoSheet() {
               setSheetForm({ title: '', content: '', sheet_date: new Date().toISOString().split('T')[0] });
               setShowAddSheetModal(true);
             }}
-            style={styles.addButton}
+            style={{ ...styles.addButton, backgroundColor: BRAND.accent }}
           >
             + New Info Sheet
           </button>
@@ -193,7 +196,7 @@ export default function ProjectInfoSheet() {
                   setSheetForm({ title: '', content: '', sheet_date: new Date().toISOString().split('T')[0] });
                   setShowAddSheetModal(true);
                 }}
-                style={styles.primaryButton}
+                style={{ ...styles.primaryButton, backgroundColor: BRAND.accent }}
               >
                 Create Your First Info Sheet
               </button>
@@ -313,7 +316,7 @@ export default function ProjectInfoSheet() {
               </button>
               <button
                 onClick={handleSaveSheet}
-                style={{...styles.primaryButton, opacity: saving ? 0.6 : 1}}
+                style={{...styles.primaryButton, backgroundColor: BRAND.accent, opacity: saving ? 0.6 : 1}}
                 disabled={saving}
               >
                 {saving ? '⏳ Saving...' : (editingSheet ? '💾 Update Sheet' : '💾 Create Sheet')}
@@ -343,6 +346,7 @@ export default function ProjectInfoSheet() {
 }
 
 function InfoSheetFileUploadModal({ isOpen, onClose, projectId, infoSheetId, sheetTitle, uploading, setUploading }) {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const { user } = useAuth();
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [fileDescriptions, setFileDescriptions] = useState({});
@@ -605,7 +609,7 @@ const styles = {
     maxWidth: 1200,
     margin: "0 auto",
     minHeight: "100vh",
-    backgroundColor: BRAND.bg,
+    backgroundColor: STATIC_BRAND.bg,
   },
   header: {
     display: "flex",
@@ -615,7 +619,7 @@ const styles = {
   },
   title: {
     fontSize: 36,
-    color: BRAND.text,
+    color: STATIC_BRAND.text,
     margin: 0,
     marginBottom: 8,
   },
@@ -635,7 +639,7 @@ const styles = {
   },
   addButton: {
     padding: "10px 20px",
-    backgroundColor: BRAND.accent,
+    backgroundColor: STATIC_BRAND.accent,
     border: "none",
     color: "#fff",
     borderRadius: 8,
@@ -664,7 +668,7 @@ const styles = {
   },
   primaryButton: {
     padding: "12px 24px",
-    backgroundColor: BRAND.accent,
+    backgroundColor: STATIC_BRAND.accent,
     border: "none",
     color: "#fff",
     borderRadius: 8,

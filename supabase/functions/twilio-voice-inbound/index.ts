@@ -101,10 +101,21 @@ serve(async (req) => {
   const FROM_EMAIL      = Deno.env.get('RESEND_FROM_EMAIL') || 'notifications@dmlelectrical.com'
 
   // Notification number = business line (receives Twilio SMS natively)
-  const NOTIFY_NUMBER = BUSINESS_NUMBER  // +13372880395
+  const NOTIFY_NUMBER = BUSINESS_NUMBER
 
-  // AT&T email-to-SMS gateway for business phone (+13372880395)
-  const ATT_SMS_EMAIL = '3372880395@txt.att.net'
+  // Caller ID for forwarded/bridged legs. This was BUSINESS_NUMBER, which for
+  // DT is +13372880395 - the very phone the call forwards TO. The result was
+  // your own number appearing to call you, hiding the real customer number.
+  // Twilio requires callerId be a number the account owns/verified, so we use
+  // the Twilio line that was actually dialed (DT: +13377171182).
+  const CALLER_ID = TWILIO_NUMBER || BUSINESS_NUMBER
+
+  // Optional carrier email-to-SMS gateway for the owner phone. This used to
+  // be HARDCODED to 3372880395@txt.att.net (DML business line), so every
+  // AI-screened call for EVERY company texted that one number - DT Specialties
+  // calls were blasting texts at a DML phone. Now opt-in per company via
+  // twilio_config.sms_gateway_email, and omitted entirely when unset.
+  const SMS_GATEWAY_EMAIL: string = cfg.sms_gateway_email || ''
 
   // Helper: send notification via Resend → AT&T email-to-SMS gateway (delivers as text)
   async function notifyOwner(subject: string, bodyText: string) {
@@ -113,7 +124,8 @@ serve(async (req) => {
       return
     }
     try {
-      const recipients = [ATT_SMS_EMAIL, ADMIN_EMAIL]
+      const recipients = [SMS_GATEWAY_EMAIL, ADMIN_EMAIL].filter(Boolean)
+      if (recipients.length === 0) return
       console.log('Sending notify email via Resend to', recipients.join(', '))
       const r = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -205,7 +217,7 @@ serve(async (req) => {
       const greeting = customerName ? `Sure thing! Hold on just a second, I'll connect you to ${OWNER_NAME} right now.` : `One moment, connecting you now.`
       return twiml(`
         <Say voice="Polly.Joanna-Neural">${greeting}</Say>
-        <Dial callerId="${BUSINESS_NUMBER}" action="${actionUrl}">
+        <Dial callerId="${CALLER_ID}" action="${actionUrl}">
           <Number url="${xu(whisperUrl)}">${PERSONAL_CELL}</Number>
         </Dial>
         <Say voice="Polly.Joanna-Neural">Looks like ${OWNER_NAME} isn't available right now. Please leave a message after the tone and he'll call you right back.</Say>
@@ -275,7 +287,7 @@ serve(async (req) => {
         : ''
       return twiml(`
         <Say voice="Polly.Joanna-Neural">Sure thing! Connecting you to ${match.name} now.</Say>
-        <Dial callerId="${BUSINESS_NUMBER}" action="${actionUrl}">
+        <Dial callerId="${CALLER_ID}" action="${actionUrl}">
           ${clientLeg}
           <Number url="${xu(whisperUrl)}">${match.number}</Number>
         </Dial>
@@ -361,7 +373,7 @@ serve(async (req) => {
       const whisperUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/twilio-voice-inbound?step=whisper&from=EMERGENCY`
       return twiml(`
         <Say voice="Polly.Joanna-Neural">Oh wow, that sounds like an emergency. Let me get ${OWNER_NAME} on the line right now — please hold just a moment.</Say>
-        <Dial callerId="${BUSINESS_NUMBER}" action="${statusUrl}">
+        <Dial callerId="${CALLER_ID}" action="${statusUrl}">
           <Number url="${xu(whisperUrl)}">${PERSONAL_CELL}</Number>
         </Dial>
         <Say voice="Polly.Joanna-Neural">I'm so sorry — ${OWNER_NAME} isn't picking up right now. If this is life-threatening, please call 9-1-1 immediately. Otherwise, please leave a message after the tone.</Say>
@@ -406,7 +418,7 @@ Return valid JSON only.`
           .eq('call_sid', sid)
         return twiml(`
           <Say voice="Polly.Joanna-Neural">Oh, that sounds really urgent. Let me connect you to ${OWNER_NAME} right now — just one moment.</Say>
-          <Dial callerId="${BUSINESS_NUMBER}" action="${statusUrl}">
+          <Dial callerId="${CALLER_ID}" action="${statusUrl}">
             <Number url="${xu(whisperUrl)}">${PERSONAL_CELL}</Number>
           </Dial>
           <Say voice="Polly.Joanna-Neural">I'm sorry — ${OWNER_NAME} isn't available at the moment. Please leave a message after the tone and he'll get back to you as soon as possible.</Say>

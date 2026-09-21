@@ -6,13 +6,16 @@ import { useAuth } from "../contexts/AuthContext";
 import { formatDate } from "../utils/dateUtils";
 import { notify } from '../lib/notify';
 
-const BRAND = {
+import { useBrand } from "../lib/useBrand";
+
+const STATIC_BRAND = {
   bg: "#0b3ea8",
   text: "#f97316",
   accent: "#fc6b04ff",
 };
 
 export default function InvoiceDetailedReport() {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const invoiceId = searchParams.get("invoiceId");
@@ -298,7 +301,7 @@ export default function InvoiceDetailedReport() {
   const grandTotal = laborTotal + materialsTotal;
 
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
       <div style={styles.header}>
         <h1 style={styles.title}>Invoice Detailed Report</h1>
         <div style={{ display: "flex", gap: 12 }}>
@@ -581,7 +584,7 @@ const styles = {
     maxWidth: 1200,
     margin: "0 auto",
     minHeight: "100vh",
-    backgroundColor: BRAND.bg,
+    backgroundColor: STATIC_BRAND.bg,
   },
   header: {
     display: "flex",

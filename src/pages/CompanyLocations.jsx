@@ -6,6 +6,8 @@ import DesktopHeader from "../Components/DesktopHeader";
 import { MapContainer, TileLayer, Circle, Marker, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
+import { useBrand } from "../lib/useBrand";
+
 import { notify, confirmDialog } from '../lib/notify';
 
 delete L.Icon.Default.prototype._getIconUrl;
@@ -14,8 +16,6 @@ L.Icon.Default.mergeOptions({
   iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
   shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
 });
-
-const BRAND = { bg: "#0b3ea8", primary: "#fc6b04ff" };
 
 // ── Map helper (must be outside parent too) ───────────────────────────────────
 function LocationMarker({ position, setPosition, flyTo }) {
@@ -38,6 +38,7 @@ function FenceCard({
   onToggleExpand, onUpdateNotif, onToggleEmployee, onSaveNotif,
   onEditLoc, onDeleteLoc, onNavEdit,
 }) {
+  const BRAND = useBrand();
   const key = `${fenceType}:${fence.id}`;
   const isExpanded = expandedCard === key;
   const hasGeo = fence.geofence_latitude && fence.geofence_longitude;
@@ -221,6 +222,7 @@ function FenceCard({
 const EMPTY_LOC_FORM = { name: "", geofence_radius_meters: 200, geofence_enabled: false };
 
 export default function CompanyLocations() {
+  const BRAND = useBrand();
   const nav = useNavigate();
   const { user } = useAuth();
 

@@ -8,7 +8,9 @@ import PDFRenderer from '../Components/PDFRenderer';
 import { loadMaterials as loadMaterialsFromCSV } from '../data/materials';
 import { notify, confirmDialog } from '../lib/notify';
 
-const BRAND = {
+import { useBrand } from '../lib/useBrand';
+
+const STATIC_BRAND = {
   bg: '#0b3ea8',
   text: '#f97316',
   accent: '#fc6b04ff',
@@ -39,6 +41,7 @@ const SCALES = [
   { label: '1" = 30\'-0" (Site Plan)', inchesPerFoot: 1/30 },
 ];
 export default function Takeoff() {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const { projectId } = useParams();
   const [searchParams] = useSearchParams();
   const planId = searchParams.get('planId');
@@ -4813,9 +4816,9 @@ onmessage = function(e) {
     <div ref={containerRef} style={styles.container}>
       {/* Header - Hidden in fullscreen */}
       {!isFullscreen && (
-        <div style={styles.header}>
+        <div style={{ ...styles.header, backgroundColor: BRAND.bg }}>
           <div>
-            <h1 style={styles.title}>Digital Takeoff</h1>
+            <h1 style={{ ...styles.title, color: BRAND.text }}>Digital Takeoff</h1>
             <p style={styles.subtitle}>{plan?.plan_name || 'Loading...'}</p>
           </div>
           <div style={{ display: 'flex', gap: 12 }}>
@@ -5613,7 +5616,7 @@ onmessage = function(e) {
                      measurement.measurement_type === 'area' ? '⬜' : '🎯'}
                     {measurement.measurement_type}
                   </div>
-                  <div style={styles.measurementValue}>
+                  <div style={{ ...styles.measurementValue, color: BRAND.accent }}>
                     {measurement.calculated_value?.toFixed(2)} {measurement.unit}
                   </div>
                   {measurement.label && (
@@ -8590,12 +8593,12 @@ const styles = {
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: '20px 24px',
-    backgroundColor: BRAND.bg,
+    backgroundColor: STATIC_BRAND.bg,
     color: '#fff',
   },
   title: {
     fontSize: 28,
-    color: BRAND.text,
+    color: STATIC_BRAND.text,
     margin: 0,
     marginBottom: 4,
   },
@@ -8915,7 +8918,7 @@ const styles = {
   measurementValue: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: BRAND.accent,
+    color: STATIC_BRAND.accent,
     marginBottom: 2,
   },
   measurementLabel: {

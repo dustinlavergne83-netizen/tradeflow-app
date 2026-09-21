@@ -2,10 +2,10 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { confirmDialog } from '../lib/notify';
-
-const BRAND = { bg: "#0b3ea8" };
+import { useBrand } from "../lib/useBrand";
 
 export default function CheckStubsBrowser() {
+  const BRAND = useBrand();
   const navigate = useNavigate();
   const [message, setMessage] = useState({ type: "", text: "" });
 

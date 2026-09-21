@@ -3,8 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { formatDate } from "../utils/dateUtils";
 import { confirmDialog } from '../lib/notify';
+import { useBrand } from "../lib/useBrand";
 
-const BRAND = {
+// Static fallback colors — overridden per-company inside the component via
+// useBrand() so DT Specialties (purple/gold) doesn't render DML's blue/orange.
+const STATIC_BRAND = {
   bg: "#0b3ea8",
   primary: "#fc6b04ff",
   ai: "#7c3aed",
@@ -49,6 +52,7 @@ async function loadPdfJs() {
 }
 
 export default function CheckStubs() {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const navigate = useNavigate();
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1168,7 +1172,7 @@ export default function CheckStubs() {
 
 const styles = {
   container: {
-    backgroundColor: BRAND.bg,
+    backgroundColor: STATIC_BRAND.bg,
     minHeight: "100vh",
     paddingTop: 120,
   },

@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Navigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useEffect, useState } from "react";
 import logo from "../assets/LOGOD.jpg";
@@ -78,6 +78,18 @@ const serviceAreas = [
   "Abbeville", "New Iberia", "Morgan City", "Franklin",
 ];
 
+// This page is hardcoded DML Electrical marketing content (name, phone,
+// services, testimonials, logo) and was never converted for multi-tenant
+// companies like DT Specialties. It now lives at /welcome instead of "/" —
+// the root route always goes straight to sign-in (or the dashboard, if
+// already signed in) for every deployment, DML included. See App.jsx.
+//
+// NOTE: this component used to gate itself with an early `return null`
+// placed between two useEffect() calls (conditional hook — React error
+// "Rendered fewer hooks than expected"). On the DT deployment that crashed
+// the whole render tree with no ErrorBoundary to catch it, producing a
+// blank page. Do not reintroduce an early return above any hooks here.
+
 export default function Landing() {
   const navigate = useNavigate();
   const { user, employee, customer, loading } = useAuth();
@@ -87,8 +99,8 @@ export default function Landing() {
   const [activeFilter, setActiveFilter] = useState("all");
 
   useEffect(() => {
-    if (!loading && user) {
-      if (customer) navigate("/customer/portal");
+    if (!loading && user && customer) {
+      navigate("/customer/portal");
       // Employees can view the landing page (public website preview) - don't redirect them
       // The orange banner at the top lets them return to the dashboard
     }

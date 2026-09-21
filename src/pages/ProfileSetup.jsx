@@ -3,13 +3,15 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import logo from "../assets/LOGOD.jpg";
+import { useBrand } from "../lib/useBrand";
 
-const BRAND = {
+const STATIC_BRAND = {
   bg: "#0b3ea8",
   primary: "#fc6b04ff",
 };
 
 export default function ProfileSetup() {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const navigate = useNavigate();
   const { employee, user } = useAuth();
   const [form, setForm] = useState({
@@ -71,7 +73,7 @@ export default function ProfileSetup() {
   }
 
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
       <div style={styles.card}>
         <div style={styles.logoContainer}>
           <img src={logo} alt="Logo" style={styles.logo} />
@@ -229,7 +231,7 @@ export default function ProfileSetup() {
 
 const styles = {
   container: {
-    backgroundColor: BRAND.bg,
+    backgroundColor: STATIC_BRAND.bg,
     minHeight: "100vh",
     display: "flex",
     alignItems: "center",

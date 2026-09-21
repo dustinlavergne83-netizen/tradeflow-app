@@ -5,7 +5,9 @@ import { useNavigate } from "react-router-dom";
 import DesktopHeader from "../Components/DesktopHeader";
 import { notify, confirmDialog } from '../lib/notify';
 
-const BRAND = { bg: "#0b3ea8", accent: "#fc6b04", green: "#16a34a", red: "#ef4444" };
+import { useBrand } from "../lib/useBrand";
+
+const STATIC_BRAND = { bg: "#0b3ea8", accent: "#fc6b04", green: "#16a34a", red: "#ef4444" };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function elapsed(iso) {
@@ -41,6 +43,7 @@ function toYMD(date) {
 
 // ─── Tab Button ─────────────────────────────────────────────────────────────
 function TabBtn({ label, active, onClick }) {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   return (
     <button
       onClick={onClick}
@@ -64,6 +67,7 @@ function TabBtn({ label, active, onClick }) {
 
 // ═══════════════════════════════════════════════════════════════════════════
 export default function TimeclockAdmin() {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const { employee, isAdmin } = useAuth();
   const navigate = useNavigate();
   const [tab, setTab] = useState("live");
@@ -119,6 +123,7 @@ export default function TimeclockAdmin() {
 // TAB 1: LIVE
 // ═══════════════════════════════════════════════════════════════════════════
 function LiveTab({ companyId }) {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const [clockedIn, setClockedIn] = useState([]);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState(new Date());
@@ -241,6 +246,7 @@ function LiveTab({ companyId }) {
 // TAB 2: TIMESHEETS
 // ═══════════════════════════════════════════════════════════════════════════
 function TimesheetsTab({ companyId }) {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const today = toYMD(new Date());
   const weekAgo = toYMD(new Date(Date.now() - 7 * 86400000));
 
@@ -387,6 +393,7 @@ function TimesheetsTab({ companyId }) {
 // TAB 3: JOB LIST
 // ═══════════════════════════════════════════════════════════════════════════
 function JobsTab({ companyId }) {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState("");
@@ -507,6 +514,7 @@ function JobsTab({ companyId }) {
 }
 
 function JobRow({ job, editId, editName, setEditId, setEditName, saving, onSave, onToggle, onDelete }) {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const isEditing = editId === job.id;
   const isActive = job.status === "active";
 
@@ -573,6 +581,7 @@ function JobRow({ job, editId, editName, setEditId, setEditName, saving, onSave,
 // TAB 4: EMPLOYEES
 // ═══════════════════════════════════════════════════════════════════════════
 function EmployeesTab({ companyId }) {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const [employees, setEmployees] = useState([]);
   const [clockedIn, setClockedIn] = useState(new Set());
   const [loading, setLoading] = useState(true);

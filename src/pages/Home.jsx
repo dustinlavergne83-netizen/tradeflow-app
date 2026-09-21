@@ -8,7 +8,15 @@ import { useBrand } from "../lib/useBrand";
 
 export default function Home() {
   const navigate = useNavigate();
-  const { isAdmin, user } = useAuth();
+  const { isAdmin, user, employee } = useAuth();
+  // Single source of truth for company scoping — same field AuthContext uses
+  // for branding (via useBrand → employees.company_id). The old code re-fetched
+  // company_id from a "profiles" table that has no such column, so it was
+  // always undefined and every dashboard query below ran completely
+  // unfiltered, leaking every company's financial data into every other
+  // company's dashboard. Every query below must now filter on this value,
+  // and must show nothing (not everything) when it's unavailable.
+  const companyId = employee?.company_id || null;
   const BRAND = useBrand();
   const [stats, setStats] = useState({
     activeProjects: 0,
@@ -37,13 +45,13 @@ export default function Home() {
     loadDashboardData();
     loadActiveProjectsList();
     loadWeeklyGridData();
-  }, [user]);
+  }, [user, companyId]);
 
   useEffect(() => {
     if (user) {
       loadFinancialChartData(selectedPeriod, accountingBasis);
     }
-  }, [user, selectedPeriod, accountingBasis]);
+  }, [user, companyId, selectedPeriod, accountingBasis]);
 
   function formatTime(isoTime) {
     if (!isoTime) return "";
@@ -60,38 +68,40 @@ export default function Home() {
 
   async function loadDashboardData() {
     try {
-      // Get user's company_id from profile
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("company_id")
-        .eq("id", user?.id)
-        .single();
+      // No company resolved yet (still loading, or user isn't tied to a
+      // company) — show nothing rather than every company's data.
+      if (!companyId) {
+        setStats({
+          activeProjects: 0,
+          totalInvoices: 0,
+          outstandingAmount: 0,
+          paidAmount: 0,
+          totalRevenue: 0,
+          estimatedProfit: 0,
+          activeEmployees: 0,
+        });
+        setClockedInEmployees([]);
+        setLoading(false);
+        return;
+      }
 
-      const companyId = profile?.company_id;
-      console.log("Dashboard loading for company_id:", companyId);
-
-      // If no company_id, try loading without filter
       let projectsQuery = supabase
         .from("projects")
         .select("id, status", { count: "exact" })
-        .in("status", ["Active", "active", "In Progress", "in progress", "In-Progress", "in-progress"]);
-      
+        .in("status", ["Active", "active", "In Progress", "in progress", "In-Progress", "in-progress"])
+        .eq("company_id", companyId);
+
       let invoicesQuery = supabase
         .from("invoices")
-        .select("total, status, amount_paid, deposit_received, balance_due");
-      
+        .select("total, status, amount_paid, deposit_received, balance_due")
+        .eq("company_id", companyId);
+
       let employeesQuery = supabase
         .from("employees")
         .select("id", { count: "exact", head: true })
         .eq("is_active", true)
+        .eq("company_id", companyId)
         .or("archived.is.null,archived.eq.false");
-
-      // Add company_id filter if available
-      if (companyId) {
-        projectsQuery = projectsQuery.eq("company_id", companyId);
-        invoicesQuery = invoicesQuery.eq("company_id", companyId);
-        employeesQuery = employeesQuery.eq("company_id", companyId);
-      }
 
       // Load stats
       const [projectsData, invoicesData, employeesData] = await Promise.all([
@@ -156,26 +166,18 @@ export default function Home() {
 
   async function loadActiveProjectsList() {
     try {
-      // Get user's company_id from profile
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("company_id")
-        .eq("id", user?.id)
-        .single();
-
-      const companyId = profile?.company_id;
+      if (!companyId) {
+        setActiveProjects([]);
+        return;
+      }
 
       // Load active projects with all details
       let projectsQuery = supabase
         .from("projects")
         .select("id, name, customer, contractor, address, status, percent_complete, active_worth, budget")
         .in("status", ["Active", "active", "In Progress", "in progress", "In-Progress", "in-progress"])
+        .eq("company_id", companyId)
         .order("name", { ascending: true });
-
-      // Add company_id filter if available
-      if (companyId) {
-        projectsQuery = projectsQuery.eq("company_id", companyId);
-      }
 
       const { data: projects, error } = await projectsQuery;
 
@@ -194,6 +196,11 @@ export default function Home() {
 
   async function loadClockedInEmployees(companyId) {
     try {
+      if (!companyId) {
+        setClockedInEmployees([]);
+        return;
+      }
+
       // Find shifts where clock_in is set but clock_out is null (currently clocked in)
       let shiftsQuery = supabase
         .from("shifts")
@@ -211,6 +218,7 @@ export default function Home() {
             user_id
           )
         `)
+        .eq("company_id", companyId)
         .is("clock_out", null)
         .order("clock_in", { ascending: false });
 
@@ -270,19 +278,33 @@ export default function Home() {
     return periods[periodLabel] || periods['This Month'];
   }
 
+  // bank_transactions has no company_id column of its own — it's scoped
+  // through bank_accounts.company_id. Returns the bank_account ids that
+  // belong to this company, or a sentinel that matches nothing if there
+  // are none, so callers can safely .in("bank_account_id", ids).
+  async function getCompanyBankAccountIds(companyId) {
+    if (!companyId) return ["00000000-0000-0000-0000-000000000000"];
+    const { data } = await supabase
+      .from("bank_accounts")
+      .select("id")
+      .eq("company_id", companyId);
+    const ids = (data || []).map(a => a.id);
+    return ids.length > 0 ? ids : ["00000000-0000-0000-0000-000000000000"];
+  }
+
   async function loadFinancialChartData(periodLabel, basis = 'cash') {
     try {
-      // Get company_id first — used to scope invoice and payment queries
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("company_id")
-        .eq("id", user?.id)
-        .single();
-      const companyId = profile?.company_id;
+      if (!companyId) {
+        setFinancialData(null);
+        setPeriodInvoices([]);
+        setPeriodDeposits([]);
+        return;
+      }
 
       const period = getPeriodDates(periodLabel);
       const startDate = toLocalDateString(period.start);
       const endDate = toLocalDateString(period.end);
+      const companyBankAccountIds = await getCompanyBankAccountIds(companyId);
 
       let income = 0;
       let expenses = 0;
@@ -298,6 +320,7 @@ export default function Home() {
         const { data: invoicePayments, error: ipError } = await supabase
           .from("invoice_payments")
           .select("amount, processing_fee, net_amount, payment_date, invoice_id")
+          .eq("company_id", companyId)
           .gte("payment_date", startDate)
           .lte("payment_date", endDate);
 
@@ -317,6 +340,7 @@ export default function Home() {
         const { data: clearedDeposits } = await supabase
           .from("bank_transactions")
           .select("id, amount, transaction_date, description, payee")
+          .in("bank_account_id", companyBankAccountIds)
           .eq("is_cleared", true)
           .gt("amount", 0)
           .gte("transaction_date", startDate)
@@ -337,8 +361,9 @@ export default function Home() {
           .select(`
             debit, credit,
             accounts!inner(account_type, account_name),
-            journal_entries!inner(entry_date, is_posted, reference_type, reference_id)
+            journal_entries!inner(entry_date, is_posted, reference_type, reference_id, company_id)
           `)
+          .eq("journal_entries.company_id", companyId)
           .eq("journal_entries.is_posted", true)
           .gte("journal_entries.entry_date", startDate)
           .lte("journal_entries.entry_date", endDate);
@@ -360,6 +385,7 @@ export default function Home() {
         const { data: directExp } = await supabase
           .from("expenses")
           .select("amount, category, vendor, expense_date")
+          .eq("company_id", companyId)
           .gte("expense_date", startDate)
           .lte("expense_date", endDate)
           .is("journal_entry_id", null);
@@ -376,6 +402,7 @@ export default function Home() {
         const { data: clearedBankTx } = await supabase
           .from("bank_transactions")
           .select("id, amount, description, payee, transaction_date")
+          .in("bank_account_id", companyBankAccountIds)
           .eq("is_cleared", true)
           .lt("amount", 0)
           .is("linked_expense_id", null)
@@ -399,6 +426,7 @@ export default function Home() {
         const { data: accrualInvoices } = await supabase
           .from("invoices")
           .select("total, invoice_date")
+          .eq("company_id", companyId)
           .gte("invoice_date", startDate)
           .lte("invoice_date", endDate);
 
@@ -412,8 +440,9 @@ export default function Home() {
           .select(`
             debit, credit,
             accounts!inner(account_type, account_name),
-            journal_entries!inner(entry_date, is_posted, reference_type, reference_id)
+            journal_entries!inner(entry_date, is_posted, reference_type, reference_id, company_id)
           `)
+          .eq("journal_entries.company_id", companyId)
           .eq("journal_entries.is_posted", true)
           .gte("journal_entries.entry_date", startDate)
           .lte("journal_entries.entry_date", endDate);
@@ -434,6 +463,7 @@ export default function Home() {
         const { data: directExp } = await supabase
           .from("expenses")
           .select("amount, category, vendor, expense_date")
+          .eq("company_id", companyId)
           .gte("expense_date", startDate)
           .lte("expense_date", endDate)
           .is("journal_entry_id", null);
@@ -449,6 +479,7 @@ export default function Home() {
         const { data: clearedBankTx } = await supabase
           .from("bank_transactions")
           .select("id, amount, description, payee, transaction_date")
+          .in("bank_account_id", companyBankAccountIds)
           .eq("is_cleared", true)
           .lt("amount", 0)
           .is("linked_expense_id", null)
@@ -485,12 +516,21 @@ export default function Home() {
 
   async function loadPeriodInvoices(startDate, endDate, basis = 'cash', companyId = null) {
     try {
+      if (!companyId) {
+        setPeriodInvoices([]);
+        setPeriodDeposits([]);
+        return;
+      }
+
+      const companyBankAccountIds = await getCompanyBankAccountIds(companyId);
+
       if (basis === 'cash') {
         // ── CASH BASIS: show invoices that received payments in this period ──
         // First get this company's invoice IDs (same scoping as the income calculation)
-        let invIdsQuery = supabase.from("invoices").select("id");
-        if (companyId) invIdsQuery = invIdsQuery.eq("company_id", companyId);
-        const { data: companyInvoicesForModal } = await invIdsQuery;
+        const { data: companyInvoicesForModal } = await supabase
+          .from("invoices")
+          .select("id")
+          .eq("company_id", companyId);
         const modalInvoiceIds = (companyInvoicesForModal || []).map(inv => String(inv.id));
 
         // Query invoice_payments scoped to this company's invoices + date range
@@ -545,6 +585,7 @@ export default function Home() {
         const { data: clearedDeposits } = await supabase
           .from("bank_transactions")
           .select("id, amount, transaction_date, payee, description")
+          .in("bank_account_id", companyBankAccountIds)
           .eq("is_cleared", true)
           .gt("amount", 0)
           .gte("transaction_date", startDate)
@@ -559,6 +600,7 @@ export default function Home() {
         const { data: invoicesInPeriod } = await supabase
           .from("invoices")
           .select("id, project_name, customer_name, invoice_date, total, status")
+          .eq("company_id", companyId)
           .gte("invoice_date", startDate)
           .lte("invoice_date", endDate)
           .order("invoice_date", { ascending: false });
@@ -626,16 +668,23 @@ export default function Home() {
 
   async function loadWeeklyGridData() {
     try {
+      if (!companyId) {
+        setWeeklySegs([]);
+        setWeeklyEmpList([]);
+        return;
+      }
+
       const mondayStr = getMonday(new Date());
       const weekDaysArr = getWeekDays(mondayStr);
       const weekEnd = weekDaysArr[6];
       const [{ data: segs }, { data: emps }] = await Promise.all([
         supabase.from("shift_segments")
           .select("id, user_id, start_at, end_at, is_lunch, project_task")
+          .eq("company_id", companyId)
           .gte("start_at", mondayStr + "T00:00:00")
           .lte("start_at", weekEnd + "T23:59:59")
           .order("start_at", { ascending: true }),
-        supabase.from("employees").select("user_id, first_name, last_name").order("first_name"),
+        supabase.from("employees").select("user_id, first_name, last_name").eq("company_id", companyId).order("first_name"),
       ]);
       setWeeklySegs(segs || []);
       setWeeklyEmpList(emps || []);
@@ -676,7 +725,7 @@ export default function Home() {
   const gridGrandTotal = gridActiveEmployees.reduce((sum, e) => sum + getWeekTotalForEmp(e.uid), 0);
 
   return (
-    <div style={styles.pageWrapper}>
+    <div style={{ ...styles.pageWrapper, backgroundColor: BRAND.bg }}>
       <div style={styles.container}>
         {/* Revenue & Profit Stats */}
         <div style={styles.statsGrid}>

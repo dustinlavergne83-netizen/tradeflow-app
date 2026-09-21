@@ -4,12 +4,15 @@ import { supabase } from "../lib/supabase";
 import { formatDate } from "../utils/dateUtils";
 import { promptDialog } from '../lib/notify';
 
-const BRAND = {
+import { useBrand } from "../lib/useBrand";
+
+const STATIC_BRAND = {
   bg: "#0b3ea8",
   primary: "#fc6b04ff",
 };
 
 export default function TimeOffRequests() {
+  const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const [requests, setRequests] = useState([]);
   const [allRequests, setAllRequests] = useState([]); // For admins
   const [loading, setLoading] = useState(true);
@@ -245,7 +248,7 @@ export default function TimeOffRequests() {
   }
 
   if (loading) {
-    return <div style={styles.loading}>Loading...</div>;
+    return <div style={{ ...styles.loading, backgroundColor: BRAND.bg }}>Loading...</div>;
   }
 
   const accrued = calculateVacationHoursAccrued(employee?.hire_date);
@@ -253,7 +256,7 @@ export default function TimeOffRequests() {
   const remaining = accrued - used;
 
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
       <div style={styles.content}>
         <div style={styles.header}>
           <h2 style={styles.title}>Time Off Requests</h2>
@@ -378,7 +381,7 @@ export default function TimeOffRequests() {
 
 const styles = {
   container: {
-    backgroundColor: BRAND.bg,
+    backgroundColor: STATIC_BRAND.bg,
     minHeight: "100vh",
     paddingTop: 120,
   },
@@ -596,7 +599,7 @@ const styles = {
     color: "#fff",
     fontSize: 18,
     padding: 100,
-    backgroundColor: BRAND.bg,
+    backgroundColor: STATIC_BRAND.bg,
     minHeight: "100vh",
   },
 };
