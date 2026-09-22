@@ -5249,7 +5249,7 @@ async function handleAddContractor() {
             </div>
 
             <div style={styles.field}>
-              <label style={styles.modalLabel}>Date Received</label>
+              <label style={styles.modalLabel}>{depositAlsoInvoice ? 'Invoice Date' : 'Date Received'}</label>
               <input
                 type="date"
                 value={depositForm.deposit_date}
