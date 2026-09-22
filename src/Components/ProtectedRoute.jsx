@@ -1,11 +1,12 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useFeatures } from "../lib/useFeatures";
+import { hasCustomProjectTypes } from "../lib/projectTypes";
 import Sidebar from "./Sidebar.jsx";
 import AIAssistant from "./AIAssistant.jsx";
 
-export default function ProtectedRoute({ children, feature }) {
-  const { user, employee, customer, loading } = useAuth();
+export default function ProtectedRoute({ children, feature, requireCustomCatalog }) {
+  const { user, employee, customer, company, loading } = useAuth();
   const features = useFeatures();
   const location = useLocation();
 
@@ -35,6 +36,14 @@ export default function ProtectedRoute({ children, feature }) {
   // Blocks direct URL access, not just the sidebar link, when a company
   // has this feature turned off in companies.settings.
   if (feature && features[feature] === false) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  // Routes only meaningful for companies with a custom service
+  // catalog (e.g. /contracts for DT Specialties). Companies without
+  // one (DML, and any company without settings.projectTypes) never
+  // see or reach this route.
+  if (requireCustomCatalog && !hasCustomProjectTypes(company)) {
     return <Navigate to="/dashboard" replace />;
   }
 

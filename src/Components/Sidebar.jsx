@@ -1,10 +1,12 @@
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useFeatures } from "../lib/useFeatures";
+import { hasCustomProjectTypes } from "../lib/projectTypes";
 
 export default function Sidebar({ onNavigate }) {
-  const { isAdmin, employee } = useAuth();
+  const { isAdmin, employee, company } = useAuth();
   const features = useFeatures();
+  const showContracts = hasCustomProjectTypes(company);
 
   const isSupervisor = employee?.role === "supervisor" || employee?.role === "admin";
 
@@ -44,6 +46,11 @@ export default function Sidebar({ onNavigate }) {
       <NavLink to="/customers" style={linkStyle} onClick={() => onNavigate?.()}>
         Customers
       </NavLink>
+      {showContracts && (
+        <NavLink to="/contracts" style={linkStyle} onClick={() => onNavigate?.()}>
+          📋 Service Contracts
+        </NavLink>
+      )}
       {features.generators && (
         <NavLink to="/generators" style={linkStyle} onClick={() => onNavigate?.()}>
           ⚡ Generators

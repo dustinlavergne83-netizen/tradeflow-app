@@ -18,6 +18,7 @@ import WeeklyTotals from "./pages/WeeklyTotals";
 import EmployeeTimesheets from "./pages/EmployeeTimesheets";
 import OvertimeBank from "./pages/OvertimeBank";
 import Customers from "./pages/Customers";
+import Contracts from "./pages/Contracts";
 import Vendors from "./pages/Vendors";
 import Estimate from "./pages/Estimate";
 import EstimatesList from "./pages/EstimatesList";
@@ -420,6 +421,14 @@ function AppContent() {
             element={
               <ProtectedRoute>
                 <Customers />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/contracts"
+            element={
+              <ProtectedRoute requireCustomCatalog>
+                <Contracts />
               </ProtectedRoute>
             }
           />
