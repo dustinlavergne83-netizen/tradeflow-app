@@ -3282,7 +3282,16 @@ async function handleAddContractor() {
         {deposits.length > 0 && <div style={{...styles.card, gridColumn: "1 / -1", order: 6}}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
             <h2 style={{ ...styles.cardTitle, marginBottom: 0 }}>💰 Project Deposits</h2>
-            <button onClick={() => setShowAddDepositModal(true)} style={styles.addEstimateButton}>
+            <button
+              onClick={async () => {
+                // Same fix as the Quick Actions "Add Deposit" button below —
+                // without this, the bank account dropdown in the modal was
+                // always empty when opened from here.
+                if (user?.id) await loadBankAccounts();
+                setShowAddDepositModal(true);
+              }}
+              style={styles.addEstimateButton}
+            >
               + Record Deposit
             </button>
           </div>
@@ -5260,6 +5269,11 @@ async function handleAddContractor() {
               />
             </div>
 
+            {/* Bank Account & Processing Fee only apply once money has actually
+                been received — irrelevant (and confusing) when just creating
+                an unpaid invoice to send the customer, so hide both fields
+                for the Deposit Invoice flow. */}
+            {!depositAlsoInvoice && (<>
             <div style={styles.field}>
               <label style={styles.modalLabel}>Deposit To (Bank Account) *</label>
               <select
@@ -5309,6 +5323,7 @@ async function handleAddContractor() {
                 </div>
               )}
             </div>
+            </>)}
 
             <div style={styles.modalActions}>
               <button
