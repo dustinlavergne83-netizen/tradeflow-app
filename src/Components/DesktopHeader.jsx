@@ -64,7 +64,10 @@ export default function DesktopHeader({ title: propTitle }) {
     <div className="siteHeader" style={styles.header}>
       <div className="headerInner">
         <div style={styles.leftBrand}>
-          <div style={styles.brandTitle}>{BRAND.name}</div>
+          {/* Product branding, not company branding — the same for every
+              company on every deployment. Which company you're signed into
+              is shown by the logo on the right (BRAND.logo_url below). */}
+          <div style={styles.brandTitle}>TradeFlow</div>
           <div style={styles.tagline}>{BRAND.tagline}</div>
         </div>
 
