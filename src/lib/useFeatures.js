@@ -35,5 +35,6 @@ export function useFeatures() {
     aiAssistant: s.aiAssistant !== false,
     dialpad: s.dialpad !== false,
     email: s.email !== false,
+    generators: s.generators !== false,
   };
 }

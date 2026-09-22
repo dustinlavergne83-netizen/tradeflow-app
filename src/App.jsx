@@ -426,7 +426,7 @@ function AppContent() {
           <Route
             path="/generators"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute feature="generators">
                 <Generators />
               </ProtectedRoute>
             }
@@ -515,7 +515,7 @@ function AppContent() {
           <Route
             path="/invoice/generator"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute feature="generators">
                 <GeneratorInvoice />
               </ProtectedRoute>
             }
@@ -523,7 +523,7 @@ function AppContent() {
           <Route
             path="/invoice/generator-contract"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute feature="generators">
                 <GeneratorServiceContract />
               </ProtectedRoute>
             }

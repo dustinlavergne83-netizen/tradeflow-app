@@ -1,10 +1,12 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import { useFeatures } from "../lib/useFeatures";
 import Sidebar from "./Sidebar.jsx";
 import AIAssistant from "./AIAssistant.jsx";
 
-export default function ProtectedRoute({ children }) {
+export default function ProtectedRoute({ children, feature }) {
   const { user, employee, customer, loading } = useAuth();
+  const features = useFeatures();
   const location = useLocation();
 
   if (loading) {
@@ -27,6 +29,13 @@ export default function ProtectedRoute({ children }) {
 
   if (employee && (!employee.last_name?.trim() || !employee.phone?.trim()) && location.pathname !== "/profile-setup") {
     return <Navigate to="/profile-setup" replace />;
+  }
+
+  // Per-company feature gate — e.g. <ProtectedRoute feature="generators">.
+  // Blocks direct URL access, not just the sidebar link, when a company
+  // has this feature turned off in companies.settings.
+  if (feature && features[feature] === false) {
+    return <Navigate to="/dashboard" replace />;
   }
 
   // Layout wrapper: sidebar + main content (header is global)

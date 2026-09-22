@@ -1,8 +1,10 @@
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import { useFeatures } from "../lib/useFeatures";
 
 export default function Sidebar({ onNavigate }) {
   const { isAdmin, employee } = useAuth();
+  const features = useFeatures();
 
   const isSupervisor = employee?.role === "supervisor" || employee?.role === "admin";
 
@@ -42,9 +44,11 @@ export default function Sidebar({ onNavigate }) {
       <NavLink to="/customers" style={linkStyle} onClick={() => onNavigate?.()}>
         Customers
       </NavLink>
-      <NavLink to="/generators" style={linkStyle} onClick={() => onNavigate?.()}>
-        ⚡ Generators
-      </NavLink>
+      {features.generators && (
+        <NavLink to="/generators" style={linkStyle} onClick={() => onNavigate?.()}>
+          ⚡ Generators
+        </NavLink>
+      )}
       <NavLink to="/vendors" style={linkStyle} onClick={() => onNavigate?.()}>
         Vendors
       </NavLink>

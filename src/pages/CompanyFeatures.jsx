@@ -14,6 +14,7 @@ const FEATURE_FLAGS = [
   { key: "aiAssistant", label: "AI Assistant", hint: "Comms app — AI tab" },
   { key: "dialpad", label: "Dial Pad", hint: "Comms app — Dial Pad tab" },
   { key: "email", label: "Email", hint: "Comms app — Email tab" },
+  { key: "generators", label: "Generators", hint: "Web — sidebar, /generators, generator invoices & service contracts" },
 ];
 
 const BRAND = {
