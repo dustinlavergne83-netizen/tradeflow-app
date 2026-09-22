@@ -1,10 +1,12 @@
 import { useNavigate } from "react-router-dom";
+import { useBrand } from "../lib/useBrand";
 
 export default function AccountingDashboard() {
   const navigate = useNavigate();
+  const BRAND = useBrand();
 
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
       <div style={styles.header}>
         <h1 style={styles.title}>📊 Accounting Dashboard</h1>
       </div>
@@ -136,7 +138,7 @@ const styles = {
     maxWidth: 1600,
     margin: "0 auto",
     padding: "40px 20px",
-    backgroundColor: "#0b3ea8",
+    backgroundColor: "#0b3ea8", // static fallback; overridden inline via BRAND.bg above
     minHeight: "100vh",
   },
   header: {

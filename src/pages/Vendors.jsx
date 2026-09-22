@@ -1,13 +1,15 @@
-import React, { useState, useRef, useEffect } from "react";
+﻿import React, { useState, useRef, useEffect } from "react";
 import Papa from "papaparse";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 
 import { formatDate } from "../utils/dateUtils";
 import { notify, confirmDialog } from '../lib/notify';
+import { useBrand } from "../lib/useBrand";
 
 export default function Vendors() {
   const { user } = useAuth();
+  const BRAND = useBrand();
   const [vendors, setVendors] = useState([]);
   const [selected, setSelected] = useState([]);
   const [editingId, setEditingId] = useState(null);
@@ -334,17 +336,17 @@ export default function Vendors() {
   };
 
   return (
-    <div style={styles.page}>
+    <div style={{ ...styles.page, backgroundColor: BRAND.bg }}>
       {/* Add Vendor Button - Top Right */}
       <div style={styles.addButtonContainer}>
-        <button onClick={() => setShowModal(true)} style={styles.addButton}>
+        <button onClick={() => setShowModal(true)} style={{ ...styles.addButton, background: BRAND.accent }}>
           + Add Vendor
         </button>
       </div>
 
       {/* Selected Vendor Card */}
       {selectedVendor && (
-        <div style={styles.vendorCard}>
+        <div style={{ ...styles.vendorCard, border: `2px solid ${BRAND.accent}` }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
             <h2 style={{ margin: 0, color: '#fff' }}>{selectedVendor.vendor_name}</h2>
             <div style={{ display: 'flex', gap: 8 }}>
@@ -366,7 +368,7 @@ export default function Vendors() {
           
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 20, marginBottom: 30 }}>
             <div>
-              <h3 style={{ color: '#fc6b04', marginBottom: 10 }}>Contact Info</h3>
+              <h3 style={{ color: BRAND.accent, marginBottom: 10 }}>Contact Info</h3>
               <p style={{ color: '#fff', margin: '5px 0' }}><strong>Contact Person:</strong> {selectedVendor.contact_person || 'N/A'}</p>
               <p style={{ color: '#fff', margin: '5px 0' }}><strong>Email:</strong> {selectedVendor.email || 'N/A'}</p>
               <p style={{ color: '#fff', margin: '5px 0' }}><strong>Phone:</strong> {selectedVendor.phone || 'N/A'}</p>
@@ -375,7 +377,7 @@ export default function Vendors() {
             </div>
             
             <div>
-              <h3 style={{ color: '#fc6b04', marginBottom: 10 }}>Account Details</h3>
+              <h3 style={{ color: BRAND.accent, marginBottom: 10 }}>Account Details</h3>
               <p style={{ color: '#fff', margin: '5px 0' }}><strong>Account #:</strong> {selectedVendor.account_number || 'N/A'}</p>
               <p style={{ color: '#fff', margin: '5px 0' }}><strong>Payment Terms:</strong> Net {selectedVendor.payment_terms || '30'} days</p>
               <p style={{ color: '#fff', margin: '5px 0' }}><strong>Balance Owed:</strong> ${selectedVendor.balance || 0}</p>
@@ -383,7 +385,7 @@ export default function Vendors() {
             </div>
             
             <div>
-              <h3 style={{ color: '#fc6b04', marginBottom: 10 }}>Quick Actions</h3>
+              <h3 style={{ color: BRAND.accent, marginBottom: 10 }}>Quick Actions</h3>
               <button style={{ ...styles.addButton, marginBottom: 10, width: '100%' }}>New Bill</button>
               <button style={{ ...styles.addButton, width: '100%' }}>New Expense</button>
             </div>
@@ -392,12 +394,12 @@ export default function Vendors() {
           {/* Contacts Section */}
           <div style={{ ...styles.section, marginBottom: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <h3 style={{ color: '#fc6b04', margin: 0 }}>👥 Contacts ({vendorContacts.length})</h3>
+              <h3 style={{ color: BRAND.accent, margin: 0 }}>ðŸ‘¥ Contacts ({vendorContacts.length})</h3>
               <button
                 onClick={() => setShowAddContact(!showAddContact)}
-                style={{ padding: '6px 14px', background: '#fc6b04', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 700 }}
+                style={{ padding: '6px 14px', background: BRAND.accent, color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 700 }}
               >
-                {showAddContact ? '✕ Cancel' : '+ Add Contact'}
+                {showAddContact ? 'âœ• Cancel' : '+ Add Contact'}
               </button>
             </div>
 
@@ -433,7 +435,7 @@ export default function Vendors() {
                   disabled={savingContact}
                   style={{ padding: '8px 16px', background: '#22c55e', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap' }}
                 >
-                  {savingContact ? '⏳' : '✅ Save'}
+                  {savingContact ? 'â³' : 'âœ… Save'}
                 </button>
               </div>
             )}
@@ -448,15 +450,15 @@ export default function Vendors() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <div>
                         <div style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>{contact.name}</div>
-                        {contact.title && <div style={{ color: '#fc6b04', fontSize: 12, marginBottom: 4 }}>{contact.title}</div>}
-                        {contact.email && <div style={{ color: '#9ca3af', fontSize: 12 }}>✉ {contact.email}</div>}
-                        {contact.phone && <div style={{ color: '#9ca3af', fontSize: 12 }}>📱 {contact.phone}</div>}
+                        {contact.title && <div style={{ color: BRAND.accent, fontSize: 12, marginBottom: 4 }}>{contact.title}</div>}
+                        {contact.email && <div style={{ color: '#9ca3af', fontSize: 12 }}>âœ‰ {contact.email}</div>}
+                        {contact.phone && <div style={{ color: '#9ca3af', fontSize: 12 }}>ðŸ“± {contact.phone}</div>}
                       </div>
                       <button
                         onClick={() => deleteContact(contact.id)}
                         style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 16, lineHeight: 1, marginLeft: 8 }}
                         title="Delete contact"
-                      >×</button>
+                      >Ã—</button>
                     </div>
                   </div>
                 ))}
@@ -466,12 +468,12 @@ export default function Vendors() {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
             <div style={styles.section}>
-              <h3 style={{ color: '#fc6b04', marginBottom: 10 }}>Recent Bills</h3>
+              <h3 style={{ color: BRAND.accent, marginBottom: 10 }}>Recent Bills</h3>
               <p style={{ color: '#999' }}>No bills yet</p>
             </div>
             
             <div style={styles.section}>
-              <h3 style={{ color: '#fc6b04', marginBottom: 10 }}>Recent Expenses</h3>
+              <h3 style={{ color: BRAND.accent, marginBottom: 10 }}>Recent Expenses</h3>
               {recentExpenses.length > 0 ? (
                 <div>
                   {recentExpenses.map((expense, idx) => (
@@ -491,7 +493,7 @@ export default function Vendors() {
             </div>
             
             <div style={styles.section}>
-              <h3 style={{ color: '#fc6b04', marginBottom: 10 }}>Purchase History</h3>
+              <h3 style={{ color: BRAND.accent, marginBottom: 10 }}>Purchase History</h3>
               <p style={{ color: '#999' }}>No purchases yet</p>
             </div>
           </div>
@@ -585,7 +587,7 @@ export default function Vendors() {
                             cursor: 'pointer'
                           }}
                         >
-                          ✓
+                          âœ“
                         </button>
                         <button 
                           onClick={() => {
@@ -602,7 +604,7 @@ export default function Vendors() {
                             cursor: 'pointer'
                           }}
                         >
-                          ✕
+                          âœ•
                         </button>
                       </div>
                     </td>
@@ -622,14 +624,14 @@ export default function Vendors() {
                           style={{ 
                             padding: '4px 8px', 
                             fontSize: 12, 
-                            background: '#fc6b04',
+                            background: BRAND.accent,
                             color: '#fff',
                             border: 'none',
                             borderRadius: 4,
                             cursor: 'pointer'
                           }}
                         >
-                          ✏️
+                          âœï¸
                         </button>
                         <button 
                           onClick={() => handleArchive(vendor.id)}
@@ -643,7 +645,7 @@ export default function Vendors() {
                             cursor: 'pointer'
                           }}
                         >
-                          {vendor.archived ? '↩' : '📦'}
+                          {vendor.archived ? 'â†©' : 'ðŸ“¦'}
                         </button>
                       </div>
                     </td>
@@ -676,7 +678,7 @@ export default function Vendors() {
             <textarea placeholder="Notes" value={newVendor.notes} onChange={e => setNewVendor({...newVendor, notes: e.target.value})} style={{...styles.input, minHeight: 60}} />
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
               <button onClick={() => setShowModal(false)} style={{padding: '8px 16px'}}>Cancel</button>
-              <button onClick={handleAdd} style={{padding: '8px 16px', background: '#fc6b04', color: '#fff', border: 'none', borderRadius: 4}}>Save</button>
+              <button onClick={handleAdd} style={{padding: '8px 16px', background: BRAND.accent, color: '#fff', border: 'none', borderRadius: 4}}>Save</button>
             </div>
           </div>
         </div>
@@ -689,19 +691,24 @@ const styles = {
   page: {
     padding: "40px 24px",
     paddingTop: "40px",
-    paddingLeft: "70px",
+    // NOTE: no paddingLeft here — the sidebar offset is already applied by
+    // .main { margin-left: var(--sidebar-w) } in App.css. Adding paddingLeft
+    // here double-offset the content and pushed everything off-screen.
     minHeight: "100vh",
-    backgroundColor: "#0b3ea8",
+    backgroundColor: "#0b3ea8", // static fallback; overridden inline via BRAND.bg above
+    position: 'relative',
   },
   addButtonContainer: {
+    // Positioned relative to the page container (not the viewport) so it no
+    // longer floats over the fixed 96px-tall header.
     position: 'absolute',
-    top: '80px',
+    top: '40px',
     right: '24px',
-    zIndex: 100,
+    zIndex: 10,
   },
   addButton: {
     padding: '12px 20px',
-    background: '#fc6b04',
+    background: '#fc6b04', // static fallback; overridden inline via BRAND.accent above
     color: '#fff',
     border: 'none',
     borderRadius: 8,
@@ -776,7 +783,7 @@ const styles = {
     borderRadius: 8,
     padding: 15,
     marginBottom: 20,
-    border: '2px solid #fc6b04',
+    border: '2px solid #fc6b04', // static fallback; overridden inline via BRAND.accent above
     width: '1170px',
     maxHeight: '400px',
     overflow: 'auto',

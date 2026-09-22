@@ -2,8 +2,10 @@ import React, { useState, useRef, useEffect } from "react";
 import Papa from "papaparse";
 import { supabase } from "../lib/supabase";
 import { notify, confirmDialog } from '../lib/notify';
+import { useBrand } from "../lib/useBrand";
 
 export default function Customers() {
+  const BRAND = useBrand();
   const [customers, setCustomers] = useState([]);
   const [selected, setSelected] = useState([]);
   const [editingId, setEditingId] = useState(null);
@@ -242,17 +244,17 @@ export default function Customers() {
   };
 
   return (
-    <div style={styles.page}>
+    <div style={{ ...styles.page, backgroundColor: BRAND.bg }}>
       {/* Add Customer Button - Top Right */}
       <div style={styles.addButtonContainer}>
-        <button onClick={() => setShowModal(true)} style={styles.addButton}>
+        <button onClick={() => setShowModal(true)} style={{ ...styles.addButton, background: BRAND.accent }}>
           + Add Customer
         </button>
       </div>
 
       {/* Selected Customer Card */}
       {selectedCustomer && (
-        <div style={styles.customerCard}>
+        <div style={{ ...styles.customerCard, border: `2px solid ${BRAND.accent}` }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
             <h2 style={{ margin: 0, color: '#fff' }}>{selectedCustomer.customer}</h2>
             <div style={{ display: 'flex', gap: 8 }}>
@@ -274,7 +276,7 @@ export default function Customers() {
           
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 20, marginBottom: 30 }}>
             <div>
-              <h3 style={{ color: '#fc6b04', marginBottom: 10 }}>Contact Info</h3>
+              <h3 style={{ color: BRAND.accent, marginBottom: 10 }}>Contact Info</h3>
               <p style={{ color: '#fff', margin: '5px 0' }}><strong>Contact:</strong> {selectedCustomer.contact || 'N/A'}</p>
               <p style={{ color: '#fff', margin: '5px 0' }}><strong>Email:</strong> {selectedCustomer.email || 'N/A'}</p>
               <p style={{ color: '#fff', margin: '5px 0' }}><strong>Phone:</strong> {selectedCustomer.phone || 'N/A'}</p>
@@ -282,12 +284,12 @@ export default function Customers() {
             </div>
             
             <div>
-              <h3 style={{ color: '#fc6b04', marginBottom: 10 }}>Financial</h3>
+              <h3 style={{ color: BRAND.accent, marginBottom: 10 }}>Financial</h3>
               <p style={{ color: '#fff', margin: '5px 0' }}><strong>Balance:</strong> ${selectedCustomer.balance || 0}</p>
             </div>
             
             <div>
-              <h3 style={{ color: '#fc6b04', marginBottom: 10 }}>Quick Actions</h3>
+              <h3 style={{ color: BRAND.accent, marginBottom: 10 }}>Quick Actions</h3>
               <button style={{ ...styles.addButton, marginBottom: 10, width: '50%' }}>New Estimate</button>
               <button style={{ ...styles.addButton, width: '50%' }}>New Invoice</button>
             </div>
@@ -295,17 +297,17 @@ export default function Customers() {
           
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
             <div style={styles.section}>
-              <h3 style={{ color: '#fc6b04', marginBottom: 10 }}>Jobs</h3>
+              <h3 style={{ color: BRAND.accent, marginBottom: 10 }}>Jobs</h3>
               <p style={{ color: '#999' }}>No jobs yet</p>
             </div>
             
             <div style={styles.section}>
-              <h3 style={{ color: '#fc6b04', marginBottom: 10 }}>Estimates</h3>
+              <h3 style={{ color: BRAND.accent, marginBottom: 10 }}>Estimates</h3>
               <p style={{ color: '#999' }}>No estimates yet</p>
             </div>
             
             <div style={styles.section}>
-              <h3 style={{ color: '#fc6b04', marginBottom: 10 }}>Invoices</h3>
+              <h3 style={{ color: BRAND.accent, marginBottom: 10 }}>Invoices</h3>
               <p style={{ color: '#999' }}>No invoices yet</p>
             </div>
           </div>
@@ -435,7 +437,7 @@ export default function Customers() {
                           style={{ 
                             padding: '4px 8px', 
                             fontSize: 12, 
-                            background: '#fc6b04',
+                            background: BRAND.accent,
                             color: '#fff',
                             border: 'none',
                             borderRadius: 4,
@@ -499,19 +501,24 @@ const styles = {
   page: {
     padding: "40px 24px",
     paddingTop: "40px",
-    paddingLeft: "70px",
+    // NOTE: no paddingLeft here — the sidebar offset is already applied by
+    // .main { margin-left: var(--sidebar-w) } in App.css. Adding paddingLeft
+    // here double-offset the content and pushed everything off-screen.
     minHeight: "100vh",
-    backgroundColor: "#0b3ea8",
+    backgroundColor: "#0b3ea8", // static fallback; overridden inline via BRAND.bg above
+    position: 'relative',
   },
   addButtonContainer: {
+    // Positioned relative to the page container (not the viewport) so it no
+    // longer floats over the fixed 96px-tall header.
     position: 'absolute',
-    top: '80px',
+    top: '40px',
     right: '24px',
-    zIndex: 100,
+    zIndex: 10,
   },
   addButton: {
     padding: '12px 20px',
-    background: '#fc6b04',
+    background: '#fc6b04', // static fallback; overridden inline via BRAND.accent above
     color: '#fff',
     border: 'none',
     borderRadius: 8,
@@ -584,7 +591,7 @@ const styles = {
     borderRadius: 8,
     padding: 15,
     marginBottom: 20,
-    border: '2px solid #fc6b04',
+    border: '2px solid #fc6b04', // static fallback; overridden inline via BRAND.accent above
     width: '1250px',
     maxHeight: '400px',
     overflow: 'auto',
