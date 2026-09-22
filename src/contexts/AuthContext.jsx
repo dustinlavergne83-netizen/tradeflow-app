@@ -66,7 +66,7 @@ export function AuthProvider({ children }) {
         if (empData.company_id) {
           const { data: compData } = await supabase
             .from("companies")
-            .select("id, name, slug, primary_color, secondary_color, logo_url")
+            .select("id, name, slug, primary_color, secondary_color, logo_url, settings")
             .eq("id", empData.company_id)
             .maybeSingle();
           setCompany(compData || null);
@@ -93,7 +93,7 @@ export function AuthProvider({ children }) {
         if (custData.company_id) {
           const { data: compData } = await supabase
             .from("companies")
-            .select("id, name, slug, primary_color, secondary_color, logo_url")
+            .select("id, name, slug, primary_color, secondary_color, logo_url, settings")
             .eq("id", custData.company_id)
             .maybeSingle();
           setCompany(compData || null);
