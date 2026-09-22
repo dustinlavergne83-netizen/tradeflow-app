@@ -3,7 +3,22 @@ import { useSearchParams } from "react-router-dom";
 import logoImage from "../assets/LOGOD.jpg";
 import { supabase } from "../lib/supabase";
 
-const ACCENT = "#fc6b04";
+// This is a public/shareable page — the viewer isn't signed in, so
+// branding can't come from useBrand()/AuthContext. It's resolved per
+// estimate via the get_company_branding_for_estimate() RPC instead.
+// These are the DML fallback values, used only if that lookup fails.
+const FALLBACK_BRAND = {
+  name: "DML Electrical Service, LLC",
+  logo_url: null,
+  accent: "#fc6b04",
+  contact_phone: "(337) 288-0395",
+  contact_email: "info@dmlelectrical.com",
+  license_number: "63147",
+  address: "P.O. Box 363",
+  city: "Jennings",
+  state: "LA",
+  zip: "70546",
+};
 
 // ─── View Choice Modal ────────────────────────────────────────────────────────
 function ViewChoiceModal({ onChoose }) {
@@ -77,6 +92,7 @@ export default function QuickEstimateView() {
   const [items, setItems]         = useState([]);
   const [loading, setLoading]     = useState(true);
   const [chosenView, setChosenView] = useState(viewParam || null);
+  const [companyBrand, setCompanyBrand] = useState(null);
 
   useEffect(() => {
     if (estimateId) loadEstimate();
@@ -101,6 +117,17 @@ export default function QuickEstimateView() {
       const { data: itemsData } = await supabase
         .from("estimate_items").select("*").eq("estimate_id", estimateId).order("sequence");
       setItems(itemsData || []);
+
+      // Resolve branding from the estimate's OWN company (not whoever
+      // is signed in, since this page is viewed by anonymous customers
+      // via a shared link).
+      const { data: brandRows, error: brandError } = await supabase.rpc(
+        "get_company_branding_for_estimate",
+        { p_estimate_id: estimateId }
+      );
+      if (!brandError && brandRows && brandRows.length > 0) {
+        setCompanyBrand(brandRows[0]);
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -122,6 +149,23 @@ export default function QuickEstimateView() {
   if (!estimate) return (
     <div style={pg}><p style={{textAlign:"center",padding:"60px",color:"#ef4444",fontSize:16}}>Estimate not found</p></div>
   );
+
+  // Normalize resolved branding, filling any missing fields from the
+  // DML fallback so a company with partial data (e.g. no license
+  // number) never shows a blank instead of something reasonable.
+  const brand = {
+    name: companyBrand?.name || FALLBACK_BRAND.name,
+    logo_url: companyBrand?.logo_url || FALLBACK_BRAND.logo_url,
+    accent: companyBrand?.secondary_color || FALLBACK_BRAND.accent,
+    contact_phone: companyBrand?.contact_phone || FALLBACK_BRAND.contact_phone,
+    contact_email: companyBrand?.contact_email || FALLBACK_BRAND.contact_email,
+    license_number: companyBrand?.license_number || FALLBACK_BRAND.license_number,
+    address: companyBrand?.address || FALLBACK_BRAND.address,
+    city: companyBrand?.city || FALLBACK_BRAND.city,
+    state: companyBrand?.state || FALLBACK_BRAND.state,
+    zip: companyBrand?.zip || FALLBACK_BRAND.zip,
+  };
+  const ACCENT = brand.accent;
 
   const materialMarkup = Number(estimate.material_markup || 0);
   const laborMarkup    = Number(estimate.labor_markup    || 0);
@@ -176,9 +220,11 @@ export default function QuickEstimateView() {
 
           {/* Logo - center */}
           <div style={{textAlign:"center", flex:1, padding:"0 12px"}}>
-            <img src={logoImage} alt="DML Electrical" style={{maxWidth:180, width:"100%", height:"auto"}} />
+            <img src={brand.logo_url || logoImage} alt={brand.name} style={{maxWidth:180, width:"100%", height:"auto"}} />
             <p style={{fontSize:11, color:"#555", margin:"4px 0 0"}}>
-              (337)288-0395 · info@dmlelectrical.com · Lic# 63147
+              {brand.contact_phone}{brand.contact_phone && (brand.contact_email || brand.license_number) ? " · " : ""}
+              {brand.contact_email}{brand.contact_email && brand.license_number ? " · " : ""}
+              {brand.license_number ? `Lic# ${brand.license_number}` : ""}
             </p>
           </div>
 
@@ -319,7 +365,9 @@ export default function QuickEstimateView() {
         {/* Footer */}
         <div style={{textAlign:"center", borderTop:"1px solid #eee", paddingTop:12}}>
           <p style={{fontSize:12, color:"#555", margin:"2px 0"}}>Thank you for the opportunity!</p>
-          <p style={{fontSize:11, color:"#555", margin:"2px 0"}}>DML Electrical Service, LLC · P.O. Box 363, Jennings, LA 70546</p>
+          <p style={{fontSize:11, color:"#555", margin:"2px 0"}}>
+            {brand.name}{brand.address ? ` · ${brand.address}, ${brand.city}, ${brand.state} ${brand.zip}` : ""}
+          </p>
         </div>
 
       </div>

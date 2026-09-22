@@ -1179,8 +1179,10 @@ export default function Invoice() {
       return s + (it ? (it.total || 0) * ((itemMarkups[id] || 0) / 100) : 0);
     }, 0);
     const bal = (sub + mkup - depositReceived - amountPaid).toFixed(2);
-    const payUrl = `https://www.dmlelectrical.com/invoice/view?invoiceId=${invoiceId}`;
-    const smsMsg = `DML Electrical Service: Invoice #${invoiceNumber} for $${bal} is ready. Pay online: ${payUrl}`;
+    // window.location.origin is correct on whichever domain this is
+    // running on (dmlelectrical.com or dtspecialties.com), no lookup needed.
+    const payUrl = `${window.location.origin}/invoice/view?invoiceId=${invoiceId}`;
+    const smsMsg = `${BRAND.name}: Invoice #${invoiceNumber} for $${bal} is ready. Pay online: ${payUrl}`;
     setModalPhone(customerPhone || '');
     setSendModal({ type: 'text', to: customerPhone || '', message: smsMsg });
   }
@@ -1352,7 +1354,7 @@ export default function Invoice() {
               await handleSave({ silent: true });
               window.open(`/invoice/view?invoiceId=${invoiceId}&print=1`, '_blank');
             }}
-            style={{...styles.button, background: '#fff', color: '#0b3ea8', border: '2px solid #fff'}}
+            style={{...styles.button, background: '#fff', color: BRAND.bg, border: '2px solid #fff'}}
           >
             🖨️ Print to PDF
           </button>
@@ -2131,9 +2133,8 @@ export default function Invoice() {
               /* ── Actual invoice preview ───────────────────────────────── */
               <div style={{ marginBottom:24, maxHeight:360, overflowY:'auto', border:'1px solid #e5e7eb', borderRadius:10, padding:'18px 20px', backgroundColor:'#fff', fontSize:13 }}>
                 {/* Company header */}
-                <div style={{ textAlign:'center', marginBottom:14, paddingBottom:12, borderBottom:'3px solid #fc6b04' }}>
-                  <p style={{ margin:0, fontWeight:900, fontSize:15, color:'#0b3ea8', textTransform:'uppercase', letterSpacing:'0.5px' }}>DML Electrical Service LLC</p>
-                  <p style={{ margin:'3px 0 0', fontSize:11, color:'#888' }}>(337) 288-0395 · info@dmlelectrical.com · Lic# 63147</p>
+                <div style={{ textAlign:'center', marginBottom:14, paddingBottom:12, borderBottom:`3px solid ${BRAND.accent}` }}>
+                  <p style={{ margin:0, fontWeight:900, fontSize:15, color:BRAND.bg, textTransform:'uppercase', letterSpacing:'0.5px' }}>{BRAND.name}</p>
                 </div>
                 {/* Invoice header row */}
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:14 }}>
@@ -2148,7 +2149,7 @@ export default function Invoice() {
                   </div>
                 </div>
                 {/* Line items */}
-                <div style={{ borderTop:'2px solid #fc6b04', paddingTop:6 }}>
+                <div style={{ borderTop:`2px solid ${BRAND.accent}`, paddingTop:6 }}>
                   <div style={{ display:'flex', justifyContent:'space-between', padding:'4px 0 6px', fontSize:10, fontWeight:700, color:'#999', textTransform:'uppercase', borderBottom:'1px solid #e5e7eb' }}>
                     <span>Description</span><span>Amount</span>
                   </div>
@@ -2163,7 +2164,7 @@ export default function Invoice() {
                   })}
                 </div>
                 {/* Totals */}
-                <div style={{ paddingTop:10, borderTop:'2px solid #fc6b04', marginTop:6 }}>
+                <div style={{ paddingTop:10, borderTop:`2px solid ${BRAND.accent}`, marginTop:6 }}>
                   {depositReceived > 0 && (
                     <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4, fontSize:12 }}>
                       <span style={{ color:'#666' }}>Deposit Received:</span>
@@ -2178,12 +2179,12 @@ export default function Invoice() {
                   )}
                   <div style={{ display:'flex', justifyContent:'space-between', paddingTop:8, borderTop:'2px solid #e5e7eb', marginTop:4 }}>
                     <span style={{ fontWeight:800, fontSize:15 }}>Balance Due:</span>
-                    <span style={{ fontWeight:900, fontSize:17, color:'#fc6b04' }}>{sendModal.subject?.match(/\$[\d,.]+/)?.[0] || ''}</span>
+                    <span style={{ fontWeight:900, fontSize:17, color:BRAND.accent }}>{sendModal.subject?.match(/\$[\d,.]+/)?.[0] || ''}</span>
                   </div>
                 </div>
                 {/* Pay button */}
                 <div style={{ textAlign:'center', marginTop:16 }}>
-                  <div style={{ display:'inline-block', background:'#0b3ea8', color:'#fff', padding:'10px 28px', borderRadius:8, fontWeight:700, fontSize:13 }}>
+                  <div style={{ display:'inline-block', background:BRAND.bg, color:'#fff', padding:'10px 28px', borderRadius:8, fontWeight:700, fontSize:13 }}>
                     💳 View &amp; Pay Invoice Online
                   </div>
                 </div>

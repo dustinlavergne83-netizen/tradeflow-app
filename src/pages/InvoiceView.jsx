@@ -5,7 +5,19 @@ import { supabase } from "../lib/supabase";
 // Logo served from /public so it's always available at a stable URL in production
 const logoImage = "/LOGOD.jpg";
 
-const ACCENT = "#fc6b04";
+// Public/shareable page — viewer isn't necessarily signed in as the
+// owning company, so branding is resolved per invoice via the
+// get_company_branding_for_invoice() RPC. These are DML fallback
+// values, used only if that lookup returns nothing.
+const FALLBACK_BRAND = {
+  name: "DML Electrical Service, LLC",
+  logo_url: null,
+  accent: "#fc6b04",
+  contact_phone: "(337) 288-0395",
+  contact_email: "info@dmlelectrical.com",
+  license_number: "63147",
+};
+
 const GREEN  = "#16a34a";
 
 // ─── Clover public (publishable) key ────────────────────────────────────────
@@ -20,6 +32,7 @@ export default function InvoiceView() {
   const [invoice, setInvoice] = useState(null);
   const [items,   setItems]   = useState([]);
   const [loading, setLoading] = useState(true);
+  const [companyBrand, setCompanyBrand] = useState(null);
 
   // ── Payment UI state ─────────────────────────────────────────────────────
   const [showPayForm, setShowPayForm]   = useState(false);
@@ -42,6 +55,16 @@ export default function InvoiceView() {
       const { data: itemsData } = await supabase
         .from("invoice_items").select("*").eq("invoice_id", invoiceId).order("created_at");
       setItems(itemsData || []);
+
+      // Resolve branding from the invoice's OWN company, not whoever
+      // (if anyone) is signed in viewing this shared link.
+      const { data: brandRows, error: brandError } = await supabase.rpc(
+        "get_company_branding_for_invoice",
+        { p_invoice_id: invoiceId }
+      );
+      if (!brandError && brandRows && brandRows.length > 0) {
+        setCompanyBrand(brandRows[0]);
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -184,6 +207,16 @@ export default function InvoiceView() {
     <div style={pg}><p style={{textAlign:"center",padding:"60px",color:"#ef4444",fontSize:16}}>Invoice not found</p></div>
   );
 
+  const brand = {
+    name: companyBrand?.name || FALLBACK_BRAND.name,
+    logo_url: companyBrand?.logo_url || FALLBACK_BRAND.logo_url,
+    accent: companyBrand?.secondary_color || FALLBACK_BRAND.accent,
+    contact_phone: companyBrand?.contact_phone || FALLBACK_BRAND.contact_phone,
+    contact_email: companyBrand?.contact_email || FALLBACK_BRAND.contact_email,
+    license_number: companyBrand?.license_number || FALLBACK_BRAND.license_number,
+  };
+  const ACCENT = brand.accent;
+
   // Compute totals
   const itemTotal = (item) => (item.total || 0) * (1 + (item.markup_percentage || 0) / 100);
   const subtotal  = items.length > 0
@@ -246,9 +279,11 @@ export default function InvoiceView() {
 
           {/* Center — Logo */}
           <div style={{textAlign:"center", flex:1, padding:"0 12px"}}>
-            <img src={logoImage} alt="DML Electrical" style={{maxWidth:200, width:"100%", height:"auto"}} />
+            <img src={brand.logo_url || logoImage} alt={brand.name} style={{maxWidth:200, width:"100%", height:"auto"}} />
             <p style={{fontSize:11, color:"#888", margin:"4px 0 0"}}>
-              (337)288-0395 · info@dmlelectrical.com · Lic# 63147
+              {brand.contact_phone}{brand.contact_phone && (brand.contact_email || brand.license_number) ? " · " : ""}
+              {brand.contact_email}{brand.contact_email && brand.license_number ? " · " : ""}
+              {brand.license_number ? `Lic# ${brand.license_number}` : ""}
             </p>
           </div>
 
