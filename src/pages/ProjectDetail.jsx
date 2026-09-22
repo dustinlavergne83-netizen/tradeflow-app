@@ -5113,6 +5113,9 @@ async function handleAddContractor() {
                       amount_paid: 0,
                       status: 'draft',
                       created_by: user.id,
+                      // invoices.company_id is a real companies.id, required
+                      // by the invoices_company_insert RLS policy.
+                      company_id: company?.id,
                     }]).select().single();
                     if (invErr) throw invErr;
 

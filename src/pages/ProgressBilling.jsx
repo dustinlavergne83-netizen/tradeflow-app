@@ -20,7 +20,7 @@ export default function ProgressBilling() {
   const estimateId = searchParams.get("estimateId");
   const proposalId = searchParams.get("proposalId");
   const coId = searchParams.get("coId");
-  const { user } = useAuth();
+  const { user, employee } = useAuth();
 
   const [estimate, setEstimate] = useState(null);
   const [proposal, setProposal] = useState(null);
@@ -697,6 +697,10 @@ export default function ProgressBilling() {
           status: 'draft',
           notes: notesText,
           created_by: user.id,
+          // invoices.company_id is a real companies.id (not the
+          // auth.uid() convention some other tables use) — required
+          // by the invoices_company_insert RLS policy.
+          company_id: employee?.company_id,
           // Permanently tie this invoice to its source proposal / estimate / change order.
           // This makes future "Previously Billed" lookups bulletproof — no text parsing needed.
           ...(proposalId    ? { source_proposal_id: proposalId }                       : {}),

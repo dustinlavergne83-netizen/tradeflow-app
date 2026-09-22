@@ -238,6 +238,9 @@ export default function GeneratorInvoice() {
           status: "draft",
           notes: notesText || null,
           created_by: user.id,
+          // invoices.company_id is a real companies.id, required by the
+          // invoices_company_insert RLS policy.
+          company_id: employee?.company_id,
         }])
         .select()
         .single();

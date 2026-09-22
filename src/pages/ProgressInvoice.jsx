@@ -16,7 +16,7 @@ export default function ProgressInvoice() {
   const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { user } = useAuth();
+  const { user, employee } = useAuth();
 
   const estimateId = searchParams.get("estimateId");
   const projectId = searchParams.get("projectId");
@@ -146,7 +146,8 @@ export default function ProgressInvoice() {
       const { data: newInvoice, error: invoiceError } = await supabase
         .from("invoices")
         .insert([{
-          company_id: user.id,
+          // invoices.company_id is a real companies.id, not auth.uid().
+          company_id: employee?.company_id,
           invoice_number: invoiceNumber,
           invoice_date: invoiceDate,
           due_date: dueDate || null,

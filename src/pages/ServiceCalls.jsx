@@ -85,11 +85,20 @@ export default function ServiceCalls() {
 
     const subtotal = lineItems.reduce((s, l) => s + l.total, 0);
 
+    // call.company_id is service_calls' own convention (auth.uid()),
+    // but invoices.company_id is a real companies.id — resolve it via
+    // the creating employee before inserting.
+    const { data: emp } = await supabase
+      .from("employees")
+      .select("company_id")
+      .eq("user_id", call.company_id)
+      .maybeSingle();
+
     // Create invoice
     const { data: inv, error } = await supabase
       .from("invoices")
       .insert([{
-        company_id: call.company_id,
+        company_id: emp?.company_id || null,
         customer_name: call.customer_name,
         address: call.address || "",
         invoice_type: "quick",

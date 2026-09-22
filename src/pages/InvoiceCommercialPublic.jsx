@@ -7,6 +7,7 @@ import DepositPicker from "../Components/DepositPicker";
 import { resolveProjectId, loadAvailableDeposits, applyDepositsToInvoice } from "../lib/deposits";
 
 import { useBrand } from "../lib/useBrand";
+import { useAuth } from "../contexts/AuthContext";
 
 const STATIC_BRAND = {
   bg: "#0b3ea8",
@@ -16,6 +17,7 @@ const STATIC_BRAND = {
 
 export default function InvoiceCommercialPublic() {
   const BRAND = { ...STATIC_BRAND, ...useBrand() };
+  const { employee } = useAuth();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const invoiceId = searchParams.get("invoiceId");
@@ -137,6 +139,9 @@ export default function InvoiceCommercialPublic() {
         notes: invoiceData.notes || null,
         amount_paid: 0,
         created_at: new Date().toISOString(),
+        // invoices.company_id is a real companies.id, required by the
+        // invoices_company_insert RLS policy.
+        company_id: employee?.company_id,
       };
 
       let savedInvoiceId;
