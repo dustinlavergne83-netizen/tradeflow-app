@@ -60,11 +60,15 @@ export async function resolveProjectId({ projectId, projectName, customerName } 
  */
 export async function loadAvailableDeposits(projectId) {
   if (!projectId) return [];
+  // 'received' and 'deposited' are both used across the app to mean
+  // "un-applied" — ProjectDetail.jsx treats them as equivalent everywhere.
+  // This used to only check 'received', which stranded any deposit whose
+  // status was 'deposited' (it would never appear in the apply picker).
   const { data, error } = await supabase
     .from("project_deposits")
     .select("*")
     .eq("project_id", projectId)
-    .eq("status", "received")
+    .in("status", ["received", "deposited"])
     .order("deposit_date", { ascending: false });
 
   if (error) {

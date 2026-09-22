@@ -701,6 +701,11 @@ export default function ProgressBilling() {
           // auth.uid() convention some other tables use) — required
           // by the invoices_company_insert RLS policy.
           company_id: employee?.company_id,
+          // Classifies this as a progress-billing invoice so ProjectDetail's
+          // contract-progress rollup (and anything else that needs to tell
+          // deposit/progress/regular invoices apart) doesn't have to rely on
+          // parsing the notes text.
+          invoice_type: "progress",
           // Permanently tie this invoice to its source proposal / estimate / change order.
           // This makes future "Previously Billed" lookups bulletproof — no text parsing needed.
           ...(proposalId    ? { source_proposal_id: proposalId }                       : {}),
@@ -812,20 +817,39 @@ export default function ProgressBilling() {
         }
       }
 
-      // Update project's billed_amount and percent_complete
+      // Update project's billed_amount and percent_complete by RE-SUMMING
+      // all real invoices for this project (same formula ProjectDetail.jsx
+      // uses), rather than incrementing the old stored value. Incrementing
+      // caused drift whenever the stored value and the actual invoice
+      // history disagreed, and — critically for deposit invoices — never
+      // excluded deposit-type invoices from the total. Deposit invoices are
+      // not earned contract revenue and must never move this percentage.
       try {
         const projectName = estimate.project_name;
         const { data: projectData } = await supabase
           .from("projects")
-          .select("id, billed_amount, active_worth")
+          .select("id, active_worth")
           .eq("name", projectName)
           .single();
 
         if (projectData) {
-          const newBilledAmount = (projectData.billed_amount || 0) + currentBillingAmount;
+          const { data: allProjectInvoices } = await supabase
+            .from("invoices")
+            .select("total, notes, invoice_type")
+            .eq("project_name", projectName);
+
+          const newBilledAmount = (allProjectInvoices || []).reduce((sum, inv) => {
+            if (inv.invoice_type === "deposit") return sum; // not earned revenue
+            if (inv.notes && inv.notes.includes("Progress billing")) {
+              const drawMatch = inv.notes.match(/This draw: \$([0-9,.]+)/);
+              if (drawMatch) return sum + parseFloat(drawMatch[1].replace(/,/g, ""));
+            }
+            return sum + (inv.total || 0);
+          }, 0);
+
           const activeWorth = projectData.active_worth || totalContractValue;
-          const newPercentComplete = activeWorth > 0 
-            ? Math.round((newBilledAmount / activeWorth) * 100) 
+          const newPercentComplete = activeWorth > 0
+            ? Math.round((newBilledAmount / activeWorth) * 100)
             : 0;
 
           await supabase

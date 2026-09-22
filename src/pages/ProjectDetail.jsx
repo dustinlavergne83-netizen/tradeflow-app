@@ -144,6 +144,12 @@ export default function ProjectDetail() {
   const [expensesExpanded, setExpensesExpanded] = useState(false);
   const [expenseCategoryFilter, setExpenseCategoryFilter] = useState('all');
   const [showAddDepositModal, setShowAddDepositModal] = useState(false);
+  // "Deposit Invoice" — same idea as Record Deposit, but also creates a real,
+  // sendable invoice (tagged invoice_type: 'deposit') alongside the
+  // project_deposits row, so the customer gets a document to pay against.
+  // Kept as a separate flag on the same modal/form rather than a whole new
+  // modal, since the fields needed are identical.
+  const [depositAlsoInvoice, setDepositAlsoInvoice] = useState(false);
   const [depositForm, setDepositForm] = useState({
     deposit_amount: '',
     deposit_date: new Date().toISOString().split('T')[0],
@@ -1407,7 +1413,11 @@ async function handleAddContractor() {
       const aw = projectData.active_worth || 0;
       // For progress billing invoices, use only the draw amount from notes (not inv.total)
       // because extra line items (credits/surcharges) don't count toward contract progress %.
+      // Deposit invoices (invoice_type === 'deposit') are excluded entirely — a deposit is
+      // unearned revenue until real work is billed against it, so it must never move the
+      // contract completion percentage.
       const billed = (invoicesData || []).reduce((sum, inv) => {
+        if (inv.invoice_type === 'deposit') return sum;
         if (inv.notes && inv.notes.includes('Progress billing')) {
           const drawMatch = inv.notes.match(/This draw: \$([0-9,.]+)/);
           if (drawMatch) return sum + parseFloat(drawMatch[1].replace(/,/g, ''));
@@ -1582,7 +1592,9 @@ async function handleAddContractor() {
   const activeWorth = project.active_worth || 0;
   // For progress billing invoices use the draw amount from notes, not inv.total,
   // so extra line items (credits, surcharges) don't distort the contract progress %.
+  // Deposit invoices are excluded — they're unearned revenue, not contract progress.
   const billedAmount = invoices.reduce((sum, inv) => {
+    if (inv.invoice_type === 'deposit') return sum;
     if (inv.notes && inv.notes.includes('Progress billing')) {
       const drawMatch = inv.notes.match(/This draw: \$([0-9,.]+)/);
       if (drawMatch) return sum + parseFloat(drawMatch[1].replace(/,/g, ''));
@@ -5194,10 +5206,24 @@ async function handleAddContractor() {
       {showAddDepositModal && (
         <div style={styles.modalOverlay} onClick={() => setShowAddDepositModal(false)}>
           <div style={{...styles.modal, maxWidth: 500}} onClick={(e) => e.stopPropagation()}>
-            <h2 style={styles.modalTitle}>💰 Record Deposit</h2>
+            <h2 style={styles.modalTitle}>💰 {depositAlsoInvoice ? 'Create Deposit Invoice' : 'Record Deposit'}</h2>
             <p style={{fontSize: 14, color: '#666', marginBottom: 20}}>
-              Record a deposit payment received from the customer.
+              {depositAlsoInvoice
+                ? 'Create a sendable invoice for a deposit — this will NOT count toward contract progress %.'
+                : 'Record a deposit payment already received from the customer.'}
             </p>
+
+            <label style={{display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, padding: '10px 12px', backgroundColor: depositAlsoInvoice ? '#eff6ff' : '#f9fafb', border: `1px solid ${depositAlsoInvoice ? '#bfdbfe' : '#e5e7eb'}`, borderRadius: 8, cursor: 'pointer'}}>
+              <input
+                type="checkbox"
+                checked={depositAlsoInvoice}
+                onChange={(e) => setDepositAlsoInvoice(e.target.checked)}
+                style={{width: 18, height: 18}}
+              />
+              <span style={{fontSize: 13, color: '#1e40af', fontWeight: 600}}>
+                📄 Also generate an invoice to send the customer
+              </span>
+            </label>
 
             <div style={styles.field}>
               <label style={styles.modalLabel}>Deposit Amount *</label>
@@ -5288,6 +5314,7 @@ async function handleAddContractor() {
               <button
                 onClick={() => {
                   setShowAddDepositModal(false);
+                  setDepositAlsoInvoice(false);
                   setDepositForm({ deposit_amount: '', deposit_date: new Date().toISOString().split('T')[0], reference_notes: '', bank_account_id: '', processing_fee: '' });
                 }}
                 style={styles.cancelButton}
@@ -5301,6 +5328,83 @@ async function handleAddContractor() {
                     notify('Please enter a valid deposit amount');
                     return;
                   }
+
+                  // ── Deposit Invoice branch ─────────────────────────────
+                  // The customer hasn't paid yet — we're only generating a
+                  // sendable document — so skip the "already received"
+                  // journal-entry flow entirely (that path assumes cash is
+                  // already in the bank). Money gets recorded normally
+                  // through the existing invoice-payment flow once the
+                  // customer actually pays this invoice. Tagging the
+                  // invoice invoice_type: 'deposit' is what keeps it out of
+                  // the contract-progress % calculation.
+                  if (depositAlsoInvoice) {
+                    try {
+                      const { data: existingInvoices } = await supabase
+                        .from('invoices')
+                        .select('invoice_number')
+                        .order('created_at', { ascending: false })
+                        .limit(1);
+                      let nextNumber = 1001;
+                      if (existingInvoices?.[0]) {
+                        nextNumber = (parseInt(existingInvoices[0].invoice_number) || 1000) + 1;
+                      }
+
+                      const customerName = project.contractor || project.customer || "";
+                      let customerEmail = "";
+                      if (customerName) {
+                        const { data: custData } = await supabase.from('customers').select('email').ilike('customer', customerName).limit(1);
+                        if (custData?.[0]?.email) customerEmail = custData[0].email;
+                      }
+
+                      const { data: newInvoice, error: invErr } = await supabase
+                        .from('invoices')
+                        .insert([{
+                          invoice_number: nextNumber.toString(),
+                          project_name: project.name,
+                          customer_name: customerName || project.name,
+                          customer_email: customerEmail || null,
+                          invoice_date: depositForm.deposit_date,
+                          subtotal: amount,
+                          total: amount,
+                          balance_due: amount,
+                          amount_paid: 0,
+                          status: 'draft',
+                          notes: depositForm.reference_notes || 'Deposit invoice',
+                          invoice_type: 'deposit',
+                          bank_account_id: depositForm.bank_account_id || null,
+                          created_by: user.id,
+                          // invoices.company_id is a real companies.id, required
+                          // by the invoices_company_insert RLS policy.
+                          company_id: company?.id,
+                        }])
+                        .select()
+                        .single();
+                      if (invErr) throw invErr;
+
+                      const { error: itemErr } = await supabase
+                        .from('invoice_items')
+                        .insert([{
+                          invoice_id: newInvoice.id,
+                          description: `Deposit — ${project.name}`,
+                          quantity: 1,
+                          unit_price: amount,
+                          total: amount,
+                        }]);
+                      if (itemErr) throw itemErr;
+
+                      setShowAddDepositModal(false);
+                      setDepositAlsoInvoice(false);
+                      setDepositForm({ deposit_amount: '', deposit_date: new Date().toISOString().split('T')[0], reference_notes: '', bank_account_id: '', processing_fee: '' });
+                      notify(`✅ Deposit invoice #${newInvoice.invoice_number} created for $${amount.toFixed(2)} — it will NOT count toward contract progress %.`);
+                      navigate(`/invoice?invoiceId=${newInvoice.id}&projectId=${id}`);
+                    } catch (err) {
+                      console.error('Error creating deposit invoice:', err);
+                      notify('Failed to create deposit invoice: ' + err.message);
+                    }
+                    return;
+                  }
+
                   try {
                     // 1. Insert the deposit record
                     const { data: newDeposit, error } = await supabase
@@ -5439,7 +5543,7 @@ async function handleAddContractor() {
                 }}
                 style={styles.submitButton}
               >
-                💰 Save Deposit
+                💰 {depositAlsoInvoice ? 'Create Deposit Invoice' : 'Save Deposit'}
               </button>
             </div>
           </div>
