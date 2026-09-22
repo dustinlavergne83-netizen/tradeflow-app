@@ -3,9 +3,11 @@ import Papa from "papaparse";
 import { supabase } from "../lib/supabase";
 import { notify, confirmDialog } from '../lib/notify';
 import { useBrand } from "../lib/useBrand";
+import { useAuth } from "../contexts/AuthContext";
 
 export default function Customers() {
   const BRAND = useBrand();
+  const { employee } = useAuth();
   const [customers, setCustomers] = useState([]);
   const [selected, setSelected] = useState([]);
   const [editingId, setEditingId] = useState(null);
@@ -22,17 +24,21 @@ export default function Customers() {
 
   // Load customers from Supabase
   useEffect(() => {
-    loadCustomers();
-  }, []);
+    if (employee?.company_id) loadCustomers();
+  }, [employee?.company_id]);
 
   const loadCustomers = async () => {
+    // Explicit company filter (defence in depth on top of RLS) so this
+    // never falls back to showing rows from another company.
     const { data, error } = await supabase
       .from('customers')
       .select('*')
+      .eq('company_id', employee?.company_id)
       .order('customer');
     
     if (error) {
       console.error("Failed to load customers", error);
+      notify("Failed to load customers: " + error.message);
     } else {
       setCustomers(data || []);
     }
@@ -89,7 +95,7 @@ export default function Customers() {
             email: row.Email || "",
             phone: row.Phone || "",
             balance: parseFloat(row["Open balance"] || 0),
-            company_id: user.id
+            company_id: employee?.company_id
           };
         }).filter(c => c.customer.trim());
         
@@ -149,7 +155,7 @@ export default function Customers() {
         address: newCustomer.address,
         email: newCustomer.email,
         phone: newCustomer.phone,
-        company_id: user.id
+        company_id: employee?.company_id
       }])
       .select();
     

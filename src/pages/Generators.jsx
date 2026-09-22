@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { notify, confirmDialog } from "../lib/notify";
+import { useAuth } from "../contexts/AuthContext";
 
 const FUEL_TYPES = ["Natural Gas", "Propane", "Liquid Propane", "Diesel"];
 const DEFAULT_BRANDS = ["Generac", "Kohler", "Cummins", "Briggs & Stratton"];
@@ -88,6 +89,7 @@ function fmtDate(d) {
 
 export default function Generators() {
   const navigate = useNavigate();
+  const { employee } = useAuth();
   const [generators, setGenerators] = useState([]);
   const [brands, setBrands] = useState([...DEFAULT_BRANDS]);
   const [customers, setCustomers] = useState([]);
@@ -127,7 +129,12 @@ export default function Generators() {
     const [genRes, brandRes, custRes] = await Promise.all([
       supabase.from("generators").select("*").eq("company_id", user.id).order("customer_name"),
       supabase.from("generator_brands").select("name").eq("company_id", user.id).order("name"),
-      supabase.from("customers").select("id, customer, address, email, phone").eq("company_id", user.id).order("customer"),
+      // customers.company_id is the real companies.id (different convention
+      // from generators/generator_brands above, which key off the admin's
+      // auth.uid()) — must filter on employee.company_id, not user.id.
+      employee?.company_id
+        ? supabase.from("customers").select("id, customer, address, email, phone").eq("company_id", employee.company_id).order("customer")
+        : Promise.resolve({ data: [], error: null }),
     ]);
 
     if (!genRes.error) setGenerators(genRes.data ?? []);
@@ -136,16 +143,9 @@ export default function Generators() {
       const merged = [...new Set([...DEFAULT_BRANDS, ...saved])].sort();
       setBrands(merged);
     }
-    if (!custRes.error && custRes.data?.length > 0) {
-      setCustomers(custRes.data);
-    } else {
-      // fallback: load all customers without company filter
-      const { data: allCust } = await supabase
-        .from("customers")
-        .select("id, customer, address, email, phone")
-        .order("customer");
-      setCustomers(allCust ?? []);
-    }
+    // No cross-company fallback here — a company with zero customers
+    // yet should see an empty picker, never another company's data.
+    if (!custRes.error) setCustomers(custRes.data ?? []);
     setLoading(false);
   }
 

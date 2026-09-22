@@ -9,7 +9,7 @@ import { loadAvailableDeposits, applyDepositsToInvoice, resolveProjectId } from 
 export default function QuickInvoice() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user } = useAuth();
+  const { user, employee } = useAuth();
   const [customerName, setCustomerName] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
   const [customers, setCustomers] = useState([]);
@@ -76,39 +76,23 @@ export default function QuickInvoice() {
       return;
     }
     
+    if (!employee?.company_id) return;
+
     try {
-      console.log("Loading customers for user:", user.id);
+      // customers.company_id is the real companies.id — never fall back
+      // to an unfiltered query, which would show every company's
+      // customers in the invoice picker.
       const { data, error } = await supabase
         .from("customers")
         .select("*")
-        .eq("company_id", user.id)
+        .eq("company_id", employee.company_id)
         .order("customer");
 
-      if (error) {
-        console.error("ERROR loading customers:", error.message, error);
-      }
-      
-      // If error OR no customers with company_id, load all customers as fallback
-      if (error || !data || data.length === 0) {
-        console.log("Attempting fallback: loading all customers");
-        const { data: allData, error: allError } = await supabase
-          .from("customers")
-          .select("*")
-          .order("customer");
-        
-        if (!allError && allData) {
-          console.log("Loaded customers without company filter:", allData.length);
-          setCustomers(allData);
-        } else {
-          setCustomers([]);
-        }
-        return;
-      }
-      
+      if (error) throw error;
       setCustomers(data || []);
-      console.log("Successfully loaded customers:", data?.length || 0);
     } catch (err) {
       console.error("Exception loading customers:", err);
+      notify("Failed to load customers: " + err.message);
       setCustomers([]);
     }
   }

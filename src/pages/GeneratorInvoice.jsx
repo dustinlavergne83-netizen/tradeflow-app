@@ -46,7 +46,7 @@ const TODAY = new Date().toISOString().slice(0, 10);
 export default function GeneratorInvoice() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user } = useAuth();
+  const { user, employee } = useAuth();
 
   // ── Invoice type ───────────────────────────────────────────
   const [invoiceType, setInvoiceType] = useState("service"); // "service" | "install"
@@ -144,24 +144,19 @@ export default function GeneratorInvoice() {
   }
 
   async function loadCustomers() {
-    if (!user) return;
+    if (!employee?.company_id) return;
     try {
+      // customers.company_id is the real companies.id — never fall back
+      // to an unfiltered query, which would show every company's
+      // customers here.
       const { data, error } = await supabase
         .from("customers")
         .select("id, customer, address, phone, email")
-        .eq("company_id", user.id)
+        .eq("company_id", employee.company_id)
         .order("customer");
 
-      if (error || !data || data.length === 0) {
-        // fallback: load all customers
-        const { data: allData } = await supabase
-          .from("customers")
-          .select("id, customer, address, phone, email")
-          .order("customer");
-        setCustomers(allData ?? []);
-        return;
-      }
-      setCustomers(data);
+      if (error) throw error;
+      setCustomers(data ?? []);
     } catch (err) {
       console.error("Error loading customers:", err);
       setCustomers([]);

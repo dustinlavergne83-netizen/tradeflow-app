@@ -137,25 +137,21 @@ export default function ProjectSetup() {
 
   async function loadCustomers() {
     try {
+      // Explicit company filter (defence in depth on top of RLS) —
+      // never fall back to an unfiltered query or a browser cache
+      // shared across every company signed into on this device.
       const { data, error } = await supabase
         .from("customers")
         .select("*")
+        .eq("company_id", employee?.company_id)
         .order("customer", { ascending: true });
 
-      if (error) {
-        console.error("Supabase error:", error);
-        throw error;
-      }
+      if (error) throw error;
       setCustomers(data || []);
     } catch (err) {
       console.error("Error loading customers:", err);
-      // Fallback to localStorage if database fails
-      const saved = localStorage.getItem("customers");
-      if (saved) {
-        const localCustomers = JSON.parse(saved);
-        console.log("Using localStorage customers:", localCustomers);
-        setCustomers(localCustomers);
-      }
+      notify("Failed to load customers: " + err.message);
+      setCustomers([]);
     }
   }
 
@@ -178,7 +174,7 @@ export default function ProjectSetup() {
         address: newCustomer.address.trim() || null,
         email: newCustomer.email.trim() || null,
         phone: newCustomer.phone.trim() || null,
-        company_id: currentUser.id,
+        company_id: employee?.company_id,
       };
 
       const { data, error } = await supabase
