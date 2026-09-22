@@ -5,7 +5,7 @@ import { notify, confirmDialog } from '../lib/notify';
 
 import { useBrand } from "../lib/useBrand";
 import { useAuth } from "../contexts/AuthContext";
-import { getProjectTypes } from "../lib/projectTypes";
+import { getProjectTypes, hasCustomProjectTypes } from "../lib/projectTypes";
 
 const STATIC_BRAND = {
   bg: "#0b3ea8",
@@ -18,6 +18,7 @@ export default function ProjectsList() {
   const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const { company } = useAuth();
   const PROJECT_TYPES = getProjectTypes(company);
+  const skipTypePicker = hasCustomProjectTypes(company);
   const navigate = useNavigate();
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -222,7 +223,7 @@ export default function ProjectsList() {
         <div style={styles.empty}>
           <p>No projects yet</p>
           <button
-            onClick={() => setShowTypeModal(true)}
+            onClick={() => skipTypePicker ? navigate("/project/new") : setShowTypeModal(true)}
             style={styles.emptyButton}
           >
             Create Your First Project
@@ -292,7 +293,7 @@ export default function ProjectsList() {
               </select>
             </div>
             <button
-              onClick={() => setShowTypeModal(true)}
+              onClick={() => skipTypePicker ? navigate("/project/new") : setShowTypeModal(true)}
               style={styles.newButton}
             >
               ➕ New Project

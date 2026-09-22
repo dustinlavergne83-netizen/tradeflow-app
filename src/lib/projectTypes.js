@@ -66,3 +66,19 @@ export function getProjectTypes(company) {
   const custom = company?.settings?.projectTypes;
   return Array.isArray(custom) && custom.length > 0 ? custom : DEFAULT_PROJECT_TYPES;
 }
+
+/**
+ * True only for companies with a custom catalog configured (e.g. DT
+ * Specialties). Used to gate the "single type per project, chosen up
+ * front" flow — which DML depends on (type drives OT Bank auto-enable,
+ * hides fields on the create form, picks a proposal template) — away
+ * from companies where a project can carry multiple services picked
+ * later at estimate time.
+ *
+ * DML and any company without settings.projectTypes always get false
+ * here, so this never changes DML's behavior.
+ */
+export function hasCustomProjectTypes(company) {
+  const custom = company?.settings?.projectTypes;
+  return Array.isArray(custom) && custom.length > 0;
+}

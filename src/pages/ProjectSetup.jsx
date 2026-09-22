@@ -5,7 +5,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { notify } from '../lib/notify';
 
 import { useBrand } from "../lib/useBrand";
-import { getProjectTypes } from "../lib/projectTypes";
+import { getProjectTypes, hasCustomProjectTypes } from "../lib/projectTypes";
 
 const STATIC_BRAND = {
   bg: "#0b3ea8",
@@ -94,9 +94,16 @@ export default function ProjectSetup() {
   const navigate = useNavigate();
   const { user, employee, company } = useAuth();
   const PROJECT_TYPES = getProjectTypes(company);
+  const skipTypePicker = hasCustomProjectTypes(company);
   const [searchParams] = useSearchParams();
-  const typeFromUrl = searchParams.get("type") || "commercial-public";
-  const selectedType = PROJECT_TYPES.find((t) => t.value === typeFromUrl) || PROJECT_TYPES[0];
+  // Custom-catalog companies (e.g. DT) skip the type picker entirely —
+  // a project can carry several services, chosen later at estimate
+  // time, so no single project_type is assigned up front. DML always
+  // arrives here with a ?type= param from its picker modal, so this
+  // branch never runs for DML.
+  const urlTypeParam = searchParams.get("type");
+  const typeFromUrl = urlTypeParam || (skipTypePicker ? null : "commercial-public");
+  const selectedType = typeFromUrl ? (PROJECT_TYPES.find((t) => t.value === typeFromUrl) || PROJECT_TYPES[0]) : null;
 
   const [saving, setSaving] = useState(false);
   const [customers, setCustomers] = useState([]);
@@ -270,23 +277,28 @@ export default function ProjectSetup() {
         </button>
       </div>
 
-      {/* Project Type Banner */}
-      <div style={{ ...styles.typeBanner, backgroundColor: selectedType.color }}>
-        <div style={styles.typeBannerIcon}>{selectedType.icon}</div>
-        <div style={styles.typeBannerInfo}>
-          <div style={styles.typeBannerLabel}>Project Type</div>
-          <div style={styles.typeBannerValue}>{selectedType.label}</div>
-          <div style={styles.typeBannerDesc}>{selectedType.desc}</div>
+      {/* Project Type Banner — only shown when a type was actually
+          chosen up front (DML's flow). Custom-catalog companies pick
+          their service later at estimate time, so there's nothing to
+          show here yet. */}
+      {selectedType && (
+        <div style={{ ...styles.typeBanner, backgroundColor: selectedType.color }}>
+          <div style={styles.typeBannerIcon}>{selectedType.icon}</div>
+          <div style={styles.typeBannerInfo}>
+            <div style={styles.typeBannerLabel}>Project Type</div>
+            <div style={styles.typeBannerValue}>{selectedType.label}</div>
+            <div style={styles.typeBannerDesc}>{selectedType.desc}</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            style={styles.changeTypeButton}
+            title="Go back to choose a different project type"
+          >
+            ↩ Change Type
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => navigate(-1)}
-          style={styles.changeTypeButton}
-          title="Go back to choose a different project type"
-        >
-          ↩ Change Type
-        </button>
-      </div>
+      )}
 
       <form onSubmit={handleSubmit} style={styles.form}>
         <div style={styles.section}>
