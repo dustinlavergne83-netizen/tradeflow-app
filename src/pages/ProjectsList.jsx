@@ -4,6 +4,8 @@ import { supabase } from "../lib/supabase";
 import { notify, confirmDialog } from '../lib/notify';
 
 import { useBrand } from "../lib/useBrand";
+import { useAuth } from "../contexts/AuthContext";
+import { getProjectTypes } from "../lib/projectTypes";
 
 const STATIC_BRAND = {
   bg: "#0b3ea8",
@@ -12,46 +14,10 @@ const STATIC_BRAND = {
   primary: "#2563eb",
 };
 
-const PROJECT_TYPES = [
-  {
-    value: "commercial-public",
-    icon: "🏢",
-    label: "Commercial Public",
-    desc: "Government, schools, public works, municipalities",
-    color: "#1d4ed8",
-  },
-  {
-    value: "commercial-private",
-    icon: "🏗️",
-    label: "Commercial Private",
-    desc: "Private businesses, retail, industrial, offices",
-    color: "#7c3aed",
-  },
-  {
-    value: "residential-contractor",
-    icon: "👷",
-    label: "Residential Contractor",
-    desc: "Working through a general contractor on residential work",
-    color: "#d97706",
-  },
-  {
-    value: "residential-owner",
-    icon: "🏡",
-    label: "Residential Owner",
-    desc: "Working directly with the homeowner",
-    color: "#059669",
-  },
-  {
-    value: "lighting-project",
-    icon: "💡",
-    label: "Lighting Project",
-    desc: "Out-of-town lighting jobs — OT Bank auto-enabled (pay 40 hrs now, bonus on collection)",
-    color: "#f59e0b",
-  },
-];
-
 export default function ProjectsList() {
   const BRAND = { ...STATIC_BRAND, ...useBrand() };
+  const { company } = useAuth();
+  const PROJECT_TYPES = getProjectTypes(company);
   const navigate = useNavigate();
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);

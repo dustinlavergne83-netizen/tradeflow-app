@@ -5,51 +5,13 @@ import { useAuth } from "../contexts/AuthContext";
 import { notify } from '../lib/notify';
 
 import { useBrand } from "../lib/useBrand";
+import { getProjectTypes } from "../lib/projectTypes";
 
 const STATIC_BRAND = {
   bg: "#0b3ea8",
   text: "#f97316",
   accent: "#fc6b04ff",
 };
-
-const PROJECT_TYPES = [
-  {
-    value: "commercial-public",
-    icon: "🏢",
-    label: "Commercial Public",
-    desc: "Government, schools, public works, municipalities",
-    color: "#1d4ed8",
-  },
-  {
-    value: "commercial-private",
-    icon: "🏗️",
-    label: "Commercial Private",
-    desc: "Private businesses, retail, industrial, offices",
-    color: "#7c3aed",
-  },
-  {
-    value: "residential-contractor",
-    icon: "👷",
-    label: "Residential Contractor",
-    desc: "Working through a general contractor on residential work",
-    color: "#d97706",
-  },
-  {
-    value: "residential-owner",
-    icon: "🏡",
-    label: "Residential Owner",
-    desc: "Working directly with the homeowner",
-    color: "#059669",
-  },
-  {
-    value: "lighting-project",
-    icon: "💡",
-    label: "Lighting Project",
-    desc: "Out-of-town lighting jobs — OT Bank enabled automatically (pay 40 hrs now, bonus later)",
-    color: "#f59e0b",
-    ot_bank_auto: true,
-  },
-];
 
 function AutocompleteInput({ name, value, onChange, options, placeholder, label, required }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -130,7 +92,8 @@ function AutocompleteInput({ name, value, onChange, options, placeholder, label,
 export default function ProjectSetup() {
   const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const navigate = useNavigate();
-  const { user, employee } = useAuth();
+  const { user, employee, company } = useAuth();
+  const PROJECT_TYPES = getProjectTypes(company);
   const [searchParams] = useSearchParams();
   const typeFromUrl = searchParams.get("type") || "commercial-public";
   const selectedType = PROJECT_TYPES.find((t) => t.value === typeFromUrl) || PROJECT_TYPES[0];
