@@ -4832,12 +4832,12 @@ for (const row of validRows) {
                     </tr>
                   </thead>
                   <tbody>
-                    {/* Show Assemblies if ASSEMBLIES category selected */}
-                    {selectedCategory === "ASSEMBLIES" ? (
+                    {/* Show Assemblies when browsing the ASSEMBLIES category, OR when actively
+                        searching from ALL ITEMS so assemblies surface alongside materials */}
+                    {(selectedCategory === "ASSEMBLIES" ||
+                      (selectedCategory === "ALL ITEMS" && catalogSearch.trim() !== "")) &&
                       assembliesDB
-                        .filter(assembly => 
-                          assembly.name.toLowerCase().includes(catalogSearch.toLowerCase())
-                        )
+                        .filter(assembly => smartSearch(assembly.name, catalogSearch))
                         .map((assembly) => (
                           <tr 
                             key={assembly.id}
@@ -4947,9 +4947,9 @@ for (const row of validRows) {
                               </button>
                             </td>
                           </tr>
-                        ))
-                    ) : (
-                      /* Show Materials */
+                        ))}
+                    {/* Show Materials whenever not exclusively browsing ASSEMBLIES */}
+                    {selectedCategory !== "ASSEMBLIES" &&
                       materials
                         .filter(material => {
                           // Filter by selected category
@@ -5011,8 +5011,7 @@ for (const row of validRows) {
                             </button>
                           </td>
                         </tr>
-                        ))
-                    )}
+                        ))}
                   </tbody>
                 </table>
               </div>
