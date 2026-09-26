@@ -56,6 +56,7 @@ import BankAccounts from "./pages/BankAccounts";
 import BankTransactions from "./pages/BankTransactions";
 import BankReconciliation from "./pages/BankReconciliation";
 import Bills from "./pages/Bills";
+import PrintChecks from "./pages/PrintChecks";
 import AccountLedger from "./pages/AccountLedger";
 import TrialBalance from "./pages/reports/TrialBalance";
 import ProfitLoss from "./pages/reports/ProfitLoss";
@@ -773,6 +774,14 @@ function AppContent() {
             element={
               <ProtectedRoute>
                 <Bills />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounting/print-checks"
+            element={
+              <ProtectedRoute feature="accounting">
+                <PrintChecks />
               </ProtectedRoute>
             }
           />

@@ -29,6 +29,7 @@ export default function BankTransactions() {
   const [invoices, setInvoices] = useState([]);
   const [invoicePayments, setInvoicePayments] = useState([]);
   const [accounts, setAccounts] = useState([]);
+  const [transferAccounts, setTransferAccounts] = useState([]); // other active bank accounts, for transfer destination/source picker
   const [vendors, setVendors] = useState([]);
   const [projects, setProjects] = useState([]);
   const [selectedTransactions, setSelectedTransactions] = useState(new Set());
@@ -50,6 +51,8 @@ export default function BankTransactions() {
     amount: '',
     transaction_type: 'deposit',
     category: '',
+    transfer_account_id: '',
+    transfer_direction: 'out', // 'out' = money left this account (withdrawal), 'in' = money arrived (deposit)
     payee: '',
     notes: '',
     project_id: ''
@@ -83,6 +86,20 @@ export default function BankTransactions() {
 
       if (accountError) throw accountError;
       setBankAccount(accountData);
+
+      // Load sibling bank accounts (for the Transfer to/from picker) — RLS
+      // already scopes this to the same company, same pattern as Expenses.jsx
+      const { data: siblingAccounts, error: siblingError } = await supabase
+        .from("bank_accounts")
+        .select("id, account_name, bank_name, chart_account_id")
+        .eq("is_active", true)
+        .neq("id", accountId)
+        .order("account_name");
+      if (siblingError) {
+        console.error("Error loading transfer accounts:", siblingError);
+      } else {
+        setTransferAccounts(siblingAccounts || []);
+      }
 
       // Load transactions with project info
       const { data: transactionsData, error: transactionsError } = await supabase
@@ -204,10 +221,13 @@ export default function BankTransactions() {
       console.log('Starting deletion of journal entry for transaction:', transactionId);
       
       // IMPORTANT: First try to find by reference_type and reference_id (most reliable)
+      // 'transfer' is included because transfer journal entries are tagged with
+      // reference_type = 'transfer' instead of 'bank_transaction' (see the transfer
+      // branch in handleToggleCleared) so they can be told apart in the ledger.
       let { data: journalEntries, error: journalCheckError } = await supabase
         .from('journal_entries')
         .select('id, entry_number, reference_type, reference_id')
-        .eq('reference_type', 'bank_transaction')
+        .in('reference_type', ['bank_transaction', 'transfer'])
         .eq('reference_id', transactionId);
 
       if (journalCheckError) {
@@ -811,6 +831,8 @@ export default function BankTransactions() {
       amount: '',
       transaction_type: 'deposit',
       category: '',
+      transfer_account_id: '',
+      transfer_direction: 'out',
       payee: '',
       notes: '',
       project_id: ''
@@ -827,6 +849,8 @@ export default function BankTransactions() {
       amount: Math.abs(transaction.amount).toString(),
       transaction_type: transaction.transaction_type || 'deposit',
       category: transaction.category || '',
+      transfer_account_id: transaction.transfer_account_id || '',
+      transfer_direction: transaction.amount < 0 ? 'out' : 'in',
       payee: transaction.payee || '',
       notes: transaction.notes || '',
       project_id: transaction.project_id || ''
@@ -847,10 +871,18 @@ export default function BankTransactions() {
         return;
       }
 
-      // For deposits, amount is positive; for withdrawals, amount is negative
-      const finalAmount = transactionForm.transaction_type === 'withdrawal' || 
-                         transactionForm.transaction_type === 'fee' ? 
-                         -Math.abs(amount) : Math.abs(amount);
+      if (transactionForm.transaction_type === 'transfer' && !transactionForm.transfer_account_id) {
+        notify('Please select which account this transfer is to/from');
+        return;
+      }
+
+      // For deposits, amount is positive; for withdrawals, amount is negative.
+      // For transfers, the direction picker decides the sign (money leaving = negative).
+      const finalAmount = transactionForm.transaction_type === 'transfer'
+        ? (transactionForm.transfer_direction === 'out' ? -Math.abs(amount) : Math.abs(amount))
+        : (transactionForm.transaction_type === 'withdrawal' || transactionForm.transaction_type === 'fee'
+            ? -Math.abs(amount)
+            : Math.abs(amount));
 
       const transactionData = {
         bank_account_id: accountId,
@@ -859,7 +891,8 @@ export default function BankTransactions() {
         reference_number: transactionForm.reference_number || null,
         amount: finalAmount,
         transaction_type: transactionForm.transaction_type,
-        category: transactionForm.category || null,
+        category: transactionForm.transaction_type === 'transfer' ? null : (transactionForm.category || null),
+        transfer_account_id: transactionForm.transaction_type === 'transfer' ? transactionForm.transfer_account_id : null,
         payee: transactionForm.payee || null,
         notes: transactionForm.notes || null,
         project_id: transactionForm.project_id || null,
@@ -960,6 +993,15 @@ export default function BankTransactions() {
         if (invoiceError) {
           console.warn('Failed to update invoice payment status:', invoiceError);
         }
+      }
+
+      // ── TRANSFERS: asset-to-asset, never Expense/Income ─────────────────────
+      // A transfer moves money between two of THIS company's own bank accounts,
+      // so it must never touch a P&L account. This entire branch replaces the
+      // generic uncleared/JE-creation logic below for transaction_type='transfer'.
+      if (transaction.transaction_type === 'transfer') {
+        await handleTransferClear(transaction, newClearedStatus, bulkMode);
+        return;
       }
 
       // When UNCLEANING an UNLINKED transaction, DELETE the journal entry that was created
@@ -1432,6 +1474,158 @@ export default function BankTransactions() {
         throw err; // re-throw so bulk caller counts it as a failure
       }
     }
+  }
+
+  // ── TRANSFERS: asset-to-asset, never Expense/Income ───────────────────────
+  // A transfer moves money between two of THIS company's own bank accounts,
+  // so its journal entry must debit one Asset (cash) account and credit
+  // another — it must never touch Income or Expense (the old auto-fallback
+  // logic in handleToggleCleared would have booked it as one or the other,
+  // double-counting the money on the P&L).
+  async function handleTransferClear(transaction, newClearedStatus, bulkMode) {
+    try {
+      if (!newClearedStatus) {
+        // Unclearing — only delete the journal entry if THIS side owns it
+        // (reference_id = this transaction's id). If the pair created the
+        // shared entry, it's still accurate and is left untouched.
+        const deleted = await deleteJournalEntryForTransaction(transaction.id);
+        if (deleted && transaction.transfer_pair_id) {
+          await supabase.from('bank_transactions').update({ transfer_pair_id: null }).eq('id', transaction.transfer_pair_id);
+          await supabase.from('bank_transactions').update({ transfer_pair_id: null }).eq('id', transaction.id);
+          if (!bulkMode) notify('✅ Transfer uncleared and its journal entry removed.');
+        } else if (!bulkMode) {
+          notify(deleted
+            ? '✅ Transfer uncleared and its journal entry removed.'
+            : '✅ Transfer uncleared. (The linked side still holds the journal entry, which remains valid.)');
+        }
+        if (!bulkMode) await recalcBalanceAndReload();
+        return;
+      }
+
+      if (!transaction.transfer_account_id) {
+        await supabase.from('bank_transactions').update({ is_cleared: false }).eq('id', transaction.id);
+        if (bulkMode) throw new Error('Transfer missing destination account — skipped');
+        notify('⚠️ Please select which account this transfer is to/from before clearing it.');
+        await loadData();
+        return;
+      }
+
+      // Already paired — the shared journal entry was already created, either
+      // by this side earlier or by its pair on the other account.
+      if (transaction.transfer_pair_id) {
+        if (!bulkMode) await loadData();
+        return;
+      }
+
+      const { data: bankRec, error: bankRecErr } = await supabase
+        .from('bank_accounts').select('chart_account_id').eq('id', accountId).single();
+      if (bankRecErr || !bankRec?.chart_account_id) {
+        notify('⚠️ This bank account is not linked to a Chart of Accounts cash account. Please link it in Bank Accounts first.');
+        await supabase.from('bank_transactions').update({ is_cleared: false }).eq('id', transaction.id);
+        if (!bulkMode) await loadData();
+        return;
+      }
+      const { data: destAccount, error: destErr } = await supabase
+        .from('bank_accounts').select('chart_account_id, account_name').eq('id', transaction.transfer_account_id).single();
+      if (destErr || !destAccount?.chart_account_id) {
+        notify('⚠️ The destination account is not linked to a Chart of Accounts cash account. Please link it in Bank Accounts first.');
+        await supabase.from('bank_transactions').update({ is_cleared: false }).eq('id', transaction.id);
+        if (!bulkMode) await loadData();
+        return;
+      }
+
+      const absAmount = Math.abs(transaction.amount);
+      const entryNumber = await getNextJournalEntryNumber(user.id);
+      const { data: newEntry, error: entryError } = await supabase
+        .from('journal_entries')
+        .insert([{
+          entry_number: entryNumber,
+          entry_date: transaction.transaction_date,
+          description: `Transfer: ${bankAccount?.account_name || 'Account'} <-> ${destAccount.account_name}`.substring(0, 50),
+          reference_type: 'transfer',
+          reference_id: transaction.id,
+          created_by: user.id,
+          company_id: user.id,
+          is_posted: true,
+          posted_at: new Date().toISOString(),
+          posted_by: user.id
+        }]).select().single();
+      if (entryError) throw entryError;
+
+      // This bank account is always an Asset. Money arriving (positive) is a
+      // debit; money leaving (negative) is a credit. The destination account
+      // gets the exact opposite — both lines are Asset accounts, so this
+      // journal entry can never touch Income or Expense.
+      const thisDebit = transaction.amount > 0 ? absAmount : 0;
+      const thisCredit = transaction.amount < 0 ? absAmount : 0;
+
+      const { error: linesError } = await supabase.from('journal_entry_lines').insert([
+        { entry_id: newEntry.id, line_number: 1, account_id: bankRec.chart_account_id, debit: thisDebit, credit: thisCredit, description: 'Transfer' },
+        { entry_id: newEntry.id, line_number: 2, account_id: destAccount.chart_account_id, debit: thisCredit, credit: thisDebit, description: 'Transfer' }
+      ]);
+      if (linesError) {
+        await supabase.from('journal_entries').delete().eq('id', newEntry.id);
+        throw linesError;
+      }
+
+      // Best-effort labeling only (not required for the journal entry above to
+      // be correct/complete): look for the matching uncleared sibling on the
+      // destination account and link them so it shows up already tagged
+      // "Transfer" when you go reconcile that account. The sibling is NOT
+      // auto-cleared — you still tick it off yourself there.
+      const { data: siblingCandidates } = await supabase
+        .from('bank_transactions')
+        .select('*')
+        .eq('bank_account_id', transaction.transfer_account_id)
+        .eq('is_cleared', false)
+        .is('transfer_pair_id', null);
+
+      const sibling = (siblingCandidates || []).find(s => {
+        if (Math.abs(Math.abs(s.amount) - absAmount) > 0.01) return false;
+        if ((s.amount > 0) === (transaction.amount > 0)) return false; // must be opposite direction
+        return dateProximityScore(s.transaction_date, transaction.transaction_date, 5) !== null;
+      });
+
+      if (sibling) {
+        await supabase.from('bank_transactions').update({ transfer_pair_id: sibling.id }).eq('id', transaction.id);
+        await supabase.from('bank_transactions').update({
+          transaction_type: 'transfer',
+          transfer_account_id: accountId,
+          transfer_pair_id: transaction.id
+        }).eq('id', sibling.id);
+        if (!bulkMode) notify(`✅ Transfer cleared and linked to a matching transaction on ${destAccount.account_name}. Journal entry created — asset-to-asset, no impact on Profit & Loss.`);
+      } else if (!bulkMode) {
+        notify('✅ Transfer cleared! Journal entry created — asset-to-asset, no impact on Profit & Loss.');
+      }
+
+      if (!bulkMode) await recalcBalanceAndReload();
+    } catch (err) {
+      console.error('Error handling transfer clear:', err);
+      if (!bulkMode) {
+        notify(`⚠️ Failed to process transfer: ${err.message}`);
+        await supabase.from('bank_transactions').update({ is_cleared: false }).eq('id', transaction.id);
+        await loadData();
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  async function recalcBalanceAndReload() {
+    try {
+      const { data: clearedTransactions, error: clearedError } = await supabase
+        .from('bank_transactions').select('amount')
+        .eq('bank_account_id', accountId).eq('is_cleared', true);
+      if (!clearedError) {
+        const freshClearedSum = (clearedTransactions || []).reduce((sum, t) => sum + t.amount, 0);
+        const freshClearedBalance = (bankAccount?.opening_balance || 0) + freshClearedSum;
+        setBankAccount(prev => prev ? {...prev, current_balance: freshClearedBalance} : prev);
+        await supabase.from('bank_accounts').update({ current_balance: freshClearedBalance }).eq('id', accountId);
+      }
+    } catch (err) {
+      console.error('Error recalculating bank balance:', err);
+    }
+    await loadData();
   }
 
   async function handleDelete(transaction) {
@@ -2064,36 +2258,69 @@ export default function BankTransactions() {
                   </datalist>
                   <td style={styles.td}>{transaction.reference_number || '-'}</td>
                   <td style={styles.td}>
-                    <select
-                      value={transaction.category || ''}
-                      onChange={async (e) => {
-                        const newCategory = e.target.value || null;
-                        try {
-                          const { error } = await supabase
-                            .from('bank_transactions')
-                            .update({ category: newCategory })
-                            .eq('id', transaction.id);
-                          if (error) throw error;
-                          
-                          // Update local state silently without reload
-                          setTransactions(prev => prev.map(t => 
-                            t.id === transaction.id ? {...t, category: newCategory} : t
-                          ));
-                        } catch (err) {
-                          console.error('Error updating category:', err);
-                          notify('Failed to update category');
-                        }
-                      }}
-                      style={styles.categorySelect}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <option value="">-- Select Account --</option>
-                      {accounts.map(account => (
-                        <option key={account.id} value={account.id}>
-                          {account.account_number} - {account.account_name}
-                        </option>
-                      ))}
-                    </select>
+                    {transaction.transaction_type === 'transfer' ? (
+                      <select
+                        value={transaction.transfer_account_id || ''}
+                        onChange={async (e) => {
+                          const newTransferAccountId = e.target.value || null;
+                          try {
+                            const { error } = await supabase
+                              .from('bank_transactions')
+                              .update({ transfer_account_id: newTransferAccountId, category: null })
+                              .eq('id', transaction.id);
+                            if (error) throw error;
+
+                            setTransactions(prev => prev.map(t =>
+                              t.id === transaction.id ? {...t, transfer_account_id: newTransferAccountId, category: null} : t
+                            ));
+                          } catch (err) {
+                            console.error('Error updating transfer account:', err);
+                            notify('Failed to update transfer account');
+                          }
+                        }}
+                        style={styles.categorySelect}
+                        onClick={(e) => e.stopPropagation()}
+                        title="Which account did this money transfer to/from?"
+                      >
+                        <option value="">🔄 Transfer to/from...</option>
+                        {transferAccounts.map(acct => (
+                          <option key={acct.id} value={acct.id}>
+                            {acct.account_name}{acct.bank_name ? ` (${acct.bank_name})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <select
+                        value={transaction.category || ''}
+                        onChange={async (e) => {
+                          const newCategory = e.target.value || null;
+                          try {
+                            const { error } = await supabase
+                              .from('bank_transactions')
+                              .update({ category: newCategory })
+                              .eq('id', transaction.id);
+                            if (error) throw error;
+                            
+                            // Update local state silently without reload
+                            setTransactions(prev => prev.map(t => 
+                              t.id === transaction.id ? {...t, category: newCategory} : t
+                            ));
+                          } catch (err) {
+                            console.error('Error updating category:', err);
+                            notify('Failed to update category');
+                          }
+                        }}
+                        style={styles.categorySelect}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <option value="">-- Select Account --</option>
+                        {accounts.map(account => (
+                          <option key={account.id} value={account.id}>
+                            {account.account_number} - {account.account_name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </td>
                   <td style={styles.td}>
                     <select
@@ -2282,6 +2509,11 @@ export default function BankTransactions() {
                   </td>
                   <td style={styles.td}>{transaction.reference_number || '-'}</td>
                   <td style={styles.td}>
+                    {transaction.transaction_type === 'transfer' ? (
+                      <span title="Linked transfer">
+                        🔄 {transferAccounts.find(a => a.id === transaction.transfer_account_id)?.account_name || 'Transfer'}
+                      </span>
+                    ) : (
                     <select
                       value={transaction.category || ''}
                       onChange={async (e) => {
@@ -2310,6 +2542,7 @@ export default function BankTransactions() {
                         </option>
                       ))}
                     </select>
+                    )}
                   </td>
                   <td style={styles.td}>
                     <select
@@ -3112,22 +3345,56 @@ export default function BankTransactions() {
                     ))}
                   </datalist>
                 </div>
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Category</label>
-                  <select
-                    value={transactionForm.category}
-                    onChange={(e) => setTransactionForm({...transactionForm, category: e.target.value})}
-                    style={styles.input}
-                  >
-                    <option value="">-- Select Account --</option>
-                    {accounts.map(account => (
-                      <option key={account.id} value={account.id}>
-                        {account.account_number} - {account.account_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {transactionForm.transaction_type === 'transfer' ? (
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Transfer To/From Account *</label>
+                    <select
+                      value={transactionForm.transfer_account_id}
+                      onChange={(e) => setTransactionForm({...transactionForm, transfer_account_id: e.target.value})}
+                      style={styles.input}
+                    >
+                      <option value="">-- Select bank account --</option>
+                      {transferAccounts.map(acct => (
+                        <option key={acct.id} value={acct.id}>
+                          {acct.account_name}{acct.bank_name ? ` (${acct.bank_name})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Category</label>
+                    <select
+                      value={transactionForm.category}
+                      onChange={(e) => setTransactionForm({...transactionForm, category: e.target.value})}
+                      style={styles.input}
+                    >
+                      <option value="">-- Select Account --</option>
+                      {accounts.map(account => (
+                        <option key={account.id} value={account.id}>
+                          {account.account_number} - {account.account_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
+
+              {transactionForm.transaction_type === 'transfer' && (
+                <div style={styles.formRow}>
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Direction *</label>
+                    <select
+                      value={transactionForm.transfer_direction}
+                      onChange={(e) => setTransactionForm({...transactionForm, transfer_direction: e.target.value})}
+                      style={styles.input}
+                    >
+                      <option value="out">Money left THIS account (withdrawal)</option>
+                      <option value="in">Money arrived in THIS account (deposit)</option>
+                    </select>
+                  </div>
+                </div>
+              )}
 
               <div style={styles.formGroup}>
                 <label style={styles.label}>Project</label>

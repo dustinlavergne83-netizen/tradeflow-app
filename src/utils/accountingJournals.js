@@ -684,3 +684,83 @@ export async function createBillPaymentJournalEntry(bill, userId, companyId) {
     return { success: false, error: error.message };
   }
 }
+
+/**
+ * Create journal entry when a check is printed/recorded from the Print
+ * Checks feature.
+ * Debit: Accounts Payable (source_type 'bill') OR the chosen expense
+ *        category account (source_type 'manual'/'expense')
+ * Credit: Cash (the bank account's linked chart_account_id)
+ */
+export async function createCheckJournalEntry(check, bankAccount, userId, companyId) {
+  try {
+    if (!bankAccount?.chart_account_id) {
+      return { success: false, error: "This bank account isn't linked to a Chart of Accounts cash account yet." };
+    }
+
+    let debitAccountId = check.category_account_id;
+    if (check.source_type === "bill") {
+      const accounts = await getDefaultAccounts(companyId);
+      if (!accounts?.accountsPayable) {
+        return { success: false, error: "Missing Accounts Payable account" };
+      }
+      debitAccountId = accounts.accountsPayable.id;
+    }
+
+    if (!debitAccountId) {
+      return { success: false, error: "No expense/category account selected for this check" };
+    }
+
+    const entryNumber = await getNextJournalEntryNumber(companyId);
+    const description = `Check #${check.check_number} - ${check.payee_name}`;
+
+    const { data: entry, error: entryError } = await supabase
+      .from("journal_entries")
+      .insert({
+        company_id: companyId,
+        entry_number: entryNumber,
+        entry_date: check.check_date,
+        description,
+        is_posted: true,
+        posted_at: new Date().toISOString(),
+        posted_by: userId,
+        created_by: userId,
+        reference_type: "check",
+        reference_id: check.id,
+      })
+      .select()
+      .single();
+
+    if (entryError) throw entryError;
+
+    const lines = [
+      {
+        entry_id: entry.id,
+        line_number: 1,
+        account_id: debitAccountId,
+        debit: check.amount,
+        credit: 0,
+        description,
+      },
+      {
+        entry_id: entry.id,
+        line_number: 2,
+        account_id: bankAccount.chart_account_id,
+        debit: 0,
+        credit: check.amount,
+        description,
+      },
+    ];
+
+    const { error: linesError } = await supabase
+      .from("journal_entry_lines")
+      .insert(lines);
+
+    if (linesError) throw linesError;
+
+    return { success: true, entryId: entry.id };
+  } catch (error) {
+    console.error("Error creating check journal entry:", error);
+    return { success: false, error: error.message };
+  }
+}

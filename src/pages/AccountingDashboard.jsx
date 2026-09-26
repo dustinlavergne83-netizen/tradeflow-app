@@ -80,6 +80,17 @@ export default function AccountingDashboard() {
               <p style={styles.moduleDesc}>Track vendor bills</p>
             </div>
           </div>
+
+          <div 
+            style={styles.moduleCard}
+            onClick={() => navigate('/accounting/print-checks')}
+          >
+            <div style={styles.moduleIcon}>🖨️</div>
+            <div style={styles.moduleContent}>
+              <h3 style={styles.moduleName}>Print Checks</h3>
+              <p style={styles.moduleDesc}>Write and print checks on voucher stock</p>
+            </div>
+          </div>
         </div>
       </div>
 
