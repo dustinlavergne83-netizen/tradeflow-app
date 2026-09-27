@@ -88,7 +88,7 @@ export default function Expenses() {
         `)
         .eq("created_by", user.id)
         .order("expense_date", { ascending: false })
-        .limit(500);
+        .limit(5000);
 
       if (error) throw error;
       
@@ -271,7 +271,7 @@ export default function Expenses() {
         .lt("amount", 0)
         .is("linked_expense_id", null)
         .order("transaction_date", { ascending: false })
-        .limit(500);
+        .limit(5000);
 
       if (error) {
         console.error("❌ Error loading cleared bank expenses:", error);
