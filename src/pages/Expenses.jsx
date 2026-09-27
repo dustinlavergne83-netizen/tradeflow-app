@@ -12,6 +12,7 @@ export default function Expenses() {
   const [projects, setProjects] = useState([]);
   const [bankAccounts, setBankAccounts] = useState([]);
   const [expenseAccounts, setExpenseAccounts] = useState([]);
+  const [liabilityAccounts, setLiabilityAccounts] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [bankTransactions, setBankTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -39,6 +40,7 @@ export default function Expenses() {
     payment_method: 'credit_card',
     bank_account_id: '',
     income_account_id: '', // Track income accounts separately
+    liability_account_id: '', // Track charge-account (supplier open account) purchases
     project_id: '',
     project_name: '',
     tax_deductible: true,
@@ -55,6 +57,7 @@ export default function Expenses() {
     loadBankTransactions();
     loadClearedBankExpenses();
     loadThisMonthTotal();
+    loadLiabilityAccounts();
   }, [user?.id]);
 
   // Listen for custom event from BankTransactions when expense is created
@@ -204,6 +207,26 @@ export default function Expenses() {
       setExpenseAccounts(data || []);
     } catch (err) {
       console.error("Error loading expense accounts:", err);
+    }
+  }
+
+  // Liability accounts (e.g. supplier charge/open accounts like Teche Electric,
+  // Coburns Electric) — used when payment_method = 'charge_account' so the
+  // expense credits the supplier's liability instead of Cash/Bank.
+  async function loadLiabilityAccounts() {
+    try {
+      const { data, error } = await supabase
+        .from("accounts")
+        .select("*")
+        .eq("company_id", user.id)
+        .eq("account_type", "Liability")
+        .eq("is_active", true)
+        .order("account_number");
+
+      if (error) throw error;
+      setLiabilityAccounts(data || []);
+    } catch (err) {
+      console.error("Error loading liability accounts:", err);
     }
   }
 
@@ -450,6 +473,7 @@ export default function Expenses() {
       description: '',
       payment_method: 'credit_card',
       bank_account_id: '',
+      liability_account_id: '',
       project_id: '',
       project_name: '',
       tax_deductible: true,
@@ -469,6 +493,7 @@ export default function Expenses() {
       description: expense.description || '',
       payment_method: expense.payment_method || 'credit_card',
       bank_account_id: expense.bank_account_id || '',
+      liability_account_id: expense.liability_account_id || '',
       project_id: expense.project_id || '',
       project_name: expense.project_name || '',
       tax_deductible: expense.tax_deductible !== false,
@@ -490,8 +515,14 @@ export default function Expenses() {
     }
 
     // For cash payments, bank_account_id is not needed (uses Cash account 1000)
-    // For other payment methods, bank_account_id is required
-    if (expenseForm.payment_method !== 'cash' && !expenseForm.bank_account_id) {
+    // For charge account purchases, a liability account is required instead of a bank account
+    // For all other payment methods, bank_account_id is required
+    if (expenseForm.payment_method === 'charge_account') {
+      if (!expenseForm.liability_account_id) {
+        setSaveMessage({ type: 'error', text: 'Please select which charge account (supplier liability) this was purchased on' });
+        return;
+      }
+    } else if (expenseForm.payment_method !== 'cash' && !expenseForm.bank_account_id) {
       setSaveMessage({ type: 'error', text: 'Please select a bank account for this payment method' });
       return;
     }
@@ -508,14 +539,18 @@ export default function Expenses() {
       );
       const isBankAccount = selectedAccount && !isChartAccount;
 
+      const isChargeAccount = expenseForm.payment_method === 'charge_account';
+
       const expenseData = {
         ...expenseForm,
         created_by: user.id,
         amount: parseFloat(expenseForm.amount),
         // Only store bank_account_id if it's a real bank account (from bank_accounts table)
         // Asset/Income accounts from Chart of Accounts go in income_account_id
-        bank_account_id: isBankAccount ? expenseForm.bank_account_id : null,
-        income_account_id: isChartAccount ? expenseForm.bank_account_id : null
+        // Charge account purchases store nothing in either — they use liability_account_id instead
+        bank_account_id: (!isChargeAccount && isBankAccount) ? expenseForm.bank_account_id : null,
+        income_account_id: (!isChargeAccount && isChartAccount) ? expenseForm.bank_account_id : null,
+        liability_account_id: isChargeAccount ? expenseForm.liability_account_id : null
       };
 
       // Convert empty strings to null for UUID fields
@@ -564,7 +599,7 @@ export default function Expenses() {
           newExpense,
           user.id,
           user.id,
-          newExpense.bank_account_id || newExpense.income_account_id,
+          newExpense.liability_account_id || newExpense.bank_account_id || newExpense.income_account_id,
           newExpense.payment_method
         ).catch(err => console.warn('Background journal entry failed:', err));
       }
@@ -1229,6 +1264,7 @@ export default function Expenses() {
                     <option value="cash">💵 Cash</option>
                     <option value="check">Check</option>
                     <option value="ach">ACH/Bank Transfer</option>
+                    <option value="charge_account">🏷️ Charge Account (Supplier)</option>
                     <option value="other">Other</option>
                   </select>
                   {expenseForm.payment_method === 'cash' && (
@@ -1236,8 +1272,34 @@ export default function Expenses() {
                       ✓ Using Cash Account (1000) - no bank account needed
                     </div>
                   )}
+                  {expenseForm.payment_method === 'charge_account' && (
+                    <div style={{fontSize: 12, color: '#f59e0b', marginTop: 6, fontWeight: 600}}>
+                      ⚠️ No cash leaves an account yet — this creates a liability that you'll pay off later
+                    </div>
+                  )}
                 </div>
-                {expenseForm.payment_method !== 'cash' && (
+                {expenseForm.payment_method === 'charge_account' ? (
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Charge Account (Liability) *</label>
+                    <select
+                      value={expenseForm.liability_account_id}
+                      onChange={(e) => setExpenseForm({...expenseForm, liability_account_id: e.target.value})}
+                      style={styles.input}
+                    >
+                      <option value="">Select Supplier Account...</option>
+                      {liabilityAccounts.map(account => (
+                        <option key={account.id} value={account.id}>
+                          {account.account_number} - {account.account_name}
+                        </option>
+                      ))}
+                    </select>
+                    {liabilityAccounts.length === 0 && (
+                      <div style={{fontSize: 12, color: '#ef4444', marginTop: 6}}>
+                        No liability accounts found. Add one in Chart of Accounts (e.g. "Teche Electric Account").
+                      </div>
+                    )}
+                  </div>
+                ) : expenseForm.payment_method !== 'cash' && (
                   <div style={styles.formGroup}>
                     <label style={styles.label}>Bank Account (Paid From) *</label>
                     <select

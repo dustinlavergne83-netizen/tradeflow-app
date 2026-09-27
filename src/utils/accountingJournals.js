@@ -314,6 +314,29 @@ export async function createExpenseJournalEntry(expense, userId, companyId, bank
       }
       creditAccountId = cashAccount.id;
       creditAccountName = cashAccount.account_name;
+    } else if (paymentMethod === 'charge_account') {
+      // Charge account purchases (e.g. a supplier open/charge account like
+      // "Teche Electric Account") do NOT credit Cash/Bank — no money left
+      // yet. Instead credit the specific Liability account passed in as
+      // bankAccountId (the caller passes expense.liability_account_id here).
+      // Debit side (expense.category) is unchanged — only the credit side
+      // differs from a normal cash/bank expense.
+      if (!bankAccountId) {
+        console.error("Liability account not provided for charge_account expense");
+        return { success: false, error: "Charge account purchases require a liability account" };
+      }
+      const { data: liabilityAccount, error: liabilityError } = await supabase
+        .from("accounts")
+        .select("id, account_name, account_type")
+        .eq("id", bankAccountId)
+        .single();
+
+      if (liabilityError || !liabilityAccount) {
+        console.error("Liability account not found:", liabilityError);
+        return { success: false, error: "Liability account not found in chart of accounts" };
+      }
+      creditAccountId = liabilityAccount.id;
+      creditAccountName = liabilityAccount.account_name;
     } else if (bankAccountId) {
       // First check if this is a Chart of Accounts entry (Income or Asset account)
       // These are passed directly as account IDs from the accounts table
