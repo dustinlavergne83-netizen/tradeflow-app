@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import BankStatementUpload from "../Components/BankStatementUpload";
+import BankStatementArchive from "../Components/BankStatementArchive";
 import { useAuth } from "../contexts/AuthContext";
 import { confirmDialog, notify } from '../lib/notify';
 import { supabase } from "../lib/supabase";
@@ -19,6 +20,7 @@ export default function BankTransactions() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showStatementArchive, setShowStatementArchive] = useState(false);
   const [showMatchesModal, setShowMatchesModal] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState(null);
   const [editingTransaction, setEditingTransaction] = useState(null);
@@ -2131,6 +2133,9 @@ export default function BankTransactions() {
           <button onClick={() => setShowUploadModal(true)} style={styles.uploadButton}>
             📤 Upload CSV
           </button>
+          <button onClick={() => setShowStatementArchive(true)} style={{...styles.uploadButton, backgroundColor: '#0891b2'}}>
+            🗄️ Statement Archive
+          </button>
           <button onClick={openAddModal} style={styles.newButton}>
             + Add Transaction
           </button>
@@ -3367,6 +3372,22 @@ export default function BankTransactions() {
               bankAccountId={accountId}
               onImportComplete={handleImportTransactions}
             />
+          </div>
+        </div>
+      )}
+
+      {/* Statement Archive Modal — original PDF/image/CSV files kept for
+          audits/disputes/CPA requests, separate from importing transactions above */}
+      {showStatementArchive && (
+        <div style={styles.modalOverlay} onClick={() => setShowStatementArchive(false)}>
+          <div style={styles.uploadModalContent} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>Bank Statement Archive</h2>
+              <button onClick={() => setShowStatementArchive(false)} style={styles.closeButton}>
+                ×
+              </button>
+            </div>
+            <BankStatementArchive bankAccountId={accountId} />
           </div>
         </div>
       )}
