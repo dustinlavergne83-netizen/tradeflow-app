@@ -387,6 +387,58 @@ export default function Expenses() {
     return bankTransactions.some(t => t.linked_expense_id === expenseId);
   }
 
+  // ── Inline dropdown editors for the Expenses table (manual entries only) ──
+  // Each updates Supabase directly and patches local state optimistically,
+  // so the row reflects the change immediately without a full reload.
+  async function handleInlineVendorChange(expense, vendorId) {
+    const vendor = vendors.find(v => v.id === vendorId);
+    const vendorName = vendor?.vendor_name || '';
+    setExpenses(prev => prev.map(e => e.id === expense.id ? { ...e, vendor_id: vendorId || null, vendor: vendorName } : e));
+    try {
+      const { error } = await supabase
+        .from('expenses')
+        .update({ vendor_id: vendorId || null, vendor: vendorName })
+        .eq('id', expense.id);
+      if (error) throw error;
+    } catch (err) {
+      console.error('Error updating vendor:', err);
+      setSaveMessage({ type: 'error', text: 'Failed to update vendor. Reloading...' });
+      loadExpenses();
+    }
+  }
+
+  async function handleInlineCategoryChange(expense, accountName) {
+    setExpenses(prev => prev.map(e => e.id === expense.id ? { ...e, category: accountName } : e));
+    try {
+      const { error } = await supabase
+        .from('expenses')
+        .update({ category: accountName })
+        .eq('id', expense.id);
+      if (error) throw error;
+    } catch (err) {
+      console.error('Error updating category:', err);
+      setSaveMessage({ type: 'error', text: 'Failed to update category. Reloading...' });
+      loadExpenses();
+    }
+  }
+
+  async function handleInlineProjectChange(expense, projectId) {
+    const project = projects.find(p => p.id === projectId);
+    const projectName = project?.name || null;
+    setExpenses(prev => prev.map(e => e.id === expense.id ? { ...e, project_id: projectId || null, project_name: projectName } : e));
+    try {
+      const { error } = await supabase
+        .from('expenses')
+        .update({ project_id: projectId || null, project_name: projectName })
+        .eq('id', expense.id);
+      if (error) throw error;
+    } catch (err) {
+      console.error('Error updating project:', err);
+      setSaveMessage({ type: 'error', text: 'Failed to update project. Reloading...' });
+      loadExpenses();
+    }
+  }
+
   function openAddExpenseModal() {
     setEditingExpense(null);
     setExpenseForm({
@@ -917,14 +969,69 @@ export default function Expenses() {
                       {!expense._isBankTransaction && isExpenseLinked(expense.id) && (
                         <span style={{fontSize: 16}} title="Linked to bank transaction">🔗</span>
                       )}
-                      <span>{expense.vendor || 'N/A'}</span>
+                      {expense._isBankTransaction ? (
+                        <span>{expense.vendor || 'N/A'}</span>
+                      ) : (
+                        <select
+                          value={expense.vendor_id || ''}
+                          onChange={(e) => handleInlineVendorChange(expense, e.target.value)}
+                          style={{...styles.input, padding: '4px 6px', fontSize: 13, width: '100%'}}
+                        >
+                          <option value="">Select Vendor...</option>
+                          {expense.vendor_id && !vendors.some(v => v.id === expense.vendor_id) && (
+                            <option value={expense.vendor_id}>⚠️ {expense.vendor || 'Unknown'} (legacy — reassign)</option>
+                          )}
+                          {!expense.vendor_id && expense.vendor && (
+                            <option value="" disabled>⚠️ {expense.vendor} (legacy — reassign)</option>
+                          )}
+                          {vendors.map(vendor => (
+                            <option key={vendor.id} value={vendor.id}>{vendor.vendor_name}</option>
+                          ))}
+                        </select>
+                      )}
                     </div>
                   </td>
                   <td style={{...styles.td, width: '20%', textAlign: 'center'}}>
-                    {expense.category || 'N/A'}
+                    {expense._isBankTransaction ? (
+                      expense.category || 'N/A'
+                    ) : (
+                      <select
+                        value={expenseAccounts.some(a => a.account_name === expense.category) ? expense.category : '__legacy__'}
+                        onChange={(e) => {
+                          if (e.target.value === '__legacy__') return;
+                          handleInlineCategoryChange(expense, e.target.value);
+                        }}
+                        style={{...styles.input, padding: '4px 6px', fontSize: 13, width: '100%'}}
+                      >
+                        {!expenseAccounts.some(a => a.account_name === expense.category) && (
+                          <option value="__legacy__">⚠️ {expense.category || '(none)'} (legacy — reassign)</option>
+                        )}
+                        {expenseAccounts.map(account => (
+                          <option key={account.id} value={account.account_name}>
+                            {account.account_number} - {account.account_name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </td>
                   <td style={{...styles.td, width: '20%', textAlign: 'center'}}>
-                    {expense.project_name || '-'}
+                    {expense._isBankTransaction ? (
+                      expense.project_name || '-'
+                    ) : (
+                      <select
+                        value={expense.project_id || ''}
+                        onChange={(e) => handleInlineProjectChange(expense, e.target.value)}
+                        style={{...styles.input, padding: '4px 6px', fontSize: 13, width: '100%'}}
+                      >
+                        <option value="">No Project</option>
+                        {expense.project_id && !projects.some(p => p.id === expense.project_id) && (
+                          <option value={expense.project_id}>⚠️ {expense.project_name || 'Unknown'} (legacy — reassign)</option>
+                        )}
+                        {projects.map(project => (
+                          <option key={project.id} value={project.id}>{project.name}</option>
+                        ))}
+                      </select>
+                    )}
                   </td>
                   <td style={{...styles.td, textAlign: 'right', width: '10%'}}>
                     <span style={styles.amount}>{formatCurrency(expense.amount)}</span>
