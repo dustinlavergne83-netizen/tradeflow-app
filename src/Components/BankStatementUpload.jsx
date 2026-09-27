@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Papa from "papaparse";
 
-export default function BankStatementUpload({ bankAccountId, onImportComplete }) {
+export default function BankStatementUpload({ bankAccountId, transferAccounts = [], onImportComplete }) {
   const [file, setFile] = useState(null);
   const [parsedData, setParsedData] = useState(null);
   const [headers, setHeaders] = useState([]);
@@ -208,6 +208,25 @@ export default function BankStatementUpload({ bankAccountId, onImportComplete })
     return amount >= 0 ? 'deposit' : 'withdrawal';
   };
 
+  // Detect an INTERNAL transfer from the description, e.g. "JDB XFER TO 5428",
+  // "OLB XFER FROM 3038". Only treated as a transfer when a 4+ digit number
+  // in the description matches one of THIS company's OTHER
+  // bank_accounts.account_number values — matching on the word
+  // "transfer"/"xfer" alone is NOT enough. Descriptions like "OLB XFER TO
+  // 1321" go to an external/personal account (a real Owner Draw expense),
+  // and must stay a normal withdrawal for you to categorize as usual — only
+  // a confirmed match against a real TradeFlow bank account gets relabeled.
+  // Returns { isTransfer, transferAccountId }.
+  function detectTransfer(description) {
+    const numberMatches = (description || '').match(/\d{4,}/g) || [];
+    for (const num of numberMatches) {
+      const last4 = num.slice(-4);
+      const match = transferAccounts.find(a => a.account_number && a.account_number === last4);
+      if (match) return { isTransfer: true, transferAccountId: match.id };
+    }
+    return { isTransfer: false, transferAccountId: null };
+  }
+
   const handleImport = async () => {
     if (!mapping.date || !mapping.description || !mapping.amount) {
       alert('Please map at least Date, Description, and Amount columns');
@@ -254,7 +273,9 @@ export default function BankStatementUpload({ bankAccountId, onImportComplete })
           return;
         }
 
-        const transactionType = determineTransactionType(amount, typeStr);
+        let transactionType = determineTransactionType(amount, typeStr);
+        const { isTransfer, transferAccountId } = detectTransfer(description);
+        if (isTransfer) transactionType = 'transfer';
 
         transactions.push({
           transaction_date: date,
@@ -264,6 +285,7 @@ export default function BankStatementUpload({ bankAccountId, onImportComplete })
           transaction_type: transactionType,
           category: null,
           payee: null,
+          transfer_account_id: transferAccountId,
           notes: `Imported from ${file.name}`,
         });
       } catch (err) {

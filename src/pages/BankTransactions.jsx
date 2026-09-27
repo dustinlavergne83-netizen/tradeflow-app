@@ -95,7 +95,7 @@ export default function BankTransactions() {
       // already scopes this to the same company, same pattern as Expenses.jsx
       const { data: siblingAccounts, error: siblingError } = await supabase
         .from("bank_accounts")
-        .select("id, account_name, bank_name, chart_account_id")
+        .select("id, account_name, account_number, bank_name, chart_account_id")
         .eq("is_active", true)
         .neq("id", accountId)
         .order("account_name");
@@ -1738,12 +1738,52 @@ export default function BankTransactions() {
         }
       }
 
+      // No record of this transfer on the destination account yet — most
+      // likely you haven't uploaded that account's statement covering this
+      // date. Create the counterpart automatically so the transfer is fully
+      // recorded on both sides right now, tagged auto_created so that when
+      // you DO later import that account's real statement, the importer
+      // can find and update this placeholder instead of inserting a
+      // duplicate (see migration 103).
+      let autoCreated = false;
+      if (!sibling) {
+        const { data: newSibling, error: createSiblingError } = await supabase
+          .from('bank_transactions')
+          .insert({
+            bank_account_id: transaction.transfer_account_id,
+            transaction_date: transaction.transaction_date,
+            description: transaction.description,
+            amount: -transaction.amount,
+            transaction_type: 'transfer',
+            transfer_account_id: accountId,
+            transfer_pair_id: transaction.id,
+            is_cleared: false, // set true below, after we know the insert worked
+            auto_created: true,
+            notes: `Auto-created from transfer cleared on ${bankAccount?.account_name || 'another account'}`,
+            created_by: user.id,
+          })
+          .select()
+          .single();
+
+        if (!createSiblingError && newSibling) {
+          await supabase.from('bank_transactions').update({ transfer_pair_id: newSibling.id }).eq('id', transaction.id);
+          sibling = newSibling;
+          autoCreated = true;
+        } else {
+          console.error('Error auto-creating transfer counterpart:', createSiblingError);
+        }
+      }
+
       if (sibling) {
         await supabase.from('bank_transactions').update({ is_cleared: true }).eq('id', sibling.id);
         await recalcOtherAccountBalance(transaction.transfer_account_id);
-        if (!bulkMode) notify(`✅ Transfer cleared on both accounts (${destAccount.account_name}). Journal entry created — asset-to-asset, no impact on Profit & Loss.`);
+        if (!bulkMode) {
+          notify(autoCreated
+            ? `✅ Transfer cleared! No matching transaction existed on ${destAccount.account_name} yet, so one was created and cleared automatically — asset-to-asset, no impact on Profit & Loss.`
+            : `✅ Transfer cleared on both accounts (${destAccount.account_name}). Journal entry created — asset-to-asset, no impact on Profit & Loss.`);
+        }
       } else if (!bulkMode) {
-        notify('✅ Transfer cleared! Journal entry created — asset-to-asset, no impact on Profit & Loss.\n\n⚠️ No matching transaction was found on the other account — clear it separately when you find it.');
+        notify('✅ Transfer cleared! Journal entry created — asset-to-asset, no impact on Profit & Loss.\n\n⚠️ Could not create a matching transaction on the other account — please check it manually.');
       }
 
       if (!bulkMode) await recalcBalanceAndReload();
@@ -1820,21 +1860,65 @@ export default function BankTransactions() {
 
   async function handleImportTransactions(transactions) {
     try {
-      // Add bank_account_id and created_by to each transaction
-      const transactionsToInsert = transactions.map(t => ({
-        ...t,
-        bank_account_id: accountId,
-        created_by: user.id,
-        imported_date: new Date().toISOString(),
-      }));
-
-      const { error } = await supabase
+      // Before inserting, check for auto_created placeholder transactions on
+      // THIS account (created when a transfer was cleared from the other
+      // side before this account's real statement existed — see
+      // handleTransferClear). If this statement's real transaction matches
+      // one (same amount/direction, within 5 days), UPDATE the placeholder
+      // in place instead of inserting a duplicate — otherwise every
+      // auto-created transfer would double up the moment its real
+      // statement is imported.
+      const { data: placeholders } = await supabase
         .from('bank_transactions')
-        .insert(transactionsToInsert);
+        .select('*')
+        .eq('bank_account_id', accountId)
+        .eq('auto_created', true);
 
-      if (error) throw error;
+      const usedPlaceholderIds = new Set();
+      const rowsToInsert = [];
+      let mergedCount = 0;
 
-      notify(`Successfully imported ${transactions.length} transactions!`);
+      for (const t of transactions) {
+        const match = (placeholders || []).find(p =>
+          !usedPlaceholderIds.has(p.id) &&
+          Math.abs(Math.abs(p.amount) - Math.abs(t.amount)) < 0.01 &&
+          (p.amount > 0) === (t.amount > 0) &&
+          dateProximityScore(p.transaction_date, t.transaction_date, 5) !== null
+        );
+
+        if (match) {
+          usedPlaceholderIds.add(match.id);
+          mergedCount++;
+          await supabase
+            .from('bank_transactions')
+            .update({
+              transaction_date: t.transaction_date,
+              description: t.description,
+              reference_number: t.reference_number,
+              notes: t.notes,
+              auto_created: false, // now backed by the real imported statement row
+              imported_date: new Date().toISOString(),
+            })
+            .eq('id', match.id);
+        } else {
+          rowsToInsert.push({
+            ...t,
+            bank_account_id: accountId,
+            created_by: user.id,
+            imported_date: new Date().toISOString(),
+          });
+        }
+      }
+
+      if (rowsToInsert.length > 0) {
+        const { error } = await supabase.from('bank_transactions').insert(rowsToInsert);
+        if (error) throw error;
+      }
+
+      const msg = mergedCount > 0
+        ? `Imported ${rowsToInsert.length} new transaction${rowsToInsert.length !== 1 ? 's' : ''} and merged ${mergedCount} into existing transfer placeholder${mergedCount !== 1 ? 's' : ''}!`
+        : `Successfully imported ${transactions.length} transactions!`;
+      notify(msg);
       setShowUploadModal(false);
       loadData();
     } catch (err) {
@@ -3500,6 +3584,7 @@ export default function BankTransactions() {
             </div>
             <BankStatementUpload
               bankAccountId={accountId}
+              transferAccounts={transferAccounts}
               onImportComplete={handleImportTransactions}
             />
           </div>
