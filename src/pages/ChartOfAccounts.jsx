@@ -8,6 +8,7 @@ export default function ChartOfAccounts() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [accounts, setAccounts] = useState([]);
+  const [vendors, setVendors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -24,7 +25,8 @@ export default function ChartOfAccounts() {
     account_subtype: '',
     description: '',
     normal_balance: 'debit',
-    starting_balance: ''
+    starting_balance: '',
+    vendor_id: ''
   });
 
   const toggleExpanded = (accountId) => {
@@ -36,7 +38,28 @@ export default function ChartOfAccounts() {
 
   useEffect(() => {
     loadAccounts();
+    loadVendors();
   }, [user]);
+
+  // Vendors, used only to power the "Linked Vendor" picker shown for
+  // Liability accounts (e.g. a supplier charge/open account), so selecting
+  // that account elsewhere (Expenses > Charge Account) can auto-fill vendor.
+  async function loadVendors() {
+    try {
+      if (!user?.id) return;
+      const { data, error } = await supabase
+        .from("vendors")
+        .select("id, vendor_name")
+        .eq("company_id", user.id)
+        .eq("archived", false)
+        .order("vendor_name");
+
+      if (error) throw error;
+      setVendors(data || []);
+    } catch (err) {
+      console.error("Error loading vendors:", err);
+    }
+  }
 
   async function loadAccounts() {
     try {
@@ -180,7 +203,8 @@ export default function ChartOfAccounts() {
       account_subtype: '',
       description: '',
       normal_balance: 'debit',
-      starting_balance: ''
+      starting_balance: '',
+      vendor_id: ''
     });
     setShowModal(true);
   }
@@ -195,7 +219,8 @@ export default function ChartOfAccounts() {
       account_subtype: parent.account_subtype || '',
       description: '',
       normal_balance: parent.normal_balance,
-      starting_balance: ''
+      starting_balance: '',
+      vendor_id: ''
     });
     setShowModal(true);
   }
@@ -219,7 +244,8 @@ export default function ChartOfAccounts() {
       account_subtype: account.account_subtype || '',
       description: account.description || '',
       normal_balance: account.normal_balance,
-      starting_balance: account.balance?.toString() || '0'
+      starting_balance: account.balance?.toString() || '0',
+      vendor_id: account.vendor_id || ''
     });
     setShowModal(true);
   }
@@ -251,6 +277,10 @@ export default function ChartOfAccounts() {
         normal_balance: accountForm.normal_balance,
         balance: startingBalance, // Set the balance to the starting balance
         parent_account_id: parentAccount ? parentAccount.id : null,
+        // Only Liability accounts can represent a supplier charge account,
+        // so only persist vendor_id for that type — avoids stray links if
+        // an account's type is changed after being linked.
+        vendor_id: accountForm.account_type === 'Liability' && accountForm.vendor_id ? accountForm.vendor_id : null,
         company_id: user.id,
         created_by: user.id
       };
@@ -904,6 +934,27 @@ export default function ChartOfAccounts() {
                   </select>
                 </div>
               </div>
+
+              {accountForm.account_type === 'Liability' && (
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Linked Vendor (Optional)</label>
+                  <select
+                    value={accountForm.vendor_id}
+                    onChange={(e) => setAccountForm({...accountForm, vendor_id: e.target.value})}
+                    style={styles.input}
+                  >
+                    <option value="">No linked vendor</option>
+                    {vendors.map(vendor => (
+                      <option key={vendor.id} value={vendor.id}>{vendor.vendor_name}</option>
+                    ))}
+                  </select>
+                  <div style={{fontSize: 12, color: '#666', marginTop: 6}}>
+                    If this is a supplier charge/open account (e.g. a material supplier you buy on credit from),
+                    link it to that vendor. When this account is selected as a "Charge Account" payment method
+                    on an expense, the vendor field will auto-fill from here.
+                  </div>
+                </div>
+              )}
 
               <div style={styles.formGroup}>
                 <label style={styles.label}>Starting Balance (Optional)</label>

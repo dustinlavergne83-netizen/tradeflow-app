@@ -1283,7 +1283,23 @@ export default function Expenses() {
                     <label style={styles.label}>Charge Account (Liability) *</label>
                     <select
                       value={expenseForm.liability_account_id}
-                      onChange={(e) => setExpenseForm({...expenseForm, liability_account_id: e.target.value})}
+                      onChange={(e) => {
+                        const selected = liabilityAccounts.find(a => a.id === e.target.value);
+                        // Auto-populate the Vendor field from the charge account's linked
+                        // vendor (if any) so it doesn't have to be selected twice. Still
+                        // fully editable afterward — this just pre-fills it.
+                        if (selected?.vendor_id) {
+                          const linkedVendor = vendors.find(v => v.id === selected.vendor_id);
+                          setExpenseForm({
+                            ...expenseForm,
+                            liability_account_id: e.target.value,
+                            vendor_id: selected.vendor_id,
+                            vendor: linkedVendor?.vendor_name || expenseForm.vendor
+                          });
+                        } else {
+                          setExpenseForm({...expenseForm, liability_account_id: e.target.value});
+                        }
+                      }}
                       style={styles.input}
                     >
                       <option value="">Select Supplier Account...</option>
