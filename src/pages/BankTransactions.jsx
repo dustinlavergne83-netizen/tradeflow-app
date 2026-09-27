@@ -30,6 +30,7 @@ export default function BankTransactions() {
   const [invoicePayments, setInvoicePayments] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [transferAccounts, setTransferAccounts] = useState([]); // other active bank accounts, for transfer destination/source picker
+  const [transferCandidates, setTransferCandidates] = useState([]); // uncleared transactions on OTHER accounts, for auto-detecting transfers
   const [vendors, setVendors] = useState([]);
   const [projects, setProjects] = useState([]);
   const [selectedTransactions, setSelectedTransactions] = useState(new Set());
@@ -99,6 +100,28 @@ export default function BankTransactions() {
         console.error("Error loading transfer accounts:", siblingError);
       } else {
         setTransferAccounts(siblingAccounts || []);
+
+        // Load UNCLEARED, unpaired transactions from those sibling accounts —
+        // these are the candidates for auto-detecting the "other side" of a
+        // transfer (e.g. a withdrawal here that matches a deposit over there).
+        const siblingIds = (siblingAccounts || []).map(a => a.id);
+        if (siblingIds.length > 0) {
+          const { data: candidateTx, error: candidateError } = await supabase
+            .from("bank_transactions")
+            .select("*")
+            .in("bank_account_id", siblingIds)
+            .eq("is_cleared", false)
+            .is("transfer_pair_id", null)
+            .order("transaction_date", { ascending: false })
+            .limit(500);
+          if (candidateError) {
+            console.error("Error loading transfer candidates:", candidateError);
+          } else {
+            setTransferCandidates(candidateTx || []);
+          }
+        } else {
+          setTransferCandidates([]);
+        }
       }
 
       // Load transactions with project info
@@ -795,8 +818,50 @@ export default function BankTransactions() {
       .sort((a, b) => b._score - a._score);
   }
 
+  // Score a transaction against a candidate transaction on a DIFFERENT bank
+  // account, to detect the "other side" of a transfer (e.g. $5,000 out of
+  // checking should match $5,000 into savings a day or two later).
+  function scoreTransferMatch(transaction, candidate) {
+    // Must be opposite direction — money leaving one account, arriving in the other.
+    if ((transaction.amount > 0) === (candidate.amount > 0)) return 0;
+    // Never match within the same account (shouldn't happen given the query, but be safe).
+    if (candidate.bank_account_id === accountId) return 0;
+    // Already paired — not a candidate anymore.
+    if (candidate.transfer_pair_id) return 0;
+
+    const txAmount = Math.abs(parseFloat(transaction.amount) || 0);
+    const candAmount = Math.abs(parseFloat(candidate.amount) || 0);
+    const diff = Math.abs(txAmount - candAmount);
+
+    let score = 0;
+    if      (diff < 0.01)  score += 50; // exact
+    else if (diff <= 0.02) score += 30; // rounding
+    else return 0;
+
+    // Tighter date window than expenses/invoices — both legs of a real
+    // transfer normally post within a few days of each other.
+    const datePts = dateProximityScore(transaction.transaction_date, candidate.transaction_date, 5);
+    if (datePts === null) return 0;
+    score += datePts;
+
+    // Bonus for transfer-ish language in either description.
+    const desc = `${transaction.description || ''} ${candidate.description || ''}`.toLowerCase();
+    if (/transfer|xfer|online banking|between accounts/.test(desc)) score += 15;
+
+    return score;
+  }
+
+  function getMatchingTransfers(transaction) {
+    if (!transaction || transaction.transaction_type === 'transfer') return [];
+    return transferCandidates
+      .map(cand => ({ ...cand, _score: scoreTransferMatch(transaction, cand) }))
+      .filter(cand => cand._score >= MIN_MATCH_SCORE)
+      .sort((a, b) => b._score - a._score);
+  }
+
   function getMatchCount(transaction) {
-    return getMatchingExpenses(transaction).length + getMatchingInvoices(transaction).length + getMatchingInvoicePayments(transaction).length;
+    return getMatchingExpenses(transaction).length + getMatchingInvoices(transaction).length +
+      getMatchingInvoicePayments(transaction).length + getMatchingTransfers(transaction).length;
   }
 
   function applyFilters() {
@@ -1899,7 +1964,7 @@ export default function BankTransactions() {
 
   // Match Review queue: UNCLEARED, unlinked transactions that have at least one candidate match
   const reviewQueue = transactions.filter(t =>
-    !t.is_cleared && !t.linked_expense_id && !t.linked_invoice_id && getMatchCount(t) > 0
+    !t.is_cleared && !t.linked_expense_id && !t.linked_invoice_id && !t.transfer_pair_id && getMatchCount(t) > 0
   );
   const currentReviewTx = reviewQueue[matchReviewIndex] || null;
   const reviewExpMatches = currentReviewTx
@@ -1911,7 +1976,14 @@ export default function BankTransactions() {
   const reviewPmtMatches = currentReviewTx
     ? getMatchingInvoicePayments(currentReviewTx).map(p => ({...p, _type: 'payment'}))
     : [];
-  const reviewCandidates = [...reviewExpMatches, ...reviewInvMatches, ...reviewPmtMatches];
+  // Transfer matches are listed LAST — expense/invoice/payment matches carry
+  // stronger evidence (vendor/customer name, linked records), so if a
+  // transaction happens to score against both, the more reliable candidate
+  // is shown first by default.
+  const reviewXferMatches = currentReviewTx
+    ? getMatchingTransfers(currentReviewTx).map(x => ({...x, _type: 'transfer'}))
+    : [];
+  const reviewCandidates = [...reviewExpMatches, ...reviewInvMatches, ...reviewPmtMatches, ...reviewXferMatches];
   const safeCandIdx = Math.min(matchCandidateIndex, Math.max(0, reviewCandidates.length - 1));
   const currentCandidate = reviewCandidates[safeCandIdx] || null;
 
@@ -1923,6 +1995,22 @@ export default function BankTransactions() {
     } else if (currentCandidate._type === 'payment') {
       // Link bank transaction to the invoice this payment belongs to
       await handleLinkInvoice(currentReviewTx.id, currentCandidate.invoice_id);
+    } else if (currentCandidate._type === 'transfer') {
+      // Label both sides as a linked transfer. Neither side is cleared here —
+      // clearing (and the single shared journal entry) still happens through
+      // the normal clear flow, per-account, same as any other transaction.
+      await supabase.from('bank_transactions').update({
+        transaction_type: 'transfer',
+        transfer_account_id: currentCandidate.bank_account_id,
+        transfer_pair_id: currentCandidate.id
+      }).eq('id', currentReviewTx.id);
+      await supabase.from('bank_transactions').update({
+        transaction_type: 'transfer',
+        transfer_account_id: accountId,
+        transfer_pair_id: currentReviewTx.id
+      }).eq('id', currentCandidate.id);
+      notify('✅ Linked as a transfer. Clear it from either account to record the journal entry.');
+      await loadData();
     } else {
       await handleLinkInvoice(currentReviewTx.id, currentCandidate.id);
     }
@@ -1951,7 +2039,9 @@ export default function BankTransactions() {
                 : (parseFloat(currentCandidate.processing_fee || 0) > 0
                     ? (parseFloat(currentCandidate.amount) || 0) - parseFloat(currentCandidate.processing_fee)
                     : parseFloat(currentCandidate.amount) || 0))
-            : (currentCandidate.net_deposit_amount || currentCandidate.total_amount || 0))
+            : currentCandidate._type === 'transfer'
+              ? (currentCandidate.amount || 0)
+              : (currentCandidate.net_deposit_amount || currentCandidate.total_amount || 0))
       )
     : 0;
   const isExactReviewMatch = reviewAmountDiff < 0.01;
@@ -2764,12 +2854,41 @@ export default function BankTransactions() {
                 <div style={styles.matchReviewCard}>
                   <div style={{
                     ...styles.matchReviewCardHeader,
-                    backgroundColor: currentCandidate._type === 'expense' ? '#dc2626' : currentCandidate._type === 'payment' ? '#7c3aed' : '#059669'
+                    backgroundColor: currentCandidate._type === 'expense' ? '#dc2626' : currentCandidate._type === 'payment' ? '#7c3aed' : currentCandidate._type === 'transfer' ? '#2563eb' : '#059669'
                   }}>
-                    {currentCandidate._type === 'expense' ? '💸 Expense Record' : currentCandidate._type === 'payment' ? '💳 Invoice Payment Record' : '📄 Invoice Record'}
+                    {currentCandidate._type === 'expense' ? '💸 Expense Record' : currentCandidate._type === 'payment' ? '💳 Invoice Payment Record' : currentCandidate._type === 'transfer' ? '🔄 Transfer (Other Bank Account)' : '📄 Invoice Record'}
                   </div>
                   <div style={styles.matchReviewCardBody}>
-                    {currentCandidate._type === 'payment' ? (
+                    {currentCandidate._type === 'transfer' ? (
+                      <>
+                        <div style={styles.matchReviewField}>
+                          <span style={styles.matchReviewLabel}>Bank Account</span>
+                          <span style={{...styles.matchReviewValue, color: '#2563eb', fontWeight: 700}}>
+                            {transferAccounts.find(a => a.id === currentCandidate.bank_account_id)?.account_name || 'Other account'}
+                          </span>
+                        </div>
+                        <div style={styles.matchReviewField}>
+                          <span style={styles.matchReviewLabel}>Amount</span>
+                          <span style={{
+                            ...styles.matchReviewValue, fontSize: 22, fontWeight: 700,
+                            color: currentCandidate.amount < 0 ? '#ef4444' : '#10b981'
+                          }}>
+                            {formatCurrency(currentCandidate.amount)}
+                          </span>
+                        </div>
+                        <div style={styles.matchReviewField}>
+                          <span style={styles.matchReviewLabel}>Date</span>
+                          <span style={styles.matchReviewValue}>{formatDate(currentCandidate.transaction_date)}</span>
+                        </div>
+                        <div style={styles.matchReviewField}>
+                          <span style={styles.matchReviewLabel}>Description</span>
+                          <span style={styles.matchReviewValue}>{currentCandidate.description || '—'}</span>
+                        </div>
+                        <div style={{marginTop: 8, padding: '10px 12px', backgroundColor: '#dbeafe', borderRadius: 6, fontSize: 12, color: '#1e40af'}}>
+                          ⚠️ Confirming links this as a transfer between your own accounts (asset-to-asset — never counted as income or expense). Neither side is cleared automatically; clear each one as you reconcile that account.
+                        </div>
+                      </>
+                    ) : currentCandidate._type === 'payment' ? (
                       <>
                         <div style={styles.matchReviewField}>
                           <span style={styles.matchReviewLabel}>Type</span>
