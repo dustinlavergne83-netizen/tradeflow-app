@@ -31,6 +31,7 @@ export default function BankTransactions() {
   const [invoices, setInvoices] = useState([]);
   const [invoicePayments, setInvoicePayments] = useState([]);
   const [accounts, setAccounts] = useState([]);
+  const [topCategoryIds, setTopCategoryIds] = useState([]); // most-frequently-used category account IDs, for the "Most Used" optgroup
   const [transferAccounts, setTransferAccounts] = useState([]); // other active bank accounts, for transfer destination/source picker
   const [transferCandidates, setTransferCandidates] = useState([]); // uncleared transactions on OTHER accounts, for auto-detecting transfers
   const [vendors, setVendors] = useState([]);
@@ -160,6 +161,38 @@ export default function BankTransactions() {
 
       if (accountsError) throw accountsError;
       setAccounts(accountsData || []);
+
+      // Compute "Most Used" categories from actual categorization history,
+      // so the dropdown surfaces what you actually pick most instead of
+      // making you scroll all 60+ accounts every time. Bank/cash accounts
+      // (linked to a bank_accounts row) are excluded — they only rank high
+      // from transfers that were miscategorized before the dedicated
+      // Transfer flow existed, and surfacing them would encourage that
+      // old habit instead of using "Transfer" + the account picker.
+      const { data: categoryHistory, error: categoryHistoryError } = await supabase
+        .from("bank_transactions")
+        .select("category")
+        .not("category", "is", null);
+
+      if (!categoryHistoryError && categoryHistory) {
+        const { data: linkedBankAccounts } = await supabase
+          .from("bank_accounts")
+          .select("chart_account_id")
+          .not("chart_account_id", "is", null);
+        const bankChartAccountIds = new Set((linkedBankAccounts || []).map(b => b.chart_account_id));
+
+        const counts = {};
+        categoryHistory.forEach(row => {
+          if (!row.category || bankChartAccountIds.has(row.category)) return;
+          counts[row.category] = (counts[row.category] || 0) + 1;
+        });
+
+        const topIds = Object.entries(counts)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 8)
+          .map(([id]) => id);
+        setTopCategoryIds(topIds);
+      }
 
       // Load expenses - simplified query without project join
       const { data: expensesData, error: expensesError } = await supabase
@@ -1944,6 +1977,38 @@ export default function BankTransactions() {
     return icons[type] || '📝';
   };
 
+  // Shared category dropdown options — used by all three "Select Account"
+  // category pickers so they stay in sync. Puts your most-frequently-used
+  // categories in a "⭐ Most Used" optgroup at the top, then the complete,
+  // unfiltered list below exactly as before — nothing is hidden, you just
+  // don't have to scroll past 60 accounts for the 8 you actually use.
+  function renderCategoryOptions() {
+    const topAccounts = topCategoryIds
+      .map(id => accounts.find(a => a.id === id))
+      .filter(Boolean);
+
+    return (
+      <>
+        {topAccounts.length > 0 && (
+          <optgroup label="⭐ Most Used">
+            {topAccounts.map(account => (
+              <option key={`top-${account.id}`} value={account.id}>
+                {account.account_number} - {account.account_name}
+              </option>
+            ))}
+          </optgroup>
+        )}
+        <optgroup label="All Accounts">
+          {accounts.map(account => (
+            <option key={account.id} value={account.id}>
+              {account.account_number} - {account.account_name}
+            </option>
+          ))}
+        </optgroup>
+      </>
+    );
+  }
+
   if (loading) {
     return (
       <div style={styles.container}>
@@ -2409,11 +2474,7 @@ export default function BankTransactions() {
                         onClick={(e) => e.stopPropagation()}
                       >
                         <option value="">-- Select Account --</option>
-                        {accounts.map(account => (
-                          <option key={account.id} value={account.id}>
-                            {account.account_number} - {account.account_name}
-                          </option>
-                        ))}
+                        {renderCategoryOptions()}
                       </select>
                     )}
                   </td>
@@ -2631,11 +2692,7 @@ export default function BankTransactions() {
                       onClick={(e) => e.stopPropagation()}
                     >
                       <option value="">-- Select Account --</option>
-                      {accounts.map(account => (
-                        <option key={account.id} value={account.id}>
-                          {account.account_number} - {account.account_name}
-                        </option>
-                      ))}
+                      {renderCategoryOptions()}
                     </select>
                     )}
                   </td>
@@ -3510,11 +3567,7 @@ export default function BankTransactions() {
                       style={styles.input}
                     >
                       <option value="">-- Select Account --</option>
-                      {accounts.map(account => (
-                        <option key={account.id} value={account.id}>
-                          {account.account_number} - {account.account_name}
-                        </option>
-                      ))}
+                      {renderCategoryOptions()}
                     </select>
                   </div>
                 )}
