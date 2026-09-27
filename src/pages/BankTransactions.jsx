@@ -1585,20 +1585,30 @@ export default function BankTransactions() {
   async function handleTransferClear(transaction, newClearedStatus, bulkMode) {
     try {
       if (!newClearedStatus) {
-        // Unclearing — only delete the journal entry if THIS side owns it
-        // (reference_id = this transaction's id). If the pair created the
-        // shared entry, it's still accurate and is left untouched.
-        const deleted = await deleteJournalEntryForTransaction(transaction.id);
-        if (deleted && transaction.transfer_pair_id) {
-          await supabase.from('bank_transactions').update({ transfer_pair_id: null }).eq('id', transaction.transfer_pair_id);
-          await supabase.from('bank_transactions').update({ transfer_pair_id: null }).eq('id', transaction.id);
-          if (!bulkMode) notify('✅ Transfer uncleared and its journal entry removed.');
-        } else if (!bulkMode) {
-          notify(deleted
-            ? '✅ Transfer uncleared and its journal entry removed.'
-            : '✅ Transfer uncleared. (The linked side still holds the journal entry, which remains valid.)');
+        // Unclearing — the shared journal entry is referenced by whichever
+        // side happened to clear first, so try THIS transaction's id, then
+        // fall back to the pair's id. A matched transfer pair is treated as
+        // one event, so unclearing either side unclears BOTH (the caller
+        // already set is_cleared=false on this transaction; here we also
+        // uncleared the pair and recalc its account's balance). The pairing
+        // itself (transfer_pair_id) is left intact — it's still the correct
+        // match, just no longer cleared/posted.
+        let deleted = await deleteJournalEntryForTransaction(transaction.id);
+        if (!deleted && transaction.transfer_pair_id) {
+          deleted = await deleteJournalEntryForTransaction(transaction.transfer_pair_id);
         }
-        if (!bulkMode) await recalcBalanceAndReload();
+
+        if (transaction.transfer_pair_id) {
+          await supabase.from('bank_transactions').update({ is_cleared: false }).eq('id', transaction.transfer_pair_id);
+          await recalcOtherAccountBalance(transaction.transfer_account_id);
+        }
+
+        if (!bulkMode) {
+          notify(deleted
+            ? '✅ Transfer uncleared on both accounts and its journal entry removed.'
+            : '✅ Transfer uncleared on both accounts.');
+          await recalcBalanceAndReload();
+        }
         return;
       }
 
@@ -1610,11 +1620,35 @@ export default function BankTransactions() {
         return;
       }
 
-      // Already paired — the shared journal entry was already created, either
-      // by this side earlier or by its pair on the other account.
+      // If a journal entry already exists for this pair (created earlier by
+      // either side), don't create a second one — just make sure both sides
+      // are marked cleared and stop. This is different from merely having
+      // transfer_pair_id set: Match Review sets that BEFORE either side is
+      // cleared, so a pair can be linked with no journal entry yet — that
+      // used to be (wrongly) treated as "already handled" and skipped
+      // entirely, which is why cleared transfers were producing no journal
+      // entry and the transaction never actually finished clearing.
       if (transaction.transfer_pair_id) {
-        if (!bulkMode) await loadData();
-        return;
+        const { data: existingJe } = await supabase
+          .from('journal_entries')
+          .select('id')
+          .eq('reference_type', 'transfer')
+          .in('reference_id', [transaction.id, transaction.transfer_pair_id])
+          .maybeSingle();
+
+        if (existingJe) {
+          await supabase.from('bank_transactions')
+            .update({ is_cleared: true })
+            .eq('id', transaction.transfer_pair_id);
+          await recalcOtherAccountBalance(transaction.transfer_account_id);
+          if (!bulkMode) {
+            notify('✅ Transfer cleared on both accounts.');
+            await recalcBalanceAndReload();
+          }
+          return;
+        }
+        // else: fall through and create the journal entry below, exactly
+        // like an unpaired transfer would.
       }
 
       const { data: bankRec, error: bankRecErr } = await supabase
@@ -1668,34 +1702,48 @@ export default function BankTransactions() {
         throw linesError;
       }
 
-      // Best-effort labeling only (not required for the journal entry above to
-      // be correct/complete): look for the matching uncleared sibling on the
-      // destination account and link them so it shows up already tagged
-      // "Transfer" when you go reconcile that account. The sibling is NOT
-      // auto-cleared — you still tick it off yourself there.
-      const { data: siblingCandidates } = await supabase
-        .from('bank_transactions')
-        .select('*')
-        .eq('bank_account_id', transaction.transfer_account_id)
-        .eq('is_cleared', false)
-        .is('transfer_pair_id', null);
+      // Find the paired sibling on the destination account — either it was
+      // already linked (via Match Review, before this side was cleared), or
+      // we auto-match it now the same way Match Review does. Either way,
+      // the sibling gets cleared automatically along with this side: a
+      // matched transfer pair is one verified movement of money, and the
+      // journal entry above already covers both accounts correctly, so
+      // there's nothing left for clearing the sibling to duplicate.
+      let sibling = null;
+      if (transaction.transfer_pair_id) {
+        const { data: existingSibling } = await supabase
+          .from('bank_transactions').select('*').eq('id', transaction.transfer_pair_id).single();
+        sibling = existingSibling || null;
+      } else {
+        const { data: siblingCandidates } = await supabase
+          .from('bank_transactions')
+          .select('*')
+          .eq('bank_account_id', transaction.transfer_account_id)
+          .eq('is_cleared', false)
+          .is('transfer_pair_id', null);
 
-      const sibling = (siblingCandidates || []).find(s => {
-        if (Math.abs(Math.abs(s.amount) - absAmount) > 0.01) return false;
-        if ((s.amount > 0) === (transaction.amount > 0)) return false; // must be opposite direction
-        return dateProximityScore(s.transaction_date, transaction.transaction_date, 5) !== null;
-      });
+        sibling = (siblingCandidates || []).find(s => {
+          if (Math.abs(Math.abs(s.amount) - absAmount) > 0.01) return false;
+          if ((s.amount > 0) === (transaction.amount > 0)) return false; // must be opposite direction
+          return dateProximityScore(s.transaction_date, transaction.transaction_date, 5) !== null;
+        }) || null;
+
+        if (sibling) {
+          await supabase.from('bank_transactions').update({ transfer_pair_id: sibling.id }).eq('id', transaction.id);
+          await supabase.from('bank_transactions').update({
+            transaction_type: 'transfer',
+            transfer_account_id: accountId,
+            transfer_pair_id: transaction.id
+          }).eq('id', sibling.id);
+        }
+      }
 
       if (sibling) {
-        await supabase.from('bank_transactions').update({ transfer_pair_id: sibling.id }).eq('id', transaction.id);
-        await supabase.from('bank_transactions').update({
-          transaction_type: 'transfer',
-          transfer_account_id: accountId,
-          transfer_pair_id: transaction.id
-        }).eq('id', sibling.id);
-        if (!bulkMode) notify(`✅ Transfer cleared and linked to a matching transaction on ${destAccount.account_name}. Journal entry created — asset-to-asset, no impact on Profit & Loss.`);
+        await supabase.from('bank_transactions').update({ is_cleared: true }).eq('id', sibling.id);
+        await recalcOtherAccountBalance(transaction.transfer_account_id);
+        if (!bulkMode) notify(`✅ Transfer cleared on both accounts (${destAccount.account_name}). Journal entry created — asset-to-asset, no impact on Profit & Loss.`);
       } else if (!bulkMode) {
-        notify('✅ Transfer cleared! Journal entry created — asset-to-asset, no impact on Profit & Loss.');
+        notify('✅ Transfer cleared! Journal entry created — asset-to-asset, no impact on Profit & Loss.\n\n⚠️ No matching transaction was found on the other account — clear it separately when you find it.');
       }
 
       if (!bulkMode) await recalcBalanceAndReload();
@@ -1726,6 +1774,25 @@ export default function BankTransactions() {
       console.error('Error recalculating bank balance:', err);
     }
     await loadData();
+  }
+
+  // Recalculates current_balance for a DIFFERENT bank account than the one
+  // currently being viewed — needed when auto-clearing a transfer's paired
+  // side, since that sibling transaction lives on another account whose
+  // running balance also just changed.
+  async function recalcOtherAccountBalance(otherAccountId) {
+    try {
+      const { data: otherAccount } = await supabase
+        .from('bank_accounts').select('opening_balance').eq('id', otherAccountId).single();
+      const { data: clearedTransactions } = await supabase
+        .from('bank_transactions').select('amount')
+        .eq('bank_account_id', otherAccountId).eq('is_cleared', true);
+      const freshSum = (clearedTransactions || []).reduce((sum, t) => sum + t.amount, 0);
+      const freshBalance = (otherAccount?.opening_balance || 0) + freshSum;
+      await supabase.from('bank_accounts').update({ current_balance: freshBalance }).eq('id', otherAccountId);
+    } catch (err) {
+      console.error('Error recalculating other account balance:', err);
+    }
   }
 
   async function handleDelete(transaction) {
@@ -1798,9 +1865,15 @@ export default function BankTransactions() {
   }
 
   async function handleClearCategorized() {
-    // Find all uncleared transactions that have a category OR are linked
+    // Find all uncleared transactions that have a category, are linked, OR
+    // are a transfer with its destination account picked. Transfers use
+    // transfer_account_id instead of category, so without this check they
+    // silently never qualified for bulk clearing here.
     const eligible = transactions.filter(t =>
-      !t.is_cleared && (t.category || t.linked_invoice_id || t.linked_expense_id)
+      !t.is_cleared && (
+        t.category || t.linked_invoice_id || t.linked_expense_id ||
+        (t.transaction_type === 'transfer' && t.transfer_account_id)
+      )
     );
     if (eligible.length === 0) {
       notify('No uncleared transactions with a category assigned.');
