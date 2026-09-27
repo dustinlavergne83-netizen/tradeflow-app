@@ -202,6 +202,16 @@ export default function ChartOfAccounts() {
 
   function openEditAccountModal(account) {
     setEditingAccount(account);
+    // IMPORTANT: reset parentAccount here. Without this, a stale parentAccount
+    // left over from a previous "Add Sub-account" click (even one that was
+    // cancelled) would still be in state, and handleSaveAccount would use it
+    // as the parent_account_id on save — which could point an account at
+    // itself (or the wrong parent) if you happened to edit that same account
+    // next. Editing an existing account should preserve ITS OWN existing
+    // parent, not whatever was last selected for "Add Sub-account".
+    setParentAccount(account.parent_account_id
+      ? accounts.find(a => a.id === account.parent_account_id) || null
+      : null);
     setAccountForm({
       account_number: account.account_number,
       account_name: account.account_name,
@@ -217,6 +227,14 @@ export default function ChartOfAccounts() {
   async function handleSaveAccount() {
     if (!accountForm.account_number || !accountForm.account_name) {
       notify('Please enter both account number and account name');
+      return;
+    }
+
+    // Guard against an account being saved as its own parent (this makes it
+    // vanish from the Chart of Accounts list entirely — see openEditAccountModal
+    // comment above for how a stale parentAccount could otherwise cause this).
+    if (editingAccount && parentAccount && parentAccount.id === editingAccount.id) {
+      notify('⚠️ An account cannot be its own parent/sub-account. Please choose a different parent or none.');
       return;
     }
 
