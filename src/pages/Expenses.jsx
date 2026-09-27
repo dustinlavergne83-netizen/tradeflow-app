@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import Papa from "papaparse";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { createExpenseJournalEntry } from "../utils/accountingJournals";
@@ -276,6 +277,17 @@ export default function Expenses() {
       const accountNameById = {};
       (userBankAccounts || []).forEach(ba => { accountNameById[ba.id] = ba.account_name; });
 
+      // bank_transactions.category stores a Chart of Accounts UUID (not a
+      // name), so we need a lookup to display it properly — otherwise the
+      // table shows the raw UUID. Fetch ALL account types (not just Expense)
+      // since a bank transaction can be categorized to Income/Liability/etc.
+      const { data: allCoaAccounts } = await supabase
+        .from("accounts")
+        .select("id, account_number, account_name")
+        .eq("company_id", user.id);
+      const coaNameById = {};
+      (allCoaAccounts || []).forEach(a => { coaNameById[a.id] = `${a.account_number} - ${a.account_name}`; });
+
       console.log("🏦 Bank accounts available for name lookup:", Object.keys(accountNameById).length);
 
       // Fetch cleared/reconciled bank transactions that represent expenses.
@@ -311,7 +323,7 @@ export default function Expenses() {
         bank_transaction_id: bt.id,
         expense_date: bt.transaction_date,
         vendor: bt.payee || bt.description || 'Bank Withdrawal',
-        category: bt.category || 'Bank Transaction',
+        category: (bt.category && coaNameById[bt.category]) || 'Uncategorized',
         amount: Math.abs(bt.amount),
         description: bt.description || '',
         project_id: bt.project_id,
@@ -764,6 +776,69 @@ export default function Expenses() {
     return `$${Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
   };
 
+  // ── Export: detailed CSV of everything currently visible (respects all`
+  // active filters — date range, search, category, source) ────────────────
+  function handleExportCSV() {
+    if (!filteredExpenses.length) {
+      setSaveMessage({ type: 'error', text: 'No expenses to export with the current filters.' });
+      return;
+    }
+    const rows = filteredExpenses.map(e => ({
+      Date: formatDate(e.expense_date),
+      Source: e._isBankTransaction ? 'Bank' : 'Manual',
+      Vendor: e.vendor || '',
+      Category: e.category || '',
+      Project: e.project_name || '',
+      Amount: e.amount != null ? Number(e.amount).toFixed(2) : '0.00',
+      Description: e.description || '',
+      'Payment Method': e.payment_method || '',
+      'Bank Account': e.bank_account_name || '',
+      'Tax Deductible': e.tax_deductible ? 'Yes' : 'No',
+    }));
+    const csv = Papa.unparse(rows);
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const slug = periodLabel.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    a.download = `expenses-${slug || 'export'}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // ── Export: summary totals by category (same filtered set as above) ─────
+  function handleExportSummary() {
+    if (!filteredExpenses.length) {
+      setSaveMessage({ type: 'error', text: 'No expenses to summarize with the current filters.' });
+      return;
+    }
+    const summary = {};
+    filteredExpenses.forEach(e => {
+      const key = e.category || '(none)';
+      if (!summary[key]) summary[key] = { count: 0, total: 0 };
+      summary[key].count += 1;
+      summary[key].total += (e.amount || 0);
+    });
+    const rows = Object.entries(summary)
+      .sort((a, b) => b[1].total - a[1].total)
+      .map(([category, s]) => ({
+        Category: category,
+        'Transaction Count': s.count,
+        'Total Amount': s.total.toFixed(2),
+      }));
+    const grandTotal = Object.values(summary).reduce((sum, s) => sum + s.total, 0);
+    rows.push({ Category: 'TOTAL', 'Transaction Count': filteredExpenses.length, 'Total Amount': grandTotal.toFixed(2) });
+    const csv = Papa.unparse(rows);
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const slug = periodLabel.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    a.download = `expenses-summary-${slug || 'export'}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   const getCategoryColor = (category) => {
     const colors = {
       materials: '#3b82f6',
@@ -795,12 +870,28 @@ export default function Expenses() {
     <div style={styles.container}>
       <div style={styles.header}>
         <h1 style={styles.title}>Expenses</h1>
-        <button 
-          onClick={openAddExpenseModal}
-          style={styles.newButton}
-        >
-          + Add Expense
-        </button>
+        <div style={{display: 'flex', gap: 10}}>
+          <button
+            onClick={handleExportCSV}
+            style={{...styles.newButton, backgroundColor: '#059669'}}
+            title="Export the currently filtered list as a CSV file"
+          >
+            📥 Export CSV
+          </button>
+          <button
+            onClick={handleExportSummary}
+            style={{...styles.newButton, backgroundColor: '#0891b2'}}
+            title="Export totals by category for the currently filtered list"
+          >
+            📊 Export Summary
+          </button>
+          <button 
+            onClick={openAddExpenseModal}
+            style={styles.newButton}
+          >
+            + Add Expense
+          </button>
+        </div>
       </div>
 
       {/* ── Date Range Filter Bar ─────────────────────────────────────────────── */}
@@ -967,10 +1058,10 @@ export default function Expenses() {
                   onMouseEnter={(e) => e.currentTarget.style.backgroundColor = expense._isBankTransaction ? '#dbeafe' : '#f9fafb'}
                   onMouseLeave={(e) => e.currentTarget.style.backgroundColor = expense._isBankTransaction ? '#f0f7ff' : 'transparent'}
                 >
-                  <td style={{...styles.td, width: '10%'}}>
+                  <td style={{...styles.td, width: '10%', ...(expense._isBankTransaction ? styles.tdCompact : {})}}>
                     {formatDate(expense.expense_date)}
                   </td>
-                  <td style={{...styles.td, width: '8%'}}>
+                  <td style={{...styles.td, width: '8%', ...(expense._isBankTransaction ? styles.tdCompact : {})}}>
                     {expense._isBankTransaction ? (
                       <span style={{
                         background: '#dbeafe',
@@ -999,7 +1090,7 @@ export default function Expenses() {
                       </span>
                     )}
                   </td>
-                  <td style={{...styles.td, width: '15%'}}>
+                  <td style={{...styles.td, width: '15%', ...(expense._isBankTransaction ? styles.tdCompact : {})}}>
                     <div style={{display: 'flex', alignItems: 'center', gap: 6}}>
                       {!expense._isBankTransaction && isExpenseLinked(expense.id) && (
                         <span style={{fontSize: 16}} title="Linked to bank transaction">🔗</span>
@@ -1026,9 +1117,9 @@ export default function Expenses() {
                       )}
                     </div>
                   </td>
-                  <td style={{...styles.td, width: '20%', textAlign: 'center'}}>
+                  <td style={{...styles.td, width: '20%', textAlign: 'center', ...(expense._isBankTransaction ? styles.tdCompact : {})}}>
                     {expense._isBankTransaction ? (
-                      expense.category || 'N/A'
+                      <span style={{fontSize: 12}}>{expense.category || 'N/A'}</span>
                     ) : (
                       <select
                         value={expenseAccounts.some(a => a.account_name === expense.category) ? expense.category : '__legacy__'}
@@ -1049,7 +1140,7 @@ export default function Expenses() {
                       </select>
                     )}
                   </td>
-                  <td style={{...styles.td, width: '20%', textAlign: 'center'}}>
+                  <td style={{...styles.td, width: '20%', textAlign: 'center', ...(expense._isBankTransaction ? styles.tdCompact : {})}}>
                     {expense._isBankTransaction ? (
                       expense.project_name || '-'
                     ) : (
@@ -1068,14 +1159,17 @@ export default function Expenses() {
                       </select>
                     )}
                   </td>
-                  <td style={{...styles.td, textAlign: 'right', width: '10%'}}>
+                  <td style={{...styles.td, textAlign: 'right', width: '10%', ...(expense._isBankTransaction ? styles.tdCompact : {})}}>
                     <span style={styles.amount}>{formatCurrency(expense.amount)}</span>
                   </td>
-                  <td style={{...styles.td, textAlign: 'center', width: '10%'}}>
+                  <td style={{...styles.td, textAlign: 'center', width: '10%', ...(expense._isBankTransaction ? styles.tdCompact : {})}}>
                     {expense._isBankTransaction ? (
-                      <div style={{fontSize: 11, color: '#6b7280', textAlign: 'center'}}>
-                        <em>Manage in<br/>Bank Transactions</em>
-                      </div>
+                      <span
+                        style={{fontSize: 16, cursor: 'help'}}
+                        title="Managed in Bank Transactions"
+                      >
+                        🏦
+                      </span>
                     ) : (
                       <div style={styles.actions}>
                         <button
@@ -1526,6 +1620,16 @@ const styles = {
     padding: "16px 20px",
     fontSize: 15,
     color: "#333",
+  },
+  // Applied to bank-transaction rows only, to make them visually compact
+  // (they carry no editable dropdowns, unlike manual rows) so manual
+  // entries stand out and more rows fit on screen.
+  tdCompact: {
+    padding: "6px 20px",
+    fontSize: 13,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   },
   categoryBadge: {
     display: "inline-block",
