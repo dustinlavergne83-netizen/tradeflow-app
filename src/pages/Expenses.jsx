@@ -719,7 +719,8 @@ export default function Expenses() {
       {/* ── Date Range Filter Bar ─────────────────────────────────────────────── */}
       {(() => {
         const curYear = new Date().getFullYear();
-        const years = [curYear - 2, curYear - 1, curYear, curYear + 1].filter(y => y >= 2023);
+        const years = [];
+        for (let y = curYear + 1; y >= 2023; y--) years.push(y);
         const btnStyle = (active) => ({
           padding: '7px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
           fontWeight: 700, fontSize: 13,
