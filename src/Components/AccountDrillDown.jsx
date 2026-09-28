@@ -60,6 +60,7 @@ export default function AccountDrillDown({ accountIds, accountType, title, start
             entry_number,
             description,
             reference_type,
+            reference_id,
             is_posted
           )
         `)
@@ -70,6 +71,36 @@ export default function AccountDrillDown({ accountIds, accountType, title, start
 
       if (queryError) throw queryError;
 
+      // ── Fetch real payee/vendor names for lines whose entry DOES have a
+      // source record, rather than relying on parsed description text.
+      // bank_transaction entries link via reference_id -> bank_transactions.id;
+      // expense entries link via reference_id -> expenses.id. Entries from
+      // bulk imports (expense_import/income_import) have reference_id = null,
+      // so those fall back to parsing the entry description instead.
+      const bankTxIds = [...new Set(
+        (data || [])
+          .filter(l => l.journal_entries.reference_type === 'bank_transaction' && l.journal_entries.reference_id)
+          .map(l => l.journal_entries.reference_id)
+      )];
+      const expenseIds = [...new Set(
+        (data || [])
+          .filter(l => l.journal_entries.reference_type === 'expense' && l.journal_entries.reference_id)
+          .map(l => l.journal_entries.reference_id)
+      )];
+
+      const [bankTxRes, expenseRes] = await Promise.all([
+        bankTxIds.length
+          ? supabase.from("bank_transactions").select("id, payee, description").in("id", bankTxIds)
+          : Promise.resolve({ data: [] }),
+        expenseIds.length
+          ? supabase.from("expenses").select("id, vendor").in("id", expenseIds)
+          : Promise.resolve({ data: [] }),
+      ]);
+      const payeeByBankTxId = {};
+      (bankTxRes.data || []).forEach(bt => { payeeByBankTxId[bt.id] = bt.payee || bt.description || null; });
+      const vendorByExpenseId = {};
+      (expenseRes.data || []).forEach(e => { vendorByExpenseId[e.id] = e.vendor || null; });
+
       // Income increases on credit; every other type shown here (Expense,
       // Asset, Liability, Equity) increases on debit for this report's
       // purposes — matches the sign convention already used by ProfitLoss.jsx.
@@ -77,12 +108,15 @@ export default function AccountDrillDown({ accountIds, accountType, title, start
         const amount = accountType === 'Income'
           ? (line.credit || 0) - (line.debit || 0)
           : (line.debit || 0) - (line.credit || 0);
+        const je = line.journal_entries;
+        const payee = derivePayee(je, payeeByBankTxId, vendorByExpenseId);
         return {
           id: line.id,
-          date: line.journal_entries.entry_date,
-          entryNumber: line.journal_entries.entry_number,
-          description: line.description || line.journal_entries.description || '(no description)',
-          source: sourceLabel(line.journal_entries.reference_type),
+          date: je.entry_date,
+          entryNumber: je.entry_number,
+          description: line.description || je.description || '(no description)',
+          payee,
+          source: sourceLabel(je.reference_type),
           amount,
         };
       }).sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -95,6 +129,38 @@ export default function AccountDrillDown({ accountIds, accountType, title, start
     } finally {
       setLoading(false);
     }
+  }
+
+  // Determine the best available payee/vendor name for a journal entry.
+  // Prefers a real linked record (bank_transactions.payee, expenses.vendor)
+  // over parsing text, since those are authoritative. Falls back to parsing
+  // the entry description for sources with no back-reference (bulk imports).
+  function derivePayee(je, payeeByBankTxId, vendorByExpenseId) {
+    if (je.reference_type === 'bank_transaction' && je.reference_id) {
+      const p = payeeByBankTxId[je.reference_id];
+      if (p) return p;
+    }
+    if (je.reference_type === 'expense' && je.reference_id) {
+      const v = vendorByExpenseId[je.reference_id];
+      if (v && v !== 'Bank Transaction') return v;
+    }
+
+    const desc = je.description || '';
+    // expense_import format: "Vendor Name — Category" (em dash separator).
+    // "Imported — Category" means no real vendor was captured on import.
+    if (je.reference_type === 'expense_import') {
+      const parts = desc.split('—');
+      const name = parts[0]?.trim();
+      if (name && name !== 'Imported') return name;
+      return null;
+    }
+    // income_import format: "QB Import: Invoice from Vendor Name — Inv #...".
+    if (je.reference_type === 'income_import') {
+      const match = desc.match(/Invoice from (.+?)(\s+—|$)/);
+      if (match) return match[1].trim();
+      return null;
+    }
+    return null;
   }
 
   function sourceLabel(referenceType) {
@@ -134,12 +200,13 @@ export default function AccountDrillDown({ accountIds, accountType, title, start
     if (!lines.length) return;
     const rows = lines.map(l => ({
       Date: formatDate(l.date),
+      Payee: l.payee || '',
       Description: l.description,
       Source: l.source,
       'Entry #': l.entryNumber,
       Amount: l.amount.toFixed(2),
     }));
-    rows.push({ Date: '', Description: '', Source: '', 'Entry #': 'TOTAL', Amount: total.toFixed(2) });
+    rows.push({ Date: '', Payee: '', Description: '', Source: '', 'Entry #': 'TOTAL', Amount: total.toFixed(2) });
     const csv = Papa.unparse(rows);
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -178,9 +245,10 @@ export default function AccountDrillDown({ accountIds, accountType, title, start
             <table style={styles.table}>
               <thead>
                 <tr>
-                  <th style={{...styles.th, textAlign: 'left', width: '14%'}}>Date</th>
-                  <th style={{...styles.th, textAlign: 'left', width: '46%'}}>Description</th>
-                  <th style={{...styles.th, textAlign: 'left', width: '15%'}}>Source</th>
+                  <th style={{...styles.th, textAlign: 'left', width: '11%'}}>Date</th>
+                  <th style={{...styles.th, textAlign: 'left', width: '20%'}}>Payee</th>
+                  <th style={{...styles.th, textAlign: 'left', width: '31%'}}>Description</th>
+                  <th style={{...styles.th, textAlign: 'left', width: '13%'}}>Source</th>
                   <th style={{...styles.th, textAlign: 'left', width: '10%'}}>Entry #</th>
                   <th style={{...styles.th, textAlign: 'right', width: '15%'}}>Amount</th>
                 </tr>
@@ -189,6 +257,7 @@ export default function AccountDrillDown({ accountIds, accountType, title, start
                 {lines.map(line => (
                   <tr key={line.id} style={styles.tr}>
                     <td style={styles.td}>{formatDate(line.date)}</td>
+                    <td style={{...styles.td, ...styles.tdEllipsis, fontWeight: 600}}>{line.payee || '—'}</td>
                     <td style={{...styles.td, ...styles.tdEllipsis}}>{line.description}</td>
                     <td style={styles.td}>{line.source}</td>
                     <td style={{...styles.td, fontSize: 12, color: '#888'}}>{line.entryNumber}</td>
@@ -226,7 +295,7 @@ const styles = {
     backgroundColor: '#fff',
     borderRadius: 12,
     width: '100%',
-    maxWidth: 900,
+    maxWidth: 1000,
     maxHeight: '85vh',
     display: 'flex',
     flexDirection: 'column',
