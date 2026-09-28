@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 import { notify } from '../../lib/notify';
+import AccountDrillDown from "../../Components/AccountDrillDown";
 
 export default function ProfitLoss() {
   const navigate = useNavigate();
@@ -17,6 +18,13 @@ export default function ProfitLoss() {
     totalExpenses: 0,
     netIncome: 0
   });
+  // Drill-down modal state: which account(s)/type/title to show transactions for.
+  // null = closed.
+  const [drillDown, setDrillDown] = useState(null);
+
+  function openDrillDown(accountIds, accountType, title) {
+    setDrillDown({ accountIds, accountType, title });
+  }
 
   useEffect(() => {
     loadProfitLoss();
@@ -171,15 +179,23 @@ export default function ProfitLoss() {
 
       {/* Summary Cards */}
       <div style={styles.summaryGrid}>
-        <div style={styles.summaryCard}>
+        <div
+          style={{...styles.summaryCard, cursor: reportData.income.length ? 'pointer' : 'default'}}
+          onClick={() => reportData.income.length && openDrillDown(reportData.income.map(a => a.id), 'Income', 'Total Income')}
+          title={reportData.income.length ? 'Click to see all income transactions' : undefined}
+        >
           <div style={styles.summaryLabel}>Total Income</div>
-          <div style={{...styles.summaryValue, color: '#10b981'}}>
+          <div style={{...styles.summaryValue, color: '#10b981', textDecoration: reportData.income.length ? 'underline' : 'none'}}>
             {formatCurrency(reportData.totalIncome)}
           </div>
         </div>
-        <div style={styles.summaryCard}>
+        <div
+          style={{...styles.summaryCard, cursor: reportData.expenses.length ? 'pointer' : 'default'}}
+          onClick={() => reportData.expenses.length && openDrillDown(reportData.expenses.map(a => a.id), 'Expense', 'Total Expenses')}
+          title={reportData.expenses.length ? 'Click to see all expense transactions' : undefined}
+        >
           <div style={styles.summaryLabel}>Total Expenses</div>
-          <div style={{...styles.summaryValue, color: '#ef4444'}}>
+          <div style={{...styles.summaryValue, color: '#ef4444', textDecoration: reportData.expenses.length ? 'underline' : 'none'}}>
             {formatCurrency(reportData.totalExpenses)}
           </div>
         </div>
@@ -215,18 +231,27 @@ export default function ProfitLoss() {
             <div style={styles.noData}>No income recorded for this period</div>
           ) : (
             <>
-              {reportData.income.map((account, idx) => (
-                <div key={account.id} style={styles.lineItem}>
+              {reportData.income.map((account) => (
+                <div
+                  key={account.id}
+                  style={{...styles.lineItem, cursor: 'pointer'}}
+                  onClick={() => openDrillDown([account.id], 'Income', `${account.account_number} - ${account.account_name}`)}
+                  title="Click to see transactions for this account"
+                >
                   <div style={styles.accountInfo}>
                     <span style={styles.accountNumber}>{account.account_number}</span>
                     <span style={styles.accountName}>{account.account_name}</span>
                   </div>
-                  <div style={styles.amount}>{formatCurrency(account.amount)}</div>
+                  <div style={{...styles.amount, textDecoration: 'underline'}}>{formatCurrency(account.amount)}</div>
                 </div>
               ))}
-              <div style={styles.totalLine}>
+              <div
+                style={{...styles.totalLine, cursor: 'pointer'}}
+                onClick={() => openDrillDown(reportData.income.map(a => a.id), 'Income', 'Total Income')}
+                title="Click to see all income transactions"
+              >
                 <div style={styles.totalLabel}>Total Income</div>
-                <div style={{...styles.totalAmount, color: '#10b981'}}>
+                <div style={{...styles.totalAmount, color: '#10b981', textDecoration: 'underline'}}>
                   {formatCurrency(reportData.totalIncome)}
                 </div>
               </div>
@@ -241,18 +266,27 @@ export default function ProfitLoss() {
             <div style={styles.noData}>No expenses recorded for this period</div>
           ) : (
             <>
-              {reportData.expenses.map((account, idx) => (
-                <div key={account.id} style={styles.lineItem}>
+              {reportData.expenses.map((account) => (
+                <div
+                  key={account.id}
+                  style={{...styles.lineItem, cursor: 'pointer'}}
+                  onClick={() => openDrillDown([account.id], 'Expense', `${account.account_number} - ${account.account_name}`)}
+                  title="Click to see transactions for this account"
+                >
                   <div style={styles.accountInfo}>
                     <span style={styles.accountNumber}>{account.account_number}</span>
                     <span style={styles.accountName}>{account.account_name}</span>
                   </div>
-                  <div style={styles.amount}>{formatCurrency(account.amount)}</div>
+                  <div style={{...styles.amount, textDecoration: 'underline'}}>{formatCurrency(account.amount)}</div>
                 </div>
               ))}
-              <div style={styles.totalLine}>
+              <div
+                style={{...styles.totalLine, cursor: 'pointer'}}
+                onClick={() => openDrillDown(reportData.expenses.map(a => a.id), 'Expense', 'Total Expenses')}
+                title="Click to see all expense transactions"
+              >
                 <div style={styles.totalLabel}>Total Expenses</div>
-                <div style={{...styles.totalAmount, color: '#ef4444'}}>
+                <div style={{...styles.totalAmount, color: '#ef4444', textDecoration: 'underline'}}>
                   {formatCurrency(reportData.totalExpenses)}
                 </div>
               </div>
@@ -298,6 +332,20 @@ export default function ProfitLoss() {
           🖨️ Print Report
         </button>
       </div>
+
+      {drillDown && (
+        <div className="no-print">
+          <style>{`@media print { .no-print { display: none !important; } }`}</style>
+          <AccountDrillDown
+            accountIds={drillDown.accountIds}
+            accountType={drillDown.accountType}
+            title={drillDown.title}
+            startDate={startDate}
+            endDate={endDate}
+            onClose={() => setDrillDown(null)}
+          />
+        </div>
+      )}
     </div>
   );
 }
