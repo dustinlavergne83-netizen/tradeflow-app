@@ -583,12 +583,44 @@ export default function Expenses() {
 
       if (editingExpense) {
         // Update existing expense
-        const { error } = await supabase
+        const { data: updatedExpense, error } = await supabase
           .from('expenses')
           .update(expenseData)
-          .eq('id', editingExpense.id);
+          .eq('id', editingExpense.id)
+          .select()
+          .single();
 
         if (error) throw error;
+
+        // Regenerate the journal entry to match the updated values. Without
+        // this, editing an expense (e.g. changing its category, payment
+        // method, or amount) would silently leave a stale/incorrect entry
+        // in the ledger — exactly what happened when 24 expenses were
+        // re-categorized to Charge Account but never got a journal entry.
+        // Delete ANY existing entry for this expense regardless of source
+        // (covers both 'expense' entries from a prior edit AND leftover
+        // 'expense_import' entries from the original QuickBooks import),
+        // then create a fresh one reflecting the current data.
+        (async () => {
+          try {
+            await supabase
+              .from('journal_entries')
+              .delete()
+              .eq('reference_id', editingExpense.id)
+              .in('reference_type', ['expense', 'expense_import']);
+
+            await createExpenseJournalEntry(
+              updatedExpense,
+              user.id,
+              user.id,
+              updatedExpense.liability_account_id || updatedExpense.bank_account_id || updatedExpense.income_account_id,
+              updatedExpense.payment_method
+            );
+          } catch (err) {
+            console.warn('Background journal entry regeneration failed:', err);
+          }
+        })();
+
         // Update success — close modal and reload
         setShowExpenseModal(false);
         setEditingExpense(null);
