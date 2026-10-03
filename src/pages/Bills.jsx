@@ -24,6 +24,7 @@ export default function Bills() {
   const [showPayModal, setShowPayModal] = useState(false);
   const [payingBill, setPayingBill] = useState(null);
   const [payBankAccountId, setPayBankAccountId] = useState('');
+  const [vendorChargeAccount, setVendorChargeAccount] = useState(null);
 
   const [billForm, setBillForm] = useState({
     vendor_id: '',
@@ -47,6 +48,18 @@ export default function Bills() {
   useEffect(() => {
     applyFilters();
   }, [bills, searchTerm, filterStatus]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!billForm.vendor_id) {
+      setVendorChargeAccount(null);
+      return;
+    }
+    findVendorChargeAccount(billForm.vendor_id).then(account => {
+      if (!cancelled) setVendorChargeAccount(account);
+    });
+    return () => { cancelled = true; };
+  }, [billForm.vendor_id]);
 
   async function loadBills() {
     try {
@@ -162,6 +175,7 @@ export default function Bills() {
 
   function openAddModal() {
     setEditingBill(null);
+    setVendorChargeAccount(null);
     setBillForm({
       vendor_id: '',
       vendor_name: '',
@@ -178,6 +192,7 @@ export default function Bills() {
 
   function openEditModal(bill) {
     setEditingBill(bill);
+    setVendorChargeAccount(null);
     setBillForm({
       vendor_id: bill.vendor_id || '',
       vendor_name: bill.vendor_name || '',
@@ -701,6 +716,13 @@ export default function Bills() {
                   {expenseAccounts.length === 0 && (
                     <div style={{fontSize: 12, color: '#ef4444', marginTop: 6}}>
                       No expense accounts found. Add them in Chart of Accounts.
+                    </div>
+                  )}
+                  {billForm.vendor_id && (
+                    <div style={{fontSize: 12, marginTop: 6, color: vendorChargeAccount ? '#059669' : '#666'}}>
+                      {vendorChargeAccount
+                        ? `Will be charged to: ${vendorChargeAccount.account_number} - ${vendorChargeAccount.account_name}`
+                        : 'Will be charged to: 2000 - Accounts Payable (no dedicated charge account for this vendor)'}
                     </div>
                   )}
                 </div>
