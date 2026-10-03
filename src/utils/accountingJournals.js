@@ -462,27 +462,45 @@ export async function createExpenseJournalEntry(expense, userId, companyId, bank
 }
 
 /**
- * Create journal entry when bill is created
- * Debit: Expense Account (bill.expense_account_id)
- * Credit: the vendor's charge account if one exists, otherwise Accounts
- *         Payable (bill.liability_account_id, resolved by the caller)
+ * Create journal entry when bill is created.
+ *
+ * Two cases:
+ *  - Vendor HAS a dedicated charge account (bill.charge_account_id set):
+ *      Debit: the vendor's charge account (e.g. 2130 Teche Electric Account)
+ *      Credit: Accounts Payable
+ *    No expense line is posted here — the purchase was already expensed
+ *    when it was made on the charge account (see createExpenseJournalEntry's
+ *    charge-account path). This entry only moves the running charge-account
+ *    balance into a formal payable.
+ *
+ *  - Vendor has NO charge account:
+ *      Debit: Expense Account (bill.expense_account_id)
+ *      Credit: Accounts Payable
+ *    This is the first and only record of the purchase.
+ *
+ * bill.liability_account_id is always Accounts Payable in both cases
+ * (resolved by the caller, falling back to the default A/P account here).
  */
 export async function createBillJournalEntry(bill, userId, companyId) {
   try {
-    if (!bill.expense_account_id) {
+    const hasChargeAccount = !!bill.charge_account_id;
+
+    if (!hasChargeAccount && !bill.expense_account_id) {
       console.error("Bill is missing expense_account_id");
       return { success: false, error: "Missing expense account on bill" };
     }
 
-    let liabilityAccountId = bill.liability_account_id;
-    if (!liabilityAccountId) {
+    let accountsPayableId = bill.liability_account_id;
+    if (!accountsPayableId) {
       const accounts = await getDefaultAccounts(companyId);
       if (!accounts?.accountsPayable) {
         console.error("Required accounts not found for bill entry");
         return { success: false, error: "Missing Accounts Payable account" };
       }
-      liabilityAccountId = accounts.accountsPayable.id;
+      accountsPayableId = accounts.accountsPayable.id;
     }
+
+    const debitAccountId = hasChargeAccount ? bill.charge_account_id : bill.expense_account_id;
 
     const entryNumber = await getNextJournalEntryNumber(companyId);
     const description = `Bill #${bill.bill_number || 'New'} - ${bill.vendor_name}`;
@@ -513,15 +531,17 @@ export async function createBillJournalEntry(bill, userId, companyId) {
       {
         entry_id: entry.id,
         line_number: 1,
-        account_id: bill.expense_account_id,
+        account_id: debitAccountId,
         debit: amount,
         credit: 0,
-        description: bill.description || description
+        description: hasChargeAccount
+          ? `Charge account balance moved to A/P - ${bill.vendor_name}`
+          : (bill.description || description)
       },
       {
         entry_id: entry.id,
         line_number: 2,
-        account_id: liabilityAccountId,
+        account_id: accountsPayableId,
         debit: 0,
         credit: amount,
         description: `Bill from ${bill.vendor_name}`
@@ -677,9 +697,10 @@ export async function createBankTransactionJournalEntry(transaction, userId, com
 }
 
 /**
- * Create journal entry when bill is paid
- * Debit: the bill's liability account (vendor charge account or Accounts
- *        Payable — whichever was credited when the bill was created)
+ * Create journal entry when bill is paid.
+ * Debit: Accounts Payable (bill.liability_account_id — always A/P; the
+ *        vendor's charge account, if any, was already cleared into A/P
+ *        when the bill was entered, see createBillJournalEntry)
  * Credit: the bank account selected at payment time
  *         (bill.payment_bank_account_id)
  */

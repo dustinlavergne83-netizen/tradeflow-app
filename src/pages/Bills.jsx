@@ -233,7 +233,11 @@ export default function Bills() {
       return;
     }
 
-    if (!billForm.expense_account_id) {
+    // Category (expense account) is only required when the vendor has no
+    // dedicated charge account — if they do, the purchase was already
+    // expensed when it was made on the charge account, and this bill just
+    // moves that balance into Accounts Payable.
+    if (!vendorChargeAccount && !billForm.expense_account_id) {
       notify('Please select a category (expense account)');
       return;
     }
@@ -245,22 +249,18 @@ export default function Bills() {
         return;
       }
 
-      // Determine which liability account this bill should credit: the
-      // vendor's dedicated charge account if one exists, otherwise fall
-      // back to generic Accounts Payable.
-      let liabilityAccountId = null;
+      // The bill's liability side is always Accounts Payable — it's
+      // credited when the bill is entered and debited when it's paid.
+      // If the vendor has a dedicated charge account, that account is
+      // debited instead of an expense account (see charge_account_id below).
       const chargeAccount = await findVendorChargeAccount(billForm.vendor_id);
-      if (chargeAccount) {
-        liabilityAccountId = chargeAccount.id;
-      } else {
-        const { data: ap } = await supabase
-          .from("accounts")
-          .select("id")
-          .eq("company_id", user.id)
-          .eq("account_number", "2000")
-          .maybeSingle();
-        liabilityAccountId = ap?.id || null;
-      }
+      const { data: ap } = await supabase
+        .from("accounts")
+        .select("id")
+        .eq("company_id", user.id)
+        .eq("account_number", "2000")
+        .maybeSingle();
+      const liabilityAccountId = ap?.id || null;
 
       const billData = {
         company_id: user.id,
@@ -273,8 +273,9 @@ export default function Bills() {
         total_amount: amount,
         amount_due: amount,
         description: billForm.description || null,
-        expense_account_id: billForm.expense_account_id,
+        expense_account_id: billForm.expense_account_id || null,
         liability_account_id: liabilityAccountId,
+        charge_account_id: chargeAccount?.id || null,
         notes: billForm.notes || null,
         created_by: user.id
       };
@@ -301,8 +302,9 @@ export default function Bills() {
 
         if (error) throw error;
         
-        // Auto-create journal entry for the new bill
-        // Debit: Expense Account, Credit: vendor charge account or Accounts Payable
+        // Auto-create journal entry for the new bill.
+        // Debit: vendor charge account (if one exists) or Expense Account.
+        // Credit: Accounts Payable (always).
         const journalResult = await createBillJournalEntry(
           newBill,
           user.id,
@@ -700,11 +702,14 @@ export default function Bills() {
                   />
                 </div>
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>Category *</label>
+                  <label style={styles.label}>
+                    Category {vendorChargeAccount ? '(reference only)' : '*'}
+                  </label>
                   <select
                     value={billForm.expense_account_id}
                     onChange={(e) => setBillForm({...billForm, expense_account_id: e.target.value})}
                     style={styles.input}
+                    disabled={!!vendorChargeAccount}
                   >
                     <option value="">Select Account...</option>
                     {expenseAccounts.map(account => (
@@ -713,7 +718,7 @@ export default function Bills() {
                       </option>
                     ))}
                   </select>
-                  {expenseAccounts.length === 0 && (
+                  {expenseAccounts.length === 0 && !vendorChargeAccount && (
                     <div style={{fontSize: 12, color: '#ef4444', marginTop: 6}}>
                       No expense accounts found. Add them in Chart of Accounts.
                     </div>
@@ -721,7 +726,7 @@ export default function Bills() {
                   {billForm.vendor_id && (
                     <div style={{fontSize: 12, marginTop: 6, color: vendorChargeAccount ? '#059669' : '#666'}}>
                       {vendorChargeAccount
-                        ? `Will be charged to: ${vendorChargeAccount.account_number} - ${vendorChargeAccount.account_name}`
+                        ? `This vendor has a charge account. Already expensed at purchase — this bill moves the balance from ${vendorChargeAccount.account_number} - ${vendorChargeAccount.account_name} to Accounts Payable.`
                         : 'Will be charged to: 2000 - Accounts Payable (no dedicated charge account for this vendor)'}
                     </div>
                   )}
