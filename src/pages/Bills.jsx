@@ -17,20 +17,31 @@ export default function Bills() {
   const [editingBill, setEditingBill] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
-  
+
+  const [vendors, setVendors] = useState([]);
+  const [expenseAccounts, setExpenseAccounts] = useState([]);
+  const [bankAccounts, setBankAccounts] = useState([]);
+  const [showPayModal, setShowPayModal] = useState(false);
+  const [payingBill, setPayingBill] = useState(null);
+  const [payBankAccountId, setPayBankAccountId] = useState('');
+
   const [billForm, setBillForm] = useState({
+    vendor_id: '',
     vendor_name: '',
     bill_number: '',
     bill_date: getTodayLocalDate(),
     due_date: '',
     amount: '',
     description: '',
-    category: '',
+    expense_account_id: '',
     notes: ''
   });
 
   useEffect(() => {
     loadBills();
+    loadVendors();
+    loadExpenseAccounts();
+    loadBankAccounts();
   }, [user]);
 
   useEffect(() => {
@@ -57,6 +68,77 @@ export default function Bills() {
     }
   }
 
+  async function loadVendors() {
+    try {
+      const { data, error } = await supabase
+        .from("vendors")
+        .select("*")
+        .eq("company_id", user.id)
+        .eq("archived", false)
+        .order("vendor_name");
+
+      if (error) throw error;
+      setVendors(data || []);
+    } catch (err) {
+      console.error("Error loading vendors:", err);
+    }
+  }
+
+  async function loadExpenseAccounts() {
+    try {
+      const { data, error } = await supabase
+        .from("accounts")
+        .select("*")
+        .eq("company_id", user.id)
+        .in("account_type", ["Expense"])
+        .eq("is_active", true)
+        .order("account_number");
+
+      if (error) throw error;
+      setExpenseAccounts(data || []);
+    } catch (err) {
+      console.error("Error loading expense accounts:", err);
+    }
+  }
+
+  async function loadBankAccounts() {
+    try {
+      const { data, error } = await supabase
+        .from("accounts")
+        .select("*")
+        .eq("company_id", user.id)
+        .eq("account_type", "Asset")
+        .eq("is_active", true)
+        .order("account_number");
+
+      if (error) throw error;
+      setBankAccounts(data || []);
+    } catch (err) {
+      console.error("Error loading bank accounts:", err);
+    }
+  }
+
+  // Find the vendor's dedicated charge/open account (e.g. "2130 Teche
+  // Electric Account") via accounts.vendor_id, if one exists.
+  async function findVendorChargeAccount(vendorId) {
+    if (!vendorId) return null;
+    try {
+      const { data, error } = await supabase
+        .from("accounts")
+        .select("*")
+        .eq("company_id", user.id)
+        .eq("vendor_id", vendorId)
+        .eq("account_type", "Liability")
+        .eq("is_active", true)
+        .maybeSingle();
+
+      if (error) return null;
+      return data || null;
+    } catch {
+      return null;
+    }
+  }
+
   function applyFilters() {
     let filtered = [...bills];
 
@@ -66,14 +148,13 @@ export default function Bills() {
       filtered = filtered.filter(b => 
         b.vendor_name?.toLowerCase().includes(search) ||
         b.bill_number?.toLowerCase().includes(search) ||
-        b.description?.toLowerCase().includes(search) ||
-        b.category?.toLowerCase().includes(search)
+        b.description?.toLowerCase().includes(search)
       );
     }
 
     // Status filter
     if (filterStatus !== 'all') {
-      filtered = filtered.filter(b => b.payment_status === filterStatus);
+      filtered = filtered.filter(b => b.status === filterStatus);
     }
 
     setFilteredBills(filtered);
@@ -82,13 +163,14 @@ export default function Bills() {
   function openAddModal() {
     setEditingBill(null);
     setBillForm({
+      vendor_id: '',
       vendor_name: '',
       bill_number: '',
       bill_date: getTodayLocalDate(),
       due_date: '',
       amount: '',
       description: '',
-      category: '',
+      expense_account_id: '',
       notes: ''
     });
     setShowModal(true);
@@ -97,21 +179,47 @@ export default function Bills() {
   function openEditModal(bill) {
     setEditingBill(bill);
     setBillForm({
+      vendor_id: bill.vendor_id || '',
       vendor_name: bill.vendor_name || '',
       bill_number: bill.bill_number || '',
       bill_date: bill.bill_date || getTodayLocalDate(),
       due_date: bill.due_date || '',
-      amount: bill.amount?.toString() || '',
+      amount: bill.total_amount?.toString() || '',
       description: bill.description || '',
-      category: bill.category || '',
+      expense_account_id: bill.expense_account_id || '',
       notes: bill.notes || ''
     });
     setShowModal(true);
   }
 
+  // When the user types a vendor name, try to match it against an existing
+  // vendor record so we can auto-populate vendor_id (needed to find the
+  // vendor's charge account later) without forcing a strict dropdown-only UX.
+  function handleVendorNameChange(value) {
+    const match = vendors.find(v => v.vendor_name.toLowerCase() === value.toLowerCase());
+    setBillForm(prev => ({
+      ...prev,
+      vendor_name: value,
+      vendor_id: match ? match.id : ''
+    }));
+  }
+
+  function selectVendor(vendor) {
+    setBillForm(prev => ({
+      ...prev,
+      vendor_name: vendor.vendor_name,
+      vendor_id: vendor.id
+    }));
+  }
+
   async function handleSave() {
     if (!billForm.vendor_name || !billForm.amount) {
       notify('Please enter vendor name and amount');
+      return;
+    }
+
+    if (!billForm.expense_account_id) {
+      notify('Please select a category (expense account)');
       return;
     }
 
@@ -122,19 +230,45 @@ export default function Bills() {
         return;
       }
 
+      // Determine which liability account this bill should credit: the
+      // vendor's dedicated charge account if one exists, otherwise fall
+      // back to generic Accounts Payable.
+      let liabilityAccountId = null;
+      const chargeAccount = await findVendorChargeAccount(billForm.vendor_id);
+      if (chargeAccount) {
+        liabilityAccountId = chargeAccount.id;
+      } else {
+        const { data: ap } = await supabase
+          .from("accounts")
+          .select("id")
+          .eq("company_id", user.id)
+          .eq("account_number", "2000")
+          .maybeSingle();
+        liabilityAccountId = ap?.id || null;
+      }
+
       const billData = {
+        company_id: user.id,
+        vendor_id: billForm.vendor_id || null,
         vendor_name: billForm.vendor_name,
         bill_number: billForm.bill_number || null,
         bill_date: billForm.bill_date,
-        due_date: billForm.due_date || null,
-        amount: amount,
+        due_date: billForm.due_date || billForm.bill_date,
+        subtotal: amount,
+        total_amount: amount,
+        amount_due: amount,
         description: billForm.description || null,
-        category: billForm.category || null,
+        expense_account_id: billForm.expense_account_id,
+        liability_account_id: liabilityAccountId,
         notes: billForm.notes || null,
         created_by: user.id
       };
 
       if (editingBill) {
+        // Preserve amount_paid / amount_due relationship on edit
+        const amountPaid = editingBill.amount_paid || 0;
+        billData.amount_due = Math.max(amount - amountPaid, 0);
+
         const { error } = await supabase
           .from('bills')
           .update(billData)
@@ -153,7 +287,7 @@ export default function Bills() {
         if (error) throw error;
         
         // Auto-create journal entry for the new bill
-        // Debit: Expense Account, Credit: Accounts Payable
+        // Debit: Expense Account, Credit: vendor charge account or Accounts Payable
         const journalResult = await createBillJournalEntry(
           newBill,
           user.id,
@@ -176,39 +310,53 @@ export default function Bills() {
     }
   }
 
-  async function handleMarkAsPaid(bill) {
-    if (!await confirmDialog(`Mark bill from ${bill.vendor_name} as paid?`)) {
+  function openPayModal(bill) {
+    setPayingBill(bill);
+    setPayBankAccountId('');
+    setShowPayModal(true);
+  }
+
+  async function handleConfirmPayment() {
+    if (!payBankAccountId) {
+      notify('Please select which bank account paid this bill');
       return;
     }
 
+    const bill = payingBill;
+
     try {
       const paidDate = new Date().toISOString().split('T')[0];
-      
+
       const { error } = await supabase
         .from('bills')
-        .update({ 
-          payment_status: 'paid',
-          paid_date: paidDate
+        .update({
+          status: 'paid',
+          paid_date: paidDate,
+          amount_paid: bill.total_amount,
+          amount_due: 0,
+          payment_bank_account_id: payBankAccountId
         })
         .eq('id', bill.id);
 
       if (error) throw error;
-      
+
       // Auto-create journal entry for bill payment
-      // Debit: Accounts Payable, Credit: Cash
-      const updatedBill = { ...bill, paid_date: paidDate, payment_status: 'paid' };
+      // Debit: the bill's liability account (charge account or A/P), Credit: the selected bank account
+      const updatedBill = { ...bill, paid_date: paidDate, payment_bank_account_id: payBankAccountId };
       const journalResult = await createBillPaymentJournalEntry(
         updatedBill,
         user.id,
         user.id // Using user.id as company_id for now
       );
-      
+
       if (journalResult.success) {
         notify('Bill marked as paid! Payment journal entry created automatically.');
       } else {
         notify('Bill marked as paid, but journal entry failed: ' + journalResult.error);
       }
-      
+
+      setShowPayModal(false);
+      setPayingBill(null);
       loadBills();
     } catch (err) {
       console.error('Error marking bill as paid:', err);
@@ -225,8 +373,11 @@ export default function Bills() {
       const { error } = await supabase
         .from('bills')
         .update({ 
-          payment_status: 'unpaid',
-          paid_date: null
+          status: 'unpaid',
+          paid_date: null,
+          amount_paid: 0,
+          amount_due: bill.total_amount,
+          payment_bank_account_id: null
         })
         .eq('id', bill.id);
 
@@ -260,7 +411,7 @@ export default function Bills() {
   }
 
   function isOverdue(bill) {
-    if (bill.payment_status === 'paid') return false;
+    if (bill.status === 'paid') return false;
     if (!bill.due_date) return false;
     return new Date(bill.due_date) < new Date();
   }
@@ -277,7 +428,7 @@ export default function Bills() {
   };
 
   const getStatusBadge = (bill) => {
-    if (bill.payment_status === 'paid') {
+    if (bill.status === 'paid') {
       return <span style={styles.paidBadge}>✓ Paid</span>;
     } else if (isOverdue(bill)) {
       return <span style={styles.overdueBadge}>⚠ Overdue</span>;
@@ -294,12 +445,16 @@ export default function Bills() {
     );
   }
 
+  const accountNameById = Object.fromEntries(
+    expenseAccounts.map(a => [a.id, `${a.account_number} - ${a.account_name}`])
+  );
+
   const totalBills = bills.length;
-  const unpaidBills = bills.filter(b => b.payment_status === 'unpaid').length;
+  const unpaidBills = bills.filter(b => b.status === 'unpaid').length;
   const overdueBills = bills.filter(b => isOverdue(b)).length;
   const totalUnpaidAmount = bills
-    .filter(b => b.payment_status === 'unpaid')
-    .reduce((sum, b) => sum + (b.amount || 0), 0);
+    .filter(b => b.status === 'unpaid')
+    .reduce((sum, b) => sum + (parseFloat(b.amount_due) || 0), 0);
 
   return (
     <div style={styles.container}>
@@ -393,7 +548,7 @@ export default function Bills() {
                   style={{
                     ...styles.tableRow,
                     backgroundColor: isOverdue(bill) ? '#fee2e2' : 
-                                   bill.payment_status === 'paid' ? '#f0fdf4' : '#fff',
+                                   bill.status === 'paid' ? '#f0fdf4' : '#fff',
                   }}
                 >
                   <td style={styles.td}>{getStatusBadge(bill)}</td>
@@ -406,15 +561,15 @@ export default function Bills() {
                     {bill.due_date ? formatDate(bill.due_date) : '-'}
                   </td>
                   <td style={{...styles.td, fontWeight: 'bold'}}>
-                    {formatCurrency(bill.amount)}
+                    {formatCurrency(bill.total_amount)}
                   </td>
                   <td style={styles.td}>{bill.description || '-'}</td>
-                  <td style={styles.td}>{bill.category || '-'}</td>
+                  <td style={styles.td}>{accountNameById[bill.expense_account_id] || '-'}</td>
                   <td style={styles.td}>
                     <div style={styles.actionButtons}>
-                      {bill.payment_status === 'unpaid' ? (
+                      {bill.status === 'unpaid' ? (
                         <button
-                          onClick={() => handleMarkAsPaid(bill)}
+                          onClick={() => openPayModal(bill)}
                           style={styles.paidBtn}
                           title="Mark as Paid"
                         >
@@ -471,11 +626,17 @@ export default function Bills() {
                   <label style={styles.label}>Vendor Name *</label>
                   <input
                     type="text"
+                    list="bill-vendor-list"
                     value={billForm.vendor_name}
-                    onChange={(e) => setBillForm({...billForm, vendor_name: e.target.value})}
+                    onChange={(e) => handleVendorNameChange(e.target.value)}
                     style={styles.input}
                     placeholder="e.g., ABC Supplies Inc."
                   />
+                  <datalist id="bill-vendor-list">
+                    {vendors.map(v => (
+                      <option key={v.id} value={v.vendor_name} />
+                    ))}
+                  </datalist>
                 </div>
                 <div style={styles.formGroup}>
                   <label style={styles.label}>Bill Number</label>
@@ -524,14 +685,24 @@ export default function Bills() {
                   />
                 </div>
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>Category</label>
-                  <input
-                    type="text"
-                    value={billForm.category}
-                    onChange={(e) => setBillForm({...billForm, category: e.target.value})}
+                  <label style={styles.label}>Category *</label>
+                  <select
+                    value={billForm.expense_account_id}
+                    onChange={(e) => setBillForm({...billForm, expense_account_id: e.target.value})}
                     style={styles.input}
-                    placeholder="e.g., Office Supplies, Utilities"
-                  />
+                  >
+                    <option value="">Select Account...</option>
+                    {expenseAccounts.map(account => (
+                      <option key={account.id} value={account.id}>
+                        {account.account_number} - {account.account_name}
+                      </option>
+                    ))}
+                  </select>
+                  {expenseAccounts.length === 0 && (
+                    <div style={{fontSize: 12, color: '#ef4444', marginTop: 6}}>
+                      No expense accounts found. Add them in Chart of Accounts.
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -563,6 +734,51 @@ export default function Bills() {
               </button>
               <button onClick={handleSave} style={styles.saveButton}>
                 {editingBill ? '💾 Update Bill' : '➕ Add Bill'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pay Bill Modal */}
+      {showPayModal && payingBill && (
+        <div style={styles.modalOverlay} onClick={() => setShowPayModal(false)}>
+          <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>Mark Bill as Paid</h2>
+              <button onClick={() => setShowPayModal(false)} style={styles.closeButton}>
+                ×
+              </button>
+            </div>
+
+            <div style={styles.modalBody}>
+              <p style={{marginBottom: 16}}>
+                Paying <strong>{formatCurrency(payingBill.total_amount)}</strong> to{' '}
+                <strong>{payingBill.vendor_name}</strong>
+              </p>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Paid From Bank Account *</label>
+                <select
+                  value={payBankAccountId}
+                  onChange={(e) => setPayBankAccountId(e.target.value)}
+                  style={styles.input}
+                >
+                  <option value="">Select Bank Account...</option>
+                  {bankAccounts.map(account => (
+                    <option key={account.id} value={account.id}>
+                      {account.account_number} - {account.account_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div style={styles.modalFooter}>
+              <button onClick={() => setShowPayModal(false)} style={styles.cancelButton}>
+                Cancel
+              </button>
+              <button onClick={handleConfirmPayment} style={styles.saveButton}>
+                ✓ Confirm Payment
               </button>
             </div>
           </div>

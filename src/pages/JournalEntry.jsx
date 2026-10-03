@@ -148,6 +148,11 @@ export default function JournalEntry() {
   }
 
   async function handleSave(shouldPost = false) {
+    if (entry.is_posted) {
+      notify('This entry is already posted and cannot be edited. Use a reversing entry to correct it.');
+      return;
+    }
+
     const { isBalanced } = calculateTotals();
     
     if (!isBalanced && shouldPost) {
@@ -178,19 +183,19 @@ export default function JournalEntry() {
     }
 
     try {
-      const entryData = {
-        company_id: user.id,
-        entry_number: entry.entry_number,
-        entry_date: entry.entry_date,
-        description: entry.description || null,
-        reference_type: 'manual',
-        created_by: user.id
-      };
-
       let savedEntryId = entryId;
 
       if (entryId) {
-        // Update existing entry
+        // Update existing entry - preserve the original reference_type so RLS
+        // policies tied to reference_type (e.g. bank_transaction) keep working
+        const entryData = {
+          company_id: user.id,
+          entry_number: entry.entry_number,
+          entry_date: entry.entry_date,
+          description: entry.description || null,
+          created_by: user.id
+        };
+
         const { error: entryError } = await supabase
           .from('journal_entries')
           .update(entryData)
@@ -199,14 +204,36 @@ export default function JournalEntry() {
         if (entryError) throw entryError;
 
         // Delete existing lines
-        const { error: deleteError } = await supabase
+        const { error: deleteError, count: deletedCount } = await supabase
           .from('journal_entry_lines')
-          .delete()
+          .delete({ count: 'exact' })
           .eq('entry_id', entryId);
 
         if (deleteError) throw deleteError;
+
+        // Safety check: if RLS silently blocked the delete (0 rows removed)
+        // but lines still exist, abort before inserting duplicates
+        if (!deletedCount) {
+          const { count: remainingCount } = await supabase
+            .from('journal_entry_lines')
+            .select('id', { count: 'exact', head: true })
+            .eq('entry_id', entryId);
+
+          if (remainingCount && remainingCount > 0) {
+            throw new Error('Unable to update this entry\'s lines (permission denied). It may be a posted/imported entry that cannot be edited directly.');
+          }
+        }
       } else {
         // Create new entry
+        const entryData = {
+          company_id: user.id,
+          entry_number: entry.entry_number,
+          entry_date: entry.entry_date,
+          description: entry.description || null,
+          reference_type: 'manual',
+          created_by: user.id
+        };
+
         const { data: newEntry, error: entryError } = await supabase
           .from('journal_entries')
           .insert([entryData])
@@ -273,13 +300,19 @@ export default function JournalEntry() {
         <div>
           <h1 style={styles.title}>✏️ Journal Entry</h1>
           <p style={styles.subtitle}>
-            {entryId ? 'Edit journal entry' : 'Create new journal entry'}
+            {entry.is_posted ? 'View posted journal entry (read-only)' : (entryId ? 'Edit journal entry' : 'Create new journal entry')}
           </p>
         </div>
         <button onClick={() => navigate('/accounting/general-ledger')} style={styles.backButton}>
           ← Back to General Ledger
         </button>
       </div>
+
+      {entry.is_posted && (
+        <div style={styles.postedWarning}>
+          ✅ <strong>This entry is posted</strong> and can no longer be edited. To correct it, create a reversing journal entry instead.
+        </div>
+      )}
 
       {/* Entry Header */}
       <div style={styles.card}>
@@ -291,7 +324,7 @@ export default function JournalEntry() {
               value={entry.entry_number}
               onChange={(e) => setEntry({...entry, entry_number: e.target.value})}
               style={styles.input}
-              disabled={!!entryId}
+              disabled={!!entryId || entry.is_posted}
             />
           </div>
           <div style={styles.formGroup}>
@@ -301,6 +334,7 @@ export default function JournalEntry() {
               value={entry.entry_date}
               onChange={(e) => setEntry({...entry, entry_date: e.target.value})}
               style={styles.input}
+              disabled={entry.is_posted}
             />
           </div>
         </div>
@@ -312,6 +346,7 @@ export default function JournalEntry() {
             onChange={(e) => setEntry({...entry, description: e.target.value})}
             style={styles.input}
             placeholder="Optional description for this entry"
+            disabled={entry.is_posted}
           />
         </div>
       </div>
@@ -320,9 +355,11 @@ export default function JournalEntry() {
       <div style={styles.card}>
         <div style={styles.linesHeader}>
           <h3 style={styles.linesTitle}>Journal Entry Lines</h3>
-          <button onClick={addLine} style={styles.addLineButton}>
-            + Add Line
-          </button>
+          {!entry.is_posted && (
+            <button onClick={addLine} style={styles.addLineButton}>
+              + Add Line
+            </button>
+          )}
         </div>
 
         <div style={styles.tableWrapper}>
@@ -346,6 +383,7 @@ export default function JournalEntry() {
                       value={line.account_id}
                       onChange={(e) => updateLine(index, 'account_id', e.target.value)}
                       style={styles.selectInput}
+                      disabled={entry.is_posted}
                     >
                       <option value="">Select Account...</option>
                       {accounts.map(acc => (
@@ -362,6 +400,7 @@ export default function JournalEntry() {
                       onChange={(e) => updateLine(index, 'description', e.target.value)}
                       style={styles.lineInput}
                       placeholder="Optional"
+                      disabled={entry.is_posted}
                     />
                   </td>
                   <td style={styles.td}>
@@ -373,6 +412,7 @@ export default function JournalEntry() {
                       placeholder="0.00"
                       step="0.01"
                       min="0"
+                      disabled={entry.is_posted}
                     />
                   </td>
                   <td style={styles.td}>
@@ -384,16 +424,19 @@ export default function JournalEntry() {
                       placeholder="0.00"
                       step="0.01"
                       min="0"
+                      disabled={entry.is_posted}
                     />
                   </td>
                   <td style={{...styles.td, textAlign: 'center'}}>
-                    <button
-                      onClick={() => removeLine(index)}
-                      style={styles.removeButton}
-                      disabled={lines.length <= 2}
-                    >
-                      🗑️
-                    </button>
+                    {!entry.is_posted && (
+                      <button
+                        onClick={() => removeLine(index)}
+                        style={styles.removeButton}
+                        disabled={lines.length <= 2}
+                      >
+                        🗑️
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -434,22 +477,26 @@ export default function JournalEntry() {
       {/* Action Buttons */}
       <div style={styles.actions}>
         <button onClick={() => navigate('/accounting/general-ledger')} style={styles.cancelButton}>
-          Cancel
+          {entry.is_posted ? 'Back' : 'Cancel'}
         </button>
-        <button onClick={() => handleSave(false)} style={styles.saveButton}>
-          💾 Save as Draft
-        </button>
-        <button
-          onClick={() => handleSave(true)}
-          style={{
-            ...styles.postButton,
-            opacity: isBalanced ? 1 : 0.5,
-            cursor: isBalanced ? 'pointer' : 'not-allowed'
-          }}
-          disabled={!isBalanced}
-        >
-          ✅ Save & Post
-        </button>
+        {!entry.is_posted && (
+          <>
+            <button onClick={() => handleSave(false)} style={styles.saveButton}>
+              💾 Save as Draft
+            </button>
+            <button
+              onClick={() => handleSave(true)}
+              style={{
+                ...styles.postButton,
+                opacity: isBalanced ? 1 : 0.5,
+                cursor: isBalanced ? 'pointer' : 'not-allowed'
+              }}
+              disabled={!isBalanced}
+            >
+              ✅ Save & Post
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

@@ -48,8 +48,18 @@ export async function getDefaultAccounts(companyId) {
 
 /**
  * Find expense account by category
+ *
+ * IMPORTANT: This intentionally does NOT fall back to an arbitrary expense
+ * account (e.g. accounts[0]) when no match is found. A previous version did
+ * that, and it silently dumped hundreds of unrelated transactions (owner
+ * draws, loan payments, etc.) into whatever happened to be the first expense
+ * account (Cost of Goods Sold), corrupting the books. If no confident match
+ * is found, callers must handle the null and surface an explicit "please
+ * select an account" prompt to the user instead of guessing.
  */
 export async function getExpenseAccount(companyId, category) {
+  if (!category) return null;
+
   const { data: accounts, error } = await supabase
     .from("accounts")
     .select("*")
@@ -57,17 +67,36 @@ export async function getExpenseAccount(companyId, category) {
     .eq("account_type", "Expense")
     .eq("is_active", true);
 
-  if (error || !accounts) return null;
+  if (error || !accounts || accounts.length === 0) return null;
 
-  // Try to match by category name
-  const match = accounts.find(a => 
-    a.account_name.toLowerCase().includes(category?.toLowerCase())
+  const normalizedCategory = category.toLowerCase().trim();
+
+  // Try to match by category name (exact match first, then partial/includes)
+  const exactMatch = accounts.find(a =>
+    a.account_name.toLowerCase().trim() === normalizedCategory
   );
+  if (exactMatch) return exactMatch;
 
-  // If no match, return first expense account or "Other Expenses"
-  return match || accounts.find(a => 
-    a.account_name.toLowerCase().includes('other')
-  ) || accounts[0];
+  const partialMatch = accounts.find(a =>
+    a.account_name.toLowerCase().includes(normalizedCategory) ||
+    normalizedCategory.includes(a.account_name.toLowerCase())
+  );
+  if (partialMatch) return partialMatch;
+
+  // Explicit, well-known fallback: only use "Miscellaneous Expense" / "Other"
+  // accounts when the category genuinely means "misc"/"other" - never guess
+  // by picking an arbitrary unrelated account.
+  if (normalizedCategory.includes('misc') || normalizedCategory.includes('other')) {
+    const miscMatch = accounts.find(a => {
+      const name = a.account_name.toLowerCase();
+      return name.includes('miscellaneous') || name.includes('other');
+    });
+    if (miscMatch) return miscMatch;
+  }
+
+  // No confident match - return null so the caller can require the user to
+  // pick an account explicitly, rather than silently miscategorizing.
+  return null;
 }
 
 /**
@@ -434,21 +463,30 @@ export async function createExpenseJournalEntry(expense, userId, companyId, bank
 
 /**
  * Create journal entry when bill is created
- * Debit: Expense Account
- * Credit: Accounts Payable
+ * Debit: Expense Account (bill.expense_account_id)
+ * Credit: the vendor's charge account if one exists, otherwise Accounts
+ *         Payable (bill.liability_account_id, resolved by the caller)
  */
 export async function createBillJournalEntry(bill, userId, companyId) {
   try {
-    const accounts = await getDefaultAccounts(companyId);
-    const expenseAccount = await getExpenseAccount(companyId, bill.category);
-    
-    if (!expenseAccount || !accounts.accountsPayable) {
-      console.error("Required accounts not found for bill entry");
-      return { success: false, error: "Missing expense or A/P accounts" };
+    if (!bill.expense_account_id) {
+      console.error("Bill is missing expense_account_id");
+      return { success: false, error: "Missing expense account on bill" };
+    }
+
+    let liabilityAccountId = bill.liability_account_id;
+    if (!liabilityAccountId) {
+      const accounts = await getDefaultAccounts(companyId);
+      if (!accounts?.accountsPayable) {
+        console.error("Required accounts not found for bill entry");
+        return { success: false, error: "Missing Accounts Payable account" };
+      }
+      liabilityAccountId = accounts.accountsPayable.id;
     }
 
     const entryNumber = await getNextJournalEntryNumber(companyId);
     const description = `Bill #${bill.bill_number || 'New'} - ${bill.vendor_name}`;
+    const amount = bill.total_amount;
 
     // Create journal entry header
     const { data: entry, error: entryError } = await supabase
@@ -475,17 +513,17 @@ export async function createBillJournalEntry(bill, userId, companyId) {
       {
         entry_id: entry.id,
         line_number: 1,
-        account_id: expenseAccount.id,
-        debit: bill.amount,
+        account_id: bill.expense_account_id,
+        debit: amount,
         credit: 0,
-        description: bill.description || bill.category
+        description: bill.description || description
       },
       {
         entry_id: entry.id,
         line_number: 2,
-        account_id: accounts.accountsPayable.id,
+        account_id: liabilityAccountId,
         debit: 0,
-        credit: bill.amount,
+        credit: amount,
         description: `Bill from ${bill.vendor_name}`
       }
     ];
@@ -640,20 +678,31 @@ export async function createBankTransactionJournalEntry(transaction, userId, com
 
 /**
  * Create journal entry when bill is paid
- * Debit: Accounts Payable
- * Credit: Cash
+ * Debit: the bill's liability account (vendor charge account or Accounts
+ *        Payable — whichever was credited when the bill was created)
+ * Credit: the bank account selected at payment time
+ *         (bill.payment_bank_account_id)
  */
 export async function createBillPaymentJournalEntry(bill, userId, companyId) {
   try {
-    const accounts = await getDefaultAccounts(companyId);
-    
-    if (!accounts.cash || !accounts.accountsPayable) {
-      console.error("Required accounts not found for bill payment entry");
-      return { success: false, error: "Missing Cash or A/P accounts" };
+    if (!bill.payment_bank_account_id) {
+      console.error("Bill payment is missing payment_bank_account_id");
+      return { success: false, error: "Missing bank account for payment" };
+    }
+
+    let liabilityAccountId = bill.liability_account_id;
+    if (!liabilityAccountId) {
+      const accounts = await getDefaultAccounts(companyId);
+      if (!accounts?.accountsPayable) {
+        console.error("Required accounts not found for bill payment entry");
+        return { success: false, error: "Missing Accounts Payable account" };
+      }
+      liabilityAccountId = accounts.accountsPayable.id;
     }
 
     const entryNumber = await getNextJournalEntryNumber(companyId);
     const description = `Bill payment - ${bill.vendor_name} - Bill #${bill.bill_number || bill.id}`;
+    const amount = bill.total_amount;
 
     // Create journal entry header
     const { data: entry, error: entryError } = await supabase
@@ -680,17 +729,17 @@ export async function createBillPaymentJournalEntry(bill, userId, companyId) {
       {
         entry_id: entry.id,
         line_number: 1,
-        account_id: accounts.accountsPayable.id,
-        debit: bill.amount,
+        account_id: liabilityAccountId,
+        debit: amount,
         credit: 0,
         description: `Payment to ${bill.vendor_name}`
       },
       {
         entry_id: entry.id,
         line_number: 2,
-        account_id: accounts.cash.id,
+        account_id: bill.payment_bank_account_id,
         debit: 0,
-        credit: bill.amount,
+        credit: amount,
         description: `Payment to ${bill.vendor_name}`
       }
     ];
