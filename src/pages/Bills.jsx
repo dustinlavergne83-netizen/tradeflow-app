@@ -404,11 +404,41 @@ export default function Bills() {
   }
 
   async function handleMarkAsUnpaid(bill) {
-    if (!await confirmDialog(`Mark bill from ${bill.vendor_name} as unpaid?`)) {
+    if (!await confirmDialog(`Mark bill from ${bill.vendor_name} as unpaid? This will also remove the payment's journal entry.`)) {
       return;
     }
 
     try {
+      // Reverse the payment journal entry(ies) created when this bill was
+      // paid. Without this, the Dr A/P / Cr Bank lines from the payment
+      // stay posted forever, and paying the bill again later would double
+      // up A/P and bank balances for the same bill.
+      const { data: paymentEntries, error: findError } = await supabase
+        .from('journal_entries')
+        .select('id')
+        .eq('reference_type', 'bill_payment')
+        .eq('reference_id', bill.id);
+
+      if (findError) throw findError;
+
+      if (paymentEntries?.length) {
+        const entryIds = paymentEntries.map(e => e.id);
+
+        const { error: linesDeleteError } = await supabase
+          .from('journal_entry_lines')
+          .delete()
+          .in('entry_id', entryIds);
+
+        if (linesDeleteError) throw linesDeleteError;
+
+        const { error: entriesDeleteError } = await supabase
+          .from('journal_entries')
+          .delete()
+          .in('id', entryIds);
+
+        if (entriesDeleteError) throw entriesDeleteError;
+      }
+
       const { error } = await supabase
         .from('bills')
         .update({ 
@@ -423,7 +453,7 @@ export default function Bills() {
         .eq('id', bill.id);
 
       if (error) throw error;
-      notify('Bill marked as unpaid!');
+      notify('Bill marked as unpaid and payment journal entry removed!');
       loadBills();
     } catch (err) {
       console.error('Error marking bill as unpaid:', err);
