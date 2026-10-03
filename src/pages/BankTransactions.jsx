@@ -30,6 +30,7 @@ export default function BankTransactions() {
   const [expenses, setExpenses] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [invoicePayments, setInvoicePayments] = useState([]);
+  const [bills, setBills] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [topCategoryIds, setTopCategoryIds] = useState([]); // most-frequently-used category account IDs, for the "Most Used" optgroup
   const [transferAccounts, setTransferAccounts] = useState([]); // other active bank accounts, for transfer destination/source picker
@@ -253,6 +254,22 @@ export default function BankTransactions() {
         .order("payment_date", { ascending: false })
         .limit(2000);
       setInvoicePayments(paymentsData || []);
+
+      // Load paid bills so their payments can be matched/linked instead of
+      // creating a duplicate journal entry when the bank transaction clears.
+      const { data: billsData, error: billsError } = await supabase
+        .from("bills")
+        .select("id, vendor_name, total_amount, paid_date, payment_bank_account_id, payment_method, payment_reference")
+        .eq("status", "paid")
+        .order("paid_date", { ascending: false })
+        .limit(500);
+
+      if (billsError) {
+        console.error("Error loading bills:", billsError);
+        setBills([]);
+      } else {
+        setBills(billsData || []);
+      }
     } catch (err) {
       console.error("Error loading expenses/invoices:", err);
     }
@@ -417,6 +434,61 @@ export default function BankTransactions() {
     } catch (err) {
       console.error('Error linking expense:', err);
       notify('Failed to link expense');
+    }
+  }
+
+  // Link (or unlink) this bank transaction to a paid Bill. Linking does NOT
+  // create a journal entry — createBillPaymentJournalEntry already posted
+  // Dr Accounts Payable / Cr Bank when the bill was marked paid. This just
+  // tells the matcher "this withdrawal IS that bill payment" so clearing it
+  // doesn't try to post a second entry.
+  async function handleLinkBill(transactionId, billId) {
+    try {
+      if (!billId) {
+        // Unlinking - just clear the link
+        const updates = {
+          linked_bill_id: null,
+          is_reconciled: false,
+          reconciled_at: null,
+          reconciled_by: null
+        };
+
+        const { error } = await supabase
+          .from('bank_transactions')
+          .update(updates)
+          .eq('id', transactionId);
+
+        if (error) throw error;
+      } else {
+        const bill = bills.find(b => b.id === billId);
+
+        if (!bill) {
+          notify('Bill not found');
+          return;
+        }
+
+        const updates = {
+          linked_bill_id: billId,
+          is_reconciled: true,
+          reconciled_at: new Date().toISOString(),
+          reconciled_by: user.id,
+          payee: bill.vendor_name || null,
+          reference_number: bill.payment_reference || null
+        };
+
+        const { error } = await supabase
+          .from('bank_transactions')
+          .update(updates)
+          .eq('id', transactionId);
+
+        if (error) throw error;
+      }
+
+      loadData();
+      setShowMatchesModal(false);
+    } catch (err) {
+      console.error('Error linking bill:', err);
+      notify('Failed to link bill');
     }
   }
 
@@ -846,6 +918,51 @@ export default function BankTransactions() {
       .sort((a, b) => b._score - a._score);
   }
 
+  // Score a bank withdrawal/check against a paid bill. Bills are only
+  // matchable here as withdrawals (money leaving the account) since that's
+  // the only direction a bill payment moves.
+  function scoreBillMatch(transaction, bill) {
+    if (transaction.amount > 0) return 0; // bills are only paid via withdrawals/checks
+    const txAmount   = Math.abs(parseFloat(transaction.amount) || 0);
+    const billAmount = Math.abs(parseFloat(bill.total_amount)  || 0);
+    const diff       = Math.abs(txAmount - billAmount);
+
+    let score = 0;
+    if      (diff < 0.01)  score += 50;  // exact
+    else if (diff <= 0.02) score += 30;  // rounding
+    else return 0;
+
+    // Date must be within 14 days of the bill's paid_date — hard reject beyond that
+    const datePts = dateProximityScore(transaction.transaction_date, bill.paid_date, 14);
+    if (datePts === null) return 0;
+    score += datePts;
+
+    // Vendor name ↔ payee/description similarity (bonus)
+    score += nameSimilarityScore(transaction.payee       || '', bill.vendor_name || '');
+    score += nameSimilarityScore(transaction.description || '', bill.vendor_name || '');
+
+    // Strong bonus: check/reference number on the bill matches the bank
+    // transaction's reference number (e.g. check #1079 on both sides).
+    if (bill.payment_reference && transaction.reference_number &&
+        bill.payment_reference.trim() === transaction.reference_number.trim()) {
+      score += 40;
+    }
+
+    return score;
+  }
+
+  function getMatchingBills(transaction) {
+    // Only offer bills that aren't already linked to a (different) transaction.
+    const linkedBillIds = new Set(
+      transactions.filter(t => t.linked_bill_id && t.id !== transaction.id).map(t => t.linked_bill_id)
+    );
+    return bills
+      .filter(bill => !linkedBillIds.has(bill.id))
+      .map(bill => ({ ...bill, _score: scoreBillMatch(transaction, bill) }))
+      .filter(bill => bill._score >= MIN_MATCH_SCORE)
+      .sort((a, b) => b._score - a._score);
+  }
+
   function getMatchingInvoices(transaction) {
     return invoices
       .map(inv => ({ ...inv, _score: scoreInvoiceMatch(transaction, inv) }))
@@ -896,7 +1013,8 @@ export default function BankTransactions() {
 
   function getMatchCount(transaction) {
     return getMatchingExpenses(transaction).length + getMatchingInvoices(transaction).length +
-      getMatchingInvoicePayments(transaction).length + getMatchingTransfers(transaction).length;
+      getMatchingInvoicePayments(transaction).length + getMatchingTransfers(transaction).length +
+      getMatchingBills(transaction).length;
   }
 
   function applyFilters() {
@@ -1041,6 +1159,14 @@ export default function BankTransactions() {
         return;
       }
 
+      // STEP 2a: If linked to a bill, clearing just confirms the match — the
+      // bill is already marked 'paid' and its journal entry already exists
+      // (createBillPaymentJournalEntry), so there's nothing else to update.
+      if (transaction.linked_bill_id) {
+        if (!bulkMode) await loadData();
+        return;
+      }
+
       // STEP 2: If linked to invoice/expense, handle status updates
       if (newClearedStatus && transaction.linked_invoice_id) {
         // FIRST: Get the full invoice to know the amount
@@ -1105,7 +1231,7 @@ export default function BankTransactions() {
       }
 
       // When UNCLEANING an UNLINKED transaction, DELETE the journal entry that was created
-      if (!newClearedStatus && !transaction.linked_invoice_id && !transaction.linked_expense_id) {
+      if (!newClearedStatus && !transaction.linked_invoice_id && !transaction.linked_expense_id && !transaction.linked_bill_id) {
         console.log('Removing journal entry for uncleared unlinked transaction:', transaction.id);
         
         // Delete journal entry for this transaction
@@ -1955,7 +2081,7 @@ export default function BankTransactions() {
     // silently never qualified for bulk clearing here.
     const eligible = transactions.filter(t =>
       !t.is_cleared && (
-        t.category || t.linked_invoice_id || t.linked_expense_id ||
+        t.category || t.linked_invoice_id || t.linked_expense_id || t.linked_bill_id ||
         (t.transaction_type === 'transfer' && t.transfer_account_id)
       )
     );
@@ -2674,14 +2800,14 @@ export default function BankTransactions() {
                       onClick={() => openMatchesModal(transaction)}
                       style={styles.matchIconButton}
                       title={
-                        transaction.linked_expense_id || transaction.linked_invoice_id 
-                          ? 'Linked to expense/invoice - Click to view' 
+                        transaction.linked_expense_id || transaction.linked_invoice_id || transaction.linked_bill_id
+                          ? 'Linked to expense/invoice/bill - Click to view'
                           : getMatchCount(transaction) > 0 
                             ? `${getMatchCount(transaction)} potential match${getMatchCount(transaction) > 1 ? 'es' : ''} found`
                             : 'No matches found'
                       }
                     >
-                      {transaction.linked_expense_id || transaction.linked_invoice_id ? '🔗' : getMatchCount(transaction) > 0 ? '✅' : '❌'}
+                      {transaction.linked_expense_id || transaction.linked_invoice_id || transaction.linked_bill_id ? '🔗' : getMatchCount(transaction) > 0 ? '✅' : '❌'}
                     </button>
                   </td>
 
@@ -2888,14 +3014,14 @@ export default function BankTransactions() {
                       onClick={() => openMatchesModal(transaction)}
                       style={styles.matchIconButton}
                       title={
-                        transaction.linked_expense_id || transaction.linked_invoice_id
-                          ? 'Linked to expense/invoice - Click to view'
+                        transaction.linked_expense_id || transaction.linked_invoice_id || transaction.linked_bill_id
+                          ? 'Linked to expense/invoice/bill - Click to view'
                           : getMatchCount(transaction) > 0
                             ? `${getMatchCount(transaction)} potential match${getMatchCount(transaction) > 1 ? 'es' : ''} found`
                             : 'No matches found'
                       }
                     >
-                      {transaction.linked_expense_id || transaction.linked_invoice_id ? '🔗' : getMatchCount(transaction) > 0 ? '✅' : '❌'}
+                      {transaction.linked_expense_id || transaction.linked_invoice_id || transaction.linked_bill_id ? '🔗' : getMatchCount(transaction) > 0 ? '✅' : '❌'}
                     </button>
                   </td>
                   <td style={{
@@ -3289,9 +3415,27 @@ export default function BankTransactions() {
               </div>
 
               {/* Currently Linked */}
-              {(selectedTransaction.linked_expense_id || selectedTransaction.linked_invoice_id) && (
+              {(selectedTransaction.linked_expense_id || selectedTransaction.linked_invoice_id || selectedTransaction.linked_bill_id) && (
                 <div style={{...styles.linkedSection, backgroundColor: '#dcfce7', borderColor: '#10b981'}}>
                   <h3 style={{...styles.sectionTitle, color: '#059669'}}>✓ Currently Linked</h3>
+                  {selectedTransaction.linked_bill_id && (
+                    <div style={styles.linkedItem}>
+                      <div>
+                        <strong>Bill:</strong> {bills.find(b => b.id === selectedTransaction.linked_bill_id)?.vendor_name || 'Unknown'}
+                        <br />
+                        <span style={{fontSize: 13, color: '#666'}}>
+                          {formatDate(bills.find(b => b.id === selectedTransaction.linked_bill_id)?.paid_date)} -
+                          {formatCurrency(bills.find(b => b.id === selectedTransaction.linked_bill_id)?.total_amount)}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => handleLinkBill(selectedTransaction.id, null)}
+                        style={styles.unlinkButton}
+                      >
+                        🔗 Unlink
+                      </button>
+                    </div>
+                  )}
                   {selectedTransaction.linked_expense_id && (
                     <div style={styles.linkedItem}>
                       <div>
@@ -3408,6 +3552,53 @@ export default function BankTransactions() {
                 </div>
               )}
 
+              {/* Matching Bills */}
+              {getMatchingBills(selectedTransaction).length > 0 && (
+                <div style={styles.matchesSection}>
+                  <h3 style={styles.sectionTitle}>
+                    📄 Matching Bills ({getMatchingBills(selectedTransaction).length})
+                  </h3>
+                  <div style={styles.matchesList}>
+                    {getMatchingBills(selectedTransaction).map(bill => (
+                      <div
+                        key={bill.id}
+                        style={{
+                          ...styles.matchCard,
+                          backgroundColor: selectedTransaction.linked_bill_id === bill.id ? '#dcfce7' : '#fff'
+                        }}
+                      >
+                        <div style={styles.matchCardContent}>
+                          <div style={styles.matchCardHeader}>
+                            <strong style={{fontSize: 16}}>{bill.vendor_name || 'Unknown Vendor'}</strong>
+                            <span style={{fontSize: 18, fontWeight: 'bold', color: '#ef4444'}}>
+                              {formatCurrency(bill.total_amount)}
+                            </span>
+                          </div>
+                          <div style={styles.matchCardDetails}>
+                            <div>📅 Paid: {formatDate(bill.paid_date)}</div>
+                            {bill.payment_method && (
+                              <div>💳 {bill.payment_method === 'check' ? 'Check' : bill.payment_method.replace('_', ' ')}
+                                {bill.payment_reference ? ` #${bill.payment_reference}` : ''}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleLinkBill(selectedTransaction.id, bill.id)}
+                          style={{
+                            ...styles.linkButton,
+                            backgroundColor: selectedTransaction.linked_bill_id === bill.id ? '#9ca3af' : '#fc6b04'
+                          }}
+                          disabled={selectedTransaction.linked_bill_id === bill.id}
+                        >
+                          {selectedTransaction.linked_bill_id === bill.id ? '✓ Linked' : '🔗 Link'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Matching Invoices/Payments */}
               {getMatchingInvoiceLines(selectedTransaction).length > 0 && (
                 <div style={styles.matchesSection}>
@@ -3460,7 +3651,7 @@ export default function BankTransactions() {
               )}
 
               {/* No Matches - show manual link list */}
-              {getMatchCount(selectedTransaction) === 0 && !selectedTransaction.linked_expense_id && !selectedTransaction.linked_invoice_id && (
+              {getMatchCount(selectedTransaction) === 0 && !selectedTransaction.linked_expense_id && !selectedTransaction.linked_invoice_id && !selectedTransaction.linked_bill_id && (
                 <div>
                   <div style={{textAlign: 'center', padding: '20px 0 16px'}}>
                     <div style={{fontSize: 36, marginBottom: 8}}>🔍</div>
@@ -4438,3 +4629,4 @@ const styles = {
     boxShadow: "0 2px 6px rgba(5,150,105,0.4)",
   },
 };
+
