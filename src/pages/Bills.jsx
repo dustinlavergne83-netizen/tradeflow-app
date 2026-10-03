@@ -24,6 +24,9 @@ export default function Bills() {
   const [showPayModal, setShowPayModal] = useState(false);
   const [payingBill, setPayingBill] = useState(null);
   const [payBankAccountId, setPayBankAccountId] = useState('');
+  const [payDate, setPayDate] = useState(getTodayLocalDate());
+  const [payMethod, setPayMethod] = useState('check');
+  const [payReference, setPayReference] = useState('');
   const [vendorChargeAccount, setVendorChargeAccount] = useState(null);
 
   const [billForm, setBillForm] = useState({
@@ -330,6 +333,9 @@ export default function Bills() {
   function openPayModal(bill) {
     setPayingBill(bill);
     setPayBankAccountId('');
+    setPayDate(getTodayLocalDate());
+    setPayMethod('check');
+    setPayReference('');
     setShowPayModal(true);
   }
 
@@ -339,27 +345,43 @@ export default function Bills() {
       return;
     }
 
+    if (!payDate) {
+      notify('Please enter the date paid');
+      return;
+    }
+
+    if (payMethod === 'check' && !payReference.trim()) {
+      notify('Please enter the check number');
+      return;
+    }
+
     const bill = payingBill;
 
     try {
-      const paidDate = new Date().toISOString().split('T')[0];
-
       const { error } = await supabase
         .from('bills')
         .update({
           status: 'paid',
-          paid_date: paidDate,
+          paid_date: payDate,
           amount_paid: bill.total_amount,
           amount_due: 0,
-          payment_bank_account_id: payBankAccountId
+          payment_bank_account_id: payBankAccountId,
+          payment_method: payMethod,
+          payment_reference: payReference.trim() || null
         })
         .eq('id', bill.id);
 
       if (error) throw error;
 
       // Auto-create journal entry for bill payment
-      // Debit: the bill's liability account (charge account or A/P), Credit: the selected bank account
-      const updatedBill = { ...bill, paid_date: paidDate, payment_bank_account_id: payBankAccountId };
+      // Debit: Accounts Payable, Credit: the selected bank account
+      const updatedBill = {
+        ...bill,
+        paid_date: payDate,
+        payment_bank_account_id: payBankAccountId,
+        payment_method: payMethod,
+        payment_reference: payReference.trim() || null
+      };
       const journalResult = await createBillPaymentJournalEntry(
         updatedBill,
         user.id,
@@ -394,7 +416,9 @@ export default function Bills() {
           paid_date: null,
           amount_paid: 0,
           amount_due: bill.total_amount,
-          payment_bank_account_id: null
+          payment_bank_account_id: null,
+          payment_method: null,
+          payment_reference: null
         })
         .eq('id', bill.id);
 
@@ -568,7 +592,15 @@ export default function Bills() {
                                    bill.status === 'paid' ? '#f0fdf4' : '#fff',
                   }}
                 >
-                  <td style={styles.td}>{getStatusBadge(bill)}</td>
+                  <td style={styles.td}>
+                    {getStatusBadge(bill)}
+                    {bill.status === 'paid' && bill.payment_method && (
+                      <div style={{fontSize: 11, color: '#666', marginTop: 4}}>
+                        {bill.payment_method === 'check' ? 'Check' : bill.payment_method.replace('_', ' ')}
+                        {bill.payment_reference ? ` #${bill.payment_reference}` : ''}
+                      </div>
+                    )}
+                  </td>
                   <td style={styles.td}>
                     <strong>{bill.vendor_name}</strong>
                   </td>
@@ -783,6 +815,34 @@ export default function Bills() {
                 Paying <strong>{formatCurrency(payingBill.total_amount)}</strong> to{' '}
                 <strong>{payingBill.vendor_name}</strong>
               </p>
+
+              <div style={styles.formRow}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Date Paid *</label>
+                  <input
+                    type="date"
+                    value={payDate}
+                    onChange={(e) => setPayDate(e.target.value)}
+                    style={styles.input}
+                  />
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Payment Method *</label>
+                  <select
+                    value={payMethod}
+                    onChange={(e) => setPayMethod(e.target.value)}
+                    style={styles.input}
+                  >
+                    <option value="check">Check</option>
+                    <option value="ach">ACH/Bank Transfer</option>
+                    <option value="debit_card">Debit Card</option>
+                    <option value="credit_card">Credit Card</option>
+                    <option value="cash">💵 Cash</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+              </div>
+
               <div style={styles.formGroup}>
                 <label style={styles.label}>Paid From Bank Account *</label>
                 <select
@@ -797,6 +857,19 @@ export default function Bills() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>
+                  {payMethod === 'check' ? 'Check Number *' : 'Reference / Transaction # (optional)'}
+                </label>
+                <input
+                  type="text"
+                  value={payReference}
+                  onChange={(e) => setPayReference(e.target.value)}
+                  style={styles.input}
+                  placeholder={payMethod === 'check' ? 'e.g., 1073' : 'e.g., confirmation or transaction ID'}
+                />
               </div>
             </div>
 

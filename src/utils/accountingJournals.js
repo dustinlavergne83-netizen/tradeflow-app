@@ -722,7 +722,10 @@ export async function createBillPaymentJournalEntry(bill, userId, companyId) {
     }
 
     const entryNumber = await getNextJournalEntryNumber(companyId);
-    const description = `Bill payment - ${bill.vendor_name} - Bill #${bill.bill_number || bill.id}`;
+    const methodLabel = bill.payment_method
+      ? ` (${bill.payment_method}${bill.payment_reference ? ` #${bill.payment_reference}` : ''})`
+      : '';
+    const description = `Bill payment - ${bill.vendor_name} - Bill #${bill.bill_number || bill.id}${methodLabel}`;
     const amount = bill.total_amount;
 
     // Create journal entry header
@@ -746,6 +749,7 @@ export async function createBillPaymentJournalEntry(bill, userId, companyId) {
     if (entryError) throw entryError;
 
     // Create journal entry lines
+    const lineDescription = `Payment to ${bill.vendor_name}${methodLabel}`;
     const lines = [
       {
         entry_id: entry.id,
@@ -753,7 +757,7 @@ export async function createBillPaymentJournalEntry(bill, userId, companyId) {
         account_id: liabilityAccountId,
         debit: amount,
         credit: 0,
-        description: `Payment to ${bill.vendor_name}`
+        description: lineDescription
       },
       {
         entry_id: entry.id,
@@ -761,7 +765,7 @@ export async function createBillPaymentJournalEntry(bill, userId, companyId) {
         account_id: bill.payment_bank_account_id,
         debit: 0,
         credit: amount,
-        description: `Payment to ${bill.vendor_name}`
+        description: lineDescription
       }
     ];
 
