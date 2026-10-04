@@ -11,6 +11,7 @@ export default function BankStatementUpload({ bankAccountId, transferAccounts = 
     amount: '',
     reference: '',
     type: '',
+    payee: '',
   });
   const [preview, setPreview] = useState([]);
   const [importing, setImporting] = useState(false);
@@ -93,29 +94,45 @@ export default function BankStatementUpload({ bankAccountId, transferAccounts = 
 
   const autoDetectMapping = (headers) => {
     const newMapping = { ...mapping };
-    
+
+    // First pass: detect a dedicated Payee column before anything else gets
+    // a chance to claim it. A CSV with its own "Payee" column should always
+    // map Payee -> Payee, not have it swallowed by Description.
     headers.forEach((header, index) => {
       const lowerHeader = header.toLowerCase().trim();
-      
+      if (!newMapping.payee && (
+        lowerHeader.includes('payee') ||
+        lowerHeader.includes('merchant') ||
+        lowerHeader === 'name'
+      )) {
+        newMapping.payee = index.toString();
+      }
+    });
+
+    headers.forEach((header, index) => {
+      const lowerHeader = header.toLowerCase().trim();
+
       // Date detection
       if (!newMapping.date && (
-        lowerHeader.includes('date') || 
+        lowerHeader.includes('date') ||
         lowerHeader.includes('posting') ||
         lowerHeader.includes('trans date')
       )) {
         newMapping.date = index.toString();
       }
-      
-      // Description detection
+
+      // Description detection. Payee is only used as a last-resort
+      // fallback, and only if that column was not already claimed as the
+      // dedicated Payee field above.
       if (!newMapping.description && (
-        lowerHeader.includes('description') || 
+        lowerHeader.includes('description') ||
         lowerHeader.includes('memo') ||
         lowerHeader.includes('details') ||
-        lowerHeader.includes('payee')
+        (lowerHeader.includes('payee') && newMapping.payee !== index.toString())
       )) {
         newMapping.description = index.toString();
       }
-      
+
       // Amount detection (single column or debit/credit columns)
       if (!newMapping.amount && (
         lowerHeader.includes('amount') ||
@@ -267,6 +284,7 @@ export default function BankStatementUpload({ bankAccountId, transferAccounts = 
         
         const reference = mapping.reference ? row[parseInt(mapping.reference)]?.trim() : '';
         const typeStr = mapping.type ? row[parseInt(mapping.type)]?.trim() : '';
+        const payee = mapping.payee ? row[parseInt(mapping.payee)]?.trim() : '';
 
         if (!date || !description || amount === 0) {
           errors.push(`Row ${index + 2}: Missing or invalid date, description, or amount`);
@@ -284,7 +302,7 @@ export default function BankStatementUpload({ bankAccountId, transferAccounts = 
           reference_number: reference || null,
           transaction_type: transactionType,
           category: null,
-          payee: null,
+          payee: payee || null,
           transfer_account_id: transferAccountId,
           notes: `Imported from ${file.name}`,
         });
@@ -322,6 +340,7 @@ export default function BankStatementUpload({ bankAccountId, transferAccounts = 
       amount: '',
       reference: '',
       type: '',
+      payee: '',
     });
     setPreview([]);
   };
@@ -419,6 +438,26 @@ export default function BankStatementUpload({ bankAccountId, transferAccounts = 
 
           <div style={styles.mappingRow}>
             <label style={styles.mappingLabel}>
+              Payee (Optional)
+            </label>
+            <select
+              value={mapping.payee}
+              onChange={(e) => setMapping({...mapping, payee: e.target.value})}
+              onClick={(e) => e.stopPropagation()}
+              style={styles.mappingSelect}
+            >
+              <option value="">-- Select Column --</option>
+              {headers.map((header, index) => (
+                <option key={index} value={index}>{header}</option>
+              ))}
+            </select>
+            <p style={styles.fieldNote}>
+              Used for vendor/bill matching and search. Leave unmapped if your CSV has no separate payee column.
+            </p>
+          </div>
+
+          <div style={styles.mappingRow}>
+            <label style={styles.mappingLabel}>
               Amount <span style={styles.required}>*</span>
             </label>
             <select
@@ -485,6 +524,7 @@ export default function BankStatementUpload({ bankAccountId, transferAccounts = 
                 <tr>
                   <th style={styles.th}>Date</th>
                   <th style={styles.th}>Description</th>
+                  <th style={styles.th}>Payee</th>
                   <th style={styles.th}>Amount</th>
                   <th style={styles.th}>Reference</th>
                   <th style={styles.th}>Type</th>
@@ -494,15 +534,17 @@ export default function BankStatementUpload({ bankAccountId, transferAccounts = 
                 {preview.map((row, index) => {
                   const date = mapping.date ? parseDate(row[parseInt(mapping.date)]) : '';
                   const description = mapping.description ? row[parseInt(mapping.description)] : '';
+                  const payee = mapping.payee ? row[parseInt(mapping.payee)] : '';
                   const amount = mapping.amount ? parseAmount(row[parseInt(mapping.amount)]) : 0;
                   const reference = mapping.reference ? row[parseInt(mapping.reference)] : '';
                   const typeStr = mapping.type ? row[parseInt(mapping.type)] : '';
                   const type = determineTransactionType(amount, typeStr);
-                  
+
                   return (
                     <tr key={index} style={styles.tableRow}>
                       <td style={styles.td}>{date || '❌ Invalid'}</td>
                       <td style={styles.td}>{description || '❌ Missing'}</td>
+                      <td style={styles.td}>{payee || '-'}</td>
                       <td style={{...styles.td, color: amount >= 0 ? '#10b981' : '#ef4444'}}>
                         ${Math.abs(amount).toFixed(2)}
                       </td>

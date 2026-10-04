@@ -2021,6 +2021,7 @@ export default function BankTransactions() {
               transaction_date: t.transaction_date,
               description: t.description,
               reference_number: t.reference_number,
+              payee: t.payee || match.payee,
               notes: t.notes,
               auto_created: false, // now backed by the real imported statement row
               imported_date: new Date().toISOString(),
