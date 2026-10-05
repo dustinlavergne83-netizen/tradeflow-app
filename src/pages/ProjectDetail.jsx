@@ -1616,6 +1616,34 @@ async function handleAddContractor() {
   const percentComplete = activeWorth > 0 ? Math.round((billedAmount / activeWorth) * 100) : (project.percent_complete || 0);
   const remainingToBill = activeWorth - billedAmount;
 
+  // Deposits are tracked two ways that don't compose cleanly:
+  //  - project_deposits rows = cash recorded as received (via "💰 Add
+  //    Deposit"), independent of any invoice
+  //  - invoices tagged invoice_type: 'deposit' = a deposit that's been
+  //    billed to the customer (its own amount_paid/deposit_received track
+  //    how much of THAT deposit invoice has been paid)
+  // A project_deposits row marked "applied" is supposed to mean its cash was
+  // folded into an invoice, but in practice that money sometimes lands in
+  // the invoice's amount_paid (via the separate "Record Payment" admin flow)
+  // rather than deposit_received, and invoice_id isn't always set even when
+  // applied — so there's no reliable key to avoid double-counting applied
+  // rows against invoice fields. To keep this safe (never show inflated
+  // numbers), depositsReceived only combines two unambiguous sources:
+  // deposit-type invoices' own paid amount, and project_deposits rows that
+  // are NOT yet applied to any invoice (received/deposited, un-invoiced cash
+  // still sitting separately). "Applied" rows are intentionally left out —
+  // that money is already visible in the Payment Collected total below.
+  const depositsInvoiced = invoices
+    .filter(inv => inv.invoice_type === 'deposit')
+    .reduce((sum, inv) => sum + (inv.total || 0), 0);
+  const depositsReceived =
+    invoices
+      .filter(inv => inv.invoice_type === 'deposit')
+      .reduce((sum, inv) => sum + (inv.amount_paid || 0) + (inv.deposit_received || 0), 0)
+    + deposits
+        .filter(d => (d.status === 'received' || d.status === 'deposited') && !d.invoice_id)
+        .reduce((sum, d) => sum + (d.deposit_amount || 0), 0);
+
   // ───── Quick Action Button Style ─────
   function qaBtn(color) {
     return {
@@ -2179,6 +2207,15 @@ async function handleAddContractor() {
               ${remainingToBill.toFixed(2)}
             </span>
           </div>
+
+          {(depositsInvoiced > 0 || depositsReceived > 0) && (
+            <div style={styles.row}>
+              <span style={styles.label}>Deposit Received</span>
+              <span style={{...styles.value, color: depositsInvoiced > 0 && depositsReceived < depositsInvoiced ? '#d97706' : '#10b981'}}>
+                ${depositsReceived.toFixed(2)}{depositsInvoiced > 0 ? ` of $${depositsInvoiced.toFixed(2)} invoiced` : ''}
+              </span>
+            </div>
+          )}
 
           <div style={styles.divider} />
 
