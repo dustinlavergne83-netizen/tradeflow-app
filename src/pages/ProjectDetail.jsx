@@ -1593,14 +1593,26 @@ async function handleAddContractor() {
   // For progress billing invoices use the draw amount from notes, not inv.total,
   // so extra line items (credits, surcharges) don't distort the contract progress %.
   // Deposit invoices are excluded — they're unearned revenue, not contract progress.
-  const billedAmount = invoices.reduce((sum, inv) => {
-    if (inv.invoice_type === 'deposit') return sum;
-    if (inv.notes && inv.notes.includes('Progress billing')) {
-      const drawMatch = inv.notes.match(/This draw: \$([0-9,.]+)/);
-      if (drawMatch) return sum + parseFloat(drawMatch[1].replace(/,/g, ''));
-    }
-    return sum + (inv.total || 0);
-  }, 0) || project.billed_amount || 0;
+  //
+  // IMPORTANT: this used to fall back to `|| project.billed_amount || 0`, which
+  // meant a project with invoices that legitimately sum to $0 (e.g. every
+  // invoice on it is a deposit, or it has zero non-deposit invoices) would
+  // silently display project.billed_amount instead — a column that isn't
+  // kept in sync with actual invoices and has been observed holding stale
+  // values (e.g. an old estimate total) long after invoices changed. `0` is
+  // falsy in JS, so `0 || project.billed_amount` always preferred the stale
+  // column over a correctly-computed zero. Only fall back to the stored
+  // column when there are no invoices at all to compute from.
+  const billedAmount = invoices.length > 0
+    ? invoices.reduce((sum, inv) => {
+        if (inv.invoice_type === 'deposit') return sum;
+        if (inv.notes && inv.notes.includes('Progress billing')) {
+          const drawMatch = inv.notes.match(/This draw: \$([0-9,.]+)/);
+          if (drawMatch) return sum + parseFloat(drawMatch[1].replace(/,/g, ''));
+        }
+        return sum + (inv.total || 0);
+      }, 0)
+    : (project.billed_amount || 0);
   const percentComplete = activeWorth > 0 ? Math.round((billedAmount / activeWorth) * 100) : (project.percent_complete || 0);
   const remainingToBill = activeWorth - billedAmount;
 
@@ -2140,6 +2152,15 @@ async function handleAddContractor() {
             )}
           </div>
 
+          {/* "Earned to Date" and "Already Billed" intentionally share the
+              same billedAmount value — invoiced (non-deposit) amount is the
+              chosen definition of "earned" for progress-billed contracts
+              here, not a separate percent-of-completion calculation. They
+              were previously identical due to a copy-paste of the same JSX,
+              which masked the real bug (see billedAmount's definition above):
+              that value was falling back to a stale, out-of-sync
+              project.billed_amount column instead of a correctly-computed
+              $0. */}
           <div style={styles.row}>
             <span style={styles.label}>Earned to Date ({percentComplete}%)</span>
             <span style={styles.value}>${billedAmount.toFixed(2)}</span>
@@ -2582,8 +2603,11 @@ async function handleAddContractor() {
           </div>
         </div>
 
-        {/* Contractors Card - hidden for residential/lighting types */}
-        {!["residential-contractor", "commercial-private", "residential-owner", "lighting-project"].includes(project.project_type) && (
+        {/* Contractors Card - hidden for residential/lighting types, and for
+            commercial-public, which never uses the proposal-contractor
+            selection flow (DT Specialties' commercial-public projects were
+            showing an always-empty "No contractors added yet" card). */}
+        {!["residential-contractor", "commercial-private", "residential-owner", "lighting-project", "commercial-public"].includes(project.project_type) && (
         <div style={{...styles.card, order: 1}}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
             <h2 style={{ ...styles.cardTitle, marginBottom: 0 }}>Proposal Contractors</h2>
