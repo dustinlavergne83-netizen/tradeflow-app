@@ -6,10 +6,14 @@ import { useAuth } from "../contexts/AuthContext";
 import { confirmDialog, notify } from '../lib/notify';
 import { supabase } from "../lib/supabase";
 import { getNextJournalEntryNumber } from "../utils/accountingJournals";
+import { useBrand } from "../lib/useBrand";
+
 import { getTodayLocalDate } from "../utils/dateUtils";
 
 export default function BankTransactions() {
   const navigate = useNavigate();
+  const BRAND = useBrand();
+
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const accountId = searchParams.get('accountId');
@@ -2295,7 +2299,7 @@ export default function BankTransactions() {
 
   if (loading) {
     return (
-      <div style={styles.container}>
+      <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
         <div style={styles.loading}>Loading transactions...</div>
       </div>
     );
@@ -2303,7 +2307,7 @@ export default function BankTransactions() {
 
   if (!bankAccount) {
     return (
-      <div style={styles.container}>
+      <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
         <div style={styles.error}>Bank account not found</div>
       </div>
     );
@@ -2403,7 +2407,7 @@ export default function BankTransactions() {
   const unclearedAmount = transactions.filter(t => !t.is_cleared).reduce((sum, t) => sum + t.amount, 0);
 
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
       {/* Bulk operation toast */}
       {bulkStatusMsg && (
         <div style={{
@@ -3986,7 +3990,7 @@ const styles = {
     width: "75vw",
     margin: "0",
     padding: "40px 5px",
-    backgroundColor: "#0b3ea8",
+    backgroundColor: "#0b3ea8", // static fallback; overridden inline via BRAND.bg above
     minHeight: "100vh",
     boxSizing: "border-box",
   },

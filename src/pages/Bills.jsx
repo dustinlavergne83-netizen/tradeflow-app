@@ -4,10 +4,14 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { createBillJournalEntry, createBillPaymentJournalEntry } from "../utils/accountingJournals";
 import { getTodayLocalDate } from "../utils/dateUtils";
+import { useBrand } from "../lib/useBrand";
+
 import { notify, confirmDialog } from '../lib/notify';
 
 export default function Bills() {
   const navigate = useNavigate();
+  const BRAND = useBrand();
+
   const { user } = useAuth();
 
   const [bills, setBills] = useState([]);
@@ -510,7 +514,7 @@ export default function Bills() {
 
   if (loading) {
     return (
-      <div style={styles.container}>
+      <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
         <div style={styles.loading}>Loading bills...</div>
       </div>
     );
@@ -528,7 +532,7 @@ export default function Bills() {
     .reduce((sum, b) => sum + (parseFloat(b.amount_due) || 0), 0);
 
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
       <div style={styles.header}>
         <div>
           <button onClick={() => navigate('/accounting')} style={styles.backButton}>
@@ -923,7 +927,7 @@ const styles = {
     maxWidth: 1400,
     margin: "0 auto",
     padding: "40px 20px",
-    backgroundColor: "#0b3ea8",
+    backgroundColor: "#0b3ea8", // static fallback; overridden inline via BRAND.bg above
     minHeight: "100vh",
   },
   header: {

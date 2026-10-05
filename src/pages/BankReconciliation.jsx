@@ -2,10 +2,14 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
+import { useBrand } from "../lib/useBrand";
+
 import { notify, confirmDialog } from '../lib/notify';
 
 export default function BankReconciliation() {
   const navigate = useNavigate();
+  const BRAND = useBrand();
+
   const { user } = useAuth();
   
   const [bankAccounts, setBankAccounts] = useState([]);
@@ -229,14 +233,14 @@ export default function BankReconciliation() {
 
   if (loading) {
     return (
-      <div style={styles.container}>
+      <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
         <div style={styles.loading}>Loading bank reconciliation...</div>
       </div>
     );
   }
 
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
       <div style={styles.header}>
         <div>
           <button onClick={() => navigate('/accounting/bank-accounts')} style={styles.backButton}>
@@ -525,7 +529,7 @@ const styles = {
     maxWidth: 1400,
     margin: "0 auto",
     padding: "40px 20px",
-    backgroundColor: "#0b3ea8",
+    backgroundColor: "#0b3ea8", // static fallback; overridden inline via BRAND.bg above
     minHeight: "100vh",
   },
   header: {

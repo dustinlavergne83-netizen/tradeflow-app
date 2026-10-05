@@ -2,10 +2,14 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
+import { useBrand } from "../../lib/useBrand";
+
 import { notify } from '../../lib/notify';
 
 export default function BalanceSheet() {
   const navigate = useNavigate();
+  const BRAND = useBrand();
+
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split('T')[0]);
@@ -141,14 +145,14 @@ export default function BalanceSheet() {
 
   if (loading) {
     return (
-      <div style={styles.container}>
+      <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
         <div style={styles.loading}>Loading balance sheet...</div>
       </div>
     );
   }
 
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
       <div style={styles.header}>
         <div>
           <button onClick={() => navigate('/accounting')} style={styles.backButton}>
@@ -376,7 +380,7 @@ const styles = {
     maxWidth: 1200,
     margin: "0 auto",
     padding: "40px 20px",
-    backgroundColor: "#0b3ea8",
+    backgroundColor: "#0b3ea8", // static fallback; overridden inline via BRAND.bg above
     minHeight: "100vh",
   },
   header: {

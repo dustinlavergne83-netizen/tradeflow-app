@@ -2,10 +2,14 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
+import { useBrand } from "../lib/useBrand";
+
 import { notify, confirmDialog } from '../lib/notify';
 
 export default function ChartOfAccounts() {
   const navigate = useNavigate();
+  const BRAND = useBrand();
+
   const { user } = useAuth();
   const [accounts, setAccounts] = useState([]);
   const [vendors, setVendors] = useState([]);
@@ -599,14 +603,14 @@ export default function ChartOfAccounts() {
 
   if (loading) {
     return (
-      <div style={styles.container}>
+      <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
         <div style={styles.loading}>Loading chart of accounts...</div>
       </div>
     );
   }
 
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
       <div style={styles.header}>
         <div>
           <h1 style={styles.title}>📋 Chart of Accounts</h1>
@@ -1008,7 +1012,7 @@ const styles = {
     maxWidth: 1400,
     margin: "0 auto",
     padding: "40px 20px",
-    backgroundColor: "#0b3ea8",
+    backgroundColor: "#0b3ea8", // static fallback; overridden inline via BRAND.bg above
     minHeight: "100vh",
   },
   header: {
