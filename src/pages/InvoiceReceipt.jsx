@@ -31,13 +31,21 @@ export default function InvoiceReceipt() {
 
   async function loadInvoice() {
     try {
-      const { data: invoiceData, error: invoiceError } = await supabase
-        .from("invoices")
-        .select("*")
-        .eq("id", invoiceId)
-        .single();
+      // This page is opened from an emailed link by anonymous customers with
+      // no Supabase session, so a direct .from("invoices").select() is
+      // blocked by RLS (company-member / customer-email policies only) and
+      // always returns zero rows. get_invoice_for_public_view is a SECURITY
+      // DEFINER RPC that exposes only the customer-facing columns, gated by
+      // the (unguessable) invoice UUID — see InvoiceView.jsx for the same
+      // fix and supabase/migrations/20260925_public_invoice_view_rpc.sql.
+      const { data: rows, error: invoiceError } = await supabase.rpc(
+        "get_invoice_for_public_view",
+        { p_invoice_id: invoiceId }
+      );
 
       if (invoiceError) throw invoiceError;
+      const invoiceData = rows && rows[0];
+      if (!invoiceData) { setInvoice(null); return; }
       setInvoice(invoiceData);
 
       const { data: itemsData, error: itemsError } = await supabase

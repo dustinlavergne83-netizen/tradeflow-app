@@ -47,9 +47,20 @@ export default function InvoiceView() {
 
   async function loadInvoice() {
     try {
-      const { data, error } = await supabase
-        .from("invoices").select("*").eq("id", invoiceId).single();
+      // Anonymous customers open this page from an emailed link with no
+      // Supabase session, so a direct .from("invoices").select() is blocked
+      // by RLS (company-member / customer-email policies only) and always
+      // returns zero rows. get_invoice_for_public_view is a SECURITY DEFINER
+      // RPC — same pattern as get_company_branding_for_invoice below — that
+      // exposes only the customer-facing columns, gated by the (unguessable)
+      // invoice UUID.
+      const { data: rows, error } = await supabase.rpc(
+        "get_invoice_for_public_view",
+        { p_invoice_id: invoiceId }
+      );
       if (error) throw error;
+      const data = rows && rows[0];
+      if (!data) { setInvoice(null); return; }
       setInvoice(data);
 
       const { data: itemsData } = await supabase

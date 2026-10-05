@@ -89,10 +89,13 @@ serve(async (req) => {
   const BUSINESS_NAME   = cfg.business_name          || DEFAULT_BUSINESS_NAME
   const customGreeting  = (cfg.ai_greeting || '').replace('{owner}', OWNER_NAME)
   const vipNumbers: { number: string }[] = cfg.vip_numbers || []
-  // Optional "who would you like to speak with" routing — lets a company with
-  // multiple people (owner + partner/employee) have callers pick who they want
-  // instead of always ringing a single forward_to_number. Falls back to the
-  // normal single-forward AI flow when this list is empty (e.g. DML today).
+  // Optional sequential-ring routing — lets a company with multiple people
+  // (owner + partner/employee) ring them in config order (DT: Ty, then
+  // Dustin) instead of always ringing a single forward_to_number. Falls back
+  // to the normal single-forward AI flow when this list is empty (e.g. DML
+  // today). `digit`/`keywords` are no longer used for an interactive menu
+  // (speech recognition on short names was unreliable) but are left in place
+  // in case a future UI wants to display/edit the list.
   const routingContacts: { digit: string; name: string; number: string; keywords: string[]; client_identity?: string }[] =
     cfg.routing_contacts || []
   const supaUrl         = Deno.env.get('SUPABASE_URL')!
@@ -154,13 +157,20 @@ serve(async (req) => {
   }
 
   // ── Handle call status callback (saves duration when call ends) ───────────
+  // IMPORTANT: this is used both as a <Dial statusCallback> (fire-and-forget,
+  // response body ignored) AND, historically, as a <Dial action=...> target —
+  // when used as `action`, Twilio replaces the entire call with whatever TwiML
+  // this returns. It used to return the plain string 'ok', which silently
+  // killed the call (and made every <Say>/<Record> fallback written after
+  // that <Dial> unreachable dead code). Returning empty TwiML keeps both use
+  // cases safe.
   if (step === 'status') {
     const status   = params.CallStatus || 'completed'
     const duration = parseInt(params.CallDuration || '0')
     await supabase.from('communications')
       .update({ status, duration_seconds: duration })
       .eq('call_sid', callSid)
-    return new Response('ok')
+    return twiml('')
   }
 
   // ── Handle whisper (plays to Dustin when emergency connects) ─────────────
@@ -197,7 +207,15 @@ serve(async (req) => {
 
     const customerName = knownCustomer?.customer_name || invoiceCustomer?.customer_name
 
-    // Log this call to communications table
+    // Log this call to communications table. ai_summary is set up-front (not
+    // via a follow-up UPDATE) for the routing-contacts branch below — a
+    // separate .update({...}).eq('call_sid', callSid) issued immediately
+    // after this insert was unreliable (race with this same insert landing),
+    // which is why routed calls were showing a null ai_summary in the log.
+    const initialSummary = routingContacts.length > 0 && !isVip && !customerName
+      ? `Ringing ${routingContacts.map(r => r.name).join(' then ')}`
+      : null
+
     await supabase.from('communications').insert({
       company_id: COMPANY_ID,
       type: 'ai_call',
@@ -206,6 +224,7 @@ serve(async (req) => {
       to_number: TWILIO_NUMBER,
       customer_name: customerName || null,
       status: 'ringing',
+      ai_summary: initialSummary,
       call_sid: callSid,
     })
 
@@ -217,7 +236,7 @@ serve(async (req) => {
       const greeting = customerName ? `Sure thing! Hold on just a second, I'll connect you to ${OWNER_NAME} right now.` : `One moment, connecting you now.`
       return twiml(`
         <Say voice="Polly.Joanna-Neural">${greeting}</Say>
-        <Dial callerId="${CALLER_ID}" action="${actionUrl}">
+        <Dial callerId="${CALLER_ID}" timeout="20" statusCallback="${actionUrl}" statusCallbackEvent="completed">
           <Number url="${xu(whisperUrl)}">${PERSONAL_CELL}</Number>
         </Dial>
         <Say voice="Polly.Joanna-Neural">Looks like ${OWNER_NAME} isn't available right now. Please leave a message after the tone and he'll call you right back.</Say>
@@ -226,18 +245,33 @@ serve(async (req) => {
     }
 
     // Unknown caller with multiple routable contacts configured (e.g. owner +
-    // business partner) → ask who they want to speak with before falling
-    // back to the general AI screening flow.
+    // business partner) → ring them in order (cells only), falling back to
+    // voicemail if nobody answers. This used to ask the caller "who would you
+    // like to speak with" via speech/DTMF <Gather>, but speech recognition on
+    // a 1-2 syllable name was unreliable (silently fell through to AI
+    // screening on any mis-transcription), and because the <Dial> legs used
+    // action="...?step=status" (which only ever returned the plain string
+    // "ok", not TwiML) the voicemail fallback written after every <Dial> was
+    // unreachable dead code — calls that went unanswered just died instead of
+    // ringing the next person or recording a message. Ringing contacts in
+    // config order with statusCallback (not action) fixes both problems: no
+    // speech recognition in the path, and the fallback chain is reachable.
     if (routingContacts.length > 0) {
-      const names = routingContacts.map(r => r.name).join(' or ')
-      const greeting = customGreeting
-        || `Thanks for calling ${BUSINESS_NAME}! Who would you like to speak with — ${names}? You can say their name, or press ${routingContacts.map(r => r.digit).join(', ')}. If you're not sure, just tell me what you need and I'll take a message.`
-      const routeUrl = `${supaUrl}/functions/v1/twilio-voice-inbound?step=route&from=${encodeURIComponent(from)}&sid=${encodeURIComponent(callSid)}`
+      const voicemailUrl = `${supaUrl}/functions/v1/twilio-voice-inbound?step=voicemail&from=${encodeURIComponent(from)}&sid=${encodeURIComponent(callSid)}`
+      const greeting = customGreeting || `Thanks for calling ${BUSINESS_NAME}! Connecting you now.`
+
+      const dials = routingContacts.map(r => {
+        const rWhisperUrl = `${supaUrl}/functions/v1/twilio-voice-inbound?step=whisper&from=${encodeURIComponent(r.name)}`
+        return `<Dial callerId="${CALLER_ID}" timeout="20" statusCallback="${actionUrl}" statusCallbackEvent="completed">
+          <Number url="${xu(rWhisperUrl)}">${r.number}</Number>
+        </Dial>`
+      }).join('\n')
+
       return twiml(`
-        <Gather input="dtmf speech" action="${xu(routeUrl)}" numDigits="1" timeout="15" speechTimeout="auto" language="en-US">
-          <Say voice="Polly.Joanna-Neural">${greeting}</Say>
-        </Gather>
-        <Redirect>${xu(routeUrl)}</Redirect>
+        <Say voice="Polly.Joanna-Neural">${greeting}</Say>
+        ${dials}
+        <Say voice="Polly.Joanna-Neural">Sorry we missed you — go ahead and leave a message after the tone and we'll call you right back.</Say>
+        <Record maxLength="60" action="${xu(voicemailUrl)}" />
       `)
     }
 
@@ -255,59 +289,10 @@ serve(async (req) => {
     `)
   }
 
-  // ── Step: route — resolve who the caller wants to speak with ─────────────
-  if (step === 'route') {
-    const digits  = params.Digits || ''
-    const speech  = (params.SpeechResult || '').toLowerCase()
-    const fromNum = url.searchParams.get('from') || from
-    const sid     = url.searchParams.get('sid') || callSid
-    const actionUrl = `${supaUrl}/functions/v1/twilio-voice-inbound?step=status`
-
-    // Resolution order: exact digit press (most reliable) → spoken keyword
-    // match → fall through to the general AI screening flow.
-    let match = routingContacts.find(r => digits && r.digit === digits)
-    if (!match && speech) {
-      match = routingContacts.find(r => (r.keywords || []).some(kw => speech.includes(kw.toLowerCase())))
-    }
-
-    if (match) {
-      await supabase.from('communications')
-        .update({ status: 'ringing', ai_summary: `Caller asked for ${match.name}` })
-        .eq('call_sid', sid)
-
-      const whisperUrl = `${supaUrl}/functions/v1/twilio-voice-inbound?step=whisper&from=${encodeURIComponent(fromNum)}`
-      // Dual-dial: if this person has registered the in-app softphone
-      // (client_identity, set via lib/TwilioVoice.ts register()), ring BOTH
-      // the app and their cell simultaneously — whichever answers first wins.
-      // This makes the in-app softphone purely additive: if it's not
-      // registered, offline, or push fails, the cell still rings exactly as
-      // before.
-      const clientLeg = match.client_identity
-        ? `<Client url="${xu(whisperUrl)}">${match.client_identity}</Client>`
-        : ''
-      return twiml(`
-        <Say voice="Polly.Joanna-Neural">Sure thing! Connecting you to ${match.name} now.</Say>
-        <Dial callerId="${CALLER_ID}" action="${actionUrl}">
-          ${clientLeg}
-          <Number url="${xu(whisperUrl)}">${match.number}</Number>
-        </Dial>
-        <Say voice="Polly.Joanna-Neural">Looks like ${match.name} isn't available right now. Go ahead and leave a message after the tone and they'll call you right back.</Say>
-        <Record maxLength="60" action="${actionUrl}" />
-      `)
-    }
-
-    // No confident match (caller unsure, or said something unrelated) →
-    // hand off to the normal AI screening flow so we still capture the call.
-    const gatherUrl = `${supaUrl}/functions/v1/twilio-voice-inbound?step=analyze&from=${encodeURIComponent(fromNum)}&sid=${encodeURIComponent(sid)}`
-    const voicemailUrl = `${supaUrl}/functions/v1/twilio-voice-inbound?step=voicemail&from=${encodeURIComponent(fromNum)}&sid=${encodeURIComponent(sid)}`
-    return twiml(`
-      <Gather input="speech" action="${xu(gatherUrl)}" timeout="15" speechTimeout="auto" language="en-US">
-        <Say voice="Polly.Joanna-Neural">No problem — go ahead and tell me what you need, and I'll make sure the right person gets back to you.</Say>
-      </Gather>
-      <Say voice="Polly.Joanna-Neural">I didn't quite catch that. Go ahead and leave your name and number after the tone.</Say>
-      <Record maxLength="60" action="${xu(voicemailUrl)}" />
-    `)
-  }
+  // NOTE: the old `step === 'route'` handler (spoken/DTMF "who would you like
+  // to speak with" menu) was removed — routingContacts are now rung directly
+  // in sequence from the `initial` step above, with no speech recognition in
+  // the path. See the comment there for why.
 
   // ── Step 2: Voicemail recording saved ────────────────────────────────────
   if (step === 'voicemail') {
@@ -373,7 +358,7 @@ serve(async (req) => {
       const whisperUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/twilio-voice-inbound?step=whisper&from=EMERGENCY`
       return twiml(`
         <Say voice="Polly.Joanna-Neural">Oh wow, that sounds like an emergency. Let me get ${OWNER_NAME} on the line right now — please hold just a moment.</Say>
-        <Dial callerId="${CALLER_ID}" action="${statusUrl}">
+        <Dial callerId="${CALLER_ID}" timeout="20" statusCallback="${statusUrl}" statusCallbackEvent="completed">
           <Number url="${xu(whisperUrl)}">${PERSONAL_CELL}</Number>
         </Dial>
         <Say voice="Polly.Joanna-Neural">I'm so sorry — ${OWNER_NAME} isn't picking up right now. If this is life-threatening, please call 9-1-1 immediately. Otherwise, please leave a message after the tone.</Say>
@@ -418,7 +403,7 @@ Return valid JSON only.`
           .eq('call_sid', sid)
         return twiml(`
           <Say voice="Polly.Joanna-Neural">Oh, that sounds really urgent. Let me connect you to ${OWNER_NAME} right now — just one moment.</Say>
-          <Dial callerId="${CALLER_ID}" action="${statusUrl}">
+          <Dial callerId="${CALLER_ID}" timeout="20" statusCallback="${statusUrl}" statusCallbackEvent="completed">
             <Number url="${xu(whisperUrl)}">${PERSONAL_CELL}</Number>
           </Dial>
           <Say voice="Polly.Joanna-Neural">I'm sorry — ${OWNER_NAME} isn't available at the moment. Please leave a message after the tone and he'll get back to you as soon as possible.</Say>
