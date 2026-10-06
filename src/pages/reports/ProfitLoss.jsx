@@ -1,9 +1,12 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import jsPDF from "jspdf";
+import "jspdf-autotable";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 import { notify } from '../../lib/notify';
 import { useBrand } from "../../lib/useBrand";
+import defaultLogoUrl from "../../assets/LOGOD.jpg";
 
 import AccountDrillDown from "../../Components/AccountDrillDown";
 
@@ -11,7 +14,7 @@ export default function ProfitLoss() {
   const navigate = useNavigate();
   const BRAND = useBrand();
 
-  const { user } = useAuth();
+  const { user, company } = useAuth();
   const [loading, setLoading] = useState(true);
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
@@ -22,6 +25,12 @@ export default function ProfitLoss() {
     totalExpenses: 0,
     netIncome: 0
   });
+  // Letterhead details for the printed/PDF report. AuthContext only loads a
+  // small subset of `companies` columns (name/colors/logo), so we fetch the
+  // address/phone/email fields locally here rather than widen the shared
+  // AuthContext query (that query runs on every page and a past change to it
+  // caused a production outage — not worth the risk for a report letterhead).
+  const [companyInfo, setCompanyInfo] = useState(null);
   // Drill-down modal state: which account(s)/type/title to show transactions for.
   // null = closed.
   const [drillDown, setDrillDown] = useState(null);
@@ -33,6 +42,16 @@ export default function ProfitLoss() {
   useEffect(() => {
     loadProfitLoss();
   }, [user, startDate, endDate]);
+
+  useEffect(() => {
+    if (!company?.id) return;
+    supabase
+      .from("companies")
+      .select("name, address, city, state, zip, contact_phone, contact_email")
+      .eq("id", company.id)
+      .maybeSingle()
+      .then(({ data }) => { if (data) setCompanyInfo(data); });
+  }, [company?.id]);
 
   async function loadProfitLoss() {
     try {
@@ -137,6 +156,168 @@ export default function ProfitLoss() {
     return `${formatDate(startDate)} to ${formatDate(endDate)}`;
   };
 
+  // ── Letterhead helpers ──────────────────────────────────────────────────
+  function companyAddressLine() {
+    if (!companyInfo) return null;
+    const cityStateZip = [companyInfo.city, companyInfo.state].filter(Boolean).join(", ") +
+      (companyInfo.zip ? ` ${companyInfo.zip}` : "");
+    const parts = [companyInfo.address, cityStateZip.trim()].filter(Boolean);
+    return parts.length ? parts.join(" • ") : null;
+  }
+
+  function companyContactLine() {
+    if (!companyInfo) return null;
+    const parts = [companyInfo.contact_phone, companyInfo.contact_email].filter(Boolean);
+    return parts.length ? parts.join(" • ") : null;
+  }
+
+  // ── Logo loaded + downscaled to a small base64 JPEG for the PDF export
+  //    (same technique as EmployeeTimesheets.jsx — keeps the file small) ──
+  async function getLogoBase64() {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const maxW = 320;
+        const scale = maxW / img.width;
+        canvas.width = maxW;
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        try {
+          resolve(canvas.toDataURL("image/jpeg", 0.75));
+        } catch {
+          resolve(null); // tainted canvas (cross-origin logo) — fall back to no logo
+        }
+      };
+      img.onerror = () => resolve(null);
+      img.src = BRAND.logo_url || defaultLogoUrl;
+    });
+  }
+
+  // ── Build & download a real Profit & Loss PDF (separate from Print) ────
+  async function exportToPDF() {
+    try {
+      const logoBase64 = await getLogoBase64();
+      const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
+      const pageW = doc.internal.pageSize.width;
+      let y = 40;
+
+      if (logoBase64) {
+        const logoW = 140;
+        const logoH = 46;
+        doc.addImage(logoBase64, "JPEG", (pageW - logoW) / 2, y, logoW, logoH);
+        y += logoH + 14;
+      }
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.setTextColor(17, 24, 39);
+      doc.text((companyInfo?.name || BRAND.name || "").toUpperCase(), pageW / 2, y, { align: "center" });
+      y += 14;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(107, 114, 128);
+      const addrLine = companyAddressLine();
+      const contactLine = companyContactLine();
+      if (addrLine) { doc.text(addrLine, pageW / 2, y, { align: "center" }); y += 12; }
+      if (contactLine) { doc.text(contactLine, pageW / 2, y, { align: "center" }); y += 12; }
+
+      y += 10;
+      doc.setDrawColor(209, 213, 219);
+      doc.setLineWidth(0.75);
+      doc.line(40, y, pageW - 40, y);
+      y += 24;
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.setTextColor(17, 24, 39);
+      doc.text("PROFIT & LOSS STATEMENT", pageW / 2, y, { align: "center" });
+      y += 18;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(11);
+      doc.setTextColor(75, 85, 99);
+      doc.text(`For the Period ${formatDateRange()}`, pageW / 2, y, { align: "center" });
+      y += 24;
+
+      // INCOME table
+      doc.autoTable({
+        startY: y,
+        head: [["Acct #", "Account", "Amount"]],
+        body: reportData.income.length
+          ? reportData.income.map(a => [a.account_number, a.account_name, formatCurrency(a.amount)])
+          : [["—", "No income recorded for this period", ""]],
+        foot: [["", "Total Income", formatCurrency(reportData.totalIncome)]],
+        styles: { fontSize: 10, cellPadding: 6, textColor: [17, 24, 39], lineColor: [229, 231, 235], lineWidth: 0.4 },
+        headStyles: { fillColor: [11, 62, 168], textColor: [255, 255, 255], fontStyle: "bold" },
+        footStyles: { fillColor: [209, 250, 229], textColor: [6, 95, 70], fontStyle: "bold", fontSize: 11 },
+        columnStyles: { 0: { cellWidth: 60 }, 2: { halign: "right", cellWidth: 100 } },
+        margin: { left: 40, right: 40 },
+      });
+
+      // EXPENSES table
+      const afterIncomeY = doc.lastAutoTable.finalY + 24;
+      doc.autoTable({
+        startY: afterIncomeY,
+        head: [["Acct #", "Account", "Amount"]],
+        body: reportData.expenses.length
+          ? reportData.expenses.map(a => [a.account_number, a.account_name, formatCurrency(a.amount)])
+          : [["—", "No expenses recorded for this period", ""]],
+        foot: [["", "Total Expenses", formatCurrency(reportData.totalExpenses)]],
+        styles: { fontSize: 10, cellPadding: 6, textColor: [17, 24, 39], lineColor: [229, 231, 235], lineWidth: 0.4 },
+        headStyles: { fillColor: [11, 62, 168], textColor: [255, 255, 255], fontStyle: "bold" },
+        footStyles: { fillColor: [254, 226, 226], textColor: [153, 27, 27], fontStyle: "bold", fontSize: 11 },
+        columnStyles: { 0: { cellWidth: 60 }, 2: { halign: "right", cellWidth: 100 } },
+        margin: { left: 40, right: 40 },
+      });
+
+      // NET INCOME / NET LOSS summary
+      let sumY = doc.lastAutoTable.finalY + 28;
+      const pageH = doc.internal.pageSize.height;
+      if (sumY > pageH - 80) { doc.addPage(); sumY = 50; }
+
+      doc.setDrawColor(17, 24, 39);
+      doc.setLineWidth(1);
+      doc.line(40, sumY, pageW - 40, sumY);
+      sumY += 20;
+
+      const isProfit = reportData.netIncome >= 0;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.setTextColor(isProfit ? 6 : 153, isProfit ? 95 : 27, isProfit ? 70 : 27);
+      doc.text(isProfit ? "NET INCOME" : "NET LOSS", 40, sumY);
+      doc.text(formatCurrency(Math.abs(reportData.netIncome)), pageW - 40, sumY, { align: "right" });
+      sumY += 16;
+
+      const marginPct = reportData.totalIncome > 0 ? (reportData.netIncome / reportData.totalIncome) * 100 : 0;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(107, 114, 128);
+      doc.text(`Margin: ${marginPct.toFixed(1)}%`, 40, sumY);
+
+      // Footer — generated-on stamp, every page
+      const pageCount = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.setTextColor(156, 163, 175);
+        doc.text(
+          `Generated on ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`,
+          pageW / 2, pageH - 24, { align: "center" }
+        );
+        doc.text(`Page ${i} of ${pageCount}`, pageW - 40, pageH - 24, { align: "right" });
+      }
+
+      doc.save(`Profit-Loss-${startDate}-to-${endDate}.pdf`);
+    } catch (err) {
+      console.error("Error exporting P&L PDF:", err);
+      notify("Failed to export PDF: " + err.message);
+    }
+  }
+
   const profitMargin = reportData.totalIncome > 0 
     ? (reportData.netIncome / reportData.totalIncome) * 100 
     : 0;
@@ -150,13 +331,13 @@ export default function ProfitLoss() {
   }
 
   return (
-    <div style={{ ...styles.container, backgroundColor: BRAND.bg }}>
-      <div style={styles.header}>
+    <div style={{ ...styles.container, backgroundColor: BRAND.bg }} className="pl-screen">
+      <div style={styles.header} className="no-print">
         <div>
           <button onClick={() => navigate('/accounting')} style={styles.backButton}>
             ← Back to Accounting
           </button>
-          <h1 style={styles.title}>📊 Profit & Loss Statement</h1>
+          <h1 style={styles.title}>Profit & Loss Statement</h1>
           <p style={styles.subtitle}>Income Statement</p>
         </div>
         <div style={styles.controls}>
@@ -182,7 +363,7 @@ export default function ProfitLoss() {
       </div>
 
       {/* Summary Cards */}
-      <div style={styles.summaryGrid}>
+      <div style={styles.summaryGrid} className="no-print">
         <div
           style={{...styles.summaryCard, cursor: reportData.income.length ? 'pointer' : 'default'}}
           onClick={() => reportData.income.length && openDrillDown(reportData.income.map(a => a.id), 'Income', 'Total Income')}
@@ -221,8 +402,8 @@ export default function ProfitLoss() {
         </div>
       </div>
 
-      {/* P&L Report */}
-      <div style={styles.reportCard}>
+      {/* P&L Report (interactive, on-screen only — drill-down links, hidden on print) */}
+      <div style={styles.reportCard} className="no-print">
         <div style={styles.reportHeader}>
           <h2 style={styles.reportTitle}>Profit & Loss Statement</h2>
           <p style={styles.reportDate}>{formatDateRange()}</p>
@@ -316,7 +497,7 @@ export default function ProfitLoss() {
       </div>
 
       {/* Action Buttons */}
-      <div style={styles.actions}>
+      <div style={styles.actions} className="no-print">
         <button 
           onClick={() => navigate('/accounting/general-ledger')}
           style={styles.actionButton}
@@ -335,11 +516,122 @@ export default function ProfitLoss() {
         >
           🖨️ Print Report
         </button>
+        <button
+          onClick={exportToPDF}
+          style={{...styles.actionButton, backgroundColor: '#ef4444'}}
+        >
+          📄 Download PDF
+        </button>
       </div>
+
+      {/* ── Print-only static document ───────────────────────────────────
+          This is a plain, non-interactive financial statement (no date
+          pickers, no dashboard cards, no drill-down underlines) that only
+          renders when printing. Everything else on this page is marked
+          .no-print and is hidden via the print CSS below. */}
+      <div className="pl-report">
+        <div className="pl-report-letterhead">
+          <img src={BRAND.logo_url || defaultLogoUrl} alt="Company Logo" className="pl-report-logo" />
+          <div className="pl-report-company-name">{companyInfo?.name || BRAND.name}</div>
+          {companyAddressLine() && <div className="pl-report-company-line">{companyAddressLine()}</div>}
+          {companyContactLine() && <div className="pl-report-company-line">{companyContactLine()}</div>}
+        </div>
+
+        <div className="pl-report-rule" />
+
+        <h1 className="pl-report-title">Profit &amp; Loss Statement</h1>
+        <p className="pl-report-subtitle">For the Period {formatDateRange()}</p>
+
+        <h3 className="pl-report-section-title">Income</h3>
+        <table className="pl-report-table">
+          <thead>
+            <tr><th>Acct #</th><th>Account</th><th className="pl-report-amt">Amount</th></tr>
+          </thead>
+          <tbody>
+            {reportData.income.length === 0 ? (
+              <tr><td colSpan={3} className="pl-report-nodata">No income recorded for this period</td></tr>
+            ) : reportData.income.map((account) => (
+              <tr key={account.id}>
+                <td>{account.account_number}</td>
+                <td>{account.account_name}</td>
+                <td className="pl-report-amt">{formatCurrency(account.amount)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="pl-report-total-row">
+              <td colSpan={2}>Total Income</td>
+              <td className="pl-report-amt">{formatCurrency(reportData.totalIncome)}</td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <h3 className="pl-report-section-title">Expenses</h3>
+        <table className="pl-report-table">
+          <thead>
+            <tr><th>Acct #</th><th>Account</th><th className="pl-report-amt">Amount</th></tr>
+          </thead>
+          <tbody>
+            {reportData.expenses.length === 0 ? (
+              <tr><td colSpan={3} className="pl-report-nodata">No expenses recorded for this period</td></tr>
+            ) : reportData.expenses.map((account) => (
+              <tr key={account.id}>
+                <td>{account.account_number}</td>
+                <td>{account.account_name}</td>
+                <td className="pl-report-amt">{formatCurrency(account.amount)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="pl-report-total-row">
+              <td colSpan={2}>Total Expenses</td>
+              <td className="pl-report-amt">{formatCurrency(reportData.totalExpenses)}</td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <div className="pl-report-net-row">
+          <span>{reportData.netIncome >= 0 ? "NET INCOME" : "NET LOSS"}</span>
+          <span>{formatCurrency(Math.abs(reportData.netIncome))}</span>
+        </div>
+        <div className="pl-report-margin">Margin: {profitMargin.toFixed(1)}%</div>
+
+        <p className="pl-report-footer">
+          Generated on {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+        </p>
+      </div>
+
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          .pl-screen { background: #fff !important; padding: 0 !important; }
+          .pl-report { display: block !important; }
+        }
+        .pl-report { display: none; }
+        .pl-report, .pl-report * { text-decoration: none !important; }
+        .pl-report-letterhead { text-align: center; margin-bottom: 8px; }
+        .pl-report-logo { max-width: 140px; height: auto; margin-bottom: 8px; }
+        .pl-report-company-name { font-size: 15px; font-weight: 700; color: #111; }
+        .pl-report-company-line { font-size: 11px; color: #666; margin-top: 2px; }
+        .pl-report-rule { border-top: 2px solid #d1d5db; margin: 14px 0 20px; }
+        .pl-report-title { font-size: 22px; font-weight: 700; color: #111; text-align: center; margin: 0 0 4px; }
+        .pl-report-subtitle { font-size: 13px; color: #666; text-align: center; margin: 0 0 24px; }
+        .pl-report-section-title { font-size: 14px; font-weight: 700; color: #111; text-transform: uppercase; letter-spacing: 0.5px; margin: 20px 0 8px; border-bottom: 2px solid #e5e7eb; padding-bottom: 4px; }
+        .pl-report-table { width: 100%; border-collapse: collapse; font-size: 13px; color: #111; }
+        .pl-report-table thead { display: table-header-group; }
+        .pl-report-table th { text-align: left; padding: 6px 4px; border-bottom: 1px solid #d1d5db; font-weight: 700; color: #374151; }
+        .pl-report-table td { padding: 6px 4px; border-bottom: 1px solid #f0f0f0; }
+        .pl-report-amt { text-align: right; }
+        .pl-report-nodata { text-align: center; color: #999; font-style: italic; padding: 12px; }
+        .pl-report-total-row td { font-weight: 700; border-top: 2px solid #111; border-bottom: none; padding-top: 8px; }
+        .pl-report-net-row { display: flex; justify-content: space-between; font-size: 17px; font-weight: 700; color: #111; border-top: 3px double #111; margin-top: 20px; padding-top: 10px; }
+        .pl-report-margin { text-align: right; font-size: 11px; color: #666; margin-top: 2px; }
+        .pl-report-footer { text-align: center; font-size: 9px; color: #9ca3af; margin-top: 30px; }
+        .pl-report-table tr { page-break-inside: avoid; }
+      `}</style>
 
       {drillDown && (
         <div className="no-print">
-          <style>{`@media print { .no-print { display: none !important; } }`}</style>
           <AccountDrillDown
             accountIds={drillDown.accountIds}
             accountType={drillDown.accountType}
