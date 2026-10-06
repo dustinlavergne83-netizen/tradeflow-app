@@ -52,6 +52,15 @@ export default function BankTransactions() {
   const [matchCandidateIndex, setMatchCandidateIndex] = useState(0);
   const [linkedInvoices, setLinkedInvoices] = useState([]); // full list of invoices/payments linked to selectedTransaction (multi-link)
   const [multiSelectLineKeys, setMultiSelectLineKeys] = useState(new Set()); // checkbox selections while linking (keys from buildInvoiceLines)
+
+  // "Record to Books?" prompt shown when clearing an unmatched withdrawal —
+  // lets the user choose whether clearing should also create a real,
+  // editable expenses row (with vendor/project/receipt tracking) in addition
+  // to the journal entry that's already always created. See
+  // onClickClearButton (the gate) and handleRecordToBooksChoice (the handler).
+  const [showRecordToBooksModal, setShowRecordToBooksModal] = useState(false);
+  const [recordToBooksTransaction, setRecordToBooksTransaction] = useState(null);
+  const [recordToBooksCategory, setRecordToBooksCategory] = useState('');
   
   const [transactionForm, setTransactionForm] = useState({
     transaction_date: getTodayLocalDate(),
@@ -439,6 +448,164 @@ export default function BankTransactions() {
       console.error('Error linking expense:', err);
       notify('Failed to link expense');
     }
+  }
+
+  // Creates a REAL, editable expenses row (with vendor/project/receipt
+  // tracking) for an unmatched withdrawal, and links it to the bank
+  // transaction via linked_expense_id. Without this, an unmatched cleared
+  // withdrawal only ever shows up on the Expenses page as a lightweight
+  // synthetic "🏦 Managed in Bank Transactions" row (see
+  // Expenses.jsx's loadClearedBankExpenses) — fine for simple cases, but
+  // not editable and with no vendor/project linkage.
+  //
+  // IMPORTANT: this does NOT also create a journal entry. handleToggleCleared
+  // already always creates exactly one JE per cleared transaction (keyed to
+  // reference_type='bank_transaction' / reference_id=transaction.id);
+  // calling createExpenseJournalEntry here as well would post a second,
+  // duplicate entry for the same money leaving the bank. Setting
+  // linked_expense_id only changes how the Expenses page displays this
+  // transaction — it does not change handleToggleCleared's "already linked"
+  // skip-JE branch, because that branch only fires when linked_expense_id
+  // was ALREADY set before the user clicked clear (see the modal flow in
+  // handleToggleCleared), not when we set it during this same clear.
+  async function createExpenseFromTransaction(transaction, categoryAccountId) {
+    const category = accounts.find(a => a.id === categoryAccountId);
+    if (!category) {
+      notify('⚠️ Could not find the selected category account.');
+      return null;
+    }
+
+    const expenseData = {
+      company_id: user.id,
+      created_by: user.id,
+      expense_date: transaction.transaction_date,
+      amount: Math.abs(parseFloat(transaction.amount) || 0),
+      category: category.account_name,
+      vendor: transaction.payee || null,
+      description: transaction.description || null,
+      payment_method: 'bank',
+      bank_account_id: accountId,
+      project_id: transaction.project_id || null,
+      tax_deductible: true,
+    };
+
+    const { data: newExpense, error } = await supabase
+      .from('expenses')
+      .insert([expenseData])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating expense from transaction:', error);
+      notify('⚠️ Failed to create expense record: ' + error.message);
+      return null;
+    }
+
+    const { error: linkError } = await supabase
+      .from('bank_transactions')
+      .update({ linked_expense_id: newExpense.id, auto_created_expense: true })
+      .eq('id', transaction.id);
+
+    if (linkError) {
+      console.error('Error linking new expense to transaction:', linkError);
+      notify('⚠️ Expense created but could not be linked to this transaction: ' + linkError.message);
+    }
+
+    return newExpense;
+  }
+
+  // Gate for the clear (✅/🔲) button. Only intercepts with the "Record to
+  // Books?" prompt when ALL of these hold:
+  //   - clearing (not un-clearing) — un-clear reversal is handled entirely
+  //     inside handleToggleCleared
+  //   - a withdrawal (amount < 0) — deposits have their own invoice-matching
+  //     flow and are out of scope here
+  //   - not already linked to an expense/invoice/bill — those already have
+  //     a clear story for how the books get updated
+  //   - not a transfer and not an owner draw — both already have dedicated,
+  //     correct handling in handleToggleCleared and must never become a P&L
+  //     expense
+  //   - no automatic match was found (getMatchCount === 0) — if the matcher
+  //     found a candidate, the normal Matches modal flow is more appropriate
+  // Anything that doesn't meet all of these clears exactly as it did before
+  // this feature existed.
+  function onClickClearButton(transaction) {
+    const isUnclearing = transaction.is_cleared;
+    const isWithdrawal = parseFloat(transaction.amount) < 0;
+    const isUnlinked = !transaction.linked_expense_id && !transaction.linked_invoice_id && !transaction.linked_bill_id;
+    const isPlainExpenseCandidate = transaction.transaction_type !== 'transfer' && !transaction.is_owner_draw;
+    const hasNoMatch = getMatchCount(transaction) === 0;
+
+    if (!isUnclearing && isWithdrawal && isUnlinked && isPlainExpenseCandidate && hasNoMatch) {
+      setRecordToBooksTransaction(transaction);
+      setRecordToBooksCategory(transaction.category || '');
+      setShowRecordToBooksModal(true);
+      return;
+    }
+
+    handleToggleCleared(transaction);
+  }
+
+  // Handles the three choices in the "Record to Books?" modal.
+  async function handleRecordToBooksChoice(choice) {
+    const transaction = recordToBooksTransaction;
+    if (!transaction) return;
+
+    setShowRecordToBooksModal(false);
+    setRecordToBooksTransaction(null);
+
+    if (choice === 'skip') {
+      // "Just clear it" — bank-only, no books impact at all. Mark cleared
+      // directly, bypassing handleToggleCleared's JE-creation entirely by
+      // flagging the transaction as already "linked" to nothing in a way
+      // that's inert — simplest correct approach is a direct, minimal update
+      // plus a balance refresh, mirroring what handleToggleCleared's early
+      // linked-bill branch does (status flip only, no JE).
+      try {
+        const { error } = await supabase
+          .from('bank_transactions')
+          .update({ is_cleared: true })
+          .eq('id', transaction.id);
+        if (error) throw error;
+        await loadData();
+      } catch (err) {
+        console.error('Error clearing transaction (skip books):', err);
+        notify('Failed to clear transaction');
+      }
+      return;
+    }
+
+    if (!recordToBooksCategory) {
+      notify('⚠️ Please select a Category before clearing this transaction.');
+      setRecordToBooksTransaction(transaction);
+      setShowRecordToBooksModal(true);
+      return;
+    }
+
+    // Persist the chosen category onto the transaction first — handleToggleCleared
+    // reloads the transaction from the DB and requires a category to be set.
+    const { error: categoryError } = await supabase
+      .from('bank_transactions')
+      .update({ category: recordToBooksCategory })
+      .eq('id', transaction.id);
+    if (categoryError) {
+      console.error('Error saving category:', categoryError);
+      notify('Failed to save category');
+      return;
+    }
+
+    if (choice === 'expense') {
+      const newExpense = await createExpenseFromTransaction(transaction, recordToBooksCategory);
+      if (!newExpense) return; // error already shown by createExpenseFromTransaction
+    }
+
+    // Both 'expense' and 'journal-only' fall through to the normal clearing
+    // flow, which always creates the journal entry. When 'expense' ran
+    // above, linked_expense_id is now set on the DB row, but
+    // handleToggleCleared's JE-skip branches only check the IN-MEMORY
+    // transaction object passed in here — which still has linked_expense_id
+    // unset — so the JE is still created exactly once, as intended.
+    await handleToggleCleared(transaction);
   }
 
   // Link (or unlink) this bank transaction to a paid Bill. Linking does NOT
@@ -1243,6 +1410,47 @@ export default function BankTransactions() {
         
         // Remind user to refresh Chart of Accounts
         if (!bulkMode) notify('✅ Transaction uncleared! \n\n⚠️ IMPORTANT: Please go to Chart of Accounts > "Refresh Balances" to update the book values.');
+      }
+
+      // When UNCLEARING a transaction whose expense was auto-created by the
+      // "Record to Books?" prompt (see createExpenseFromTransaction), reverse
+      // BOTH records: delete the journal entry (same as the unlinked case
+      // above) AND delete the expense row itself, then clear the link flags.
+      // A transaction the user manually linked to a PRE-EXISTING expense via
+      // the Matches modal (handleLinkExpense) has linked_expense_id set but
+      // NOT auto_created_expense, so it's untouched here — only ever delete
+      // expenses this flow created.
+      if (!newClearedStatus && transaction.linked_expense_id && transaction.auto_created_expense) {
+        console.log('Removing auto-created expense + journal entry for unclear:', transaction.id);
+
+        await deleteJournalEntryForTransaction(transaction.id);
+
+        const { error: deleteExpenseError } = await supabase
+          .from('expenses')
+          .delete()
+          .eq('id', transaction.linked_expense_id);
+
+        if (deleteExpenseError) {
+          console.error('Error deleting auto-created expense:', deleteExpenseError);
+          notify('⚠️ Transaction uncleared, but the linked expense could not be removed automatically: ' + deleteExpenseError.message);
+        }
+
+        const { error: unlinkError } = await supabase
+          .from('bank_transactions')
+          .update({ linked_expense_id: null, auto_created_expense: false })
+          .eq('id', transaction.id);
+
+        if (unlinkError) {
+          console.error('Error clearing expense link:', unlinkError);
+        }
+
+        transaction = { ...transaction, linked_expense_id: null, auto_created_expense: false };
+
+        if (!bulkMode) {
+          notify('✅ Transaction uncleared! The expense that was created for it has been removed.\n\n⚠️ IMPORTANT: Please go to Chart of Accounts > "Refresh Balances" to update the book values.');
+          await loadData();
+          return;
+        }
       }
 
         // ── AUTO-MATCH: Check if this deposit was already recorded via invoice_payments ──
@@ -2830,7 +3038,7 @@ export default function BankTransactions() {
                   <td style={styles.td}>
                     <div style={styles.actionButtons}>
                       <button
-                        onClick={() => handleToggleCleared(transaction)}
+                        onClick={() => onClickClearButton(transaction)}
                         style={styles.clearedButton}
                         title={transaction.is_cleared ? 'Click to unclear' : 'Click to clear'}
                       >
@@ -3043,7 +3251,7 @@ export default function BankTransactions() {
                   <td style={styles.td}>
                     <div style={styles.actionButtons}>
                       <button
-                        onClick={() => handleToggleCleared(transaction)}
+                        onClick={() => onClickClearButton(transaction)}
                         style={styles.clearedButton}
                         title="Click to unclear"
                       >
@@ -3663,9 +3871,28 @@ export default function BankTransactions() {
                     <p style={{fontSize: 14, color: '#666', margin: '0 0 4px'}}>
                       No automatic match found for <strong>{formatCurrency(selectedTransaction.amount)}</strong>
                     </p>
-                    <p style={{fontSize: 13, color: '#999', margin: 0}}>
-                      Manually link this transaction to one or more invoices below — check multiple to split a deposit across invoices:
-                    </p>
+                    {selectedTransaction.amount < 0 ? (
+                      <>
+                        <p style={{fontSize: 13, color: '#999', margin: '0 0 12px'}}>
+                          This is a withdrawal — record it to the books, or manually link an invoice below if it's actually a customer payment.
+                        </p>
+                        <button
+                          onClick={() => {
+                            setShowMatchesModal(false);
+                            setRecordToBooksTransaction(selectedTransaction);
+                            setRecordToBooksCategory(selectedTransaction.category || '');
+                            setShowRecordToBooksModal(true);
+                          }}
+                          style={{...styles.linkButton, backgroundColor: '#10b981'}}
+                        >
+                          💸 Create Expense / Record to Books
+                        </button>
+                      </>
+                    ) : (
+                      <p style={{fontSize: 13, color: '#999', margin: 0}}>
+                        Manually link this transaction to one or more invoices below — check multiple to split a deposit across invoices:
+                      </p>
+                    )}
                   </div>
                   <div style={{...styles.matchesSection, marginBottom: 0}}>
                     <h3 style={styles.sectionTitle}>💰 All Invoices — Manual Link</h3>
@@ -3763,6 +3990,77 @@ export default function BankTransactions() {
                   </button>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* "Record to Books?" prompt — shown when clearing an unmatched,
+          unlinked withdrawal. Lets the user choose whether this should also
+          become a real, editable expenses row in addition to the journal
+          entry that's always created. See onClickClearButton /
+          handleRecordToBooksChoice. */}
+      {showRecordToBooksModal && recordToBooksTransaction && (
+        <div style={styles.modalOverlay} onClick={() => { setShowRecordToBooksModal(false); setRecordToBooksTransaction(null); }}>
+          <div style={{...styles.modalContent, maxWidth: 480}} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>Record to Books?</h2>
+              <button
+                onClick={() => { setShowRecordToBooksModal(false); setRecordToBooksTransaction(null); }}
+                style={styles.closeButton}
+              >✕</button>
+            </div>
+
+            <div style={{padding: '0 24px 24px'}}>
+              <p style={{fontSize: 14, color: '#666', margin: '0 0 16px'}}>
+                No automatic match was found for this withdrawal. Choose how it should be recorded:
+              </p>
+
+              <div style={{background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: 14, marginBottom: 16}}>
+                <div style={{display: 'flex', justifyContent: 'space-between', fontSize: 14, marginBottom: 6}}>
+                  <span style={{color: '#666'}}>Date</span>
+                  <strong>{formatDate(recordToBooksTransaction.transaction_date)}</strong>
+                </div>
+                <div style={{display: 'flex', justifyContent: 'space-between', fontSize: 14, marginBottom: 6}}>
+                  <span style={{color: '#666'}}>Amount</span>
+                  <strong style={{color: '#ef4444'}}>{formatCurrency(recordToBooksTransaction.amount)}</strong>
+                </div>
+                <div style={{display: 'flex', justifyContent: 'space-between', fontSize: 14}}>
+                  <span style={{color: '#666'}}>Payee</span>
+                  <strong>{recordToBooksTransaction.payee || recordToBooksTransaction.description || '—'}</strong>
+                </div>
+              </div>
+
+              <label style={{display: 'block', fontSize: 13, fontWeight: 700, marginBottom: 6}}>Category</label>
+              <select
+                value={recordToBooksCategory}
+                onChange={(e) => setRecordToBooksCategory(e.target.value)}
+                style={{...styles.categorySelect, width: '100%', marginBottom: 20}}
+              >
+                <option value="">-- Select Account --</option>
+                {renderCategoryOptions()}
+              </select>
+
+              <div style={{display: 'flex', flexDirection: 'column', gap: 10}}>
+                <button
+                  onClick={() => handleRecordToBooksChoice('expense')}
+                  style={{...styles.linkButton, backgroundColor: '#10b981', width: '100%'}}
+                >
+                  💸 Create Expense + Journal Entry
+                </button>
+                <button
+                  onClick={() => handleRecordToBooksChoice('journal-only')}
+                  style={{...styles.linkButton, backgroundColor: '#3b82f6', width: '100%'}}
+                >
+                  📖 Journal Entry Only
+                </button>
+                <button
+                  onClick={() => handleRecordToBooksChoice('skip')}
+                  style={{...styles.linkButton, backgroundColor: '#9ca3af', width: '100%'}}
+                >
+                  ❌ Just Clear It — No Books Impact
+                </button>
+              </div>
             </div>
           </div>
         </div>
