@@ -8,6 +8,7 @@ import { getNextJournalEntryNumber, createInvoicePaymentJournalEntry } from "../
 import { notify, confirmDialog, promptDialog } from '../lib/notify';
 import { useFeatures } from "../lib/useFeatures";
 import { useBrand } from "../lib/useBrand";
+import { loadAvailableDeposits, applyDepositsToInvoice } from "../lib/deposits";
 import { getProjectTypes } from "../lib/projectTypes";
 
 const STATIC_BRAND = {
@@ -842,21 +843,17 @@ async function handleAddContractor() {
       }
       
       console.log("✅ Invoice created successfully:", newInvoice);
-      
-      // Check for unapplied deposits before navigating
-      const availableDeposits = deposits.filter(d => d.status === 'received' || d.status === 'deposited');
-      if (availableDeposits.length > 0) {
-        // Show deposit application modal
-        setPendingInvoiceForDeposit({ ...newInvoice, changeOrderId });
-        setSelectedDepositsToApply(availableDeposits.map(d => d.id)); // Select all by default
-        setShowApplyDepositsModal(true);
+
+      // This invoice is created with total: 0 — line items haven't been
+      // entered yet, so there's no real total to cap a deposit application
+      // against here. Invoice.jsx resolves this project's available
+      // deposits (with remaining balances) and offers its own apply prompt
+      // once the invoice actually has a total, so navigate straight there
+      // rather than prompting prematurely.
+      if (changeOrderId) {
+        navigate(`/invoice?invoiceId=${newInvoice.id}&coId=${changeOrderId}&projectId=${id}`);
       } else {
-        // No deposits, navigate directly
-        if (changeOrderId) {
-          navigate(`/invoice?invoiceId=${newInvoice.id}&coId=${changeOrderId}&projectId=${id}`);
-        } else {
-          navigate(`/invoice?invoiceId=${newInvoice.id}&projectId=${id}`);
-        }
+        navigate(`/invoice?invoiceId=${newInvoice.id}&projectId=${id}`);
       }
     } catch (err) {
       console.error("❌ FULL ERROR:", err);
@@ -1338,7 +1335,12 @@ async function handleAddContractor() {
 
       setProjectExpenses(allExpenses);
 
-      // Load deposits for this project
+      // Load deposits for this project (full history — including fully
+      // applied ones — for the Deposits card). Each row is annotated with
+      // remaining_amount (deposit_amount minus whatever's been allocated to
+      // invoices so far) so the apply-to-invoice flows below can tell a
+      // fully-consumed deposit apart from one that's only partially used,
+      // without hiding either from this display list.
       const { data: depositsData, error: depositsError } = await supabase
         .from("project_deposits")
         .select("*")
@@ -1355,7 +1357,23 @@ async function handleAddContractor() {
             dep.status = 'applied';
           }
         }
-        setDeposits(depositsData || []);
+
+        const depIds = (depositsData || []).map(d => d.id);
+        let allocatedByDeposit = {};
+        if (depIds.length > 0) {
+          const { data: allocations } = await supabase
+            .from("deposit_allocations")
+            .select("deposit_id, amount")
+            .in("deposit_id", depIds);
+          (allocations || []).forEach(a => {
+            allocatedByDeposit[a.deposit_id] = (allocatedByDeposit[a.deposit_id] || 0) + (Number(a.amount) || 0);
+          });
+        }
+        const depositsWithRemaining = (depositsData || []).map(d => ({
+          ...d,
+          remaining_amount: Math.max(0, (Number(d.deposit_amount) || 0) - (allocatedByDeposit[d.id] || 0)),
+        }));
+        setDeposits(depositsWithRemaining);
       }
 
       // Load project photos from storage
@@ -4850,15 +4868,17 @@ async function handleAddContractor() {
               {/* T&M Invoice */}
               <button
                 onClick={() => {
+                  // No invoice (and so no real total) exists yet at this
+                  // point — prompting to apply deposits here meant applying
+                  // against an invoice total of $0/undefined, which is what
+                  // caused deposits to get fully consumed regardless of the
+                  // eventual invoice amount. Invoice.jsx itself already
+                  // resolves this project's available deposits and offers
+                  // the apply prompt once the invoice has a real total, so
+                  // navigating straight there (as the "no deposits" branch
+                  // already did) is both simpler and correct.
                   setShowInvoiceTypeModal(false);
-                  const availableDeposits = deposits.filter(d => d.status === 'received' || d.status === 'deposited');
-                  if (availableDeposits.length > 0) {
-                    setPendingInvoiceForDeposit({ id: null, invoice_number: 'T&M', tmProjectId: id });
-                    setSelectedDepositsToApply(availableDeposits.map(d => d.id));
-                    setShowApplyDepositsModal(true);
-                  } else {
-                    navigate(`/invoice?projectId=${id}&type=tm`);
-                  }
+                  navigate(`/invoice?projectId=${id}&type=tm`);
                 }}
                 style={{padding: 20, backgroundColor: '#f9fafb', border: '2px solid #e5e7eb', borderRadius: 12, cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s'}}
                 onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#f97316'; e.currentTarget.style.backgroundColor = '#fff7ed'; }}
@@ -5248,7 +5268,7 @@ async function handleAddContractor() {
                     setShowLineItemSelectModal(false);
 
                     // Check deposits
-                    const availableDeposits = deposits.filter(d => d.status === 'received' || d.status === 'deposited');
+                    const availableDeposits = deposits.filter(d => (d.remaining_amount ?? d.deposit_amount) > 0.004);
                     if (availableDeposits.length > 0) {
                       setPendingInvoiceForDeposit(newInvoice);
                       setSelectedDepositsToApply(availableDeposits.map(d => d.id));
@@ -5636,7 +5656,7 @@ async function handleAddContractor() {
             </p>
 
             <div style={{maxHeight: 300, overflowY: 'auto', marginBottom: 20}}>
-              {deposits.filter(d => d.status === 'received' || d.status === 'deposited').map((dep) => (
+              {deposits.filter(d => (d.remaining_amount ?? d.deposit_amount) > 0.004).map((dep) => (
                 <label key={dep.id} style={{display: 'flex', alignItems: 'center', gap: 12, padding: 12, backgroundColor: selectedDepositsToApply.includes(dep.id) ? '#f0fdf4' : '#f9fafb', border: selectedDepositsToApply.includes(dep.id) ? '2px solid #10b981' : '1px solid #e5e7eb', borderRadius: 8, marginBottom: 8, cursor: 'pointer'}}>
                   <input
                     type="checkbox"
@@ -5651,7 +5671,12 @@ async function handleAddContractor() {
                     style={{width: 20, height: 20}}
                   />
                   <div style={{flex: 1}}>
-                    <div style={{fontSize: 16, fontWeight: 'bold', color: '#111'}}>${(dep.deposit_amount || 0).toFixed(2)}</div>
+                    <div style={{fontSize: 16, fontWeight: 'bold', color: '#111'}}>
+                      ${(dep.remaining_amount ?? dep.deposit_amount ?? 0).toFixed(2)}
+                      {dep.remaining_amount != null && dep.remaining_amount < dep.deposit_amount && (
+                        <span style={{fontSize: 12, fontWeight: 'normal', color: '#999'}}> remaining of ${dep.deposit_amount.toFixed(2)}</span>
+                      )}
+                    </div>
                     <div style={{fontSize: 12, color: '#666'}}>{formatDate(dep.deposit_date)}{dep.reference_notes && ` • ${dep.reference_notes}`}</div>
                   </div>
                 </label>
@@ -5661,10 +5686,13 @@ async function handleAddContractor() {
             {selectedDepositsToApply.length > 0 && (
               <div style={{padding: 12, backgroundColor: '#f0fdf4', borderRadius: 6, marginBottom: 20}}>
                 <div style={{display: 'flex', justifyContent: 'space-between'}}>
-                  <span style={{fontWeight: '600', color: '#111'}}>Total to Apply:</span>
+                  <span style={{fontWeight: '600', color: '#111'}}>Total Available to Apply:</span>
                   <span style={{fontWeight: 'bold', fontSize: 18, color: '#10b981'}}>
-                    ${deposits.filter(d => selectedDepositsToApply.includes(d.id)).reduce((sum, d) => sum + (d.deposit_amount || 0), 0).toFixed(2)}
+                    ${deposits.filter(d => selectedDepositsToApply.includes(d.id)).reduce((sum, d) => sum + (d.remaining_amount ?? d.deposit_amount ?? 0), 0).toFixed(2)}
                   </span>
+                </div>
+                <div style={{fontSize: 12, color: '#666', marginTop: 4}}>
+                  Only applied up to Invoice #{pendingInvoiceForDeposit.invoice_number}'s total (${(pendingInvoiceForDeposit.total || 0).toFixed(2)}) — any leftover carries forward for future invoices.
                 </div>
               </div>
             )}
@@ -5692,26 +5720,22 @@ async function handleAddContractor() {
                 onClick={async () => {
                   try {
                     const selectedDeps = deposits.filter(d => selectedDepositsToApply.includes(d.id));
-                    const totalDeposit = selectedDeps.reduce((sum, d) => sum + (d.deposit_amount || 0), 0);
 
-                    // Update invoice with deposit_received
-                    await supabase.from('invoices').update({ deposit_received: totalDeposit }).eq('id', pendingInvoiceForDeposit.id);
-
-                    // Mark deposits as applied
-                    for (const dep of selectedDeps) {
-                      await supabase.from('project_deposits').update({
-                        status: 'applied',
-                        invoice_id: pendingInvoiceForDeposit.id,
-                        applied_date: new Date().toISOString(),
-                      }).eq('id', dep.id);
-                    }
+                    // Caps application at this invoice's own total (it's
+                    // real at this point — line items were already created
+                    // before this modal opened) — any leftover deposit
+                    // balance carries forward for a future invoice on this
+                    // project instead of being fully consumed here.
+                    const totalDeposit = await applyDepositsToInvoice(
+                      pendingInvoiceForDeposit.id,
+                      selectedDeps,
+                      pendingInvoiceForDeposit.total
+                    );
 
                     const inv = pendingInvoiceForDeposit;
                     setShowApplyDepositsModal(false);
                     setPendingInvoiceForDeposit(null);
-                    if (inv.tmProjectId) {
-                      navigate(`/invoice?projectId=${inv.tmProjectId}&type=tm&depositApplied=${totalDeposit}`);
-                    } else if (inv.changeOrderId) {
+                    if (inv.changeOrderId) {
                       navigate(`/invoice?invoiceId=${inv.id}&coId=${inv.changeOrderId}&projectId=${id}`);
                     } else {
                       navigate(`/invoice?invoiceId=${inv.id}&projectId=${id}`);

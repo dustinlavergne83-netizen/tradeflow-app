@@ -46,6 +46,7 @@ export default function InvoiceCommercialPublic() {
   // resolve the actual project by name after saving and offer any
   // un-applied deposits found for it.
   const [depositPromptInvoiceId, setDepositPromptInvoiceId] = useState(null);
+  const [depositPromptInvoiceTotal, setDepositPromptInvoiceTotal] = useState(0);
   const [availableDeposits, setAvailableDeposits] = useState([]);
 
   useEffect(() => {
@@ -208,6 +209,9 @@ export default function InvoiceCommercialPublic() {
       if (deposits.length > 0) {
         setAvailableDeposits(deposits);
         setDepositPromptInvoiceId(savedInvoiceId);
+        // Remembered so handleApplyDeposits can cap application at this
+        // invoice's own total rather than consuming the whole deposit.
+        setDepositPromptInvoiceTotal(invoiceToSave.total || 0);
       }
     } catch (err) {
       console.error("Error saving invoice:", err);
@@ -219,8 +223,8 @@ export default function InvoiceCommercialPublic() {
 
   async function handleApplyDeposits(selectedDeposits, total) {
     try {
-      await applyDepositsToInvoice(depositPromptInvoiceId, selectedDeposits);
-      notify(`💰 $${total.toFixed(2)} deposit applied to this invoice!`);
+      const applied = await applyDepositsToInvoice(depositPromptInvoiceId, selectedDeposits, depositPromptInvoiceTotal);
+      notify(`💰 $${applied.toFixed(2)} deposit applied to this invoice!`);
     } catch (err) {
       console.error("Error applying deposits:", err);
       notify("Failed to apply deposits: " + err.message);

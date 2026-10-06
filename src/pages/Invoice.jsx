@@ -13,7 +13,7 @@ import { createInvoiceJournalEntry } from "../utils/accountingJournals";
 
 import { formatDate } from "../utils/dateUtils";
 import { notify, confirmDialog, promptDialog } from '../lib/notify';
-import { loadAvailableDeposits, resolveProjectId } from '../lib/deposits';
+import { loadAvailableDeposits, applyDepositsToInvoice, resolveProjectId } from '../lib/deposits';
 
 import { useBrand } from "../lib/useBrand";
 
@@ -584,30 +584,35 @@ export default function Invoice() {
     try {
       const selectedDepositIds = Array.from(selectedDeposits);
       const depositsToApply = availableDeposits.filter(d => selectedDepositIds.includes(d.id));
-      const totalDeposits = depositsToApply.reduce((sum, d) => sum + d.deposit_amount, 0);
+
+      // Cap application at this invoice's own total so a deposit larger
+      // than the invoice only applies up to what's owed — any leftover
+      // deposit balance carries forward for a future invoice on this
+      // project instead of being fully consumed here. This also means
+      // totalDeposits (used below for the fee math + invoice update) may be
+      // LESS than the sum of the selected deposits' full amounts if a
+      // partial application occurred.
+      const invoiceTotalForCap = invoiceItems.reduce((sum, item) => sum + (item.total || 0), 0);
+      const totalDeposits = await applyDepositsToInvoice(invoiceId, depositsToApply, invoiceTotalForCap);
+      if (totalDeposits <= 0) {
+        notify("Nothing to apply — this invoice's balance is already covered.");
+        return;
+      }
       const depositDate = depositsToApply[0].deposit_date;
       const netDepositAmount = totalDeposits - depositFee;
-      
-      // Update invoice with deposit information
+
+      // applyDepositsToInvoice already set invoices.deposit_received /
+      // deposit_date; this just adds the fee-related fields that are
+      // specific to this page's processing-fee flow.
       const { error: updateError } = await supabase
         .from("invoices")
         .update({
-          deposit_received: totalDeposits,
-          deposit_date: depositDate,
           processing_fee: depositFee || 0,
           net_deposit_amount: netDepositAmount
         })
         .eq("id", invoiceId);
       
       if (updateError) throw updateError;
-      
-      // Mark deposits as applied
-      const { error: markError } = await supabase
-        .from("project_deposits")
-        .update({ status: "applied" })
-        .in("id", selectedDepositIds);
-      
-      if (markError) throw markError;
       
       // If there's a processing fee, create journal entry for it
       if (depositFee > 0) {

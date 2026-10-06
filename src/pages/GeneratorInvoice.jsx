@@ -333,8 +333,12 @@ export default function GeneratorInvoice() {
 
   async function handleApplyDeposits(selectedDeposits, total) {
     try {
-      await applyDepositsToInvoice(savedInvoiceId, selectedDeposits);
-      notify(`💰 $${total.toFixed(2)} deposit applied to this invoice!`);
+      // Cap at this invoice's own total so a deposit larger than the
+      // invoice only applies up to what's owed — any leftover deposit
+      // balance carries forward for a future invoice on this project
+      // instead of being fully consumed here.
+      const applied = await applyDepositsToInvoice(savedInvoiceId, selectedDeposits, subtotal);
+      notify(`💰 $${applied.toFixed(2)} deposit applied to this invoice!`);
     } catch (err) {
       console.error("Error applying deposits:", err);
       notify("Failed to apply deposits: " + err.message);

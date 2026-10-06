@@ -5,6 +5,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { formatDate } from "../utils/dateUtils";
 import { notify } from '../lib/notify';
 import { useBrand } from "../lib/useBrand";
+import { loadAvailableDeposits, applyDepositsToInvoice } from "../lib/deposits";
 
 const STATIC_BRAND = {
   bg: "#0b3ea8",
@@ -197,14 +198,12 @@ export default function ProgressBilling() {
         setProject(projectData);
         setCustomerName(projectData.contractor || projectData.customer || coData.project_name);
 
-        // Load deposits
-        const { data: depositsData } = await supabase
-          .from("project_deposits")
-          .select("*")
-          .eq("project_id", projectData.id)
-          .eq("status", "received")
-          .order("deposit_date", { ascending: false });
-        setDeposits(depositsData || []);
+        // Load deposits with remaining (unapplied) balance only � a
+        // deposit that's been partially applied to an earlier invoice must
+        // still show up here with its smaller remaining balance, not
+        // disappear entirely (see lib/deposits.js for the allocation model).
+        const depositsData = await loadAvailableDeposits(projectData.id);
+        setDeposits(depositsData);
       } else {
         setCustomerName(coData.project_name || "");
       }
@@ -297,14 +296,12 @@ export default function ProgressBilling() {
           setCustomerName(projectData.contractor || projectData.customer || "");
         }
 
-        // Load deposits
-        const { data: depositsData } = await supabase
-          .from("project_deposits")
-          .select("*")
-          .eq("project_id", projectData.id)
-          .eq("status", "received")
-          .order("deposit_date", { ascending: false });
-        setDeposits(depositsData || []);
+        // Load deposits with remaining (unapplied) balance only � a
+        // deposit that's been partially applied to an earlier invoice must
+        // still show up here with its smaller remaining balance, not
+        // disappear entirely (see lib/deposits.js for the allocation model).
+        const depositsData = await loadAvailableDeposits(projectData.id);
+        setDeposits(depositsData);
       }
 
       // Total contract value = THIS proposal's own amount only.
@@ -410,14 +407,12 @@ export default function ProgressBilling() {
       if (projectData) {
         setProject(projectData);
 
-        // Load deposits
-        const { data: depositsData } = await supabase
-          .from("project_deposits")
-          .select("*")
-          .eq("project_id", projectData.id)
-          .eq("status", "received")
-          .order("deposit_date", { ascending: false });
-        setDeposits(depositsData || []);
+        // Load deposits with remaining (unapplied) balance only � a
+        // deposit that's been partially applied to an earlier invoice must
+        // still show up here with its smaller remaining balance, not
+        // disappear entirely (see lib/deposits.js for the allocation model).
+        const depositsData = await loadAvailableDeposits(projectData.id);
+        setDeposits(depositsData);
       }
 
       const contractValue = estimateData.total || 0;
@@ -541,7 +536,10 @@ export default function ProgressBilling() {
 
   const totalDepositsSelected = Array.from(selectedDeposits).reduce((sum, depId) => {
     const dep = deposits.find(d => d.id === depId);
-    return sum + (dep?.deposit_amount || 0);
+    // Use remaining_amount (what's actually left on this deposit), not the
+    // deposit's original full amount — a partially-applied deposit's
+    // remaining_amount is already smaller than deposit_amount.
+    return sum + (dep?.remaining_amount ?? dep?.deposit_amount ?? 0);
   }, 0);
 
   const balanceDue = Math.max(0, currentBillingAmount + extraItemsTotal - totalDepositsSelected);
@@ -693,7 +691,11 @@ export default function ProgressBilling() {
           subtotal: invoiceTotal,
           total: invoiceTotal,
           balance_due: balanceDue,
-          deposit_received: totalDepositsSelected || 0,
+          // deposit_received is set below by applyDepositsToInvoice once the
+          // invoice exists, NOT here — inserting totalDepositsSelected here
+          // too would double-count it, since applyDepositsToInvoice adds to
+          // whatever deposit_received already holds.
+          deposit_received: 0,
           status: 'draft',
           notes: notesText,
           created_by: user.id,
@@ -804,17 +806,14 @@ export default function ProgressBilling() {
         }
       }
 
-      // Apply selected deposits
+      // Apply selected deposits — auto-applies each deposit's remaining
+      // balance up to invoiceTotal, carrying forward any leftover balance
+      // for a future invoice on this project (see lib/deposits.js).
+      // Deposits are already loaded via loadAvailableDeposits, so they
+      // carry remaining_amount; filter to just the ones the user checked.
       if (selectedDeposits.size > 0) {
-        for (const depositId of selectedDeposits) {
-          await supabase
-            .from('project_deposits')
-            .update({
-              status: 'applied',
-              invoice_id: newInvoice.id
-            })
-            .eq('id', depositId);
-        }
+        const depositsToApply = deposits.filter(d => selectedDeposits.has(d.id));
+        await applyDepositsToInvoice(newInvoice.id, depositsToApply, invoiceTotal);
       }
 
       // Update project's billed_amount and percent_complete by RE-SUMMING
