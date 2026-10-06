@@ -335,14 +335,19 @@ export default function ProjectSetup() {
             />
           )}
 
-          <AutocompleteInput
-            name="contractor"
-            value={formData.contractor}
-            onChange={handleChange}
-            options={customers.map((c) => c.customer)}
-            placeholder="Select or type contractor name..."
-            label="Contractor"
-          />
+          {/* Contractor — DML only. Companies with a custom service catalog
+              (DT Specialties) have done away with the contractor concept
+              entirely and go strictly by customer. */}
+          {!skipTypePicker && (
+            <AutocompleteInput
+              name="contractor"
+              value={formData.contractor}
+              onChange={handleChange}
+              options={customers.map((c) => c.customer)}
+              placeholder="Select or type contractor name..."
+              label="Contractor"
+            />
+          )}
 
           <div style={styles.field}>
             <label style={styles.label}>Address</label>

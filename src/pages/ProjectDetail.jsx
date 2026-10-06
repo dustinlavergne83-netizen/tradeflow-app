@@ -9,7 +9,7 @@ import { notify, confirmDialog, promptDialog } from '../lib/notify';
 import { useFeatures } from "../lib/useFeatures";
 import { useBrand } from "../lib/useBrand";
 import { loadAvailableDeposits, applyDepositsToInvoice, syncDepositInvoicePayment } from "../lib/deposits";
-import { getProjectTypes } from "../lib/projectTypes";
+import { getProjectTypes, hasCustomProjectTypes } from "../lib/projectTypes";
 
 const STATIC_BRAND = {
   bg: "#0b3ea8",
@@ -24,6 +24,16 @@ export default function ProjectDetail() {
   const navigate = useNavigate();
   const { user, company } = useAuth();
   const PROJECT_TYPES = getProjectTypes(company);
+  // DT Specialties (and any company with a custom service catalog) does away
+  // with the "contractor" / proposal-contractor-bid workflow entirely — those
+  // companies go strictly by customer. DML keeps the contractor flow as-is.
+  const isCustomCatalog = hasCustomProjectTypes(company);
+  // Billing name resolver — DML prefers contractor (general-contractor billing
+  // flow) over customer; DT Specialties (and any custom-catalog company) has
+  // no contractor concept, so it always bills the customer.
+  function billingCustomerName(proj) {
+    return (isCustomCatalog ? proj.customer : (proj.contractor || proj.customer)) || "";
+  }
   const features = useFeatures();
   const [project, setProject] = useState(null);
   const [timeEntries, setTimeEntries] = useState([]);
@@ -787,8 +797,9 @@ async function handleAddContractor() {
       }
       
       // Look up customer email from customers table
-      // For commercial projects, use contractor as customer
-      const customerName = project.contractor || project.customer || "";
+      // For commercial projects, use contractor as customer (DML only — see
+      // billingCustomerName)
+      const customerName = billingCustomerName(project);
       let customerEmail = "";
       
       console.log("👤 Looking up customer:", customerName);
@@ -2073,7 +2084,7 @@ async function handleAddContractor() {
           {project.customer && (
             <p style={styles.subtitle}>👤 {project.customer}</p>
           )}
-          {project.contractor && (
+          {!isCustomCatalog && project.contractor && (
             <p style={styles.subtitle}>🔨 {project.contractor}</p>
           )}
           {project.address && (
@@ -2681,8 +2692,11 @@ async function handleAddContractor() {
         {/* Contractors Card - hidden for residential/lighting types, and for
             commercial-public, which never uses the proposal-contractor
             selection flow (DT Specialties' commercial-public projects were
-            showing an always-empty "No contractors added yet" card). */}
-        {!["residential-contractor", "commercial-private", "residential-owner", "lighting-project", "commercial-public"].includes(project.project_type) && (
+            showing an always-empty "No contractors added yet" card).
+            Also fully hidden for any company with a custom service catalog
+            (DT Specialties) — those companies go strictly by customer and
+            have done away with the contractor/proposal-bid flow entirely. */}
+        {!isCustomCatalog && !["residential-contractor", "commercial-private", "residential-owner", "lighting-project", "commercial-public"].includes(project.project_type) && (
         <div style={{...styles.card, order: 1}}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
             <h2 style={{ ...styles.cardTitle, marginBottom: 0 }}>Proposal Contractors</h2>
@@ -4579,6 +4593,7 @@ async function handleAddContractor() {
               </datalist>
             </div>
 
+            {!isCustomCatalog && (
             <div style={styles.field}>
               <label style={styles.modalLabel}>Contractor</label>
               <input
@@ -4595,6 +4610,7 @@ async function handleAddContractor() {
                 ))}
               </datalist>
             </div>
+            )}
 
             <div style={styles.field}>
               <label style={styles.modalLabel}>Address</label>
@@ -5195,7 +5211,7 @@ async function handleAddContractor() {
                     }
 
                     // Look up customer email
-                    const customerName = project.contractor || project.customer || "";
+                    const customerName = billingCustomerName(project);
                     let customerEmail = "";
                     if (customerName) {
                       const { data: custData } = await supabase.from('customers').select('email').ilike('customer', customerName).limit(1);
@@ -5466,7 +5482,7 @@ async function handleAddContractor() {
                         nextNumber = (parseInt(existingInvoices[0].invoice_number) || 1000) + 1;
                       }
 
-                      const customerName = project.contractor || project.customer || "";
+                      const customerName = billingCustomerName(project);
                       let customerEmail = "";
                       if (customerName) {
                         const { data: custData } = await supabase.from('customers').select('email').ilike('customer', customerName).limit(1);

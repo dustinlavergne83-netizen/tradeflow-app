@@ -314,7 +314,7 @@ export default function ProjectsList() {
             <div style={styles.tableWrapper}>
               <div style={styles.tableHeader}>
                 <div style={{...styles.th, flex: 2.5}}>Project</div>
-                <div style={{...styles.th, flex: 2}}>Customer / Contractor</div>
+                <div style={{...styles.th, flex: 2}}>{skipTypePicker ? "Customer" : "Customer / Contractor"}</div>
                 <div style={{...styles.th, flex: 1}}>Status</div>
                 <div style={{...styles.th, flex: 1, textAlign: 'right'}}>Contract Value</div>
                 <div style={{...styles.th, flex: 0.5, textAlign: 'center'}}>Actions</div>
@@ -344,7 +344,7 @@ export default function ProjectsList() {
                       {project.customer && (
                         <div style={{fontSize: 13, color: '#444'}}>👤 {project.customer}</div>
                       )}
-                      {project.contractor && (
+                      {!skipTypePicker && project.contractor && (
                         <div style={{fontSize: 13, color: '#444'}}>🔨 {project.contractor}</div>
                       )}
                     </div>
