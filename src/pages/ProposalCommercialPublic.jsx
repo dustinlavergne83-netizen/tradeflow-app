@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase";
 import logoImage from "../assets/LOGOD.jpg";
 import { useAuth } from "../contexts/AuthContext";
 import { notify } from '../lib/notify';
+import { hasCustomProjectTypes } from "../lib/projectTypes";
 
 import { useBrand } from "../lib/useBrand";
 
@@ -18,7 +19,12 @@ export default function ProposalCommercialPublic() {
   const [searchParams] = useSearchParams();
   const { id: projectIdFromPath } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, company } = useAuth();
+  // Companies with a custom service catalog (DT Specialties) have done away
+  // with the contractor/proposal-bid flow entirely and go strictly by
+  // customer — this component auto-populates the customer instead of
+  // showing the "Select Contractor" dropdown for those companies.
+  const isCustomCatalog = hasCustomProjectTypes(company);
   
   const proposalId = searchParams.get("proposalId");
   const estimateId = searchParams.get("estimateId");
@@ -109,8 +115,35 @@ export default function ProposalCommercialPublic() {
         setPriceAdjustment(proposalData.price_adjustment.toString());
       }
 
-      // Load contractor email from project_contractors table using contractor_name
-      if (proposalData.project_id && proposalData.contractor_name) {
+      if (isCustomCatalog) {
+        // DT Specialties (and any custom-catalog company): contractor_name
+        // on the saved proposal is really the customer name — look up their
+        // email from the customers table instead of project_contractors.
+        if (proposalData.contractor_name) {
+          let email = null;
+          try {
+            const { data: custData } = await supabase
+              .from("customers")
+              .select("email")
+              .ilike("customer", proposalData.contractor_name)
+              .limit(1);
+            email = custData?.[0]?.email || null;
+          } catch {
+            // non-fatal
+          }
+          const syntheticCustomer = {
+            id: "project-customer",
+            contractor_name: proposalData.contractor_name,
+            company_name: proposalData.contractor_name,
+            email,
+            phone: null,
+          };
+          setContractors([syntheticCustomer]);
+          setSelectedContractor(syntheticCustomer);
+          if (email) setContractorEmail(email);
+        }
+      } else if (proposalData.project_id && proposalData.contractor_name) {
+        // Load contractor email from project_contractors table using contractor_name
         const { data: contractorData } = await supabase
           .from("project_contractors")
           .select("*")
@@ -198,26 +231,33 @@ export default function ProposalCommercialPublic() {
         setAlternates(mappedAlts);
       }
 
-      // Load contractors for this project
-      const { data: contractorsData, error: contractorsError } = await supabase
-        .from("project_contractors")
-        .select("*")
-        .eq("project_id", projectId)
-        .order("contractor_name");
+      if (isCustomCatalog) {
+        // DT Specialties (and any custom-catalog company): no contractor
+        // concept at all — auto-populate the customer and look up their
+        // email directly, skipping the "Select Contractor" dropdown.
+        await autoPopulateCustomer(projData, estData);
+      } else {
+        // Load contractors for this project
+        const { data: contractorsData, error: contractorsError } = await supabase
+          .from("project_contractors")
+          .select("*")
+          .eq("project_id", projectId)
+          .order("contractor_name");
 
-      if (!contractorsError) {
-        setContractors(contractorsData || []);
-        
-        // Auto-select contractor if project has one
-        if (projData?.contractor && contractorsData) {
-          const matchingContractor = contractorsData.find(c => 
-            c.contractor_name === projData.contractor
-          );
-          if (matchingContractor) {
-            setSelectedContractorId(matchingContractor.id);
-            setSelectedContractor(matchingContractor);
-            if (matchingContractor.email) {
-              setContractorEmail(matchingContractor.email);
+        if (!contractorsError) {
+          setContractors(contractorsData || []);
+
+          // Auto-select contractor if project has one
+          if (projData?.contractor && contractorsData) {
+            const matchingContractor = contractorsData.find(c =>
+              c.contractor_name === projData.contractor
+            );
+            if (matchingContractor) {
+              setSelectedContractorId(matchingContractor.id);
+              setSelectedContractor(matchingContractor);
+              if (matchingContractor.email) {
+                setContractorEmail(matchingContractor.email);
+              }
             }
           }
         }
@@ -232,6 +272,39 @@ export default function ProposalCommercialPublic() {
     } finally {
       setLoading(false);
     }
+  }
+
+  // Auto-populate the "contractor" selection with the project's customer
+  // (used for custom-catalog companies, e.g. DT Specialties, which have no
+  // contractor concept). Looks up the customer's email from the customers
+  // table so the Email button still works without manual entry.
+  async function autoPopulateCustomer(projData, estData) {
+    const customerName = projData?.customer || estData?.customer_name || "";
+    if (!customerName) return;
+
+    let email = null;
+    try {
+      const { data: custData } = await supabase
+        .from("customers")
+        .select("email")
+        .ilike("customer", customerName)
+        .limit(1);
+      email = custData?.[0]?.email || null;
+    } catch {
+      // non-fatal — proposal can still be saved/sent with a manually typed email
+    }
+
+    const syntheticCustomer = {
+      id: "project-customer",
+      contractor_name: customerName,
+      company_name: customerName,
+      email,
+      phone: null,
+    };
+    setContractors([syntheticCustomer]);
+    setSelectedContractorId(syntheticCustomer.id);
+    setSelectedContractor(syntheticCustomer);
+    if (email) setContractorEmail(email);
   }
 
   async function loadChangeOrderForCreation() {
@@ -271,26 +344,32 @@ export default function ProposalCommercialPublic() {
       // Change orders don't have alternates
       setAlternates([]);
 
-      // Load contractors for this project
-      const { data: contractorsData, error: contractorsError } = await supabase
-        .from("project_contractors")
-        .select("*")
-        .eq("project_id", projectId)
-        .order("contractor_name");
+      if (isCustomCatalog) {
+        // DT Specialties (and any custom-catalog company): auto-populate
+        // the customer instead of showing the contractor dropdown.
+        await autoPopulateCustomer(projData, null);
+      } else {
+        // Load contractors for this project
+        const { data: contractorsData, error: contractorsError } = await supabase
+          .from("project_contractors")
+          .select("*")
+          .eq("project_id", projectId)
+          .order("contractor_name");
 
-      if (!contractorsError) {
-        setContractors(contractorsData || []);
-        
-        // Auto-select contractor if project has one
-        if (projData?.contractor && contractorsData) {
-          const matchingContractor = contractorsData.find(c => 
-            c.contractor_name === projData.contractor
-          );
-          if (matchingContractor) {
-            setSelectedContractorId(matchingContractor.id);
-            setSelectedContractor(matchingContractor);
-            if (matchingContractor.email) {
-              setContractorEmail(matchingContractor.email);
+        if (!contractorsError) {
+          setContractors(contractorsData || []);
+
+          // Auto-select contractor if project has one
+          if (projData?.contractor && contractorsData) {
+            const matchingContractor = contractorsData.find(c =>
+              c.contractor_name === projData.contractor
+            );
+            if (matchingContractor) {
+              setSelectedContractorId(matchingContractor.id);
+              setSelectedContractor(matchingContractor);
+              if (matchingContractor.email) {
+                setContractorEmail(matchingContractor.email);
+              }
             }
           }
         }
@@ -328,12 +407,12 @@ export default function ProposalCommercialPublic() {
 
   async function handleSendEmail() {
     if (!contractorEmail) {
-      notify("Please enter a contractor email address");
+      notify(isCustomCatalog ? "Please enter a customer email address" : "Please enter a contractor email address");
       return;
     }
 
     if (!selectedContractor && isEditing) {
-      notify("Please select a contractor first");
+      notify(isCustomCatalog ? "No customer found on this project" : "Please select a contractor first");
       return;
     }
 
@@ -416,7 +495,7 @@ export default function ProposalCommercialPublic() {
 
   async function handleSave(returnAfterSave = false) {
     if (!selectedContractor && isEditing) {
-      notify("Please select a contractor");
+      notify(isCustomCatalog ? "No customer found on this project" : "Please select a contractor");
       return;
     }
 
@@ -642,22 +721,31 @@ export default function ProposalCommercialPublic() {
       {isEditing && !showPreview && (
         <div style={styles.configCard} className="no-print">
           <div style={styles.cardContent}>
-            <div style={styles.cardRow}>
-              <label style={styles.cardLabel}>Select Contractor:</label>
-              <select
-                value={selectedContractorId}
-                onChange={handleContractorChange}
-                style={styles.cardSelect}
-              >
-                <option value="">-- Select Contractor --</option>
-                {contractors.map(contractor => (
-                  <option key={contractor.id} value={contractor.id}>
-                    {contractor.contractor_name}
-                    {contractor.company_name ? ` (${contractor.company_name})` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {isCustomCatalog ? (
+              <div style={styles.cardRow}>
+                <label style={styles.cardLabel}>Customer:</label>
+                <div style={{...styles.cardSelect, display: 'flex', alignItems: 'center', background: '#f9fafb', color: '#111', fontWeight: 600}}>
+                  {selectedContractor?.contractor_name || project?.customer || '—'}
+                </div>
+              </div>
+            ) : (
+              <div style={styles.cardRow}>
+                <label style={styles.cardLabel}>Select Contractor:</label>
+                <select
+                  value={selectedContractorId}
+                  onChange={handleContractorChange}
+                  style={styles.cardSelect}
+                >
+                  <option value="">-- Select Contractor --</option>
+                  {contractors.map(contractor => (
+                    <option key={contractor.id} value={contractor.id}>
+                      {contractor.contractor_name}
+                      {contractor.company_name ? ` (${contractor.company_name})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             
             <div style={{display: 'flex', gap: '20px', marginBottom: 25}}>
               <div style={{flex: 1}}>
@@ -670,7 +758,7 @@ export default function ProposalCommercialPublic() {
                 />
               </div>
               <div style={{flex: 1}}>
-                <label style={styles.cardLabel}>Contractor Email(s):</label>
+                <label style={styles.cardLabel}>{isCustomCatalog ? 'Customer Email(s):' : 'Contractor Email(s):'}</label>
                 <input
                   type="text"
                   value={contractorEmail}
@@ -875,7 +963,7 @@ export default function ProposalCommercialPublic() {
               </>
             ) : (
               <div style={{color: '#999', fontStyle: 'italic', textAlign: 'center', marginTop: 20}}>
-                Please select a contractor above
+                {isCustomCatalog ? "No customer set on this project" : "Please select a contractor above"}
               </div>
             )}
             
