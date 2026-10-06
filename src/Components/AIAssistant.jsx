@@ -191,7 +191,7 @@ export default function AIAssistant({ floating = false }) {
 
   // ── Chat window (inline JSX, not a sub-component) ─────────────────────────
   const chatWindow = (
-    <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "flex-end", justifyContent: "flex-end", padding: 20, pointerEvents: "none" }}>
+    <div className="ai-fab" style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "flex-end", justifyContent: "flex-end", padding: 20, pointerEvents: "none" }}>
       {/* Backdrop */}
       <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.4)", pointerEvents: "all", backdropFilter: "blur(2px)" }} onClick={() => setIsOpen(false)} />
 
@@ -267,7 +267,7 @@ export default function AIAssistant({ floating = false }) {
     return (
       <>
         <style>{ANIMATIONS}</style>
-        <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 8999 }}>
+        <div className="ai-fab" style={{ position: "fixed", bottom: 24, right: 24, zIndex: 8999 }}>
           <button onClick={() => setIsOpen(v => !v)} title="AI Assistant"
             style={{ width: 58, height: 58, borderRadius: "50%", background: `linear-gradient(135deg, ${BLUE} 0%, #1a56d6 100%)`, border: "none", color: "#fff", fontSize: 26, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 20px rgba(11,62,168,0.45)", animation: isOpen ? "none" : "fabPulse 2.5s ease-in-out infinite", transition: "transform 0.15s", transform: isOpen ? "scale(0.9)" : "scale(1)" }}>
             {isOpen ? "✕" : "🤖"}

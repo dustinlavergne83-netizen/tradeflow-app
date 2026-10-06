@@ -135,3 +135,47 @@ html, body {
     zoom: 1; /* Reset zoom for mobile */
   }
 }
+
+/* =====================================================================
+   GLOBAL PRINT STYLES
+   The app shell (fixed top header, fixed left sidebar, floating AI
+   button) is positioned with `position: fixed`, which means it was
+   bleeding through / overlapping every printed page (reports, invoices,
+   etc.) instead of being removed from the print layout. These rules
+   hide all persistent chrome on print and let each page's own content
+   fill the printable area, undoing the fixed-layout offsets from
+   App.css (--header-h / --sidebar-w / zoom) that only make sense on
+   screen.
+   ===================================================================== */
+@media print {
+  .siteHeader,
+  .sidebar,
+  .topbar,
+  .hamburgerBtn,
+  .backdrop,
+  .ai-fab,
+  .no-print {
+    display: none !important;
+  }
+
+  .appShell {
+    display: block !important;
+  }
+
+  .main {
+    margin-left: 0 !important;
+    padding: 0 !important;
+  }
+
+  html, body, #root {
+    background: #fff !important;
+    zoom: 1 !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
