@@ -753,13 +753,13 @@ export default function QuickEstimate() {
           const { data: estimates } = await supabase
             .from("estimates")
             .select("estimate_number")
-            .eq("company_id", employee?.company_id)
+            .eq("company_id", user.id)
             .not("estimate_number", "is", null);
           
           const { data: proposals } = await supabase
             .from("proposals")
             .select("proposal_number")
-            .eq("company_id", employee?.company_id);
+            .eq("company_id", user.id);
           
           let maxBase = 1000;
           
@@ -790,7 +790,7 @@ export default function QuickEstimate() {
           const estimateNumber = String(maxBase + 1);
           
           const estimateData = {
-            company_id: employee?.company_id,
+            company_id: user.id,
             estimate_number: estimateNumber,
             project_name: projectName || "Quick Estimate",
             customer_name: customerName,

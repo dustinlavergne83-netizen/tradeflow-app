@@ -11,7 +11,7 @@ import { createCheckJournalEntry } from "../utils/accountingJournals";
 
 export default function PrintChecks() {
   const navigate = useNavigate();
-  const { user, employee } = useAuth();
+  const { user } = useAuth();
   const BRAND = useBrand();
 
   const [loading, setLoading] = useState(true);
@@ -69,7 +69,7 @@ export default function PrintChecks() {
       const { data, error } = await supabase
         .from("bank_accounts")
         .select("*")
-        .eq("company_id", employee?.company_id)
+        .eq("company_id", user.id)
         .eq("is_active", true)
         .order("account_name");
       if (error) throw error;
@@ -79,7 +79,7 @@ export default function PrintChecks() {
       const { data: vendorData } = await supabase
         .from("vendors")
         .select("id, vendor_name, address")
-        .eq("company_id", employee?.company_id)
+        .eq("company_id", user.id)
         .eq("archived", false)
         .order("vendor_name");
       setVendors(vendorData || []);
@@ -87,7 +87,7 @@ export default function PrintChecks() {
       const { data: expAccounts } = await supabase
         .from("accounts")
         .select("id, account_number, account_name")
-        .eq("company_id", employee?.company_id)
+        .eq("company_id", user.id)
         .eq("account_type", "Expense")
         .eq("is_active", true)
         .order("account_number");
@@ -226,7 +226,7 @@ export default function PrintChecks() {
       const { data: newCheck, error: checkError } = await supabase
         .from("checks")
         .insert({
-          company_id: employee?.company_id,
+          company_id: user.id,
           bank_account_id: selectedAccount.id,
           check_number: checkNumber,
           check_date: checkForm.check_date,

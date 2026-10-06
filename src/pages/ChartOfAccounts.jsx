@@ -10,7 +10,7 @@ export default function ChartOfAccounts() {
   const navigate = useNavigate();
   const BRAND = useBrand();
 
-  const { user, employee } = useAuth();
+  const { user } = useAuth();
   const [accounts, setAccounts] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -54,7 +54,7 @@ export default function ChartOfAccounts() {
       const { data, error } = await supabase
         .from("vendors")
         .select("id, vendor_name")
-        .eq("company_id", employee?.company_id)
+        .eq("company_id", user.id)
         .eq("archived", false)
         .order("vendor_name");
 
@@ -73,7 +73,7 @@ export default function ChartOfAccounts() {
       const { data, error } = await supabase
         .from("accounts")
         .select("*")
-        .eq("company_id", employee?.company_id)
+        .eq("company_id", user.id)
         .order("account_number", { ascending: true});
 
       if (error) throw error;
@@ -141,7 +141,7 @@ export default function ChartOfAccounts() {
       const { data: bankAccounts, error: bankError } = await supabase
         .from("bank_accounts")
         .select("chart_account_id, current_balance, account_name")
-        .eq("company_id", employee?.company_id)
+        .eq("company_id", user.id)
         .eq("is_active", true);
 
       if (!bankError && bankAccounts && bankAccounts.length > 0) {
@@ -182,7 +182,7 @@ export default function ChartOfAccounts() {
     try {
       // Call the Supabase function to create default accounts
       const { error } = await supabase.rpc('create_default_accounts', {
-        p_company_id: employee?.company_id,
+        p_company_id: user.id,
         p_user_id: user.id
       });
 
@@ -285,7 +285,7 @@ export default function ChartOfAccounts() {
         // so only persist vendor_id for that type — avoids stray links if
         // an account's type is changed after being linked.
         vendor_id: accountForm.account_type === 'Liability' && accountForm.vendor_id ? accountForm.vendor_id : null,
-        company_id: employee?.company_id,
+        company_id: user.id,
         created_by: user.id
       };
 
@@ -334,7 +334,7 @@ export default function ChartOfAccounts() {
               const { data: lastEntry } = await supabase
                 .from('journal_entries')
                 .select('entry_number')
-                .eq('company_id', employee?.company_id)
+                .eq('company_id', user.id)
                 .order('entry_number', { ascending: false })
                 .limit(1)
                 .maybeSingle();
@@ -348,7 +348,7 @@ export default function ChartOfAccounts() {
                 reference_type: 'opening_balance',
                 reference_id: editingAccount.id,
                 created_by: user.id,
-                company_id: employee?.company_id
+                company_id: user.id
               };
 
               const { data: createdEntry, error: entryError } = await supabase
@@ -396,7 +396,7 @@ export default function ChartOfAccounts() {
             const { data: lastEntry } = await supabase
               .from('journal_entries')
               .select('entry_number')
-              .eq('company_id', employee?.company_id)
+              .eq('company_id', user.id)
               .order('entry_number', { ascending: false })
               .limit(1)
               .maybeSingle();
@@ -407,7 +407,7 @@ export default function ChartOfAccounts() {
             const { data: equityAccounts } = await supabase
               .from('accounts')
               .select('id')
-              .eq('company_id', employee?.company_id)
+              .eq('company_id', user.id)
               .eq('account_type', 'Equity')
               .limit(1)
               .maybeSingle();
@@ -425,7 +425,7 @@ export default function ChartOfAccounts() {
               reference_type: 'opening_balance',
               reference_id: newAccount.id,
               created_by: user.id,
-              company_id: employee?.company_id
+              company_id: user.id
             };
 
             const { data: newEntry, error: entryError } = await supabase

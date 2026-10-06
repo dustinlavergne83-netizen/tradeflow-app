@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function PlanUpload({ projectId, onUploadComplete }) {
-  const { user, employee } = useAuth();
+  const { user } = useAuth();
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [dragActive, setDragActive] = useState(false);
@@ -56,7 +56,7 @@ export default function PlanUpload({ projectId, onUploadComplete }) {
         .from('plans')
         .insert([{
           project_id: projectId,
-          company_id: employee?.company_id,
+          company_id: user.id,
           file_name: file.name,
           file_url: publicUrl,
           file_size: file.size,

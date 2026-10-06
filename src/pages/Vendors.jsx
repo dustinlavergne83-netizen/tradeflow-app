@@ -8,7 +8,7 @@ import { notify, confirmDialog } from '../lib/notify';
 import { useBrand } from "../lib/useBrand";
 
 export default function Vendors() {
-  const { user, employee } = useAuth();
+  const { user } = useAuth();
   const BRAND = useBrand();
   const [vendors, setVendors] = useState([]);
   const [selected, setSelected] = useState([]);
@@ -175,10 +175,10 @@ export default function Vendors() {
           return;
         }
 
-        // Add company_id (the tenant's real company id) to each vendor
+        // Add company_id (current user's ID) to each vendor
         const vendorsWithCompanyId = imported.map(vendor => ({
           ...vendor,
-          company_id: employee?.company_id
+          company_id: user.id
         }));
 
         const { data, error } = await supabase
@@ -217,7 +217,7 @@ export default function Vendors() {
     // Convert numeric fields from strings to numbers
     const vendorData = {
       ...newVendor,
-      company_id: employee?.company_id,
+      company_id: user.id,
       payment_terms: parseInt(newVendor.payment_terms) || 30,
       balance: parseFloat(newVendor.balance) || 0
     };

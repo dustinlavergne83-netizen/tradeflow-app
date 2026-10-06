@@ -46,7 +46,7 @@ export default function Takeoff() {
   const [searchParams] = useSearchParams();
   const planId = searchParams.get('planId');
   const navigate = useNavigate();
-  const { user, employee } = useAuth();
+  const { user } = useAuth();
 
   // PDF State
   const [plan, setPlan] = useState(null);
@@ -1694,7 +1694,7 @@ try {
               visible: true,
               is_predefined: true,
               display_order: layer.display_order,
-              company_id: employee?.company_id,
+              company_id: user.id,
             }])
             .select();
           
@@ -2265,7 +2265,7 @@ try {
         const { data: assemblyData, error: assemblyError } = await supabase
           .from('assemblies')
           .insert([{
-            company_id: employee?.company_id,
+            company_id: user.id,
             name: name,
             description: `Created from takeoff measurement on ${new Date().toLocaleDateString()}`,
             category: 'ASSEMBLIES',
@@ -2637,7 +2637,7 @@ try {
           layer_id: activeLayerRef.current,
           color: measurementColor,
           materials: materialsToStore, // Store materials array
-          company_id: employee?.company_id,
+          company_id: user.id,
         }])
         .select()
         .single();
@@ -3197,7 +3197,7 @@ try {
             layer_id: activeLayerRef.current,
             color: markerColor,
             material_id: effectiveMaterialId,
-            company_id: employee?.company_id,
+            company_id: user.id,
           }])
           .select()
           .single();
@@ -3471,7 +3471,7 @@ const { data, error } = await supabase
           .from('estimates')
           .insert([{
             project_name: project.name,
-            company_id: employee?.company_id,
+            company_id: user.id,
             status: 'draft',
             created_at: new Date().toISOString(),
           }])
@@ -4185,7 +4185,7 @@ const { data, error } = await supabase
         // Fallback: store as base64
         imageUrl = await new Promise((resolve) => { const r = new FileReader(); r.onloadend = () => resolve(r.result); r.readAsDataURL(blob); });
       }
-      const { data, error } = await supabase.from('plan_snapshots').insert([{ project_id: projectId, plan_id: planId, page_number: currentPageRef.current, label, image_url: imageUrl, image_path: !uploadError ? fileName : null, company_id: employee?.company_id, sort_order: snapshots.length }]).select().single();
+      const { data, error } = await supabase.from('plan_snapshots').insert([{ project_id: projectId, plan_id: planId, page_number: currentPageRef.current, label, image_url: imageUrl, image_path: !uploadError ? fileName : null, company_id: user.id, sort_order: snapshots.length }]).select().single();
       if (error) throw error;
       setSnapshots([...snapshots, data]);
       URL.revokeObjectURL(pendingSnapshotImage.imageUrl);

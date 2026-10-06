@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { notify, confirmDialog, promptDialog } from '../lib/notify';
 
 export default function AssemblyManager() {
-  const { user, employee, isAdmin } = useAuth();
+  const { user, isAdmin } = useAuth();
   const navigate = useNavigate();
   const [assemblies, setAssemblies] = useState([]);
   const [expandedAssembly, setExpandedAssembly] = useState(null);
@@ -184,7 +184,7 @@ export default function AssemblyManager() {
       const { data, error } = await supabase.rpc("duplicate_assembly", {
         source_assembly_id: assembly.id,
         new_name: newName,
-        user_company_id: employee?.company_id
+        user_company_id: user.id
       });
 
       if (error) throw error;
@@ -441,7 +441,7 @@ export default function AssemblyManager() {
         const { data: assemblyData, error: assemblyError } = await supabase
           .from('assemblies')
           .insert([{
-            company_id: employee?.company_id,
+            company_id: user.id,
             name: quickAssemblyName.trim(),
             description: `Created with ${quickAssemblyComponents.length} components`,
             category: quickAssemblyAssemblyCategory,

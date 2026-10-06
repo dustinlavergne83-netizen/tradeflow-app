@@ -11,7 +11,7 @@ const TABS = ["🏦 Banked OT", "💸 Pay Out", "📋 History", "👥 Enrolled C
 export default function OvertimeBank() {
   const BRAND = useBrand();
   const navigate = useNavigate();
-  const { user, employee } = useAuth();
+  const { user } = useAuth();
   const [tab, setTab] = useState(0);
   const [loading, setLoading] = useState(true);
 
@@ -52,10 +52,10 @@ export default function OvertimeBank() {
     setLoading(true);
     try {
       const [{ data: entries }, { data: emps }, { data: projs }, { data: enrolls }] = await Promise.all([
-        supabase.from("ot_bank_entries").select("*, employees(first_name, last_name, hourly_rate), projects(name)").eq("company_id", employee?.company_id).order("week_start", { ascending: false }),
+        supabase.from("ot_bank_entries").select("*, employees(first_name, last_name, hourly_rate), projects(name)").eq("company_id", user.id).order("week_start", { ascending: false }),
         supabase.from("employees").select("user_id, first_name, last_name, hourly_rate").order("first_name"),
         supabase.from("projects").select("id, name, project_type, ot_bank_enabled").not("status", "ilike", "%complete%").order("name"),
-        supabase.from("ot_bank_enrollments").select("project_id, employee_id").eq("company_id", employee?.company_id),
+        supabase.from("ot_bank_enrollments").select("project_id, employee_id").eq("company_id", user.id),
       ]);
       const all = entries || [];
       setBankRecords(all.filter(e => e.status === "banked"));
@@ -100,7 +100,7 @@ export default function OvertimeBank() {
         // Add enrollment
         const { data, error } = await supabase
           .from("ot_bank_enrollments")
-          .insert([{ company_id: employee?.company_id, project_id: projectId, employee_id: employeeId }])
+          .insert([{ company_id: user.id, project_id: projectId, employee_id: employeeId }])
           .select("project_id, employee_id")
           .single();
         if (error) throw error;
@@ -180,7 +180,7 @@ export default function OvertimeBank() {
     setSaving(true);
     try {
       const { error } = await supabase.from("ot_bank_entries").insert([{
-        company_id: employee?.company_id,
+        company_id: user.id,
         employee_id: addForm.employee_id,
         project_id: addForm.project_id || null,
         week_start: addForm.week_start,

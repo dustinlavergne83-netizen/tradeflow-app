@@ -127,8 +127,8 @@ export default function Generators() {
     if (!user) { setLoading(false); return; }
 
     const [genRes, brandRes, custRes] = await Promise.all([
-      supabase.from("generators").select("*").eq("company_id", employee?.company_id).order("customer_name"),
-      supabase.from("generator_brands").select("name").eq("company_id", employee?.company_id).order("name"),
+      supabase.from("generators").select("*").eq("company_id", user.id).order("customer_name"),
+      supabase.from("generator_brands").select("name").eq("company_id", user.id).order("name"),
       // customers.company_id is the real companies.id (different convention
       // from generators/generator_brands above, which key off the admin's
       // auth.uid()) — must filter on employee.company_id, not user.id.
@@ -236,7 +236,7 @@ export default function Generators() {
     if (!user) { setSaving(false); return; }
 
     const payload = {
-      company_id: employee?.company_id,
+      company_id: user.id,
       customer_id: form.customer_id || null,
       customer_name: form.customer_name.trim(),
       customer_address: form.customer_address.trim(),
@@ -291,7 +291,7 @@ export default function Generators() {
 
     const { error } = await supabase
       .from("generator_brands")
-      .insert([{ company_id: employee?.company_id, name }]);
+      .insert([{ company_id: user.id, name }]);
 
     if (error && !error.message.includes("unique")) {
       notify("Failed to save brand: " + error.message);

@@ -1989,7 +1989,7 @@ export default function Estimate({ mode = "full" }) {
   const isQuick = mode === "quick";
   const { id: projectId } = useParams();
   const navigate = useNavigate();
-  const { user, employee } = useAuth();
+  const { user } = useAuth();
   
   // Get section and estimateId from URL query params
   const [searchParams] = useSearchParams();
@@ -2580,7 +2580,7 @@ export default function Estimate({ mode = "full" }) {
             .from("estimates")
             .select("*")
             .eq("project_id", projectId)
-            .eq("company_id", employee?.company_id)
+            .eq("company_id", user.id)
             .order("created_at", { ascending: false })
             .limit(1)
             .maybeSingle();
@@ -2616,7 +2616,7 @@ export default function Estimate({ mode = "full" }) {
       const { data, error } = await supabase
         .from("estimates")
         .select("estimate_number")
-        .eq("company_id", employee?.company_id)
+        .eq("company_id", user.id)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -2997,7 +2997,7 @@ for (const row of validRows) {
         const { data: estimate, error: estimateError } = await supabase
           .from("estimates")
           .insert([{
-            company_id: employee?.company_id,
+            company_id: user.id,
             project_id: projectId,
             project_name: projectName,
             estimate_number: estimateNumber,
@@ -3156,7 +3156,7 @@ for (const row of validRows) {
 
       // Create the estimate header
       const estimateData = {
-        company_id: employee?.company_id,
+        company_id: user?.id,
         project_name: projectName,
         customer_name: customerName,
         project_location: projectLocation,
@@ -4611,7 +4611,7 @@ for (const row of validRows) {
                       const { data, error } = await supabase
                         .from("custom_materials")
                         .insert([{
-                          company_id: employee?.company_id,
+                          company_id: user.id,
                           name: customItem.name,
                           category: customItem.category,
                           description: 'Custom item',
@@ -5135,7 +5135,7 @@ for (const row of validRows) {
                   await supabase.from("assemblies").update({ name: saveAssemblyName, total_material_cost: totalMat, total_labor_hours: totalHrs }).eq("id", r.assemblyId);
                   notify(`Assembly "${saveAssemblyName}" updated! (${componentsToInsert.length} components)`);
                 } else {
-                  const { data: newAsm, error: asmError } = await supabase.from('assemblies').insert([{ name: saveAssemblyName, description: `Created from estimate on ${new Date().toLocaleDateString()}`, category: saveAssemblyCategory, unit: 'ea', is_custom: true, is_active: true, company_id: employee?.company_id, total_material_cost: totalMat, total_labor_hours: totalHrs }]).select().single();
+                  const { data: newAsm, error: asmError } = await supabase.from('assemblies').insert([{ name: saveAssemblyName, description: `Created from estimate on ${new Date().toLocaleDateString()}`, category: saveAssemblyCategory, unit: 'ea', is_custom: true, is_active: true, company_id: user?.id, total_material_cost: totalMat, total_labor_hours: totalHrs }]).select().single();
                   if (asmError) throw asmError;
                   const withId = componentsToInsert.map(c => ({ ...c, assembly_id: newAsm.id }));
                   const { error: compError } = await supabase.from('assembly_components').insert(withId);
@@ -5502,7 +5502,7 @@ for (const row of validRows) {
                         unit: 'ea',
                         is_custom: true,
                         is_active: true,
-                        company_id: employee?.company_id,
+                        company_id: user?.id,
                         total_material_cost: assemblyBuildComponents.reduce((s, c) => s + c.quantity * c.price, 0),
                         total_labor_hours: assemblyBuildComponents.reduce((s, c) => s + c.quantity * c.laborHours, 0)
                       }])

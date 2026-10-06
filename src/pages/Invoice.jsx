@@ -662,7 +662,7 @@ export default function Invoice() {
               const { data: lastEntry } = await supabase
                 .from("journal_entries")
                 .select("entry_number")
-                .eq("company_id", employee?.company_id)
+                .eq("company_id", user.id)
                 .order("entry_number", { ascending: false })
                 .limit(1)
                 .maybeSingle();
@@ -676,7 +676,7 @@ export default function Invoice() {
                 reference_type: "deposit",
                 reference_id: invoiceId,
                 created_by: user.id,
-                company_id: employee?.company_id
+                company_id: user.id
               };
               
               const { data: newEntry, error: entryError } = await supabase

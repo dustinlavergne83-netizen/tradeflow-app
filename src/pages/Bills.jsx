@@ -12,7 +12,7 @@ export default function Bills() {
   const navigate = useNavigate();
   const BRAND = useBrand();
 
-  const { user, employee } = useAuth();
+  const { user } = useAuth();
 
   const [bills, setBills] = useState([]);
   const [filteredBills, setFilteredBills] = useState([]);
@@ -93,7 +93,7 @@ export default function Bills() {
       const { data, error } = await supabase
         .from("vendors")
         .select("*")
-        .eq("company_id", employee?.company_id)
+        .eq("company_id", user.id)
         .eq("archived", false)
         .order("vendor_name");
 
@@ -109,7 +109,7 @@ export default function Bills() {
       const { data, error } = await supabase
         .from("accounts")
         .select("*")
-        .eq("company_id", employee?.company_id)
+        .eq("company_id", user.id)
         .in("account_type", ["Expense"])
         .eq("is_active", true)
         .order("account_number");
@@ -126,7 +126,7 @@ export default function Bills() {
       const { data, error } = await supabase
         .from("accounts")
         .select("*")
-        .eq("company_id", employee?.company_id)
+        .eq("company_id", user.id)
         .eq("account_type", "Asset")
         .eq("is_active", true)
         .order("account_number");
@@ -146,7 +146,7 @@ export default function Bills() {
       const { data, error } = await supabase
         .from("accounts")
         .select("*")
-        .eq("company_id", employee?.company_id)
+        .eq("company_id", user.id)
         .eq("vendor_id", vendorId)
         .eq("account_type", "Liability")
         .eq("is_active", true)
@@ -264,13 +264,13 @@ export default function Bills() {
       const { data: ap } = await supabase
         .from("accounts")
         .select("id")
-        .eq("company_id", employee?.company_id)
+        .eq("company_id", user.id)
         .eq("account_number", "2000")
         .maybeSingle();
       const liabilityAccountId = ap?.id || null;
 
       const billData = {
-        company_id: employee?.company_id,
+        company_id: user.id,
         vendor_id: billForm.vendor_id || null,
         vendor_name: billForm.vendor_name,
         bill_number: billForm.bill_number || null,

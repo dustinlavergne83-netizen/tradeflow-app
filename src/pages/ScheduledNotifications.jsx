@@ -285,7 +285,7 @@ function NotificationForm({ form, setForm, employees, saving, onSave, onCancel, 
 export default function ScheduledNotifications() {
   const BRAND = useBrand();
   const nav = useNavigate();
-  const { user, employee } = useAuth();
+  const { user } = useAuth();
 
   const [schedules, setSchedules] = useState([]);
   const [employees, setEmployees] = useState([]);
@@ -303,7 +303,7 @@ export default function ScheduledNotifications() {
     setLoading(true);
     try {
       const [schRes, empRes] = await Promise.all([
-        supabase.from("scheduled_notifications").select("*").eq("company_id", employee?.company_id).order("send_time"),
+        supabase.from("scheduled_notifications").select("*").eq("company_id", user.id).order("send_time"),
         supabase.from("employees").select("id, user_id, first_name, last_name").order("first_name"),
       ]);
       setSchedules(schRes.data || []);
@@ -338,7 +338,7 @@ export default function ScheduledNotifications() {
     setSaving(true);
     try {
       const payload = {
-        company_id: employee?.company_id,
+        company_id: user.id,
         title: form.title || "TradeFlow",
         message: form.message,
         send_time: form.send_time + ":00",
