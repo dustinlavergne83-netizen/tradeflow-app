@@ -150,10 +150,16 @@ export async function loadAvailableDeposits(projectId) {
 export async function applyDepositsToInvoice(invoiceId, deposits, invoiceTotal) {
   if (!invoiceId || !deposits || deposits.length === 0) return 0;
 
+  // A caller passing invoiceTotal === 0 (e.g. a brand-new invoice with no
+  // line items yet) means "nothing is owed yet" — that must cap application
+  // at $0, NOT be treated as "no cap supplied" (which would apply the
+  // deposit's full amount, uncapped). Only treat the cap as absent when
+  // invoiceTotal itself is omitted/not a number (undefined, null, NaN) —
+  // legacy callers that don't pass a third argument at all.
   const cap = Number(invoiceTotal);
-  const hasCap = Number.isFinite(cap) && cap > 0;
+  const hasCap = invoiceTotal !== undefined && invoiceTotal !== null && Number.isFinite(cap);
 
-  let remainingToApply = hasCap ? cap : Infinity;
+  let remainingToApply = hasCap ? Math.max(0, cap) : Infinity;
   let totalApplied = 0;
   let mostRecentDate = null;
   const allocationRows = [];
