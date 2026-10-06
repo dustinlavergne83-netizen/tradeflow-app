@@ -45,6 +45,7 @@ function EstimateRows({
       { label: '✏️ Edit', color: '#6366f1', action: () => navigate(`/estimate/quick?estimateId=${estimate.id}`) },
       { label: '👁️ Preview', color: '#3b82f6', action: () => setViewModalEstimate(estimate) },
       { label: '🖨️ Print', color: '#8b5cf6', action: () => window.open(`/estimate/quick/view?estimateId=${estimate.id}&print=true`, '_blank') },
+      { label: '🧾 Convert to Invoice', color: '#10b981', action: () => navigate(`/invoice/quick?fromEstimateId=${estimate.id}`) },
       { label: '🗑️ Delete', color: '#ef4444', action: () => handleDelete(estimate) },
     ];
   })();

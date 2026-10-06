@@ -33,6 +33,13 @@ export default function QuickInvoice() {
   ]);
   const [isSaving, setIsSaving] = useState(false);
 
+  // Set when launched via "Convert to Invoice" from a quick estimate
+  // (?fromEstimateId=...). Carries the source estimate's id/number so the
+  // saved invoice can be linked back (invoices.source_estimate_id) and so a
+  // banner can tell the user where these line items came from.
+  const [sourceEstimateId, setSourceEstimateId] = useState(null);
+  const [sourceEstimateNumber, setSourceEstimateNumber] = useState(null);
+
   // Pre-populate fields from URL params (when launched from a project)
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -50,7 +57,98 @@ export default function QuickInvoice() {
     const depositTotalParam = params.get('depositTotal');
     if (depositIdsParam) setPendingDepositIds(depositIdsParam.split(',').filter(Boolean));
     if (depositTotalParam) setPendingDepositTotal(parseFloat(depositTotalParam) || 0);
+
+    const fromEstimateId = params.get('fromEstimateId');
+    if (fromEstimateId) loadFromEstimate(fromEstimateId);
   }, [location.search]);
+
+  // Converts a quick estimate into this invoice's fields/line items. Pricing
+  // intentionally matches what the customer actually saw on the estimate's
+  // customer-facing view (QuickEstimateView.jsx's itemDisplayAmount), not a
+  // re-derivation from raw cost — same markup math, applied the same way:
+  //   matPart = material_total * (1 + material_markup/100)
+  //   lbrPart = labor_total    * (1 + labor_markup/100)
+  //   lineAmount = matPart + lbrPart
+  // Only items with show_in_scope !== false are carried over, matching what
+  // the itemized customer view displays (hidden/internal lines are skipped).
+  // Quantity is always 1 here because material_total/labor_total are already
+  // extended (quantity-applied) totals, not per-unit costs — using the
+  // estimate's original quantity would double it.
+  async function loadFromEstimate(estimateId) {
+    try {
+      const { data: estimate, error: estError } = await supabase
+        .from("estimates")
+        .select("*")
+        .eq("id", estimateId)
+        .single();
+      if (estError) throw estError;
+
+      const { data: items, error: itemsError } = await supabase
+        .from("estimate_items")
+        .select("*")
+        .eq("estimate_id", estimateId)
+        .order("sequence");
+      if (itemsError) throw itemsError;
+
+      setSourceEstimateId(estimateId);
+      setSourceEstimateNumber(estimate.estimate_number || null);
+
+      if (estimate.customer_name) setCustomerName(estimate.customer_name);
+      if (estimate.project_name) setProjectName(estimate.project_name);
+      if (estimate.project_id) setProjectId(estimate.project_id);
+      if (estimate.notes || estimate.description) {
+        setDescription(estimate.notes || estimate.description);
+      }
+
+      const materialMarkup = Number(estimate.material_markup || 0);
+      const laborMarkup = Number(estimate.labor_markup || 0);
+
+      const visibleItems = (items || []).filter(i => i.show_in_scope !== false);
+      let convertedLines = visibleItems.map((item, index) => {
+        const matPart = (item.material_total || 0) * (1 + materialMarkup / 100);
+        const lbrPart = (item.labor_total || 0) * (1 + laborMarkup / 100);
+        const lineAmount = matPart + lbrPart;
+        return {
+          id: index + 1,
+          description: item.description || "",
+          quantity: 1,
+          unitPrice: Math.round(lineAmount * 100) / 100,
+        };
+      });
+
+      // The customer-facing estimate view shows markup-adjusted per-item
+      // amounts, but its "Total Investment" figure is estimate.total — which,
+      // if a manual price adjustment was applied (estimate.price_adjustment_applied),
+      // can differ from the sum of those per-item amounts (QuickEstimateView
+      // never re-applies the adjustment to individual lines, only to the
+      // final total). To make sure the invoice bills the exact amount the
+      // customer was quoted — not an under/over-adjusted sum — scale every
+      // line proportionally so the lines sum to estimate.total exactly.
+      const estimateTotal = Number(estimate.total || 0);
+      const linesSum = convertedLines.reduce((s, l) => s + l.unitPrice, 0);
+      if (estimate.price_adjustment_applied && estimateTotal > 0 && linesSum > 0 && Math.abs(linesSum - estimateTotal) > 0.01) {
+        const scale = estimateTotal / linesSum;
+        convertedLines = convertedLines.map((l, idx) => {
+          // Give any rounding remainder to the last line so the lines sum
+          // to EXACTLY estimateTotal (to the cent), not just approximately.
+          if (idx === convertedLines.length - 1) {
+            const priorSum = convertedLines
+              .slice(0, -1)
+              .reduce((s, p) => s + Math.round(p.unitPrice * scale * 100) / 100, 0);
+            return { ...l, unitPrice: Math.round((estimateTotal - priorSum) * 100) / 100 };
+          }
+          return { ...l, unitPrice: Math.round(l.unitPrice * scale * 100) / 100 };
+        });
+      }
+
+      if (convertedLines.length > 0) {
+        setLineItems(convertedLines);
+      }
+    } catch (err) {
+      console.error("Error loading estimate for conversion:", err);
+      notify("Failed to load estimate for conversion: " + err.message);
+    }
+  }
 
   useEffect(() => {
     loadCustomers();
@@ -176,6 +274,10 @@ export default function QuickInvoice() {
         // invoices.company_id is a real companies.id, required by the
         // invoices_company_insert RLS policy.
         company_id: employee?.company_id,
+        // Links this invoice back to the quick estimate it was converted
+        // from (via EstimatesList's "Convert to Invoice" action), null for
+        // invoices created from scratch.
+        source_estimate_id: sourceEstimateId || null,
       };
 
       const { data: invoice, error: invoiceError } = await supabase
@@ -293,6 +395,21 @@ export default function QuickInvoice() {
           </button>
         </div>
       </div>
+
+      {/* Converted-from-Estimate Banner */}
+      {sourceEstimateId && (
+        <div style={{marginBottom: 20, padding: '14px 20px', backgroundColor: '#eff6ff', border: '2px solid #3b82f6', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 12}}>
+          <span style={{fontSize: 24}}>🧾</span>
+          <div>
+            <div style={{fontWeight: '700', fontSize: 15, color: '#1e40af'}}>
+              Converted from Estimate {sourceEstimateNumber ? `#${sourceEstimateNumber}` : ''}
+            </div>
+            <div style={{fontSize: 13, color: '#1d4ed8', marginTop: 2}}>
+              Line items and pricing were carried over — review before saving.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Deposit Banner */}
       {pendingDepositIds.length > 0 && (
