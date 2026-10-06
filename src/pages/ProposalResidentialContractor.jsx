@@ -19,7 +19,7 @@ export default function ProposalResidentialContractor() {
   const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, employee } = useAuth();
 
   const proposalId = searchParams.get("proposalId");
   const estimateId = searchParams.get("estimateId");
@@ -487,7 +487,7 @@ export default function ProposalResidentialContractor() {
     setIsSaving(true);
     try {
       const proposalData = {
-        company_id: user.id,
+        company_id: employee?.company_id,
         // For change orders, use change_order_id instead of base_estimate_id
         // (base_estimate_id has a foreign key to the estimates table)
         ...(coId 

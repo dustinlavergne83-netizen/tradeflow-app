@@ -11,7 +11,7 @@ import { notify, confirmDialog } from '../lib/notify';
 // quick "Mark Paid" shortcut (handleQuickPaid) - previously only the former
 // ever cleared the liability, so invoices marked paid via the quick action
 // left their deposit sitting in Customer Deposits forever.
-async function clearDepositLiabilityIfNeeded(invoice, entryDate, userId) {
+async function clearDepositLiabilityIfNeeded(invoice, entryDate, userId, companyId) {
   const depositAmount = parseFloat(invoice.deposit_received) || 0;
   if (depositAmount <= 0) return { cleared: false };
 
@@ -56,7 +56,7 @@ async function clearDepositLiabilityIfNeeded(invoice, entryDate, userId) {
       return { cleared: false, error: 'Customer Deposits account not found' };
     }
 
-    const entryNumber = await getNextJournalEntryNumber(userId);
+    const entryNumber = await getNextJournalEntryNumber(companyId);
     const { data: newEntry, error: entryError } = await supabase
       .from('journal_entries')
       .insert([{
@@ -66,7 +66,7 @@ async function clearDepositLiabilityIfNeeded(invoice, entryDate, userId) {
         reference_type: 'invoice_payment',
         reference_id: invoice.id,
         created_by: userId,
-        company_id: userId
+        company_id: companyId
       }])
       .select()
       .single();
@@ -118,7 +118,7 @@ async function clearDepositLiabilityIfNeeded(invoice, entryDate, userId) {
 
 export default function InvoicesList() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, employee } = useAuth();
   const [invoices, setInvoices] = useState([]);
   const [projectDeposits, setProjectDeposits] = useState({});
   const [cashAccounts, setCashAccounts] = useState([]);
@@ -222,7 +222,7 @@ export default function InvoicesList() {
       const { data, error } = await supabase
         .from("bank_accounts")
         .select("*")
-        .eq("company_id", user.id)
+        .eq("company_id", employee?.company_id)
         .eq("is_active", true)
         .order("account_name");
 
@@ -382,7 +382,8 @@ export default function InvoicesList() {
         await clearDepositLiabilityIfNeeded(
           { ...invoice, deposit_received: depositAmount },
           today,
-          user.id
+          user.id,
+          employee?.company_id
         );
       }
 
@@ -585,7 +586,7 @@ export default function InvoicesList() {
         const { data: lastEntry } = await supabase
           .from('journal_entries')
           .select('entry_number')
-          .eq('company_id', user.id)
+          .eq('company_id', employee?.company_id)
           .order('entry_number', { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -601,7 +602,7 @@ export default function InvoicesList() {
           reference_type: 'invoice_payment',
           reference_id: selectedInvoice.id,
           created_by: user.id,
-          company_id: user.id
+          company_id: employee?.company_id
         };
 
         const { data: newEntry, error: entryError } = await supabase
@@ -676,7 +677,8 @@ export default function InvoicesList() {
                 await clearDepositLiabilityIfNeeded(
                   { ...selectedInvoice, deposit_received: depositAmountToClare },
                   paymentForm.date,
-                  user.id
+                  user.id,
+                  employee?.company_id
                 );
               }
               notify('Payment recorded successfully! Journal entry created. Bank balance will update when payment clears.');
@@ -691,7 +693,7 @@ export default function InvoicesList() {
       try {
         await supabase.from('invoice_payments').insert([{
           invoice_id: selectedInvoice.id,
-          company_id: user.id,
+          company_id: employee?.company_id,
           payment_date: paymentForm.date,
           amount: parseFloat(paymentForm.amount),
           payment_method: paymentForm.method,
@@ -868,7 +870,7 @@ export default function InvoicesList() {
               reference_type: 'invoice_payment',
               reference_id: payment.invoice_id,
               created_by: user.id,
-              company_id: user.id,
+              company_id: employee?.company_id,
             }])
             .select()
             .single();
@@ -1337,7 +1339,7 @@ export default function InvoicesList() {
                                   const { data: lastEntry } = await supabase
                                     .from('journal_entries')
                                     .select('entry_number')
-                                    .eq('company_id', user.id)
+                                    .eq('company_id', employee?.company_id)
                                     .order('entry_number', { ascending: false })
                                     .limit(1)
                                     .maybeSingle();
@@ -1351,7 +1353,7 @@ export default function InvoicesList() {
                                     reference_type: 'invoice_payment',
                                     reference_id: invoice.id,
                                     created_by: user.id,
-                                    company_id: user.id
+                                    company_id: employee?.company_id
                                   };
                                   
                                   const { data: newEntry, error: entryError } = await supabase
@@ -2214,12 +2216,12 @@ export default function InvoicesList() {
                       }
 
                       // Create ONE journal entry for the whole split payment
-                      const nextNum = await getNextJournalEntryNumber(user.id);
+                      const nextNum = await getNextJournalEntryNumber(employee?.company_id);
                       const netDeposit = totalAmount - processingFee;
                       const { data: newJE, error: jeErr } = await supabase.from('journal_entries').insert([{
                         entry_number: nextNum, entry_date: splitPaymentForm.date,
                         description: `Split payment across ${invoiceNumbers.join(', ')}${processingFee > 0 ? ` (Fee: ${formatCurrency(processingFee)})` : ''}`,
-                        reference_type: 'invoice_payment', created_by: user.id, company_id: user.id
+                        reference_type: 'invoice_payment', created_by: user.id, company_id: employee?.company_id
                       }]).select().single();
 
                       if (newJE && !jeErr) {
@@ -2241,7 +2243,7 @@ export default function InvoicesList() {
                       try {
                         const historyRows = invoicesToPay.map(([invId, amt]) => ({
                           invoice_id: invId,
-                          company_id: user.id,
+                          company_id: employee?.company_id,
                           payment_date: splitPaymentForm.date,
                           amount: parseFloat(amt),
                           payment_method: splitPaymentForm.method,

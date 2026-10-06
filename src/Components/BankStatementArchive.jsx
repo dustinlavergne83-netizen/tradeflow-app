@@ -13,7 +13,7 @@ import { notify, confirmDialog } from "../lib/notify";
  * itself, unparsed, exactly as received from the bank.
  */
 export default function BankStatementArchive({ bankAccountId }) {
-  const { user } = useAuth();
+  const { user, employee } = useAuth();
   const [statements, setStatements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -65,7 +65,7 @@ export default function BankStatementArchive({ bankAccountId }) {
       if (uploadError) throw uploadError;
 
       const { error: dbError } = await supabase.from("bank_statements").insert({
-        company_id: user.id,
+        company_id: employee?.company_id,
         bank_account_id: bankAccountId,
         statement_period_start: periodStart || null,
         statement_period_end: periodEnd || null,

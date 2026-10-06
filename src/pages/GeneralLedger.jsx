@@ -10,7 +10,7 @@ export default function GeneralLedger() {
   const navigate = useNavigate();
   const BRAND = useBrand();
 
-  const { user } = useAuth();
+  const { user, employee } = useAuth();
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -30,7 +30,7 @@ export default function GeneralLedger() {
           *,
           journal_entry_lines(debit, credit)
         `)
-        .eq("company_id", user.id)
+        .eq("company_id", employee?.company_id)
         .order("entry_date", { ascending: false });
 
       if (error) throw error;
@@ -121,7 +121,7 @@ export default function GeneralLedger() {
         .from('journal_entries')
         .select('id')
         .eq('id', entry.id)
-        .eq('company_id', user.id)
+        .eq('company_id', employee?.company_id)
         .maybeSingle();
       
       if (verifyError) {

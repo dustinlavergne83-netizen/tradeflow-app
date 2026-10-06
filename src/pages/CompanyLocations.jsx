@@ -224,7 +224,7 @@ const EMPTY_LOC_FORM = { name: "", geofence_radius_meters: 200, geofence_enabled
 export default function CompanyLocations() {
   const BRAND = useBrand();
   const nav = useNavigate();
-  const { user } = useAuth();
+  const { user, employee } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [projectFences, setProjectFences] = useState([]);
@@ -254,7 +254,7 @@ export default function CompanyLocations() {
     try {
       const [projRes, locRes, empRes] = await Promise.all([
         supabase.from("projects").select("id, name, address, geofence_latitude, geofence_longitude, geofence_radius_meters, geofence_enabled").not("geofence_latitude", "is", null).order("name"),
-        supabase.from("company_locations").select("*").eq("company_id", user.id).order("name"),
+        supabase.from("company_locations").select("*").eq("company_id", employee?.company_id).order("name"),
         supabase.from("employees").select("id, user_id, first_name, last_name").order("first_name"),
       ]);
       setProjectFences(projRes.data || []);
@@ -310,7 +310,7 @@ export default function CompanyLocations() {
     try {
       const current = getNotif(fenceType, fenceId);
       const payload = {
-        company_id: user.id,
+        company_id: employee?.company_id,
         fence_type: fenceType,
         fence_id: fenceId,
         notify_on_enter: current.notify_on_enter ?? true,
@@ -371,7 +371,7 @@ export default function CompanyLocations() {
     setSavingLoc(true);
     try {
       const payload = {
-        company_id: user.id, name: locForm.name.trim(),
+        company_id: employee?.company_id, name: locForm.name.trim(),
         address: addressInput.trim() || null,
         geofence_latitude: markerPosition?.lat ?? null,
         geofence_longitude: markerPosition?.lng ?? null,

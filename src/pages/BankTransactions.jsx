@@ -14,7 +14,7 @@ export default function BankTransactions() {
   const navigate = useNavigate();
   const BRAND = useBrand();
 
-  const { user } = useAuth();
+  const { user, employee } = useAuth();
   const [searchParams] = useSearchParams();
   const accountId = searchParams.get('accountId');
 
@@ -293,7 +293,7 @@ export default function BankTransactions() {
       const { data, error } = await supabase
         .from("vendors")
         .select("vendor_name")
-        .eq("company_id", user.id)
+        .eq("company_id", employee?.company_id)
         .eq("archived", false)
         .order("vendor_name");
 
@@ -476,7 +476,7 @@ export default function BankTransactions() {
     }
 
     const expenseData = {
-      company_id: user.id,
+      company_id: employee?.company_id,
       created_by: user.id,
       expense_date: transaction.transaction_date,
       amount: Math.abs(parseFloat(transaction.amount) || 0),
@@ -888,7 +888,7 @@ export default function BankTransactions() {
         invoice_id: line.invoice.id,
         invoice_payment_id: line.payment?.id || null,
         amount_applied: line.netAmount,
-        company_id: user.id,
+        company_id: employee?.company_id,
         created_by: user.id
       }));
 
@@ -1758,7 +1758,7 @@ export default function BankTransactions() {
                 reference_type: 'bank_transaction',
                 reference_id: transaction.id,
                 created_by: user.id,
-                company_id: user.id,
+                company_id: employee?.company_id,
                 is_posted: true,
                 posted_at: new Date().toISOString(),
                 posted_by: user.id
@@ -2017,7 +2017,7 @@ export default function BankTransactions() {
           reference_type: 'transfer',
           reference_id: transaction.id,
           created_by: user.id,
-          company_id: user.id,
+          company_id: employee?.company_id,
           is_posted: true,
           posted_at: new Date().toISOString(),
           posted_by: user.id

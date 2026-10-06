@@ -18,7 +18,7 @@ export default function ProposalCommercialPublic() {
   const [searchParams] = useSearchParams();
   const { id: projectIdFromPath } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, employee } = useAuth();
   
   const proposalId = searchParams.get("proposalId");
   const estimateId = searchParams.get("estimateId");
@@ -434,7 +434,7 @@ export default function ProposalCommercialPublic() {
       const totalAmount = baseBidAmount + alternatesTotal + adj;
 
       const proposalData = {
-        company_id: user.id,
+        company_id: employee?.company_id,
         project_id: projectId,
         // For change orders, use change_order_id instead of base_estimate_id
         // (base_estimate_id has a foreign key to the estimates table)

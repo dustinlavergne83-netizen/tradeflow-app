@@ -10,7 +10,7 @@ export default function BankAccounts() {
   const BRAND = useBrand();
 
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, employee } = useAuth();
   const [accounts, setAccounts] = useState([]);
   const [chartAccounts, setChartAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -40,7 +40,7 @@ export default function BankAccounts() {
       const { data: accountsData, error: accountsError } = await supabase
         .from("bank_accounts")
         .select("*, accounts(account_name, account_number)")
-        .eq("company_id", user.id)
+        .eq("company_id", employee?.company_id)
         .order("account_name", { ascending: true });
 
       if (accountsError) throw accountsError;
@@ -50,7 +50,7 @@ export default function BankAccounts() {
       const { data: chartData, error: chartError } = await supabase
         .from("accounts")
         .select("*")
-        .eq("company_id", user.id)
+        .eq("company_id", employee?.company_id)
         .eq("is_active", true)
         .in("account_type", ["Asset"])
         .order("account_number", { ascending: true });
@@ -105,7 +105,7 @@ export default function BankAccounts() {
 
     try {
       const accountData = {
-        company_id: user.id,
+        company_id: employee?.company_id,
         account_name: accountForm.account_name,
         account_number: accountForm.account_number || null,
         bank_name: accountForm.bank_name || null,

@@ -10,7 +10,7 @@ export default function BankReconciliation() {
   const navigate = useNavigate();
   const BRAND = useBrand();
 
-  const { user } = useAuth();
+  const { user, employee } = useAuth();
   
   const [bankAccounts, setBankAccounts] = useState([]);
   const [selectedAccountId, setSelectedAccountId] = useState('');
@@ -48,7 +48,7 @@ export default function BankReconciliation() {
       const { data, error } = await supabase
         .from("bank_accounts")
         .select("*")
-        .eq("company_id", user.id)
+        .eq("company_id", employee?.company_id)
         .eq("is_active", true)
         .order("account_name", { ascending: true });
 

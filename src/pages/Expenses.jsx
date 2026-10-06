@@ -7,7 +7,7 @@ import { getTodayLocalDate, toLocalDateString } from "../utils/dateUtils";
 import { confirmDialog } from '../lib/notify';
 
 export default function Expenses() {
-  const { user } = useAuth();
+  const { user, employee } = useAuth();
   const [expenses, setExpenses] = useState([]);
   const [clearedBankExpenses, setClearedBankExpenses] = useState([]);
   const [projects, setProjects] = useState([]);
@@ -131,7 +131,7 @@ export default function Expenses() {
       const { data: bankData, error: bankError } = await supabase
         .from("bank_accounts")
         .select("*")
-        .eq("company_id", user.id)
+        .eq("company_id", employee?.company_id)
         .eq("is_active", true)
         .order("account_name");
 
@@ -141,7 +141,7 @@ export default function Expenses() {
       const { data: incomeAccounts, error: incomeError } = await supabase
         .from("accounts")
         .select("id, account_number, account_name, account_type")
-        .eq("company_id", user.id)
+        .eq("company_id", employee?.company_id)
         .eq("account_type", "Income")
         .eq("is_active", true)
         .order("account_name");
@@ -157,7 +157,7 @@ export default function Expenses() {
       const { data: assetAccounts, error: assetError } = await supabase
         .from("accounts")
         .select("id, account_number, account_name, account_type")
-        .eq("company_id", user.id)
+        .eq("company_id", employee?.company_id)
         .eq("account_type", "Asset")
         .eq("is_active", true)
         .order("account_name");
@@ -199,7 +199,7 @@ export default function Expenses() {
       const { data, error } = await supabase
         .from("accounts")
         .select("*")
-        .eq("company_id", user.id)
+        .eq("company_id", employee?.company_id)
         .eq("account_type", "Expense")
         .eq("is_active", true)
         .order("account_number");
@@ -219,7 +219,7 @@ export default function Expenses() {
       const { data, error } = await supabase
         .from("accounts")
         .select("*")
-        .eq("company_id", user.id)
+        .eq("company_id", employee?.company_id)
         .eq("account_type", "Liability")
         .eq("is_active", true)
         .order("account_number");
@@ -236,7 +236,7 @@ export default function Expenses() {
       const { data, error } = await supabase
         .from("vendors")
         .select("*")
-        .eq("company_id", user.id)
+        .eq("company_id", employee?.company_id)
         .eq("archived", false)
         .order("vendor_name");
 
@@ -271,7 +271,7 @@ export default function Expenses() {
       const { data: userBankAccounts } = await supabase
         .from("bank_accounts")
         .select("id, account_name")
-        .eq("company_id", user.id);
+        .eq("company_id", employee?.company_id);
 
       // Build a quick lookup: bank_account_id → account_name (for display only)
       const accountNameById = {};
@@ -284,7 +284,7 @@ export default function Expenses() {
       const { data: allCoaAccounts } = await supabase
         .from("accounts")
         .select("id, account_number, account_name")
-        .eq("company_id", user.id);
+        .eq("company_id", employee?.company_id);
       const coaNameById = {};
       (allCoaAccounts || []).forEach(a => { coaNameById[a.id] = `${a.account_number} - ${a.account_name}`; });
 

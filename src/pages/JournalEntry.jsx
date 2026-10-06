@@ -10,7 +10,7 @@ export default function JournalEntry() {
   const navigate = useNavigate();
   const BRAND = useBrand();
 
-  const { user } = useAuth();
+  const { user, employee } = useAuth();
   const [searchParams] = useSearchParams();
   const entryId = searchParams.get('entryId');
   
@@ -38,7 +38,7 @@ export default function JournalEntry() {
       const { data: accountsData, error: accountsError } = await supabase
         .from("accounts")
         .select("*")
-        .eq("company_id", user.id)
+        .eq("company_id", employee?.company_id)
         .eq("is_active", true)
         .order("account_number", { ascending: true });
 
@@ -51,7 +51,7 @@ export default function JournalEntry() {
           .from("journal_entries")
           .select("*")
           .eq("id", entryId)
-          .eq("company_id", user.id)
+          .eq("company_id", employee?.company_id)
           .single();
 
         if (entryError) {
@@ -87,7 +87,7 @@ export default function JournalEntry() {
       } else {
         // Generate new entry number
         const { data: numberData, error: numberError } = await supabase
-          .rpc('get_next_journal_entry_number', { p_company_id: user.id });
+          .rpc('get_next_journal_entry_number', { p_company_id: employee?.company_id });
 
         if (!numberError && numberData) {
           setEntry(prev => ({ ...prev, entry_number: numberData }));
@@ -193,7 +193,7 @@ export default function JournalEntry() {
         // Update existing entry - preserve the original reference_type so RLS
         // policies tied to reference_type (e.g. bank_transaction) keep working
         const entryData = {
-          company_id: user.id,
+          company_id: employee?.company_id,
           entry_number: entry.entry_number,
           entry_date: entry.entry_date,
           description: entry.description || null,
@@ -230,7 +230,7 @@ export default function JournalEntry() {
       } else {
         // Create new entry
         const entryData = {
-          company_id: user.id,
+          company_id: employee?.company_id,
           entry_number: entry.entry_number,
           entry_date: entry.entry_date,
           description: entry.description || null,

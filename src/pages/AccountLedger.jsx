@@ -11,7 +11,7 @@ export default function AccountLedger() {
   const { accountId } = useParams();
   const BRAND = useBrand();
 
-  const { user } = useAuth();
+  const { user, employee } = useAuth();
   const [account, setAccount] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -33,7 +33,7 @@ export default function AccountLedger() {
         .from("accounts")
         .select("*")
         .eq("id", accountId)
-        .eq("company_id", user.id)
+        .eq("company_id", employee?.company_id)
         .single();
 
       if (accountError) throw accountError;

@@ -262,7 +262,7 @@ export default function GeneratorInvoice() {
       // 5. Update / create generator record
       if (updateGeneratorRecord) {
         const basePayload = {
-          company_id: user.id,
+          company_id: employee?.company_id,
           customer_name: customerName,
           customer_address: customerAddress,
           customer_phone: customerPhone,
