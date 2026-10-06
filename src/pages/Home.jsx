@@ -24,6 +24,7 @@ export default function Home() {
     outstandingAmount: 0,
     paidAmount: 0,
     totalRevenue: 0,
+    depositsHeld: 0,
     estimatedProfit: 0,
     activeEmployees: 0,
   });
@@ -77,6 +78,7 @@ export default function Home() {
           outstandingAmount: 0,
           paidAmount: 0,
           totalRevenue: 0,
+          depositsHeld: 0,
           estimatedProfit: 0,
           activeEmployees: 0,
         });
@@ -93,7 +95,7 @@ export default function Home() {
 
       let invoicesQuery = supabase
         .from("invoices")
-        .select("total, status, amount_paid, deposit_received, balance_due")
+        .select("total, status, amount_paid, deposit_received, balance_due, invoice_type")
         .eq("company_id", companyId);
 
       let employeesQuery = supabase
@@ -133,7 +135,22 @@ export default function Home() {
       const paidAmount = invoicesData.data
         ?.reduce((sum, inv) => sum + (inv.amount_paid || 0) + (inv.deposit_received || 0), 0) || 0;
 
-      const totalRevenue = invoicesData.data?.reduce((sum, inv) => sum + (inv.total || 0), 0) || 0;
+      // Deposit invoices are unearned revenue — a liability until the work
+      // they're held against is actually performed/billed — so they're
+      // excluded from Total Revenue. Same rule ProjectDetail.jsx already
+      // applies to a project's billed amount. Without this, an unpaid
+      // deposit invoice (e.g. sent but not yet collected) inflated "Total
+      // Revenue" even though Paid Invoices correctly showed $0 for it.
+      const totalRevenue = invoicesData.data
+        ?.filter(inv => inv.invoice_type !== 'deposit')
+        .reduce((sum, inv) => sum + (inv.total || 0), 0) || 0;
+
+      // Deposits Held = total of deposit invoices, shown separately so that
+      // money isn't just dropped from the dashboard — it's real, it's just
+      // not revenue yet.
+      const depositsHeld = invoicesData.data
+        ?.filter(inv => inv.invoice_type === 'deposit')
+        .reduce((sum, inv) => sum + (inv.total || 0), 0) || 0;
 
       // Calculate estimated profit from active projects
       // Profit = total_cost - (labor_cost + material_cost)
@@ -150,6 +167,7 @@ export default function Home() {
         outstandingAmount,
         paidAmount,
         totalRevenue,
+        depositsHeld,
         estimatedProfit,
         activeEmployees: employeesData.count || 0,
       });
@@ -750,6 +768,15 @@ export default function Home() {
             subtitle="Pending payment"
             onClick={() => navigate("/invoices")}
           />
+          {stats.depositsHeld > 0 && (
+            <StatCard
+              icon="🏦"
+              title="Deposits Held"
+              value={`$${stats.depositsHeld.toLocaleString()}`}
+              subtitle="Unearned — excluded from revenue"
+              onClick={() => navigate("/invoices")}
+            />
+          )}
         </div>
 
         {/* Financial Overview and Active Projects Section */}
