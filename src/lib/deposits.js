@@ -234,3 +234,71 @@ export async function applyDepositsToInvoice(invoiceId, deposits, invoiceTotal) 
 
   return totalApplied;
 }
+
+/**
+ * Keeps a project_deposits row in sync with a "Deposit Invoice" (an invoice
+ * with invoice_type === 'deposit', created via ProjectDetail's "Create
+ * Deposit Invoice" option) whenever that invoice's amount_paid changes.
+ *
+ * Without this, money taken via a Deposit Invoice was invisible to the
+ * "Apply Deposits to Invoice" picker forever, even once fully collected —
+ * the picker only ever reads project_deposits, and creating a deposit
+ * invoice never wrote one. A deposit invoice that's only partially paid
+ * makes exactly that partial amount available (per product decision), by
+ * upserting deposit_amount = invoice.amount_paid each time this runs.
+ *
+ * Idempotent via source_invoice_id (unique per invoice): calling this
+ * repeatedly as payments come in (or are edited/deleted) updates the same
+ * row rather than creating duplicates. If amount_paid drops to 0 (e.g. a
+ * payment was deleted), the row is removed entirely rather than left at
+ * $0, so it doesn't clutter the Deposits card with a worthless entry.
+ *
+ * Call this after any payment-recording/edit/delete flow touches an
+ * invoice with invoice_type === 'deposit'. Pass the FULL current invoice
+ * row (post-update) so amount_paid reflects the latest state.
+ */
+export async function syncDepositInvoicePayment(invoice, userId) {
+  if (!invoice || invoice.invoice_type !== 'deposit') return;
+
+  const amountPaid = Number(invoice.amount_paid) || 0;
+
+  if (amountPaid <= 0.004) {
+    // Nothing paid (yet, or anymore after a payment was deleted) — remove
+    // any previously-synced row so it doesn't show as an available deposit
+    // with a stale nonzero amount, or linger as a $0 entry.
+    await supabase
+      .from("project_deposits")
+      .delete()
+      .eq("source_invoice_id", invoice.id);
+    return;
+  }
+
+  const projectId = await resolveProjectId({ projectName: invoice.project_name });
+  if (!projectId) return; // no matching project — nothing to sync against
+
+  // NOTE: project_deposits.bank_account_id is a foreign key into the
+  // CHART OF ACCOUNTS (accounts table) — a different table from
+  // invoices.bank_account_id, which points at the bank_accounts table.
+  // Copying the invoice's bank_account_id across would violate that FK
+  // (confirmed: inserting a real bank_accounts.id here fails with
+  // "violates foreign key constraint project_deposits_bank_account_id_fkey").
+  // It isn't essential to the apply-deposit flow, so it's simply omitted.
+  const { error } = await supabase
+    .from("project_deposits")
+    .upsert(
+      {
+        source_invoice_id: invoice.id,
+        project_id: projectId,
+        deposit_amount: amountPaid,
+        deposit_date: invoice.payment_date || invoice.invoice_date || new Date().toISOString().split("T")[0],
+        reference_notes: `Deposit invoice #${invoice.invoice_number || ''}`.trim(),
+        status: 'received',
+        created_by: userId || invoice.created_by || null,
+      },
+      { onConflict: "source_invoice_id" }
+    );
+
+  if (error) {
+    console.error("Error syncing deposit invoice to project_deposits:", error);
+  }
+}

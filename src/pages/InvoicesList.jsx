@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { createInvoicePaymentJournalEntry, getNextJournalEntryNumber } from "../utils/accountingJournals";
 import { notify, confirmDialog } from '../lib/notify';
+import { syncDepositInvoicePayment } from '../lib/deposits';
 
 // Clears the Customer Deposits (2700) liability for an invoice once it's fully
 // paid, by creating a "Debit Customer Deposits / Credit AR" journal entry.
@@ -497,6 +498,19 @@ export default function InvoicesList() {
         .update(updateData)
         .eq('id', selectedInvoice.id);
 
+      // If this invoice is a Deposit Invoice (invoice_type === 'deposit'),
+      // keep project_deposits in sync so the money becomes available in
+      // the "Apply Deposits to Invoice" picker on this project's future
+      // invoices — that picker only ever reads project_deposits, not
+      // invoices directly, so without this the paid amount would otherwise
+      // never be applicable anywhere.
+      if (selectedInvoice.invoice_type === 'deposit') {
+        await syncDepositInvoicePayment(
+          { ...selectedInvoice, amount_paid: totalPaid, bank_account_id: paymentForm.bank_account_id || null, payment_date: paymentForm.date },
+          user.id
+        );
+      }
+
       if (error) throw error;
 
       // Auto-create journal entry for invoice payment with fee handling
@@ -784,6 +798,15 @@ export default function InvoicesList() {
         })
         .eq('id', editingPayment.invoice_id);
 
+      // Keep project_deposits in sync if this is a Deposit Invoice — see
+      // handlePayment's comment above for why this matters.
+      if (inv?.invoice_type === 'deposit') {
+        await syncDepositInvoicePayment(
+          { ...inv, amount_paid: totalPaid, payment_date: editPaymentForm.date, bank_account_id: editPaymentForm.bank_account_id || inv.bank_account_id },
+          user.id
+        );
+      }
+
       if (invUpdateErr) throw invUpdateErr;
 
       // 3. Reload payment history and close modal
@@ -848,6 +871,13 @@ export default function InvoicesList() {
         .eq('id', payment.invoice_id);
 
       if (invUpdateErr) throw invUpdateErr;
+
+      // Keep project_deposits in sync if this is a Deposit Invoice — a
+      // deleted payment can drop amount_paid to $0, in which case
+      // syncDepositInvoicePayment removes the synced row entirely.
+      if (inv?.invoice_type === 'deposit') {
+        await syncDepositInvoicePayment({ ...inv, amount_paid: totalPaid }, user.id);
+      }
 
       // 3. Create a reversal journal entry if there's a linked journal entry
       if (payment.journal_entry_id) {

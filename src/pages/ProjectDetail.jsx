@@ -8,7 +8,7 @@ import { getNextJournalEntryNumber, createInvoicePaymentJournalEntry } from "../
 import { notify, confirmDialog, promptDialog } from '../lib/notify';
 import { useFeatures } from "../lib/useFeatures";
 import { useBrand } from "../lib/useBrand";
-import { loadAvailableDeposits, applyDepositsToInvoice } from "../lib/deposits";
+import { loadAvailableDeposits, applyDepositsToInvoice, syncDepositInvoicePayment } from "../lib/deposits";
 import { getProjectTypes } from "../lib/projectTypes";
 
 const STATIC_BRAND = {
@@ -1027,6 +1027,19 @@ async function handleAddContractor() {
         balance_due: trueBalance,
       }).eq('id', payingInvoice.id);
 
+      // If this payment was for a Deposit Invoice (invoice_type ===
+      // 'deposit'), keep project_deposits in sync so the money becomes
+      // available in the "Apply Deposits to Invoice" picker on this
+      // project's future invoices — see lib/deposits.js for why this
+      // otherwise never happens (that picker never reads invoices
+      // directly, only project_deposits).
+      if (payingInvoice.invoice_type === 'deposit') {
+        await syncDepositInvoicePayment(
+          { ...payingInvoice, amount_paid: totalPaid, payment_date: pdPaymentForm.date },
+          user.id
+        );
+      }
+
       // 3. Journal entry
       try {
         const bankAccountId = pdPaymentForm.deposit_type === 'bank'
@@ -1651,6 +1664,13 @@ async function handleAddContractor() {
   // are NOT yet applied to any invoice (received/deposited, un-invoiced cash
   // still sitting separately). "Applied" rows are intentionally left out —
   // that money is already visible in the Payment Collected total below.
+  //
+  // source_invoice_id rows (see lib/deposits.js syncDepositInvoicePayment)
+  // are auto-synced copies of a deposit invoice's OWN amount_paid — that
+  // money is already counted by the first term below (deposit-type
+  // invoices' own paid amount), so they're excluded here too, or it would
+  // be counted twice: once as the invoice's amount_paid, once as its
+  // mirrored project_deposits row.
   const depositsInvoiced = invoices
     .filter(inv => inv.invoice_type === 'deposit')
     .reduce((sum, inv) => sum + (inv.total || 0), 0);
@@ -1659,7 +1679,7 @@ async function handleAddContractor() {
       .filter(inv => inv.invoice_type === 'deposit')
       .reduce((sum, inv) => sum + (inv.amount_paid || 0) + (inv.deposit_received || 0), 0)
     + deposits
-        .filter(d => (d.status === 'received' || d.status === 'deposited') && !d.invoice_id)
+        .filter(d => (d.status === 'received' || d.status === 'deposited') && !d.invoice_id && !d.source_invoice_id)
         .reduce((sum, d) => sum + (d.deposit_amount || 0), 0);
 
   // ───── Quick Action Button Style ─────
