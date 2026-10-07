@@ -25,7 +25,20 @@ export default function ProposalCommercialPublic() {
   // customer — this component auto-populates the customer instead of
   // showing the "Select Contractor" dropdown for those companies.
   const isCustomCatalog = hasCustomProjectTypes(company);
-  
+  // Letterhead contact details — AuthContext only loads a small subset of
+  // `companies` columns (name/colors/logo), so fetch phone/email locally
+  // here rather than widen the shared AuthContext query.
+  const [companyInfo, setCompanyInfo] = useState(null);
+  useEffect(() => {
+    if (!company?.id) return;
+    supabase
+      .from("companies")
+      .select("name, contact_phone, contact_email")
+      .eq("id", company.id)
+      .maybeSingle()
+      .then(({ data }) => { if (data) setCompanyInfo(data); });
+  }, [company?.id]);
+
   const proposalId = searchParams.get("proposalId");
   const estimateId = searchParams.get("estimateId");
   const coId = searchParams.get("coId"); // Change Order ID
@@ -784,7 +797,9 @@ export default function ProposalCommercialPublic() {
                     style={styles.cardCheckbox}
                   />
                   <label htmlFor="baseBid" style={styles.lineItemLabel}>
-                    <span style={{...styles.badge, backgroundColor: BRAND.accent, marginRight: 10}}>BASE BID</span>
+                    {!isCustomCatalog && (
+                      <span style={{...styles.badge, backgroundColor: BRAND.accent, marginRight: 10}}>BASE BID</span>
+                    )}
                     <span style={styles.lineItemDesc}>
                       {baseEstimate.description || baseEstimate.project_description || "Base scope of work"}
                     </span>
@@ -1043,21 +1058,30 @@ export default function ProposalCommercialPublic() {
             )}
           </div>
           <div style={styles.logoSection}>
-            <img src={logoImage} alt="Company Logo" style={styles.logo} />
+            <img src={BRAND.logo_url || logoImage} alt="Company Logo" style={styles.logo} />
           </div>
           <div style={styles.estimateTitle}>
             <h2 style={styles.estimateNumber}>
-              {proposal?.proposal_number
-                ? `PROPOSAL #${proposal.proposal_number.replace('PROP-', '').replace('EST-', '').replace(/^\d{2}-/, '')}`
-                : `ESTIMATE #${baseEstimate.estimate_number?.replace('EST-', '').replace(/^\d{2}-/, '')}`}
+              {`PROPOSAL #${(proposal?.proposal_number || baseEstimate.estimate_number || '')
+                .replace('PROP-', '').replace('EST-', '').replace(/^\d{2}-/, '')}`}
             </h2>
           </div>
         </div>
-        <div style={{ textAlign: "center", marginTop: 2, marginBottom: 0 }}>
-          <p style={{ fontSize: 11, color: "#666", margin: 0 }}>
-            Phone: (337)288-0395 | Email: info@dmlelectrical.com | License #: 63147
-          </p>
-        </div>
+        {isCustomCatalog ? (
+          (companyInfo?.contact_phone || companyInfo?.contact_email) && (
+            <div style={{ textAlign: "center", marginTop: 2, marginBottom: 0 }}>
+              <p style={{ fontSize: 11, color: "#666", margin: 0 }}>
+                {[companyInfo?.contact_phone && `Phone: ${companyInfo.contact_phone}`, companyInfo?.contact_email && `Email: ${companyInfo.contact_email}`].filter(Boolean).join(" | ")}
+              </p>
+            </div>
+          )
+        ) : (
+          <div style={{ textAlign: "center", marginTop: 2, marginBottom: 0 }}>
+            <p style={{ fontSize: 11, color: "#666", margin: 0 }}>
+              Phone: (337)288-0395 | Email: info@dmlelectrical.com | License #: 63147
+            </p>
+          </div>
+        )}
 
         <hr style={styles.divider} />
 
@@ -1117,7 +1141,9 @@ export default function ProposalCommercialPublic() {
                   {baseBidAmount > 0 && (
                     <tr style={styles.tableRow}>
                       <td style={styles.td}>
-                        <span style={{...styles.badge, backgroundColor: BRAND.accent}}>BASE BID</span>
+                        {!isCustomCatalog && (
+                          <span style={{...styles.badge, backgroundColor: BRAND.accent}}>BASE BID</span>
+                        )}
                       </td>
                       <td style={{...styles.td, fontSize: 13, color: "#666", lineHeight: 1.6}}>
                         {renderDescription(baseEstimate.notes || baseEstimate.description || baseEstimate.project_description || "Base scope of work")}
@@ -1152,7 +1178,9 @@ export default function ProposalCommercialPublic() {
                   {baseBidAmount > 0 && (
                     <tr style={styles.tableRow}>
                       <td style={styles.td}>
-                        <span style={{...styles.badge, backgroundColor: BRAND.accent}}>BASE BID</span>
+                        {!isCustomCatalog && (
+                          <span style={{...styles.badge, backgroundColor: BRAND.accent}}>BASE BID</span>
+                        )}
                       </td>
                       <td style={{...styles.td, fontSize: 13, color: "#666"}}>
                         {renderDescription(baseEstimate.description || baseEstimate.project_description || "Base scope of work")}
