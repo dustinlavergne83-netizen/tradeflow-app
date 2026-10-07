@@ -1104,7 +1104,7 @@ export default function ProposalCommercialPublic() {
         </div>
 
         {/* Scope of Work / Description â€” pulled from estimate */}
-        {(baseEstimate.notes || baseEstimate.description) && (
+        {!isCustomCatalog && (baseEstimate.notes || baseEstimate.description) && (
           <div style={{
             margin: '0 0 18px 0',
             padding: '14px 18px',
@@ -1127,7 +1127,9 @@ export default function ProposalCommercialPublic() {
           <table style={styles.table}>
             <thead>
               <tr style={styles.tableHeaderRow}>
-                <th style={{...styles.th, textAlign: "left", width: 100}}>ITEM</th>
+                {!isCustomCatalog && (
+                  <th style={{...styles.th, textAlign: "left", width: 100}}>ITEM</th>
+                )}
                 <th style={{...styles.th, textAlign: "left"}}>DESCRIPTION</th>
                 {(showLineItems ? showItemPrices : true) && (
                   <th style={{...styles.th, textAlign: "right", width: 120}}>AMOUNT</th>
@@ -1140,11 +1142,11 @@ export default function ProposalCommercialPublic() {
                 <>
                   {baseBidAmount > 0 && (
                     <tr style={styles.tableRow}>
-                      <td style={styles.td}>
-                        {!isCustomCatalog && (
+                      {!isCustomCatalog && (
+                        <td style={styles.td}>
                           <span style={{...styles.badge, backgroundColor: BRAND.accent}}>BASE BID</span>
-                        )}
-                      </td>
+                        </td>
+                      )}
                       <td style={{...styles.td, fontSize: 13, color: "#666", lineHeight: 1.6}}>
                         {renderDescription(baseEstimate.notes || baseEstimate.description || baseEstimate.project_description || "Base scope of work")}
                         <div style={{fontSize: 12, color: "#888", marginTop: 4}}>
@@ -1158,12 +1160,15 @@ export default function ProposalCommercialPublic() {
                   )}
                   {displayAlternates.map(alt => (
                     <tr key={alt.id} style={styles.tableRow}>
-                      <td style={styles.td}>
-                        <span style={{...styles.badge, backgroundColor: "#8b5cf6"}}>
-                          ALT {alt.alternate_number}
-                        </span>
-                      </td>
+                      {!isCustomCatalog && (
+                        <td style={styles.td}>
+                          <span style={{...styles.badge, backgroundColor: "#8b5cf6"}}>
+                            ALT {alt.alternate_number}
+                          </span>
+                        </td>
+                      )}
                       <td style={{...styles.td, fontSize: 13, color: "#666"}}>
+                        {isCustomCatalog && <strong>Alt {alt.alternate_number}: </strong>}
                         {alt.description || alt.title || alt.alternate_title || ""}
                       </td>
                       <td style={{...styles.td, textAlign: "right", fontWeight: "600", fontSize: 16}}>
@@ -1177,11 +1182,11 @@ export default function ProposalCommercialPublic() {
                 <>
                   {baseBidAmount > 0 && (
                     <tr style={styles.tableRow}>
-                      <td style={styles.td}>
-                        {!isCustomCatalog && (
+                      {!isCustomCatalog && (
+                        <td style={styles.td}>
                           <span style={{...styles.badge, backgroundColor: BRAND.accent}}>BASE BID</span>
-                        )}
-                      </td>
+                        </td>
+                      )}
                       <td style={{...styles.td, fontSize: 13, color: "#666"}}>
                         {renderDescription(baseEstimate.description || baseEstimate.project_description || "Base scope of work")}
                       </td>
@@ -1195,12 +1200,15 @@ export default function ProposalCommercialPublic() {
 
                   {displayAlternates.map(alt => (
                     <tr key={alt.id} style={styles.tableRow}>
-                      <td style={styles.td}>
-                        <span style={{...styles.badge, backgroundColor: "#8b5cf6"}}>
-                          ALT {alt.alternate_number}
-                        </span>
-                      </td>
+                      {!isCustomCatalog && (
+                        <td style={styles.td}>
+                          <span style={{...styles.badge, backgroundColor: "#8b5cf6"}}>
+                            ALT {alt.alternate_number}
+                          </span>
+                        </td>
+                      )}
                       <td style={{...styles.td, fontSize: 13, color: "#666"}}>
+                        {isCustomCatalog && <strong>Alt {alt.alternate_number}: </strong>}
                         {alt.description || alt.title || alt.alternate_title || ""}
                       </td>
                       {showItemPrices && (
@@ -1214,8 +1222,8 @@ export default function ProposalCommercialPublic() {
               )}
               <tr style={styles.totalRow}>
                 {showLineItems && !showItemPrices ? (
-                  /* No AMOUNT column exists â€” span all columns, show total inline */
-                  <td colSpan={2} style={{...styles.td, fontWeight: "bold", fontSize: 18, display: "flex", justifyContent: "space-between", alignItems: "center"}}>
+                  /* No AMOUNT column exists — span all columns, show total inline */
+                  <td colSpan={isCustomCatalog ? 1 : 2} style={{...styles.td, fontWeight: "bold", fontSize: 18, display: "flex", justifyContent: "space-between", alignItems: "center"}}>
                     <span>TOTAL INVESTMENT</span>
                     <span style={{fontSize: 24, color: BRAND.accent}}>
                       ${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
@@ -1223,7 +1231,7 @@ export default function ProposalCommercialPublic() {
                   </td>
                 ) : (
                   <>
-                    <td colSpan={2} style={{...styles.td, fontWeight: "bold", fontSize: 18}}>
+                    <td colSpan={isCustomCatalog ? 1 : 2} style={{...styles.td, fontWeight: "bold", fontSize: 18}}>
                       TOTAL INVESTMENT
                     </td>
                     <td style={{...styles.td, textAlign: "right", fontWeight: "bold", fontSize: 24, color: BRAND.accent}}>
@@ -1283,17 +1291,42 @@ export default function ProposalCommercialPublic() {
         )}
 
         <div style={styles.scopeStatement}>
-          <p style={styles.scopeText}>
-            <strong>DML Electrical Service, LLC.</strong> proposes to furnish all material and labor necessary 
-            to fully complete the above project in accordance with the National Electrical Code (NEC), all 
-            applicable local codes, and industry best practices. All work will be performed by licensed, 
-            qualified electricians using quality materials from reputable manufacturers. This proposal includes 
-            all items specified above and assumes normal working conditions with adequate access to work areas.
-          </p>
-          <p style={styles.scopeText}>
-            Price is valid for 30 days from proposal date. Any changes or additions to the scope of work 
-            outlined above will require written approval and may result in additional charges.
-          </p>
+          {isCustomCatalog ? (
+            <>
+              <p style={styles.scopeText}>
+                <strong>{companyInfo?.name || BRAND.name}</strong> proposes to furnish all material and labor necessary
+                to fully complete the above project in accordance with all applicable local building codes and
+                industry best practices. All work will be performed by qualified, experienced craftsmen using
+                quality materials from reputable suppliers. This proposal includes all items specified above and
+                assumes normal working conditions with adequate access to work areas.
+              </p>
+              <p style={styles.scopeText}>
+                All labor performed under this proposal is warranted against defects in workmanship for one (1)
+                year from the date of completion. This warranty does not cover materials supplied by others,
+                normal wear and tear, or damage caused by misuse, neglect, or acts beyond our control.
+              </p>
+              <p style={styles.scopeText}>
+                {validUntil
+                  ? `This price is valid until ${formatDate(validUntil)}.`
+                  : "Price is valid for 30 days from proposal date."} Any changes or additions to the scope of
+                work outlined above will require written approval and may result in additional charges.
+              </p>
+            </>
+          ) : (
+            <>
+              <p style={styles.scopeText}>
+                <strong>DML Electrical Service, LLC.</strong> proposes to furnish all material and labor necessary 
+                to fully complete the above project in accordance with the National Electrical Code (NEC), all 
+                applicable local codes, and industry best practices. All work will be performed by licensed, 
+                qualified electricians using quality materials from reputable manufacturers. This proposal includes 
+                all items specified above and assumes normal working conditions with adequate access to work areas.
+              </p>
+              <p style={styles.scopeText}>
+                Price is valid for 30 days from proposal date. Any changes or additions to the scope of work 
+                outlined above will require written approval and may result in additional charges.
+              </p>
+            </>
+          )}
         </div>
 
         <div style={styles.footer}>
