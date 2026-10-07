@@ -1714,9 +1714,12 @@ const styles = {
     textAlign: "center",
   },
   logo: {
-    maxWidth: 240,
+    maxWidth: 160,
+    maxHeight: 90,
+    width: "auto",
     height: "auto",
-    marginBottom: 4,
+    marginBottom: 2,
+    objectFit: "contain",
   },
   contactInfo: {
     fontSize: 12,
@@ -1738,11 +1741,11 @@ const styles = {
   divider: {
     border: "none",
     borderTop: "3px solid " + STATIC_BRAND.accent,
-    margin: "30px 0 30px 0",
+    margin: "14px 0 18px 0",
   },
   titleSection: {
     textAlign: "center",
-    margin: "0 0 25px 0",
+    margin: "0 0 16px 0",
   },
   proposalTitle: {
     fontSize: 32,
