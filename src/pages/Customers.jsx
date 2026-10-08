@@ -21,6 +21,7 @@ export default function Customers() {
   const [customers, setCustomers] = useState([]);
   const [customerJobs, setCustomerJobs] = useState([]);
   const [customerCostSheets, setCustomerCostSheets] = useState([]);
+  const [customerProposals, setCustomerProposals] = useState([]);
   const [customerInvoices, setCustomerInvoices] = useState([]);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [selected, setSelected] = useState([]);
@@ -41,12 +42,15 @@ export default function Customers() {
     if (employee?.company_id) loadCustomers();
   }, [employee?.company_id]);
 
-  // Load this customer's Jobs, Cost Sheets, and Invoices whenever the
-  // selected customer changes. Each table links back to a customer
-  // differently (schema drift / no customer_id FK on projects or
-  // invoices), so each query uses the matching strategy that table
-  // actually supports:
+  // Load this customer's Jobs, Cost Sheets, Proposals, and Invoices
+  // whenever the selected customer changes. Each table links back to a
+  // customer differently (schema drift / no customer_id FK on projects,
+  // proposals, or invoices), so each query uses the matching strategy
+  // that table actually supports:
   //   - estimates:  real customer_id FK -> exact match
+  //   - proposals:  NO customer field at all -> resolved indirectly via
+  //                 its linked estimate's customer_id, or its linked
+  //                 project's free-text "customer"
   //   - projects:   free-text "customer" column -> fuzzy name match
   //   - invoices:   free-text "customer_name" column -> fuzzy name match
   useEffect(() => {
@@ -55,6 +59,7 @@ export default function Customers() {
     } else {
       setCustomerJobs([]);
       setCustomerCostSheets([]);
+      setCustomerProposals([]);
       setCustomerInvoices([]);
     }
   }, [selectedCustomer?.id, employee?.company_id]);
@@ -95,6 +100,41 @@ export default function Customers() {
       if (invErr) console.error("Failed to load invoices for customer", invErr);
       setCustomerInvoices(
         (invoicesData || []).filter(i => normalizeForMatch(i.customer_name) === targetName)
+      );
+
+      // Proposals — proposals has NO customer_id/customer_name column at
+      // all (confirmed live), only contractor_id/contractor_name (which
+      // points at project_contractors, a different concept for commercial
+      // multi-contractor bids). So a proposal's "customer" has to be
+      // resolved indirectly, through whichever of these is available:
+      //   1. base_estimate_id -> estimates.customer_id (exact FK match)
+      //   2. project_id -> projects.customer (free-text fuzzy match)
+      const { data: proposalsData, error: propErr } = await supabase
+        .from('proposals')
+        .select('id, proposal_number, contractor_name, total_amount, status, base_estimate_id, project_id, created_at')
+        .eq('company_id', employee.company_id)
+        .order('created_at', { ascending: false });
+      if (propErr) console.error("Failed to load proposals for customer", propErr);
+
+      const estimateIds = [...new Set((proposalsData || []).map(p => p.base_estimate_id).filter(Boolean))];
+      const proposalProjectIds = [...new Set((proposalsData || []).map(p => p.project_id).filter(Boolean))];
+      const [{ data: linkedEstimates }, { data: linkedProjects }] = await Promise.all([
+        estimateIds.length
+          ? supabase.from('estimates').select('id, customer_id').in('id', estimateIds)
+          : Promise.resolve({ data: [] }),
+        proposalProjectIds.length
+          ? supabase.from('projects').select('id, customer').in('id', proposalProjectIds)
+          : Promise.resolve({ data: [] }),
+      ]);
+      const estCustomerIdById = Object.fromEntries((linkedEstimates || []).map(e => [e.id, e.customer_id]));
+      const projCustomerTextById = Object.fromEntries((linkedProjects || []).map(p => [p.id, p.customer]));
+
+      setCustomerProposals(
+        (proposalsData || []).filter(p => {
+          const viaEstimate = p.base_estimate_id && estCustomerIdById[p.base_estimate_id] === customer.id;
+          const viaProject = p.project_id && normalizeForMatch(projCustomerTextById[p.project_id]) === targetName;
+          return viaEstimate || viaProject;
+        })
       );
     } finally {
       setLoadingDetails(false);
@@ -395,7 +435,7 @@ export default function Customers() {
             </div>
           </div>
           
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
             <div style={styles.section}>
               <h3 style={{ color: BRAND.accent, marginBottom: 10 }}>Jobs</h3>
               {loadingDetails ? (
@@ -435,6 +475,26 @@ export default function Customers() {
                   >
                     <div style={{ color: '#fff', fontWeight: 600 }}>#{est.estimate_number} — {est.project_name || 'Untitled'}</div>
                     <div style={{ color: '#999', fontSize: 12 }}>${Number(est.total || 0).toLocaleString()} · {est.status}</div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div style={styles.section}>
+              <h3 style={{ color: BRAND.accent, marginBottom: 10 }}>Proposals</h3>
+              {loadingDetails ? (
+                <p style={{ color: '#999' }}>Loading…</p>
+              ) : customerProposals.length === 0 ? (
+                <p style={{ color: '#999' }}>No proposals yet</p>
+              ) : (
+                customerProposals.map(prop => (
+                  <div
+                    key={prop.id}
+                    onClick={() => navigate(`/proposal/commercial-public?proposalId=${prop.id}`)}
+                    style={styles.detailRow}
+                  >
+                    <div style={{ color: '#fff', fontWeight: 600 }}>#{prop.proposal_number} — {prop.contractor_name || 'Proposal'}</div>
+                    <div style={{ color: '#999', fontSize: 12 }}>${Number(prop.total_amount || 0).toLocaleString()} · {prop.status}</div>
                   </div>
                 ))
               )}

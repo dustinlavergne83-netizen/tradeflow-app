@@ -159,3 +159,18 @@ WHERE table_schema = 'public'
   AND table_name = 'estimates'
   AND column_name IN ('customer_id', 'customer_name', 'project_id', 'project_name', 'company_id', 'estimate_type', 'status', 'total')
 ORDER BY column_name;
+
+-- ============================================================
+-- DT SPECIALTIES (2026-10): only 2 estimates + 1 proposal total,
+-- customers already exist but aren't linked — simple tie-together
+-- job, no creation needed. First confirm proposals has a real
+-- customer_id column (no tracked migration mentions one — only
+-- contractor_id/contractor_name from 013_proposals_table.sql —
+-- so check live before writing the fix).
+-- ============================================================
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = 'proposals'
+  AND column_name IN ('customer_id', 'customer_name', 'contractor_id', 'contractor_name', 'base_estimate_id', 'project_id', 'company_id')
+ORDER BY column_name;
