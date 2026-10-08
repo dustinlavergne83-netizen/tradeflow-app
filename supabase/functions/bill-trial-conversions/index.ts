@@ -1,14 +1,22 @@
 // bill-trial-conversions/index.ts
 // ─────────────────────────────────────────────────────────────────────────────
-// Finds all companies whose 14-day trial has expired and charges their
-// stored Clover card using the TRADEFLOW Clover account (CLOVER_TF_PRIVATE_KEY).
+// Finds and charges, via the stored Clover card on file
+// (TRADEFLOW Clover account, CLOVER_TF_PRIVATE_KEY):
+//   1. Trials whose 14-day trial has expired (first conversion charge), AND
+//   2. Active / past_due subscriptions whose next_billing_at has passed
+//      (ongoing monthly recurring charge).
+//
+// Without (2) this function would only ever charge a company ONCE — the
+// very first month — and then silently stop billing forever, because the
+// original query only matched subscription_status = 'trial'.
 //
 // Pricing: $49/mo base (up to 5 employees) + $5/employee after that.
 //
 // Run this daily via Supabase cron or manually from the dashboard.
-// POST with no body — it self-discovers all expired trials.
+// POST with no body — it self-discovers all expired trials + due renewals.
 //
-// Can also be called with { companyId } to manually bill a single company.
+// Can also be called with { companyId } to manually bill a single company
+// (ignores trial_ends_at / next_billing_at — bills immediately).
 // ─────────────────────────────────────────────────────────────────────────────
 import { corsHeaders } from '../_shared/cors.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -52,18 +60,25 @@ Deno.serve(async (req) => {
     } catch (_) { /* no body is fine */ }
 
     // ── Find companies to bill ────────────────────────────────────────────
+    // Two groups qualify for an automatic charge today:
+    //   • subscription_status = 'trial'  AND trial_ends_at has passed   (first conversion)
+    //   • subscription_status IN ('active','past_due') AND next_billing_at has passed (monthly renewal / retry)
+    const nowIso = new Date().toISOString()
+
     let query = supabase
       .from('companies')
-      .select('id, name, slug, clover_customer_id, card_last4, card_brand')
-      .eq('subscription_status', 'trial')
+      .select('id, name, slug, subscription_status, clover_customer_id, card_last4, card_brand')
       .not('clover_customer_id', 'is', null)
 
     if (singleCompanyId) {
-      // Manual single-company billing
+      // Manual single-company billing — bill immediately regardless of dates
       query = query.eq('id', singleCompanyId)
     } else {
-      // Automatic: only those whose trial has expired
-      query = query.lte('trial_ends_at', new Date().toISOString())
+      // Automatic daily sweep: expired trials + due renewals/retries
+      query = query.or(
+        `and(subscription_status.eq.trial,trial_ends_at.lte.${nowIso}),` +
+        `and(subscription_status.in.(active,past_due),next_billing_at.lte.${nowIso})`
+      )
     }
 
     const { data: companies, error: fetchError } = await query
@@ -97,7 +112,8 @@ Deno.serve(async (req) => {
 
         const employeeCount = empCount ?? 1
         const amountCents = calcAmountCents(employeeCount)
-        const description = `TradeFlow Pro — ${company.name} — ${employeeCount} employee${employeeCount !== 1 ? 's' : ''}`
+        const isRenewal = company.subscription_status === 'active' || company.subscription_status === 'past_due'
+        const description = `TradeFlow ${isRenewal ? 'Monthly Renewal' : 'Trial Conversion'} — ${company.name} — ${employeeCount} employee${employeeCount !== 1 ? 's' : ''}`
 
         companyResult.employees = employeeCount
         companyResult.amountCents = amountCents

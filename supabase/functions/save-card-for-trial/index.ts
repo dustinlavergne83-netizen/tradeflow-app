@@ -37,6 +37,8 @@ Deno.serve(async (req) => {
       password,
       phone,
       tradeType,
+      cardBrand: cardBrandHint,
+      cardLast4: cardLast4Hint,
     } = await req.json()
 
     // ── Validate required fields ──────────────────────────────────────────
@@ -93,9 +95,24 @@ Deno.serve(async (req) => {
 
     const cloverCustomer = await cloverRes.json()
     const cloverCustomerId: string = cloverCustomer.id ?? ''
-    const firstCard = cloverCustomer.sources?.data?.[0]
-    const cardBrand: string = firstCard?.brand ?? ''
-    const cardLast4: string = firstCard?.last4 ?? ''
+
+    // IMPORTANT: Clover's ecommerce customer response represents
+    // sources.data as an ARRAY OF CARD-ID STRINGS (e.g. "Z7Y7423XX4PS8"),
+    // NOT an array of card objects — confirmed by direct inspection of a
+    // live customer response. Clover never exposes brand/last4 on the
+    // customer object, so those must come from the browser's tokenization
+    // result (cardBrandHint/cardLast4Hint) instead.
+    const cloverCardId: string | null = cloverCustomer.sources?.data?.[0] ?? null
+    const cardBrand: string = (typeof cardBrandHint === 'string' && cardBrandHint) || ''
+    const cardLast4: string = (typeof cardLast4Hint === 'string' && cardLast4Hint) || ''
+
+    // NOTE: cloverCardId is stored only as informational metadata — it is
+    // NOT required to charge this customer. Confirmed via live testing
+    // that charging uses `source: <clover_customer_id>` directly.
+    if (!cloverCustomerId) {
+      console.error('Clover customer create returned no id:', JSON.stringify(cloverCustomer))
+      throw new Error('Card was tokenized but Clover did not return a usable customer reference. Please try again or contact support.')
+    }
 
     // ── 3. Create Supabase auth user ──────────────────────────────────────
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
@@ -131,6 +148,7 @@ Deno.serve(async (req) => {
         subscription_tier: 'basic',
         trial_ends_at: trialEndsAt,
         clover_customer_id: cloverCustomerId,
+        clover_card_id: cloverCardId,
         card_brand: cardBrand,
         card_last4: cardLast4,
       })
