@@ -10,7 +10,7 @@ function titleFromPath(pathname) {
   if (pathname.startsWith("/project/")) return "Project";
   if (pathname.startsWith("/estimate/new")) return "New Estimate";
   if (pathname.startsWith("/estimate/quick")) return "Quick Estimate";
-  if (pathname.startsWith("/estimates")) return "Estimates";
+  if (pathname.startsWith("/estimates")) return "Proposals"; // renamed 2026-10 — proposals-only list now
   if (pathname.startsWith("/estimate")) return "Estimate";
   if (pathname.startsWith("/customers")) return "Customers";
   if (pathname.startsWith("/timeclock")) return "Time Clock";

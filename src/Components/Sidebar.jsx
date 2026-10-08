@@ -31,8 +31,10 @@ export default function Sidebar({ onNavigate }) {
       <NavLink to="/projects" style={linkStyle} onClick={() => onNavigate?.()}>
         Projects
       </NavLink>
+      {/* Renamed Estimates -> Proposals (2026-10): this route now shows
+          proposals only. Cost sheets live inside their project/customer. */}
       <NavLink to="/estimates" style={linkStyle} onClick={() => onNavigate?.()}>
-        Estimates
+        Proposals
       </NavLink>
       <NavLink to="/invoices" style={linkStyle} onClick={() => onNavigate?.()}>
         Invoices

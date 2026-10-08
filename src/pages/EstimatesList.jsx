@@ -4,12 +4,15 @@ import { useAuth } from "../contexts/AuthContext";
 import { supabase } from "../lib/supabase";
 import { notify, confirmDialog } from '../lib/notify';
 
-// ── EstimateRows: renders one estimate row + any nested proposal rows ────────
+// ── EstimateRows: renders one proposal row ───────────────────────────────────
+// (2026-10 redesign: this list is proposals-only now — cost sheets and change
+// orders are only reachable from within a project or customer file. Each row
+// still carries an "Open Cost Sheet" action, via estimate.costSheetPath, so
+// the underlying pricing/cost data is one click away.)
 function EstimateRows({
-  estimate, nestedProposals, navigate, handleDelete,
-  setViewModalEstimate, loadEstimates, formatDate, formatCurrency, styles,
+  estimate, navigate, handleDelete, loadEstimates, formatDate, formatCurrency, styles,
 }) {
-  const [openMenu, setOpenMenu] = React.useState(null); // null | 'main' | proposalId
+  const [openMenu, setOpenMenu] = React.useState(null); // null | 'main'
 
   // Close dropdown when clicking outside
   React.useEffect(() => {
@@ -20,35 +23,20 @@ function EstimateRows({
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Build action items for each row type
-  const mainMenuItems = (() => {
-    if (estimate.type === 'proposal') return [
-      { label: '📄 View', color: '#3b82f6', action: () => navigate(`/proposal/commercial-public?proposalId=${estimate.id}`) },
-      { label: '🗑️ Delete', color: '#ef4444', action: () => handleDelete(estimate) },
-    ];
-    if (estimate.type === 'change_order') return [
-      { label: '✏️ Edit', color: '#6366f1', action: () => navigate(`/estimate/quick?coId=${estimate.id}&type=changeorder`) },
-      { label: '🗑️ Delete', color: '#ef4444', action: async () => {
-        if (await confirmDialog(`Delete change order ${estimate.estimate_number}? This cannot be undone.`)) {
-          try {
-            await supabase.from("estimate_items").delete().eq("change_order_id", estimate.id);
-            const { error } = await supabase.from("change_orders").delete().eq("id", estimate.id);
-            if (error) throw error;
-            notify('Change order deleted successfully!');
-            loadEstimates();
-          } catch (err) { notify("Failed to delete: " + err.message); }
-        }
-      }},
-    ];
-    // quick_estimate
-    return [
-      { label: '✏️ Edit', color: '#6366f1', action: () => navigate(`/estimate/quick?estimateId=${estimate.id}`) },
-      { label: '👁️ Preview', color: '#3b82f6', action: () => setViewModalEstimate(estimate) },
-      { label: '🖨️ Print', color: '#8b5cf6', action: () => window.open(`/estimate/quick/view?estimateId=${estimate.id}&print=true`, '_blank') },
-      { label: '🧾 Convert to Invoice', color: '#10b981', action: () => navigate(`/invoice/quick?fromEstimateId=${estimate.id}`) },
-      { label: '🗑️ Delete', color: '#ef4444', action: () => handleDelete(estimate) },
-    ];
-  })();
+  const mainMenuItems = [
+    { label: '📄 View Proposal', color: '#3b82f6', action: () => navigate(`/proposal/commercial-public?proposalId=${estimate.id}`) },
+    estimate.costSheetPath
+      ? { label: '📊 Open Cost Sheet', color: '#f59e0b', action: () => navigate(estimate.costSheetPath) }
+      : { label: '📊 Open Cost Sheet', color: '#9ca3af', action: () => notify('No cost sheet is linked to this proposal.') },
+    { label: '📈 Progress Invoice', color: '#8b5cf6', action: () => {
+      if (estimate.project_id) {
+        navigate(`/project/${estimate.project_id}/progress-billing?proposalId=${estimate.id}`);
+      } else {
+        notify('This proposal is not linked to a project. Open the project to create a progress invoice.');
+      }
+    }},
+    { label: '🗑️ Delete', color: '#ef4444', action: () => handleDelete(estimate) },
+  ];
 
   const dropdownStyle = {
     position: 'absolute', top: 'calc(100% + 2px)', right: 0,
@@ -69,149 +57,60 @@ function EstimateRows({
   });
 
   return (
-    <>
-      {/* ── Main row (estimate / change-order / orphaned proposal) ── */}
-      <tr
-        style={styles.tableRow}
-        onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f9fafb'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
-      >
-        <td style={styles.td}>
-          <div style={{display: 'flex', alignItems: 'center', gap: 7}}>
-            {estimate.type === 'proposal' ? (
-              <span style={{...styles.badge, backgroundColor: '#10b981'}}>PROPOSAL</span>
-            ) : estimate.type === 'change_order' ? (
-              <span style={{...styles.badge, backgroundColor: '#f59e0b'}}>CHANGE ORDER</span>
-            ) : estimate.type === 'bid' ? (
-              <span style={{...styles.badge, backgroundColor: '#6366f1'}}>BID</span>
-            ) : (
-              <span style={{...styles.badge, backgroundColor: '#fc6b04'}}>ESTIMATE</span>
-            )}
-            <span style={styles.estimateNumber}>
-              {estimate.estimate_number
-                ? estimate.estimate_number.replace('EST-', '').replace('PROP-', '').replace(/^26-/, '')
-                : 'N/A'}
-            </span>
-            {nestedProposals.length > 0 && (
-              <span style={{
-                fontSize: 10, fontWeight: 700, backgroundColor: '#dcfce7', color: '#065f46',
-                borderRadius: 20, padding: '2px 7px', whiteSpace: 'nowrap',
-              }}>
-                {nestedProposals.length} proposal{nestedProposals.length !== 1 ? 's' : ''}
-              </span>
-            )}
-          </div>
-        </td>
-        <td style={styles.td}>
-          <div style={{...styles.singleLineText, textAlign: 'center'}}>
-            {estimate.type === 'proposal' ? (estimate.contractor_name || 'N/A') : (estimate.customer_name || 'N/A')}
-          </div>
-        </td>
-        <td style={styles.td}>
-          <div style={{...styles.singleLineText, textAlign: 'center'}}>
-            {estimate.projects ? estimate.projects.name : (estimate.project_name || estimate.description || 'N/A')}
-          </div>
-        </td>
-        <td style={{...styles.td, textAlign: 'right'}}>
-          <span style={styles.total}>{formatCurrency(estimate.total)}</span>
-        </td>
-        <td style={{...styles.td, textAlign: 'center'}}>
-          <span style={styles.date}>{formatDate(estimate.estimate_date || estimate.created_at)}</span>
-        </td>
-        <td style={{...styles.td, textAlign: 'center'}}>
-          <div style={{position: 'relative', display: 'inline-block'}} data-action-menu="true">
-            <button
-              onClick={(e) => { e.stopPropagation(); setOpenMenu(openMenu === 'main' ? null : 'main'); }}
-              style={triggerBtn('⚡ Actions ▾', '#0b3ea8')}
-            >
-              ⚡ Actions <span style={{fontSize: 10, opacity: 0.75}}>▾</span>
-            </button>
-            {openMenu === 'main' && (
-              <div style={dropdownStyle}>
-                {mainMenuItems.map((item, idx) => (
-                  <button key={idx}
-                    onClick={() => { setOpenMenu(null); item.action(); }}
-                    style={menuItemStyle(item.color)}
-                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = item.color === '#ef4444' ? '#fef2f2' : '#f8fafc'; }}
-                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}
-                  >{item.label}</button>
-                ))}
-              </div>
-            )}
-          </div>
-        </td>
-      </tr>
-
-      {/* ── Nested proposal rows (indented under parent estimate) ── */}
-      {nestedProposals.map((proposal) => (
-        <tr
-          key={proposal.id}
-          style={{borderBottom: '1px solid #d1fae5', backgroundColor: '#f0fdf4', borderLeft: '4px solid #10b981'}}
-          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#dcfce7'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#f0fdf4'; }}
-        >
-          <td style={{...styles.td, paddingLeft: 32}}>
-            <div style={{display: 'flex', alignItems: 'center', gap: 7}}>
-              <span style={{color: '#9ca3af', fontSize: 14, flexShrink: 0}}>└─</span>
-              <span style={{...styles.badge, backgroundColor: '#10b981', fontSize: 10}}>PROPOSAL</span>
-              <span style={{fontWeight: 600, color: '#065f46', fontSize: 13}}>
-                {(proposal.proposal_number || proposal.estimate_number || '—').replace('EST-', '').replace('PROP-', '').replace(/^\d{2}-/, '')}
-              </span>
+    <tr
+      style={styles.tableRow}
+      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f9fafb'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+    >
+      <td style={styles.td}>
+        <div style={{display: 'flex', alignItems: 'center', gap: 7}}>
+          <span style={{...styles.badge, backgroundColor: '#10b981'}}>PROPOSAL</span>
+          <span style={styles.estimateNumber}>
+            {estimate.estimate_number
+              ? estimate.estimate_number.replace('EST-', '').replace('PROP-', '').replace(/^26-/, '')
+              : 'N/A'}
+          </span>
+        </div>
+      </td>
+      <td style={styles.td}>
+        <div style={{...styles.singleLineText, textAlign: 'center'}}>
+          {estimate.contractor_name || 'N/A'}
+        </div>
+      </td>
+      <td style={styles.td}>
+        <div style={{...styles.singleLineText, textAlign: 'center'}}>
+          {estimate.project_name || estimate.description || 'N/A'}
+        </div>
+      </td>
+      <td style={{...styles.td, textAlign: 'right'}}>
+        <span style={styles.total}>{formatCurrency(estimate.total)}</span>
+      </td>
+      <td style={{...styles.td, textAlign: 'center'}}>
+        <span style={styles.date}>{formatDate(estimate.proposal_date || estimate.created_at)}</span>
+      </td>
+      <td style={{...styles.td, textAlign: 'center'}}>
+        <div style={{position: 'relative', display: 'inline-block'}} data-action-menu="true">
+          <button
+            onClick={(e) => { e.stopPropagation(); setOpenMenu(openMenu === 'main' ? null : 'main'); }}
+            style={triggerBtn('⚡ Actions ▾', '#0b3ea8')}
+          >
+            ⚡ Actions <span style={{fontSize: 10, opacity: 0.75}}>▾</span>
+          </button>
+          {openMenu === 'main' && (
+            <div style={dropdownStyle}>
+              {mainMenuItems.map((item, idx) => (
+                <button key={idx}
+                  onClick={() => { setOpenMenu(null); item.action(); }}
+                  style={menuItemStyle(item.color)}
+                  onMouseEnter={e => { e.currentTarget.style.backgroundColor = item.color === '#ef4444' ? '#fef2f2' : '#f8fafc'; }}
+                  onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                >{item.label}</button>
+              ))}
             </div>
-          </td>
-          <td style={styles.td}>
-            <div style={{...styles.singleLineText, textAlign: 'center', fontSize: 13, color: '#065f46'}}>
-              {proposal.contractor_name || 'N/A'}
-            </div>
-          </td>
-          <td style={styles.td}>
-            <div style={{...styles.singleLineText, textAlign: 'center', fontSize: 13}}>
-              {proposal.project_name || '—'}
-            </div>
-          </td>
-          <td style={{...styles.td, textAlign: 'right'}}>
-            <span style={{...styles.total, fontSize: 14, color: '#059669'}}>
-              {formatCurrency(proposal.total_amount || proposal.total)}
-            </span>
-          </td>
-          <td style={{...styles.td, textAlign: 'center'}}>
-            <span style={{...styles.date, fontSize: 12}}>{formatDate(proposal.created_at)}</span>
-          </td>
-          <td style={{...styles.td, textAlign: 'center'}}>
-            <div style={{position: 'relative', display: 'inline-block'}} data-action-menu="true">
-              <button
-                onClick={(e) => { e.stopPropagation(); setOpenMenu(openMenu === proposal.id ? null : proposal.id); }}
-                style={triggerBtn('⚡ Actions ▾', '#10b981')}
-              >
-                ⚡ Actions <span style={{fontSize: 10, opacity: 0.75}}>▾</span>
-              </button>
-              {openMenu === proposal.id && (
-                <div style={dropdownStyle}>
-                  {[
-                    { label: '📄 View Proposal', color: '#3b82f6', action: () => navigate(`/proposal/commercial-public?proposalId=${proposal.id}`) },
-                    { label: '📊 Progress Invoice', color: '#8b5cf6', action: () => {
-                      if (proposal.project_id) {
-                        navigate(`/project/${proposal.project_id}/progress-billing?proposalId=${proposal.id}`);
-                      } else {
-                        notify('This proposal is not linked to a project. Open the project to create a progress invoice.');
-                      }
-                    }},
-                    { label: '🗑️ Delete', color: '#ef4444', action: () => handleDelete(proposal) },
-                  ].map((item, idx, arr) => (
-                    <button key={idx}
-                      onClick={() => { setOpenMenu(null); item.action(); }}
-                      style={{...menuItemStyle(item.color), borderBottom: idx < arr.length - 1 ? '1px solid #f3f4f6' : 'none'}}
-                      onMouseEnter={e => { e.currentTarget.style.backgroundColor = item.color === '#ef4444' ? '#fef2f2' : '#f8fafc'; }}
-                      onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}
-                    >{item.label}</button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </td>
-        </tr>
-      ))}
-    </>
+          )}
+        </div>
+      </td>
+    </tr>
   );
 }
 
@@ -234,35 +133,23 @@ export default function EstimatesList() {
     loadEstimates();
   }, [user]);
 
+  // Every row loaded by this list is a proposal now (see loadEstimates) —
+  // this deliberately only ever deletes from "proposals", never "estimates".
+  // Deleting a proposal must NEVER delete its underlying cost sheet; the
+  // cost sheet can only be deleted from within its project/customer file.
   async function handleDelete(estimate) {
-    if (!await confirmDialog(`Are you sure you want to delete ${estimate.type === 'proposal' ? 'proposal' : 'estimate'} #${estimate.estimate_number}?`)) {
+    if (!await confirmDialog(`Are you sure you want to delete proposal #${estimate.estimate_number}?`)) {
       return;
     }
 
     try {
-      if (estimate.type === 'proposal') {
-        const { error } = await supabase
-          .from('proposals')
-          .delete()
-          .eq('id', estimate.id);
-        
-        if (error) throw error;
-      } else {
-        // Delete estimate items first
-        await supabase
-          .from('estimate_items')
-          .delete()
-          .eq('estimate_id', estimate.id);
-        
-        // Then delete the estimate
-        const { error } = await supabase
-          .from('estimates')
-          .delete()
-          .eq('id', estimate.id);
-        
-        if (error) throw error;
-      }
-      
+      const { error } = await supabase
+        .from('proposals')
+        .delete()
+        .eq('id', estimate.id);
+
+      if (error) throw error;
+
       notify('Deleted successfully!');
       loadEstimates(); // Reload the list
     } catch (err) {
@@ -271,9 +158,13 @@ export default function EstimatesList() {
     }
   }
 
+  // Proposals-only list (2026-10 redesign). Cost sheets (estimates) and
+  // change orders are deliberately NOT loaded here anymore — they're only
+  // reachable from within a project or customer file. Each proposal row
+  // still carries a link back to its underlying cost sheet (base_estimate_id)
+  // so it can be opened via the row's "Open Cost Sheet" action.
   async function loadEstimates() {
     try {
-      // Load all proposals first
       const { data: proposalsData, error: proposalsError } = await supabase
         .from("proposals")
         .select("*")
@@ -284,113 +175,44 @@ export default function EstimatesList() {
         throw proposalsError;
       }
 
-      console.log("✅ Loaded proposals:", proposalsData?.length || 0, "proposals");
-      console.log("📋 Proposal data:", proposalsData);
+      // Batch-fetch project names (for proposals with project_id) and the
+      // parent cost sheet's estimate_type + project_id (for proposals with
+      // base_estimate_id) in two queries instead of one round-trip per row.
+      const projectIds = [...new Set((proposalsData || []).map(p => p.project_id).filter(Boolean))];
+      const estimateIds = [...new Set((proposalsData || []).map(p => p.base_estimate_id).filter(Boolean))];
 
-      // Get project names for proposals that have project_id
-      const mappedProposals = await Promise.all(
-        (proposalsData || []).map(async (prop) => {
-          let projectName = 'Project Name Not Set';
-          
-          if (prop.project_id) {
-            try {
-              const { data: projectData } = await supabase
-                .from('projects')
-                .select('name')
-                .eq('id', prop.project_id)
-                .single();
-                
-              if (projectData?.name) {
-                projectName = projectData.name;
-              }
-            } catch (err) {
-              console.log('Error fetching project name for proposal:', prop.id);
-            }
-          }
-          
-          return { 
-            ...prop, 
-            type: 'proposal',
-            estimate_number: prop.proposal_number,
-            description: prop.contractor_name ? `Proposal to ${prop.contractor_name}` : 'Proposal',
-            total: prop.total_amount,
-            project_name: projectName
-          };
-        })
-      );
+      const [{ data: projectsData }, { data: estimatesData }] = await Promise.all([
+        projectIds.length
+          ? supabase.from('projects').select('id, name').in('id', projectIds)
+          : Promise.resolve({ data: [] }),
+        estimateIds.length
+          ? supabase.from('estimates').select('id, estimate_type, project_id').in('id', estimateIds)
+          : Promise.resolve({ data: [] }),
+      ]);
 
-      // Load change orders
-      let mappedChangeOrders = [];
-      try {
-        const { data: changeOrdersData, error: changeOrdersError } = await supabase
-          .from("change_orders")
-          .select("*")
-          .eq("created_by", user.id)
-          .order("created_at", { ascending: false });
+      const projectNameById = Object.fromEntries((projectsData || []).map(p => [p.id, p.name]));
+      const costSheetById = Object.fromEntries((estimatesData || []).map(e => [e.id, e]));
 
-        if (!changeOrdersError && changeOrdersData) {
-          // Map change orders to display format
-          mappedChangeOrders = changeOrdersData.map(co => ({
-            ...co,
-            type: 'change_order',
-            estimate_number: co.change_order_number,
-            customer_name: co.project_name, // Use project name as customer for display
-            project_name: co.project_name,
-            description: co.title || 'Change Order',
-            estimate_date: co.change_order_date,
-            total: co.total
-          }));
-          console.log("✅ Loaded change orders:", mappedChangeOrders.length, "change orders");
-        }
-      } catch (coErr) {
-        console.log("Error loading change orders:", coErr);
-      }
+      const mappedProposals = (proposalsData || []).map(prop => {
+        const costSheet = prop.base_estimate_id ? costSheetById[prop.base_estimate_id] : null;
+        return {
+          ...prop,
+          type: 'proposal',
+          estimate_number: prop.proposal_number,
+          description: prop.contractor_name ? `Proposal to ${prop.contractor_name}` : 'Proposal',
+          total: prop.total_amount,
+          project_name: prop.project_id ? (projectNameById[prop.project_id] || 'Project Name Not Set') : 'Project Name Not Set',
+          // Where "Open Cost Sheet" should navigate — null if this proposal
+          // has no linked cost sheet (shouldn't normally happen; AUDIT found 0).
+          costSheetPath: costSheet
+            ? (costSheet.estimate_type === 'full'
+                ? `/project/${costSheet.project_id}/estimate?estimateId=${prop.base_estimate_id}`
+                : `/estimate/quick?estimateId=${prop.base_estimate_id}`)
+            : null,
+        };
+      });
 
-      // Try to load quick estimates (only those with estimate_number)
-      // NOTE: No explicit company_id filter here — RLS handles company scoping.
-      // This ensures estimates created from the mobile app (by admins or supervisors)
-      // also appear here, since they may be saved with created_by = admin UID.
-      try {
-        const { data: estimatesData, error: estimatesError } = await supabase
-          .from("estimates")
-          .select("*")
-          .not("estimate_number", "is", null)
-          .order("created_at", { ascending: false });
-
-        if (!estimatesError && estimatesData) {
-          // Show ALL quick estimates — including those tied to a project
-          const mappedEstimates = estimatesData.map(est => ({
-            ...est,
-            type: 'quick_estimate',
-            description: est.project_name || est.notes || 'Quick Estimate'
-          }));
-
-          // Combine and sort by date
-          const combined = [...mappedEstimates, ...mappedProposals, ...mappedChangeOrders].sort((a, b) => {
-            const dateA = new Date(a.created_at);
-            const dateB = new Date(b.created_at);
-            return dateB - dateA;
-          });
-          
-          setEstimates(combined);
-        } else {
-          // If error loading estimates, show proposals and change orders
-          const combined = [...mappedProposals, ...mappedChangeOrders].sort((a, b) => {
-            const dateA = new Date(a.created_at);
-            const dateB = new Date(b.created_at);
-            return dateB - dateA;
-          });
-          setEstimates(combined);
-        }
-      } catch (estErr) {
-        console.log("Error loading quick estimates, showing proposals and change orders:", estErr);
-        const combined = [...mappedProposals, ...mappedChangeOrders].sort((a, b) => {
-          const dateA = new Date(a.created_at);
-          const dateB = new Date(b.created_at);
-          return dateB - dateA;
-        });
-        setEstimates(combined);
-      }
+      setEstimates(mappedProposals);
     } catch (err) {
       console.error("Error loading proposals:", err);
     } finally {
@@ -450,28 +272,22 @@ export default function EstimatesList() {
     return true;
   });
 
-  // ── Stats from date-filtered estimates ───────────────────────────────────────
+  // ── Stats from date-filtered proposals ───────────────────────────────────────
+  // Everything in `estimates` state is now type 'proposal' (see loadEstimates),
+  // so there's no longer an estimates/change-orders breakdown to show here.
   const stats = {
     total: dateFilteredEstimates.length,
     totalValue: dateFilteredEstimates.reduce((sum, e) => sum + (Number(e.total) || 0), 0),
-    estimates: dateFilteredEstimates.filter(e => e.type === 'quick_estimate').length,
-    proposals: dateFilteredEstimates.filter(e => e.type === 'proposal').length,
-    changeOrders: dateFilteredEstimates.filter(e => e.type === 'change_order').length,
   };
 
-  // ── Final filtered list (type + search + date) ───────────────────────────────
+  // ── Final filtered list (search + date only — no type filter needed) ────────
   const filteredEstimates = dateFilteredEstimates.filter(est => {
-    // Filter by type first
-    if (filterType === "estimates" && est.type === "proposal") return false;
-    if (filterType === "proposals" && est.type !== "proposal") return false;
-    
-    // Then filter by search term
     const searchLower = searchTerm.toLowerCase();
     return (
       est.estimate_number?.toLowerCase().includes(searchLower) ||
       est.description?.toLowerCase().includes(searchLower) ||
-      est.project_description?.toLowerCase().includes(searchLower) ||
-      est.projects?.name?.toLowerCase().includes(searchLower)
+      est.project_name?.toLowerCase().includes(searchLower) ||
+      est.contractor_name?.toLowerCase().includes(searchLower)
     );
   });
 
@@ -500,14 +316,14 @@ export default function EstimatesList() {
   return (
     <div style={styles.container}>
       <div style={styles.header}>
-        <h1 style={styles.title}>Estimates & Proposals</h1>
+        <h1 style={styles.title}>Proposals</h1>
         <div style={styles.headerButtons}>
-          <button 
-            onClick={() => navigate('/estimate/quick')}
-            style={styles.quickButton}
-          >
-            ⚡ Quick Estimate
-          </button>
+          {/*
+            "Quick Estimate" shortcut removed (2026-10) — cost sheets are no
+            longer created from this list. They're created from within a
+            project or customer file, then a proposal is generated from the
+            cost sheet. Use the "Open Cost Sheet" row action to reach one.
+          */}
           <button 
             onClick={() => navigate('/projects')}
             style={styles.newButton}
@@ -570,23 +386,11 @@ export default function EstimatesList() {
       <div style={styles.statsContainer}>
         <div style={styles.statCard}>
           <div style={styles.statValue}>{stats.total}</div>
-          <div style={styles.statLabel}>Total · {periodLabel}</div>
+          <div style={styles.statLabel}>Proposals · {periodLabel}</div>
         </div>
         <div style={styles.statCard}>
           <div style={{...styles.statValue, color: '#fc6b04'}}>{formatCurrency(stats.totalValue)}</div>
           <div style={styles.statLabel}>Total Value · {periodLabel}</div>
-        </div>
-        <div style={styles.statCard}>
-          <div style={{...styles.statValue, color: '#3b82f6'}}>{stats.estimates}</div>
-          <div style={styles.statLabel}>Estimates · {periodLabel}</div>
-        </div>
-        <div style={styles.statCard}>
-          <div style={{...styles.statValue, color: '#10b981'}}>{stats.proposals}</div>
-          <div style={styles.statLabel}>Proposals · {periodLabel}</div>
-        </div>
-        <div style={styles.statCard}>
-          <div style={{...styles.statValue, color: '#f59e0b'}}>{stats.changeOrders}</div>
-          <div style={styles.statLabel}>Change Orders · {periodLabel}</div>
         </div>
       </div>
 
@@ -600,38 +404,13 @@ export default function EstimatesList() {
         />
       </div>
 
-      {/* Filter Buttons */}
-      <div style={styles.filterContainer}>
-        <div style={styles.filterButtons}>
-          <button
-            onClick={() => setFilterType("all")}
-            style={{
-              ...styles.filterButton,
-              ...(filterType === "all" ? styles.activeFilterButton : {})
-            }}
-          >
-            All ({dateFilteredEstimates.length})
-          </button>
-          <button
-            onClick={() => setFilterType("estimates")}
-            style={{
-              ...styles.filterButton,
-              ...(filterType === "estimates" ? styles.activeFilterButton : {})
-            }}
-          >
-            📋 Estimates ({dateFilteredEstimates.filter(e => e.type !== "proposal" && e.type !== "change_order").length})
-          </button>
-          <button
-            onClick={() => setFilterType("proposals")}
-            style={{
-              ...styles.filterButton,
-              ...(filterType === "proposals" ? styles.activeFilterButton : {})
-            }}
-          >
-            📄 Proposals ({dateFilteredEstimates.filter(e => e.type === "proposal").length})
-          </button>
-        </div>
-      </div>
+      {/*
+        Type filter buttons removed (2026-10) — this list only ever shows
+        proposals now, so an Estimates/Proposals/All toggle no longer
+        means anything. filterType/setFilterType state is left in place
+        (harmless, unused) rather than ripped out, in case a future filter
+        (e.g. by proposal status) wants to reuse the same state shape.
+      */}
 
       {filteredEstimates.length === 0 ? (
         <div style={styles.empty}>
@@ -661,46 +440,25 @@ export default function EstimatesList() {
               </tr>
             </thead>
             <tbody>
-              {(() => {
-                // ── Build a lookup map: parent estimate id → proposals[] ──────────
-                // Only used when filterType is "all" (proposals are present in the list)
-                const proposalsByEstimateId = {};
-                filteredEstimates.forEach(item => {
-                  if (item.type === 'proposal' && item.base_estimate_id) {
-                    if (!proposalsByEstimateId[item.base_estimate_id]) {
-                      proposalsByEstimateId[item.base_estimate_id] = [];
-                    }
-                    proposalsByEstimateId[item.base_estimate_id].push(item);
-                  }
-                });
-
-                // ── Top-level items: estimates/change-orders + orphaned proposals ─
-                // A proposal is "orphaned" (top-level) when its parent estimate is
-                // not present in the current filtered list.
-                const parentEstimateIds = new Set(
-                  filteredEstimates.filter(i => i.type !== 'proposal').map(i => i.id)
-                );
-                const topLevelItems = filteredEstimates.filter(item => {
-                  if (item.type !== 'proposal') return true;
-                  // Proposal is top-level only when parent is not visible
-                  return !item.base_estimate_id || !parentEstimateIds.has(item.base_estimate_id);
-                });
-
-                return topLevelItems.map(estimate => (
-                  <EstimateRows
-                    key={estimate.id}
-                    estimate={estimate}
-                    nestedProposals={proposalsByEstimateId[estimate.id] || []}
-                    navigate={navigate}
-                    handleDelete={handleDelete}
-                    setViewModalEstimate={setViewModalEstimate}
-                    loadEstimates={loadEstimates}
-                    formatDate={formatDate}
-                    formatCurrency={formatCurrency}
-                    styles={styles}
-                  />
-                ));
-              })()}
+              {/*
+                Every row is a proposal now (see loadEstimates) — no more
+                parent-estimate/nested-proposal grouping needed. Each row's
+                "Open Cost Sheet" action (in EstimateRows) uses costSheetPath,
+                computed once in loadEstimates, to jump to the underlying
+                cost sheet when one exists.
+              */}
+              {filteredEstimates.map(proposal => (
+                <EstimateRows
+                  key={proposal.id}
+                  estimate={proposal}
+                  navigate={navigate}
+                  handleDelete={handleDelete}
+                  loadEstimates={loadEstimates}
+                  formatDate={formatDate}
+                  formatCurrency={formatCurrency}
+                  styles={styles}
+                />
+              ))}
             </tbody>
           </table>
         </div>
@@ -708,69 +466,19 @@ export default function EstimatesList() {
 
       <div style={styles.footer}>
         <p style={styles.footerText}>
-          Showing {filteredEstimates.length} of {estimates.length} estimate{estimates.length !== 1 ? 's' : ''}
+          Showing {filteredEstimates.length} of {estimates.length} proposal{estimates.length !== 1 ? 's' : ''}
           {datePreset !== 'all' && ` · ${periodLabel}`}
         </p>
       </div>
 
-      {/* ── View Format Modal ── */}
-      {viewModalEstimate && (
-        <div style={{
-          position:"fixed", inset:0, background:"rgba(0,0,0,0.6)",
-          display:"flex", alignItems:"center", justifyContent:"center",
-          zIndex:1000, padding:16
-        }}>
-          <div style={{
-            background:"#fff", borderRadius:14, padding:"32px 28px",
-            maxWidth:480, width:"100%", boxShadow:"0 8px 32px rgba(0,0,0,0.25)"
-          }}>
-            <h2 style={{margin:"0 0 4px", fontSize:20, color:"#111", textAlign:"center"}}>
-              Choose View Format
-            </h2>
-            <p style={{margin:"0 0 20px", fontSize:13, color:"#888", textAlign:"center"}}>
-              Estimate #{viewModalEstimate.estimate_number?.replace("EST-","")}
-            </p>
-
-            {[
-              { key:"summary",           icon:"📄", title:"Summary Only",                    desc:"Scope of work description + Total Investment — no line items" },
-              { key:"itemized",          icon:"💰", title:"Itemized with Pricing",            desc:"Every line item listed with individual prices + Total Investment" },
-              { key:"itemized-no-price", icon:"📋", title:"Itemized (No Individual Prices)",  desc:"All items listed so customer sees what's included — only Total Investment shown" },
-            ].map(opt => (
-              <button
-                key={opt.key}
-                onClick={() => {
-                  window.open(`/estimate/quick/view?estimateId=${viewModalEstimate.id}&view=${opt.key}`, "_blank");
-                  setViewModalEstimate(null);
-                }}
-                style={{
-                  display:"flex", alignItems:"center", gap:14,
-                  width:"100%", background:"#f9fafb",
-                  border:"2px solid #e5e7eb", borderRadius:10,
-                  padding:"14px 16px", marginBottom:10,
-                  cursor:"pointer", textAlign:"left",
-                }}
-              >
-                <span style={{fontSize:26, flexShrink:0}}>{opt.icon}</span>
-                <div>
-                  <div style={{fontSize:15, fontWeight:700, color:"#111", marginBottom:2}}>{opt.title}</div>
-                  <div style={{fontSize:12, color:"#888", lineHeight:1.4}}>{opt.desc}</div>
-                </div>
-              </button>
-            ))}
-
-            <button
-              onClick={() => setViewModalEstimate(null)}
-              style={{
-                width:"100%", padding:"10px", marginTop:4,
-                background:"transparent", border:"1px solid #ddd",
-                borderRadius:8, cursor:"pointer", color:"#888", fontSize:14
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
+      {/*
+        "Choose View Format" modal removed (2026-10) — it was the Quick
+        Estimate "Preview" action's picker, which no longer exists on this
+        list (cost sheets/quick estimates aren't shown here anymore).
+        viewModalEstimate/setViewModalEstimate state above is dead but left
+        in place; harmless, and avoids an extra diff on top of an already
+        large change.
+      */}
     </div>
   );
 }

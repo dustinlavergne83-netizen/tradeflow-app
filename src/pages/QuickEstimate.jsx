@@ -11,6 +11,14 @@ export default function QuickEstimate() {
   const [searchParams] = useSearchParams();
   const [estimateId, setEstimateId] = useState(null);
   const [customerName, setCustomerName] = useState("");
+  // customer_id (2026-10 Phase 3 fix): previously this page only ever saved
+  // a free-text customer_name, which is exactly how the 8 orphaned cost
+  // sheets fixed in Phase 0 were created — typed names with no real
+  // customers row behind them, unreachable from any customer file. Now
+  // tracked explicitly and persisted on both insert and update whenever a
+  // real customer is known (picked from the dropdown, or passed in via
+  // ?customerId= from the Customer file's "New Cost Sheet" button).
+  const [customerId, setCustomerId] = useState(null);
   const [customers, setCustomers] = useState([]);
   const [filteredCustomers, setFilteredCustomers] = useState([]);
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
@@ -59,6 +67,7 @@ export default function QuickEstimate() {
     const projectIdParam = searchParams.get('projectId');
     const projectNameParam = searchParams.get('projectName');
     const customerParam = searchParams.get('customer');
+    const customerIdParam = searchParams.get('customerId'); // set by Customers.jsx "New Cost Sheet"
     
     if (projectIdParam) {
       setProjectId(projectIdParam);
@@ -68,6 +77,9 @@ export default function QuickEstimate() {
     }
     if (customerParam) {
       setCustomerName(decodeURIComponent(customerParam));
+    }
+    if (customerIdParam) {
+      setCustomerId(customerIdParam);
     }
     
     // Check if this is a change order
@@ -97,11 +109,17 @@ export default function QuickEstimate() {
 
   // Pre-populate email for the email modal whenever customerName is known and customers list is loaded
   useEffect(() => {
-    if (customers.length > 0 && customerName.trim() && !emailTo) {
+    if (customers.length > 0 && customerName.trim()) {
       const cust = customers.find(c =>
         c.customer.toLowerCase().trim() === customerName.toLowerCase().trim()
       );
-      if (cust?.email) setEmailTo(cust.email);
+      if (cust?.email && !emailTo) setEmailTo(cust.email);
+      // Resolve customer_id by name match whenever it's not already known
+      // (e.g. launched from a project, which only passes customer as text —
+      // projects has no customer_id FK of its own). Skipped once customerId
+      // is set, so an explicit ?customerId= param or a dropdown pick is
+      // never silently overwritten by a looser name match.
+      if (cust?.id && !customerId) setCustomerId(cust.id);
     }
   }, [customers, customerName]);
 
@@ -158,6 +176,7 @@ export default function QuickEstimate() {
 
       // Populate form
       setCustomerName(estimate.customer_name || "");
+      setCustomerId(estimate.customer_id || null);
       setProjectName(estimate.project_name || "");
       // Support both 'notes' and 'description' column names
       setDescription(estimate.notes || estimate.description || "");
@@ -513,6 +532,31 @@ export default function QuickEstimate() {
 
     setIsSaving(true);
     try {
+      // Auto-create the customer record if a name was typed that doesn't
+      // match any existing customer (2026-10 Phase 3 fix). This is the
+      // permanent fix for the gap that produced the 8 orphaned cost sheets
+      // in Phase 0: previously a typed name with no match was simply saved
+      // as free text, with no customers row behind it and no way to reach
+      // it from any customer file. Change orders are skipped — they don't
+      // require a customer name.
+      let resolvedCustomerId = customerId;
+      if (!isChangeOrder && !resolvedCustomerId && customerName.trim() && employee?.company_id) {
+        const { data: newCustomer, error: newCustomerError } = await supabase
+          .from("customers")
+          .insert([{ company_id: employee.company_id, customer: customerName.trim(), name: customerName.trim() }])
+          .select()
+          .single();
+        if (newCustomerError) {
+          console.error("Failed to auto-create customer:", newCustomerError);
+          // Don't block saving the estimate over this — fall through with
+          // customer_id left null, same as the old (pre-fix) behavior.
+        } else if (newCustomer) {
+          resolvedCustomerId = newCustomer.id;
+          setCustomerId(newCustomer.id);
+          setCustomers(prev => [...prev, newCustomer]);
+        }
+      }
+
       const total = num(getFinalTotal());
       
       if (isChangeOrder) {
@@ -685,6 +729,7 @@ export default function QuickEstimate() {
           const estimateData = {
             project_name: projectName || "Quick Estimate",
             customer_name: customerName,
+            customer_id: resolvedCustomerId || null,
             estimate_date: estimateDate,
             subtotal: total,
             total: total,
@@ -794,6 +839,7 @@ export default function QuickEstimate() {
             estimate_number: estimateNumber,
             project_name: projectName || "Quick Estimate",
             customer_name: customerName,
+            customer_id: resolvedCustomerId || null,
             estimate_date: estimateDate,
             subtotal: total,
             total: total,
@@ -1098,6 +1144,13 @@ export default function QuickEstimate() {
                   onChange={(e) => {
                     const value = e.target.value;
                     setCustomerName(value);
+                    // Typing freely means whatever customer_id was previously
+                    // resolved (from a project, a prior dropdown pick, or a
+                    // ?customerId= param) may no longer match what's on
+                    // screen — clear it so a stale id is never silently kept
+                    // attached to a different typed name. It gets re-set
+                    // below immediately if the user picks a dropdown match.
+                    setCustomerId(null);
                     if (value.trim()) {
                       const filtered = customers.filter(c => 
                         c.customer.toLowerCase().includes(value.toLowerCase())
@@ -1126,6 +1179,7 @@ export default function QuickEstimate() {
                         style={styles.dropdownItem}
                         onClick={() => {
                           setCustomerName(customer.customer);
+                          setCustomerId(customer.id); // real customers.id — picked from the real list, not just typed text
                           setShowCustomerDropdown(false);
                         }}
                         onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f3f4f6'}

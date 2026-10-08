@@ -61,6 +61,7 @@ export default function BankTransactions() {
   const [showRecordToBooksModal, setShowRecordToBooksModal] = useState(false);
   const [recordToBooksTransaction, setRecordToBooksTransaction] = useState(null);
   const [recordToBooksCategory, setRecordToBooksCategory] = useState('');
+  const [recordToBooksProject, setRecordToBooksProject] = useState('');
   
   const [transactionForm, setTransactionForm] = useState({
     transaction_date: getTodayLocalDate(),
@@ -475,6 +476,12 @@ export default function BankTransactions() {
       return null;
     }
 
+    // Resolve project_name alongside project_id — Expenses.jsx (handleInlineProjectChange,
+    // handleSaveExpense) always keeps both in sync, and the Expenses table (L1177) displays
+    // project_name directly. Without this, an auto-created expense would show no project
+    // name there even though project_id is correctly set.
+    const project = transaction.project_id ? projects.find(p => p.id === transaction.project_id) : null;
+
     const expenseData = {
       company_id: user.id,
       created_by: user.id,
@@ -486,6 +493,7 @@ export default function BankTransactions() {
       payment_method: 'bank',
       bank_account_id: accountId,
       project_id: transaction.project_id || null,
+      project_name: project?.project_name || null,
       tax_deductible: true,
     };
 
@@ -514,6 +522,41 @@ export default function BankTransactions() {
     return newExpense;
   }
 
+  // Handles the inline Project dropdown on both the uncleared and cleared
+  // transaction tables. Updates bank_transactions.project_id as before, but
+  // if this row is already linked to an expense (auto-created or manually
+  // matched), also propagates the change to that expenses row — otherwise
+  // the bank transaction and its linked expense would silently disagree
+  // about which project the money belongs to.
+  async function handleTransactionProjectChange(transaction, newProjectId) {
+    try {
+      const { error } = await supabase
+        .from('bank_transactions')
+        .update({ project_id: newProjectId })
+        .eq('id', transaction.id);
+      if (error) throw error;
+
+      setTransactions(prev => prev.map(t =>
+        t.id === transaction.id ? { ...t, project_id: newProjectId } : t
+      ));
+
+      if (transaction.linked_expense_id) {
+        const project = newProjectId ? projects.find(p => p.id === newProjectId) : null;
+        const { error: expenseError } = await supabase
+          .from('expenses')
+          .update({ project_id: newProjectId, project_name: project?.project_name || null })
+          .eq('id', transaction.linked_expense_id);
+        if (expenseError) {
+          console.error('Error syncing project to linked expense:', expenseError);
+          notify('⚠️ Project updated on transaction, but could not sync to its linked expense record.');
+        }
+      }
+    } catch (err) {
+      console.error('Error updating project:', err);
+      notify('Failed to update project');
+    }
+  }
+
   // Gate for the clear (✅/🔲) button. Only intercepts with the "Record to
   // Books?" prompt when ALL of these hold:
   //   - clearing (not un-clearing) — un-clear reversal is handled entirely
@@ -529,7 +572,12 @@ export default function BankTransactions() {
   //     found a candidate, the normal Matches modal flow is more appropriate
   // Anything that doesn't meet all of these clears exactly as it did before
   // this feature existed.
-  function onClickClearButton(transaction) {
+  //
+  // SPECIAL CASE: if the user has already picked BOTH a Project and a
+  // Category on this row (via the inline dropdowns), there's nothing left
+  // for the modal to ask — skip it and create the expense immediately so
+  // the withdrawal shows up on that project's costs without an extra click.
+  async function onClickClearButton(transaction) {
     const isUnclearing = transaction.is_cleared;
     const isWithdrawal = parseFloat(transaction.amount) < 0;
     const isUnlinked = !transaction.linked_expense_id && !transaction.linked_invoice_id && !transaction.linked_bill_id;
@@ -537,8 +585,16 @@ export default function BankTransactions() {
     const hasNoMatch = getMatchCount(transaction) === 0;
 
     if (!isUnclearing && isWithdrawal && isUnlinked && isPlainExpenseCandidate && hasNoMatch) {
+      if (transaction.project_id && transaction.category) {
+        const newExpense = await createExpenseFromTransaction(transaction, transaction.category);
+        if (!newExpense) return; // error already shown by createExpenseFromTransaction
+        await handleToggleCleared(transaction);
+        return;
+      }
+
       setRecordToBooksTransaction(transaction);
       setRecordToBooksCategory(transaction.category || '');
+      setRecordToBooksProject(transaction.project_id || '');
       setShowRecordToBooksModal(true);
       return;
     }
@@ -553,6 +609,17 @@ export default function BankTransactions() {
 
     setShowRecordToBooksModal(false);
     setRecordToBooksTransaction(null);
+
+    if (choice === 'skip' && recordToBooksProject) {
+      // A project was selected but the user clicked "Just Clear It" — that
+      // combination is contradictory (a project-costed withdrawal must have
+      // SOME books impact), so block it rather than silently dropping the
+      // project assignment.
+      notify('⚠️ This transaction has a Project selected. Choose "Create Expense" or "Journal Entry Only" so it gets added to that project\'s costs — or remove the Project first if you really want no books impact.');
+      setRecordToBooksTransaction(transaction);
+      setShowRecordToBooksModal(true);
+      return;
+    }
 
     if (choice === 'skip') {
       // "Just clear it" — bank-only, no books impact at all. Mark cleared
@@ -582,19 +649,26 @@ export default function BankTransactions() {
       return;
     }
 
-    // Persist the chosen category onto the transaction first — handleToggleCleared
-    // reloads the transaction from the DB and requires a category to be set.
+    // Persist the chosen category (and project, if any) onto the transaction
+    // first — handleToggleCleared reloads the transaction from the DB and
+    // requires a category to be set.
     const { error: categoryError } = await supabase
       .from('bank_transactions')
-      .update({ category: recordToBooksCategory })
+      .update({ category: recordToBooksCategory, project_id: recordToBooksProject || null })
       .eq('id', transaction.id);
     if (categoryError) {
       console.error('Error saving category:', categoryError);
       notify('Failed to save category');
       return;
     }
+    transaction.project_id = recordToBooksProject || null;
 
-    if (choice === 'expense') {
+    // A project was selected — this transaction needs to show up on that
+    // project's costs, so it must become a real expense row regardless of
+    // which button was clicked. Journal-only / skip can't carry project cost.
+    const mustCreateExpense = choice === 'expense' || !!recordToBooksProject;
+
+    if (mustCreateExpense) {
       const newExpense = await createExpenseFromTransaction(transaction, recordToBooksCategory);
       if (!newExpense) return; // error already shown by createExpenseFromTransaction
     }
@@ -2359,6 +2433,27 @@ export default function BankTransactions() {
         const transaction = transactions.find(t => t.id === transId);
         if (transaction) {
           try {
+            // Bulk clear bypasses onClickClearButton's "Record to Books?" gate
+            // entirely, so a project assigned via the inline dropdown would
+            // otherwise never become an expense. Mirror onClickClearButton's
+            // auto-create logic here: if both Project and Category are set
+            // on an unlinked withdrawal, create the expense before clearing.
+            // IMPORTANT: pass the original (unmutated) `transaction` object into
+            // handleToggleCleared below — its JE-skip branches check linked_expense_id
+            // on the IN-MEMORY object, and createExpenseFromTransaction already
+            // persisted the link to the DB row, so the JE is still created exactly
+            // once (same pattern as handleRecordToBooksChoice).
+            const isWithdrawal = parseFloat(transaction.amount) < 0;
+            const isUnlinked = !transaction.linked_expense_id && !transaction.linked_invoice_id && !transaction.linked_bill_id;
+            const isPlainExpenseCandidate = transaction.transaction_type !== 'transfer' && !transaction.is_owner_draw;
+            if (isWithdrawal && isUnlinked && isPlainExpenseCandidate && transaction.project_id && transaction.category) {
+              const newExpense = await createExpenseFromTransaction(transaction, transaction.category);
+              if (!newExpense) {
+                errorCount++;
+                continue;
+              }
+            }
+
             await handleToggleCleared(transaction, true); // bulkMode: no alerts, no per-transaction reload
             successCount++;
           } catch (err) {
@@ -2977,24 +3072,7 @@ export default function BankTransactions() {
                   <td style={styles.td}>
                     <select
                       value={transaction.project_id || ''}
-                      onChange={async (e) => {
-                        const newProjectId = e.target.value || null;
-                        try {
-                          const { error } = await supabase
-                            .from('bank_transactions')
-                            .update({ project_id: newProjectId })
-                            .eq('id', transaction.id);
-                          if (error) throw error;
-                          
-                          // Update local state silently without reload
-                          setTransactions(prev => prev.map(t => 
-                            t.id === transaction.id ? {...t, project_id: newProjectId} : t
-                          ));
-                        } catch (err) {
-                          console.error('Error updating project:', err);
-                          notify('Failed to update project');
-                        }
-                      }}
+                      onChange={(e) => handleTransactionProjectChange(transaction, e.target.value || null)}
                       style={styles.categorySelect}
                       onClick={(e) => e.stopPropagation()}
                     >
@@ -3195,22 +3273,7 @@ export default function BankTransactions() {
                   <td style={styles.td}>
                     <select
                       value={transaction.project_id || ''}
-                      onChange={async (e) => {
-                        const newProjectId = e.target.value || null;
-                        try {
-                          const { error } = await supabase
-                            .from('bank_transactions')
-                            .update({ project_id: newProjectId })
-                            .eq('id', transaction.id);
-                          if (error) throw error;
-                          setTransactions(prev => prev.map(t =>
-                            t.id === transaction.id ? {...t, project_id: newProjectId} : t
-                          ));
-                        } catch (err) {
-                          console.error('Error updating project:', err);
-                          notify('Failed to update project');
-                        }
-                      }}
+                      onChange={(e) => handleTransactionProjectChange(transaction, e.target.value || null)}
                       style={styles.categorySelect}
                       onClick={(e) => e.stopPropagation()}
                     >
@@ -4035,11 +4098,31 @@ export default function BankTransactions() {
               <select
                 value={recordToBooksCategory}
                 onChange={(e) => setRecordToBooksCategory(e.target.value)}
-                style={{...styles.categorySelect, width: '100%', marginBottom: 20}}
+                style={{...styles.categorySelect, width: '100%', marginBottom: 16}}
               >
                 <option value="">-- Select Account --</option>
                 {renderCategoryOptions()}
               </select>
+
+              <label style={{display: 'block', fontSize: 13, fontWeight: 700, marginBottom: 6}}>Project (optional)</label>
+              <select
+                value={recordToBooksProject}
+                onChange={(e) => setRecordToBooksProject(e.target.value)}
+                style={{...styles.categorySelect, width: '100%', marginBottom: 8}}
+              >
+                <option value="">-- No Project --</option>
+                {projects.map(project => (
+                  <option key={project.id} value={project.id}>
+                    {project.project_name}
+                  </option>
+                ))}
+              </select>
+              {recordToBooksProject && (
+                <p style={{fontSize: 12, color: '#10b981', margin: '0 0 16px', fontWeight: 600}}>
+                  ✓ Will be added to this project's costs — an expense record will be created automatically.
+                </p>
+              )}
+              {!recordToBooksProject && <div style={{marginBottom: 12}} />}
 
               <div style={{display: 'flex', flexDirection: 'column', gap: 10}}>
                 <button

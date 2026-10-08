@@ -1,14 +1,28 @@
 import React, { useState, useRef, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import Papa from "papaparse";
 import { supabase } from "../lib/supabase";
 import { notify, confirmDialog } from '../lib/notify';
 import { useBrand } from "../lib/useBrand";
 import { useAuth } from "../contexts/AuthContext";
 
+// Strip everything but letters/digits for fuzzy name matching —
+// "Jeff's AC" vs "Jeffs AC" vs "JEFF'S A/C" should all match.
+// projects.customer and invoices.customer_name are free text with
+// no foreign key, so this is the only reliable way to link them to
+// a customer record (estimates.customer_id IS a real FK and should
+// always be preferred over this when available).
+const normalizeForMatch = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
 export default function Customers() {
   const BRAND = useBrand();
+  const navigate = useNavigate();
   const { employee } = useAuth();
   const [customers, setCustomers] = useState([]);
+  const [customerJobs, setCustomerJobs] = useState([]);
+  const [customerCostSheets, setCustomerCostSheets] = useState([]);
+  const [customerInvoices, setCustomerInvoices] = useState([]);
+  const [loadingDetails, setLoadingDetails] = useState(false);
   const [selected, setSelected] = useState([]);
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
@@ -26,6 +40,66 @@ export default function Customers() {
   useEffect(() => {
     if (employee?.company_id) loadCustomers();
   }, [employee?.company_id]);
+
+  // Load this customer's Jobs, Cost Sheets, and Invoices whenever the
+  // selected customer changes. Each table links back to a customer
+  // differently (schema drift / no customer_id FK on projects or
+  // invoices), so each query uses the matching strategy that table
+  // actually supports:
+  //   - estimates:  real customer_id FK -> exact match
+  //   - projects:   free-text "customer" column -> fuzzy name match
+  //   - invoices:   free-text "customer_name" column -> fuzzy name match
+  useEffect(() => {
+    if (selectedCustomer?.id && employee?.company_id) {
+      loadCustomerDetails(selectedCustomer);
+    } else {
+      setCustomerJobs([]);
+      setCustomerCostSheets([]);
+      setCustomerInvoices([]);
+    }
+  }, [selectedCustomer?.id, employee?.company_id]);
+
+  const loadCustomerDetails = async (customer) => {
+    setLoadingDetails(true);
+    const targetName = normalizeForMatch(customer.customer);
+
+    try {
+      // Cost Sheets — exact match via the real customer_id FK
+      const { data: estimatesData, error: estErr } = await supabase
+        .from('estimates')
+        .select('id, estimate_number, project_id, project_name, total, status, estimate_type, created_at')
+        .eq('customer_id', customer.id)
+        .order('created_at', { ascending: false });
+      if (estErr) console.error("Failed to load cost sheets for customer", estErr);
+      setCustomerCostSheets(estimatesData || []);
+
+      // Jobs — projects has no customer_id FK, only free-text
+      // "customer", so pull this company's projects and filter by
+      // fuzzy name match client-side.
+      const { data: projectsData, error: projErr } = await supabase
+        .from('projects')
+        .select('id, name, customer, status, percent_complete, created_at')
+        .eq('company_id', employee.company_id)
+        .order('created_at', { ascending: false });
+      if (projErr) console.error("Failed to load jobs for customer", projErr);
+      setCustomerJobs(
+        (projectsData || []).filter(p => normalizeForMatch(p.customer) === targetName)
+      );
+
+      // Invoices — same free-text situation via customer_name
+      const { data: invoicesData, error: invErr } = await supabase
+        .from('invoices')
+        .select('id, invoice_number, project_name, customer_name, total, status, created_at')
+        .eq('company_id', employee.company_id)
+        .order('created_at', { ascending: false });
+      if (invErr) console.error("Failed to load invoices for customer", invErr);
+      setCustomerInvoices(
+        (invoicesData || []).filter(i => normalizeForMatch(i.customer_name) === targetName)
+      );
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
 
   const loadCustomers = async () => {
     // Explicit company filter (defence in depth on top of RLS) so this
@@ -296,25 +370,94 @@ export default function Customers() {
             
             <div>
               <h3 style={{ color: BRAND.accent, marginBottom: 10 }}>Quick Actions</h3>
-              <button style={{ ...styles.addButton, marginBottom: 10, width: '50%' }}>New Estimate</button>
-              <button style={{ ...styles.addButton, width: '50%' }}>New Invoice</button>
+              {/*
+                NOTE: neither QuickEstimate.jsx nor QuickInvoice.jsx
+                reads a customerId param yet — only a name string
+                (customer= / customerName=). That's the exact gap
+                that produced the 8 orphaned cost sheets fixed in
+                Phase 0 (BACKFILL_ORPHANED_QUICK_ESTIMATES.sql).
+                Passing selectedCustomer.id here is forward-looking;
+                Phase 3 should update both pages to read it and set
+                customer_id directly so this never regresses.
+              */}
+              <button
+                onClick={() => navigate(`/estimate/quick?customer=${encodeURIComponent(selectedCustomer.customer)}&customerId=${selectedCustomer.id}`)}
+                style={{ ...styles.addButton, marginBottom: 10, width: '50%' }}
+              >
+                New Cost Sheet
+              </button>
+              <button
+                onClick={() => navigate(`/invoice/quick?customerName=${encodeURIComponent(selectedCustomer.customer)}&customerId=${selectedCustomer.id}`)}
+                style={{ ...styles.addButton, width: '50%' }}
+              >
+                New Invoice
+              </button>
             </div>
           </div>
           
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
             <div style={styles.section}>
               <h3 style={{ color: BRAND.accent, marginBottom: 10 }}>Jobs</h3>
-              <p style={{ color: '#999' }}>No jobs yet</p>
+              {loadingDetails ? (
+                <p style={{ color: '#999' }}>Loading…</p>
+              ) : customerJobs.length === 0 ? (
+                <p style={{ color: '#999' }}>No jobs yet</p>
+              ) : (
+                customerJobs.map(job => (
+                  <div
+                    key={job.id}
+                    onClick={() => navigate(`/project/${job.id}`)}
+                    style={styles.detailRow}
+                  >
+                    <div style={{ color: '#fff', fontWeight: 600 }}>{job.name}</div>
+                    <div style={{ color: '#999', fontSize: 12 }}>{job.status} · {job.percent_complete || 0}% complete</div>
+                  </div>
+                ))
+              )}
             </div>
             
             <div style={styles.section}>
-              <h3 style={{ color: BRAND.accent, marginBottom: 10 }}>Estimates</h3>
-              <p style={{ color: '#999' }}>No estimates yet</p>
+              <h3 style={{ color: BRAND.accent, marginBottom: 10 }}>Cost Sheets</h3>
+              {loadingDetails ? (
+                <p style={{ color: '#999' }}>Loading…</p>
+              ) : customerCostSheets.length === 0 ? (
+                <p style={{ color: '#999' }}>No cost sheets yet</p>
+              ) : (
+                customerCostSheets.map(est => (
+                  <div
+                    key={est.id}
+                    onClick={() => navigate(
+                      est.estimate_type === 'full'
+                        ? `/project/${est.project_id}/estimate?estimateId=${est.id}`
+                        : `/estimate/quick?estimateId=${est.id}`
+                    )}
+                    style={styles.detailRow}
+                  >
+                    <div style={{ color: '#fff', fontWeight: 600 }}>#{est.estimate_number} — {est.project_name || 'Untitled'}</div>
+                    <div style={{ color: '#999', fontSize: 12 }}>${Number(est.total || 0).toLocaleString()} · {est.status}</div>
+                  </div>
+                ))
+              )}
             </div>
             
             <div style={styles.section}>
               <h3 style={{ color: BRAND.accent, marginBottom: 10 }}>Invoices</h3>
-              <p style={{ color: '#999' }}>No invoices yet</p>
+              {loadingDetails ? (
+                <p style={{ color: '#999' }}>Loading…</p>
+              ) : customerInvoices.length === 0 ? (
+                <p style={{ color: '#999' }}>No invoices yet</p>
+              ) : (
+                customerInvoices.map(inv => (
+                  <div
+                    key={inv.id}
+                    onClick={() => navigate(`/invoice?invoiceId=${inv.id}`)}
+                    style={styles.detailRow}
+                  >
+                    <div style={{ color: '#fff', fontWeight: 600 }}>#{inv.invoice_number} — {inv.project_name}</div>
+                    <div style={{ color: '#999', fontSize: 12 }}>${Number(inv.total || 0).toLocaleString()} · {inv.status}</div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -616,5 +759,11 @@ const styles = {
     background: '#252525',
     padding: 0,
     borderRadius: 6,
+  },
+  detailRow: {
+    padding: '8px 10px',
+    borderRadius: 4,
+    cursor: 'pointer',
+    marginBottom: 4,
   },
 };

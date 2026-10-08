@@ -47,11 +47,30 @@ export default function QuickInvoice() {
     const paramCustomerEmail = params.get('customerEmail');
     const paramProjectName = params.get('projectName');
     const paramProjectId = params.get('projectId');
+    const paramCustomerId = params.get('customerId'); // set by Customers.jsx "New Invoice"
 
     if (paramCustomerName) setCustomerName(paramCustomerName);
     if (paramCustomerEmail) setCustomerEmail(paramCustomerEmail);
     if (paramProjectName) setProjectName(paramProjectName);
     if (paramProjectId) setProjectId(paramProjectId);
+
+    // invoices has no customer_id column (confirmed live — free-text
+    // customer_name only), so there's nothing to persist as a FK here.
+    // But look up the authoritative customer row by id anyway, so the
+    // name/email that get saved are exactly what's on file — not just
+    // whatever string made it into the URL.
+    if (paramCustomerId && employee?.company_id) {
+      supabase
+        .from("customers")
+        .select("customer, email")
+        .eq("id", paramCustomerId)
+        .eq("company_id", employee.company_id)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data?.customer) setCustomerName(data.customer);
+          if (data?.email) setCustomerEmail(data.email);
+        });
+    }
 
     const depositIdsParam = params.get('depositIds');
     const depositTotalParam = params.get('depositTotal');

@@ -5,10 +5,16 @@ export default function BankStatementUpload({ bankAccountId, transferAccounts = 
   const [file, setFile] = useState(null);
   const [parsedData, setParsedData] = useState(null);
   const [headers, setHeaders] = useState([]);
+  // 'single'  = one Amount column (positive = deposit, negative = withdrawal)
+  // 'split'   = separate Withdrawal/Debit and Deposit/Credit columns, as
+  //             most banks export (e.g. "Debits (-)" / "Credits(+)")
+  const [amountMode, setAmountMode] = useState('single');
   const [mapping, setMapping] = useState({
     date: '',
     description: '',
     amount: '',
+    withdrawal: '',
+    deposit: '',
     reference: '',
     type: '',
     payee: '',
@@ -109,6 +115,43 @@ export default function BankStatementUpload({ bankAccountId, transferAccounts = 
       }
     });
 
+    // Second pass: detect separate withdrawal/debit and deposit/credit
+    // columns BEFORE the single-amount pass below, so a file like
+    // "Debits (-)" / "Credits(+)" gets routed to split mode instead of
+    // single-amount grabbing just the Debits column. "balance" is
+    // excluded so a running-balance column is never mistaken for one
+    // of these.
+    let detectedWithdrawal = '';
+    let detectedDeposit = '';
+    headers.forEach((header, index) => {
+      const lowerHeader = header.toLowerCase().trim();
+      if (lowerHeader.includes('balance')) return;
+
+      if (!detectedWithdrawal && (
+        lowerHeader.includes('withdrawal') ||
+        lowerHeader.includes('debit') ||
+        lowerHeader.includes('money out') ||
+        lowerHeader.includes('paid out')
+      )) {
+        detectedWithdrawal = index.toString();
+      }
+      if (!detectedDeposit && (
+        lowerHeader.includes('deposit') ||
+        lowerHeader.includes('credit') ||
+        lowerHeader.includes('money in') ||
+        lowerHeader.includes('paid in')
+      )) {
+        detectedDeposit = index.toString();
+      }
+    });
+
+    let detectedMode = 'single';
+    if (detectedWithdrawal && detectedDeposit && detectedWithdrawal !== detectedDeposit) {
+      detectedMode = 'split';
+      newMapping.withdrawal = detectedWithdrawal;
+      newMapping.deposit = detectedDeposit;
+    }
+
     headers.forEach((header, index) => {
       const lowerHeader = header.toLowerCase().trim();
 
@@ -133,8 +176,9 @@ export default function BankStatementUpload({ bankAccountId, transferAccounts = 
         newMapping.description = index.toString();
       }
 
-      // Amount detection (single column or debit/credit columns)
-      if (!newMapping.amount && (
+      // Single amount column detection — only used when a split
+      // withdrawal/deposit pair was NOT found above.
+      if (detectedMode === 'single' && !newMapping.amount && (
         lowerHeader.includes('amount') ||
         lowerHeader.includes('debit') ||
         lowerHeader.includes('credit') ||
@@ -163,7 +207,8 @@ export default function BankStatementUpload({ bankAccountId, transferAccounts = 
         newMapping.type = index.toString();
       }
     });
-    
+
+    setAmountMode(detectedMode);
     setMapping(newMapping);
   };
 
@@ -211,6 +256,33 @@ export default function BankStatementUpload({ bankAccountId, transferAccounts = 
     return isNaN(amount) ? 0 : amount;
   };
 
+  // Resolves one row's signed amount from separate withdrawal/deposit
+  // columns. A cell is treated as "unused" whenever it parses to zero —
+  // this covers both a truly blank cell AND a bank that writes "0.00" in
+  // the column that doesn't apply to this row (common export pattern),
+  // without special-casing the raw string. Banks don't record genuine
+  // $0.00 transactions, so there's no real case this misclassifies.
+  //
+  // The sign is forced regardless of how the bank wrote the cell — some
+  // banks already parenthesize debits (so parseAmount gives a negative),
+  // others export bare positives in both columns — so
+  // -Math.abs()/+Math.abs() makes this correct either way.
+  //
+  // Returns { amount, error } — error is set only when BOTH columns
+  // parse to a non-zero value (a genuinely ambiguous row), so the caller
+  // can flag and skip it instead of silently netting two numbers together.
+  const resolveSplitAmount = (withdrawalCell, depositCell) => {
+    const w = parseAmount(withdrawalCell);
+    const d = parseAmount(depositCell);
+
+    if (w !== 0 && d !== 0) {
+      return { amount: 0, error: 'both withdrawal and deposit columns have a value' };
+    }
+    if (w !== 0) return { amount: -Math.abs(w), error: null };
+    if (d !== 0) return { amount: Math.abs(d), error: null };
+    return { amount: 0, error: null }; // both blank/zero — not an error, just nothing to import
+  };
+
   const determineTransactionType = (amount, typeStr) => {
     if (typeStr) {
       const lower = typeStr.toLowerCase();
@@ -245,8 +317,14 @@ export default function BankStatementUpload({ bankAccountId, transferAccounts = 
   }
 
   const handleImport = async () => {
-    if (!mapping.date || !mapping.description || !mapping.amount) {
-      alert('Please map at least Date, Description, and Amount columns');
+    const hasAmountMapping = amountMode === 'split'
+      ? (mapping.withdrawal || mapping.deposit)
+      : mapping.amount;
+
+    if (!mapping.date || !mapping.description || !hasAmountMapping) {
+      alert(amountMode === 'split'
+        ? 'Please map Date, Description, and at least one of Withdrawal/Deposit columns'
+        : 'Please map at least Date, Description, and Amount columns');
       return;
     }
 
@@ -263,22 +341,41 @@ export default function BankStatementUpload({ bankAccountId, transferAccounts = 
       try {
         const date = parseDate(row[parseInt(mapping.date)]);
         const description = row[parseInt(mapping.description)]?.trim();
-        
-        // Handle single amount column or separate debit/credit columns
+
         let amount = 0;
-        const amountColIndex = parseInt(mapping.amount);
-        const amountStr = row[amountColIndex];
-        amount = parseAmount(amountStr);
-        
-        // If amount is 0, check adjacent columns (common for debit/credit columns)
-        if (amount === 0) {
-          // Check next column
-          if (row[amountColIndex + 1]) {
-            amount = parseAmount(row[amountColIndex + 1]);
+
+        if (amountMode === 'split') {
+          // Separate Withdrawal/Debit and Deposit/Credit columns — read
+          // whichever cell is populated and force the sign so a bare
+          // positive number in the Withdrawals column (no parentheses,
+          // no minus sign) still imports as a negative amount. See
+          // resolveSplitAmount for the blank-vs-both-populated logic.
+          const withdrawalCell = mapping.withdrawal ? row[parseInt(mapping.withdrawal)] : undefined;
+          const depositCell = mapping.deposit ? row[parseInt(mapping.deposit)] : undefined;
+          const { amount: resolved, error: splitError } = resolveSplitAmount(withdrawalCell, depositCell);
+          if (splitError) {
+            errors.push(`Row ${index + 2}: ${splitError} — row skipped`);
+            return;
           }
-          // If still 0, check previous column
-          if (amount === 0 && row[amountColIndex - 1]) {
-            amount = parseAmount(row[amountColIndex - 1]);
+          amount = resolved;
+        } else {
+          // Single amount column. Kept exactly as before, including the
+          // adjacent-column fallback, so existing single-column CSVs that
+          // already work are unaffected by this change.
+          const amountColIndex = parseInt(mapping.amount);
+          const amountStr = row[amountColIndex];
+          amount = parseAmount(amountStr);
+
+          // If amount is 0, check adjacent columns (common for debit/credit columns)
+          if (amount === 0) {
+            // Check next column
+            if (row[amountColIndex + 1]) {
+              amount = parseAmount(row[amountColIndex + 1]);
+            }
+            // If still 0, check previous column
+            if (amount === 0 && row[amountColIndex - 1]) {
+              amount = parseAmount(row[amountColIndex - 1]);
+            }
           }
         }
         
@@ -334,10 +431,13 @@ export default function BankStatementUpload({ bankAccountId, transferAccounts = 
     setFile(null);
     setParsedData(null);
     setHeaders([]);
+    setAmountMode('single');
     setMapping({
       date: '',
       description: '',
       amount: '',
+      withdrawal: '',
+      deposit: '',
       reference: '',
       type: '',
       payee: '',
@@ -458,22 +558,83 @@ export default function BankStatementUpload({ bankAccountId, transferAccounts = 
 
           <div style={styles.mappingRow}>
             <label style={styles.mappingLabel}>
-              Amount <span style={styles.required}>*</span>
+              Amount Columns <span style={styles.required}>*</span>
             </label>
-            <select
-              value={mapping.amount}
-              onChange={(e) => setMapping({...mapping, amount: e.target.value})}
-              onClick={(e) => e.stopPropagation()}
-              style={styles.mappingSelect}
-            >
-              <option value="">-- Select Column --</option>
-              {headers.map((header, index) => (
-                <option key={index} value={index}>{header}</option>
-              ))}
-            </select>
-            <p style={styles.fieldNote}>
-              Positive for deposits, negative for withdrawals. Use parentheses () for negatives.
-            </p>
+            <div style={styles.amountModeToggle}>
+              <label style={styles.amountModeOption}>
+                <input
+                  type="radio"
+                  name="amountMode"
+                  checked={amountMode === 'single'}
+                  onChange={() => setAmountMode('single')}
+                />
+                {' '}Single amount column
+              </label>
+              <label style={styles.amountModeOption}>
+                <input
+                  type="radio"
+                  name="amountMode"
+                  checked={amountMode === 'split'}
+                  onChange={() => setAmountMode('split')}
+                />
+                {' '}Separate withdrawal / deposit columns
+              </label>
+            </div>
+
+            {amountMode === 'single' ? (
+              <>
+                <select
+                  value={mapping.amount}
+                  onChange={(e) => setMapping({...mapping, amount: e.target.value})}
+                  onClick={(e) => e.stopPropagation()}
+                  style={styles.mappingSelect}
+                >
+                  <option value="">-- Select Column --</option>
+                  {headers.map((header, index) => (
+                    <option key={index} value={index}>{header}</option>
+                  ))}
+                </select>
+                <p style={styles.fieldNote}>
+                  Positive for deposits, negative for withdrawals. Use parentheses () for negatives.
+                </p>
+              </>
+            ) : (
+              <div style={styles.splitAmountGrid}>
+                <div>
+                  <label style={styles.fieldNote}>Withdrawals (money out)</label>
+                  <select
+                    value={mapping.withdrawal}
+                    onChange={(e) => setMapping({...mapping, withdrawal: e.target.value})}
+                    onClick={(e) => e.stopPropagation()}
+                    style={styles.mappingSelect}
+                  >
+                    <option value="">-- Select Column --</option>
+                    {headers.map((header, index) => (
+                      <option key={index} value={index}>{header}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={styles.fieldNote}>Deposits (money in)</label>
+                  <select
+                    value={mapping.deposit}
+                    onChange={(e) => setMapping({...mapping, deposit: e.target.value})}
+                    onClick={(e) => e.stopPropagation()}
+                    style={styles.mappingSelect}
+                  >
+                    <option value="">-- Select Column --</option>
+                    {headers.map((header, index) => (
+                      <option key={index} value={index}>{header}</option>
+                    ))}
+                  </select>
+                </div>
+                <p style={{...styles.fieldNote, gridColumn: '1 / -1'}}>
+                  Whichever column has a value for a given row wins. The sign is applied
+                  automatically — withdrawals always import negative, deposits always positive —
+                  regardless of how your bank formats the number.
+                </p>
+              </div>
+            )}
           </div>
 
           <div style={styles.mappingRow}>
@@ -535,7 +696,16 @@ export default function BankStatementUpload({ bankAccountId, transferAccounts = 
                   const date = mapping.date ? parseDate(row[parseInt(mapping.date)]) : '';
                   const description = mapping.description ? row[parseInt(mapping.description)] : '';
                   const payee = mapping.payee ? row[parseInt(mapping.payee)] : '';
-                  const amount = mapping.amount ? parseAmount(row[parseInt(mapping.amount)]) : 0;
+
+                  let amount = 0;
+                  if (amountMode === 'split') {
+                    const withdrawalCell = mapping.withdrawal ? row[parseInt(mapping.withdrawal)] : undefined;
+                    const depositCell = mapping.deposit ? row[parseInt(mapping.deposit)] : undefined;
+                    amount = resolveSplitAmount(withdrawalCell, depositCell).amount;
+                  } else {
+                    amount = mapping.amount ? parseAmount(row[parseInt(mapping.amount)]) : 0;
+                  }
+
                   const reference = mapping.reference ? row[parseInt(mapping.reference)] : '';
                   const typeStr = mapping.type ? row[parseInt(mapping.type)] : '';
                   const type = determineTransactionType(amount, typeStr);
@@ -563,16 +733,24 @@ export default function BankStatementUpload({ bankAccountId, transferAccounts = 
         <button onClick={resetUpload} style={styles.secondaryButton}>
           Cancel
         </button>
-        <button
-          onClick={handleImport}
-          disabled={importing || !mapping.date || !mapping.description || !mapping.amount}
-          style={{
-            ...styles.importButton,
-            ...(importing || !mapping.date || !mapping.description || !mapping.amount ? styles.disabledButton : {})
-          }}
-        >
-          {importing ? '⏳ Importing...' : `✓ Import ${parsedData?.length || 0} Transactions`}
-        </button>
+        {(() => {
+          const hasAmountMapping = amountMode === 'split'
+            ? (mapping.withdrawal || mapping.deposit)
+            : mapping.amount;
+          const isDisabled = importing || !mapping.date || !mapping.description || !hasAmountMapping;
+          return (
+            <button
+              onClick={handleImport}
+              disabled={isDisabled}
+              style={{
+                ...styles.importButton,
+                ...(isDisabled ? styles.disabledButton : {})
+              }}
+            >
+              {importing ? '⏳ Importing...' : `✓ Import ${parsedData?.length || 0} Transactions`}
+            </button>
+          );
+        })()}
       </div>
     </div>
   );
@@ -711,6 +889,23 @@ const styles = {
     appearance: 'auto',
     position: 'relative',
     zIndex: 1001,
+  },
+  amountModeToggle: {
+    display: 'flex',
+    gap: 20,
+    marginBottom: 10,
+  },
+  amountModeOption: {
+    display: 'flex',
+    alignItems: 'center',
+    fontSize: 14,
+    color: '#333',
+    cursor: 'pointer',
+  },
+  splitAmountGrid: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: 16,
   },
   fieldNote: {
     fontSize: 12,
