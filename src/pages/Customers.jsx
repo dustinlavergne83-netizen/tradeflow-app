@@ -365,12 +365,17 @@ export default function Customers() {
 
   return (
     <div style={{ ...styles.page, backgroundColor: BRAND.bg }}>
-      {/* Add Customer Button - Top Right */}
-      <div style={styles.addButtonContainer}>
-        <button onClick={() => setShowModal(true)} style={{ ...styles.addButton, background: BRAND.accent }}>
-          + Add Customer
-        </button>
-      </div>
+      {/* Add Customer Button - Top Right. Hidden while a customer card is
+          open: the card has its own Archive/Close actions in that same
+          corner, and this absolutely-positioned button was overlapping
+          them (it floats relative to the page, not the card). */}
+      {!selectedCustomer && (
+        <div style={styles.addButtonContainer}>
+          <button onClick={() => setShowModal(true)} style={{ ...styles.addButton, background: BRAND.accent }}>
+            + Add Customer
+          </button>
+        </div>
+      )}
 
       {/* Selected Customer Card */}
       {selectedCustomer && (
@@ -719,9 +724,11 @@ const styles = {
   },
   addButtonContainer: {
     // Positioned relative to the page container (not the viewport) so it no
-    // longer floats over the fixed 96px-tall header.
+    // longer floats over the fixed 96px-tall header. top bumped 40 -> 80 so
+    // it clears the page title row above the (now also conditionally
+    // hidden) customer card -- see the !selectedCustomer guard above.
     position: 'absolute',
-    top: '40px',
+    top: '80px',
     right: '24px',
     zIndex: 10,
   },

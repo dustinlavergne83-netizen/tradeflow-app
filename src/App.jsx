@@ -506,6 +506,20 @@ function AppContent() {
               </ProtectedRoute>
             }
           />
+          {/* Project-less proposal creation -- for cost sheets with no
+              attached project (e.g. quick estimates created straight from
+              the Customer file). Reads estimateId/type from the query
+              string; the proposal templates already tolerate a missing
+              project by synthesizing the customer from the estimate's
+              customer_name. */}
+          <Route
+            path="/proposal/new"
+            element={
+              <ProtectedRoute>
+                <Proposal />
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/invoice"
             element={

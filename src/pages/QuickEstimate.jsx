@@ -952,6 +952,19 @@ export default function QuickEstimate() {
               >
                 📧 Email
               </button>
+              {!isChangeOrder && (
+                <button
+                  onClick={() => navigate(
+                    projectId
+                      ? `/project/${projectId}/proposal?estimateId=${estimateId}&type=residential-owner`
+                      : `/proposal/new?estimateId=${estimateId}&type=residential-owner`
+                  )}
+                  style={styles.saveButton}
+                  title="Create a proposal from this cost sheet"
+                >
+                  📄 Create Proposal
+                </button>
+              )}
             </>
           )}
           <button onClick={() => navigate(projectId ? `/project/${projectId}` : "/estimates")} style={styles.cancelButton}>
