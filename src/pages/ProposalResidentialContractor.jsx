@@ -251,9 +251,14 @@ export default function ProposalResidentialContractor() {
           .eq("company_id", employee.company_id)
           .not("proposal_number", "is", null);
 
+        // Match the LAST digit run in the string, not the first --
+        // formats like PROP-26-1038 have a year (26) before the real
+        // sequence number (1038); /(\d+)/ alone would grab "26" and make
+        // the preview wildly wrong. The negative lookahead (?!.*\d) asserts
+        // no other digit follows, i.e. this is the final digit run.
         let maxBase = 1000;
         (existingProposals || []).forEach(prop => {
-          const match = prop.proposal_number?.match(/(\d+)/);
+          const match = prop.proposal_number?.match(/(\d+)(?!.*\d)/);
           if (match) maxBase = Math.max(maxBase, parseInt(match[1]));
         });
         setNextProposalNumber(String(maxBase + 1));

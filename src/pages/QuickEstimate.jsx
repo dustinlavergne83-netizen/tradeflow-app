@@ -835,7 +835,10 @@ export default function QuickEstimate() {
           if (proposals) {
             proposals.forEach(prop => {
               if (prop.proposal_number) {
-                const match = prop.proposal_number.match(/(\d+)/);
+                // Match the LAST digit run, not the first -- formats like
+                // PROP-26-1038 have a year (26) before the real sequence
+                // number (1038); /(\d+)/ alone would grab "26" here.
+                const match = prop.proposal_number.match(/(\d+)(?!.*\d)/);
                 if (match) {
                   const num = parseInt(match[1]);
                   if (num > maxBase) maxBase = num;
