@@ -88,11 +88,18 @@ export default function ProposalView() {
     }
   }
 
-  // Renders description as left-aligned bullet points if it contains newlines
+  // Renders description as left-aligned bullet points. Splits on newlines
+  // first; if there are none (a single run-on paragraph), falls back to
+  // splitting on sentence boundaries so scope-of-work text still renders
+  // as bullets. Mirrors renderDescription in ProposalResidentialContractor.jsx.
   const renderDescription = (text) => {
     if (!text) return null;
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    if (lines.length <= 1) return <span>{text}</span>;
+    let lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length <= 1) {
+      const sentences = text.split(/(?<=[.!?])\s+(?=[A-Z])/).map(s => s.trim()).filter(s => s.length > 0);
+      if (sentences.length <= 1) return <span>{text}</span>;
+      lines = sentences;
+    }
     return (
       <ul style={{ margin: 0, paddingLeft: 18, textAlign: 'left', listStyleType: 'disc' }}>
         {lines.map((line, i) => (
@@ -161,9 +168,7 @@ export default function ProposalView() {
           </div>
           <div style={styles.estimateTitle}>
             <h2 style={styles.estimateNumber}>
-              PROPOSAL #{proposal.proposal_number
-                ? proposal.proposal_number.replace('PROP-', '').replace('EST-', '').replace(/^\d{2}-/, '')
-                : baseEstimate.estimate_number?.replace('EST-', '').replace(/^\d{2}-/, '')}
+              {`PROPOSAL #${(proposal.proposal_number || baseEstimate.estimate_number || '').replace('PROP-', '').replace('EST-', '').replace(/^\d{2}-/, '')}`}
             </h2>
           </div>
         </div>
@@ -185,29 +190,36 @@ export default function ProposalView() {
             </>
           )}
         </div>
-        {/* Scope of Work */}
-        {(baseEstimate.notes || baseEstimate.description) && (
-          <div style={{margin:'0 0 18px 0',padding:'14px 18px',background:'#f8f9fb',borderLeft:'4px solid #0b3ea8',borderRadius:6}}>
-            <div style={{fontSize:12,fontWeight:700,color:'#0b3ea8',textTransform:'uppercase',letterSpacing:1,marginBottom:6}}>Scope of Work</div>
-            <div style={{fontSize:14,color:'#333',lineHeight:1.6,whiteSpace:'pre-line'}}>{baseEstimate.notes || baseEstimate.description}</div>
-          </div>
-        )}
+        {/* NOTE (2026-10): the standalone "Scope of Work" box that used to
+            live here was removed -- it duplicated the same text now shown
+            as bullets at the top of Proposal Summary below. Mirrors the
+            same change made in ProposalResidentialContractor.jsx. */}
 
         {/* Proposal Summary Table */}
         <div style={styles.proposalTable}>
           <div style={styles.tableTitle}>PROPOSAL SUMMARY</div>
           <table style={styles.table}>
-            <thead>
-              <tr style={styles.tableHeaderRow}>
-                <th style={{...styles.th, textAlign:'left', width: 150}}>ITEM</th>
-                <th style={{...styles.th, textAlign:'left'}}>DESCRIPTION</th>
-                {(proposal.show_line_items !== false ? proposal.show_item_prices !== false : true) && (
-                  <th style={{...styles.th, textAlign:'right', width: 150}}>AMOUNT</th>
-                )}
-              </tr>
-            </thead>
+            {!(baseEstimate.notes || baseEstimate.description) && (
+              <thead>
+                <tr style={styles.tableHeaderRow}>
+                  <th style={{...styles.th, textAlign:'left', width: 150}}>ITEM</th>
+                  <th style={{...styles.th, textAlign:'left'}}>DESCRIPTION</th>
+                  {(proposal.show_line_items !== false ? proposal.show_item_prices !== false : true) && (
+                    <th style={{...styles.th, textAlign:'right', width: 150}}>AMOUNT</th>
+                  )}
+                </tr>
+              </thead>
+            )}
             <tbody>
-              {proposal.show_line_items === false ? (
+              {(baseEstimate.notes || baseEstimate.description) ? (
+                /* Scope of work exists -- render it as bullets at the top,
+                   no per-item prices, single TOTAL INVESTMENT row below. */
+                <tr style={styles.tableRow}>
+                  <td colSpan={3} style={{...styles.td, lineHeight: 1.6, padding: "16px 0"}}>
+                    {renderDescription(baseEstimate.notes || baseEstimate.description)}
+                  </td>
+                </tr>
+              ) : proposal.show_line_items === false ? (
                 <tr style={styles.tableRow}>
                   <td style={styles.td}><span style={{...styles.badge,backgroundColor:BRAND.accent}}>BASE BID</span></td>
                   <td style={{...styles.td,fontSize:13,color:'#666',lineHeight:1.6}}>
@@ -243,8 +255,8 @@ export default function ProposalView() {
                 </>
               )}
               <tr style={styles.totalRow}>
-                <td colSpan={proposal.show_line_items!==false&&proposal.show_item_prices===false?3:2} style={{...styles.td,fontWeight:'bold',fontSize:18}}>TOTAL INVESTMENT</td>
-                {!(proposal.show_line_items!==false&&proposal.show_item_prices===false) && <td style={{...styles.td,textAlign:'right',fontWeight:'bold',fontSize:24,color:BRAND.accent}}>${(proposal.total_amount||0).toLocaleString('en-US',{minimumFractionDigits:2})}</td>}
+                <td colSpan={(baseEstimate.notes || baseEstimate.description) ? 2 : (proposal.show_line_items!==false&&proposal.show_item_prices===false?3:2)} style={{...styles.td,fontWeight:'bold',fontSize:18}}>TOTAL INVESTMENT</td>
+                {!(!(baseEstimate.notes || baseEstimate.description) && proposal.show_line_items!==false&&proposal.show_item_prices===false) && <td style={{...styles.td,textAlign:'right',fontWeight:'bold',fontSize:24,color:BRAND.accent}}>${(proposal.total_amount||0).toLocaleString('en-US',{minimumFractionDigits:2})}</td>}
               </tr>
             </tbody>
           </table>
