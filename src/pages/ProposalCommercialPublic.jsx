@@ -610,11 +610,18 @@ export default function ProposalCommercialPublic() {
     }
   }
 
-  // Renders a description string as left-aligned bullet points if it contains newlines
+  // Renders description as left-aligned bullet points. Splits on newlines
+  // first; if there are none (a single run-on paragraph), falls back to
+  // splitting on sentence boundaries so scope-of-work text still renders
+  // as bullets. Mirrors renderDescription in ProposalResidentialContractor.jsx.
   const renderDescription = (text) => {
     if (!text) return null;
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    if (lines.length <= 1) return <span>{text}</span>;
+    let lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length <= 1) {
+      const sentences = text.split(/(?<=[.!?])\s+(?=[A-Z])/).map(s => s.trim()).filter(s => s.length > 0);
+      if (sentences.length <= 1) return <span>{text}</span>;
+      lines = sentences;
+    }
     return (
       <ul style={{ margin: 0, paddingLeft: 18, textAlign: 'left', listStyleType: 'disc' }}>
         {lines.map((line, i) => (
@@ -655,6 +662,12 @@ export default function ProposalCommercialPublic() {
   const baseBidAmount = (isEditing && includeBaseBid) || (!isEditing && proposal?.base_bid_amount > 0) 
     ? (baseEstimate.total || 0) 
     : 0;
+
+  // When the estimate has free-text scope-of-work (notes/description), the
+  // base bid isn't individually priced line items -- render it as bullets
+  // spanning the full row instead of the ITEM/DESCRIPTION/AMOUNT columns.
+  // Mirrors the residential and customer-facing view templates.
+  const hasScope = !!(baseEstimate.notes || baseEstimate.description);
   
   const displayAlternates = isEditing 
     ? alternates.filter(alt => selectedAlternates.includes(alt.id))
@@ -1115,23 +1128,16 @@ export default function ProposalCommercialPublic() {
           )}
         </div>
 
-        {/* Scope of Work / Description â€” pulled from estimate */}
-        {!isCustomCatalog && (baseEstimate.notes || baseEstimate.description) && (
-          <div style={{
-            margin: '0 0 18px 0',
-            padding: '14px 18px',
-            background: '#f8f9fb',
-            borderLeft: '4px solid #0b3ea8',
-            borderRadius: 6,
-          }}>
-            <div style={{fontSize: 12, fontWeight: 700, color: '#0b3ea8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6}}>
-              Scope of Work
-            </div>
-            <div style={{fontSize: 14, color: '#333', lineHeight: 1.6, whiteSpace: 'pre-line'}}>
-              {baseEstimate.notes || baseEstimate.description}
-            </div>
-          </div>
-        )}
+        {/* NOTE (2026-10): the standalone "Scope of Work" box that used to
+            live here was removed -- it rendered the exact same text
+            (baseEstimate.notes || baseEstimate.description) as the
+            Proposal Summary section below, just in a plainer layout.
+            Showing the same content twice on one proposal was
+            confusing. Scope now renders as bullets at the top of
+            Proposal Summary instead (see the tbody below), with
+            TOTAL INVESTMENT as a single rolled-up figure beneath it
+            -- no per-item prices for scope bullets, since they are
+            not individually priced line items. */}
 
         <div style={styles.proposalTable}>
           <div style={styles.tableTitle}>PROPOSAL SUMMARY</div>
@@ -1139,17 +1145,50 @@ export default function ProposalCommercialPublic() {
           <table style={styles.table}>
             <thead>
               <tr style={styles.tableHeaderRow}>
-                {!isCustomCatalog && (
-                  <th style={{...styles.th, textAlign: "left", width: 100}}>ITEM</th>
-                )}
-                <th style={{...styles.th, textAlign: "left"}}>DESCRIPTION</th>
-                {(showLineItems ? showItemPrices : true) && (
-                  <th style={{...styles.th, textAlign: "right", width: 120}}>AMOUNT</th>
+                {hasScope ? (
+                  <th style={{...styles.th, textAlign: "left"}}>DESCRIPTION</th>
+                ) : (
+                  <>
+                    {!isCustomCatalog && (
+                      <th style={{...styles.th, textAlign: "left", width: 100}}>ITEM</th>
+                    )}
+                    <th style={{...styles.th, textAlign: "left"}}>DESCRIPTION</th>
+                    {(showLineItems ? showItemPrices : true) && (
+                      <th style={{...styles.th, textAlign: "right", width: 120}}>AMOUNT</th>
+                    )}
+                  </>
                 )}
               </tr>
             </thead>
             <tbody>
-              {!showLineItems ? (
+              {hasScope ? (
+                /* Scope of work exists -- render it as bullets spanning the
+                   full row, no per-item prices (not individually priced
+                   line items). Alternates (if any) still list below with
+                   their own price. */
+                <>
+                  <tr style={styles.tableRow}>
+                    <td style={{...styles.td, lineHeight: 1.6, padding: "16px 0"}}>
+                      {renderDescription(baseEstimate.notes || baseEstimate.description)}
+                    </td>
+                  </tr>
+                  {displayAlternates.map(alt => (
+                    <tr key={alt.id} style={styles.tableRow}>
+                      <td style={{...styles.td, fontSize: 13, color: "#666", display: "flex", justifyContent: "space-between", alignItems: "center"}}>
+                        <span>
+                          <span style={{...styles.badge, backgroundColor: "#8b5cf6", marginRight: 10}}>
+                            ALT {alt.alternate_number}
+                          </span>
+                          {alt.description || alt.title || alt.alternate_title || ""}
+                        </span>
+                        <span style={{fontWeight: "600", fontSize: 16}}>
+                          ${(alt.price || alt.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </>
+              ) : !showLineItems ? (
                 /* Summary mode â€” one row per bid/alternate showing description + total */
                 <>
                   {baseBidAmount > 0 && (
@@ -1200,7 +1239,7 @@ export default function ProposalCommercialPublic() {
                         </td>
                       )}
                       <td style={{...styles.td, fontSize: 13, color: "#666"}}>
-                        {renderDescription(baseEstimate.description || baseEstimate.project_description || "Base scope of work")}
+                        {renderDescription(baseEstimate.notes || baseEstimate.description || baseEstimate.project_description || "Base scope of work")}
                       </td>
                       {showItemPrices && (
                         <td style={{...styles.td, textAlign: "right", fontWeight: "600", fontSize: 16}}>
@@ -1233,9 +1272,9 @@ export default function ProposalCommercialPublic() {
                 </>
               )}
               <tr style={styles.totalRow}>
-                {showLineItems && !showItemPrices ? (
+                {hasScope || (showLineItems && !showItemPrices) ? (
                   /* No AMOUNT column exists — span all columns, show total inline */
-                  <td colSpan={isCustomCatalog ? 1 : 2} style={{...styles.td, fontWeight: "bold", fontSize: 18, display: "flex", justifyContent: "space-between", alignItems: "center"}}>
+                  <td colSpan={hasScope ? 1 : (isCustomCatalog ? 1 : 2)} style={{...styles.td, fontWeight: "bold", fontSize: 18, display: "flex", justifyContent: "space-between", alignItems: "center"}}>
                     <span>TOTAL INVESTMENT</span>
                     <span style={{fontSize: 24, color: BRAND.accent}}>
                       ${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
