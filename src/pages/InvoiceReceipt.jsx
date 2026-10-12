@@ -89,64 +89,28 @@ export default function InvoiceReceipt() {
     );
   }
 
-  // Build summary categories from line items
-  const laborItems = invoiceItems.filter(
-    (item) => item.description?.toLowerCase().includes("labor")
-  );
-  const materialItems = invoiceItems.filter(
-    (item) => !item.description?.toLowerCase().includes("labor")
-  );
+  // Show the real line items from the invoice — same as InvoiceView.jsx —
+  // instead of collapsing everything into generic "Labor" / "Materials &
+  // Expenses" / "Electrical Services" buckets. itemTotal matches
+  // InvoiceView.jsx's formula exactly so amounts (and the resulting
+  // invoiceTotal) are unchanged; only the row breakdown changes.
+  const itemTotal = (item) =>
+    (item.total || 0) * (1 + (item.markup_percentage || 0) / 100);
 
-  const laborTotal = laborItems.reduce((sum, item) => {
-    const baseTotal = item.total || 0;
-    const markupPercent = item.markup_percentage || 0;
-    return sum + baseTotal + (baseTotal * markupPercent) / 100;
-  }, 0);
-
-  const materialsTotal = materialItems.reduce((sum, item) => {
-    const baseTotal = item.total || 0;
-    const markupPercent = item.markup_percentage || 0;
-    return sum + baseTotal + (baseTotal * markupPercent) / 100;
-  }, 0);
-
-  const invoiceTotal = laborTotal + materialsTotal;
   const depositReceived = invoice.deposit_received || 0;
   const amountPaid = invoice.amount_paid || 0;
   const totalPayments = depositReceived + amountPaid;
 
-  // Determine if this is T&M or fixed price for summary display
-  const isTM = laborItems.length > 0 && materialItems.length > 0;
-  const isProgressBilling =
-    invoice.notes && invoice.notes.includes("Progress billing");
+  // One row per real line item. Fallback to a single generic row using the
+  // invoice's stored total for older/legacy invoices with no invoice_items.
+  const summaryLines = invoiceItems.length > 0
+    ? invoiceItems.map((item) => ({
+        label: item.description || "Electrical Services",
+        amount: itemTotal(item),
+      }))
+    : [{ label: "Electrical Services", amount: invoice.total || 0 }];
 
-  // Build simple summary lines
-  const summaryLines = [];
-  if (isTM) {
-    if (laborTotal > 0)
-      summaryLines.push({ label: "Labor", amount: laborTotal });
-    if (materialsTotal > 0)
-      summaryLines.push({
-        label: "Materials & Expenses",
-        amount: materialsTotal,
-      });
-  } else if (isProgressBilling) {
-    summaryLines.push({
-      label: "Progress Billing — Electrical Services",
-      amount: invoiceTotal,
-    });
-  } else if (invoiceItems.length === 1) {
-    // Single line item — just show a generic description
-    summaryLines.push({
-      label: invoiceItems[0].description || "Electrical Services",
-      amount: invoiceTotal,
-    });
-  } else {
-    // Multiple items — summarize as "Electrical Services"
-    summaryLines.push({
-      label: "Electrical Services",
-      amount: invoiceTotal,
-    });
-  }
+  const invoiceTotal = summaryLines.reduce((sum, line) => sum + line.amount, 0);
 
   return (
     <div style={styles.container}>
