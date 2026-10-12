@@ -40,6 +40,13 @@ export default function ProposalResidentialContractor() {
 
   // Data
   const [proposal, setProposal] = useState(null);
+  // Preview-only number shown on an unsaved draft (no proposal row exists
+  // yet, so proposal.proposal_number is null). Without this the header
+  // fell through to showing "ESTIMATE #<cost sheet number>" on a document
+  // titled PROJECT PROPOSAL, which was confusing. Computed the same way
+  // the save path computes the real number (see handleSave below), so
+  // what's previewed here matches what actually gets saved.
+  const [nextProposalNumber, setNextProposalNumber] = useState(null);
   const [baseEstimate, setBaseEstimate] = useState(null);
   const [estimateItems, setEstimateItems] = useState([]);
   const [proposalAlternates, setProposalAlternates] = useState([]);
@@ -232,6 +239,26 @@ export default function ProposalResidentialContractor() {
 
   async function loadEstimate(id) {
     try {
+      // Preview what the next proposal number WILL be once this draft is
+      // saved (same max-existing-proposal_number + 1 logic as handleSave).
+      // This is a separate company-scoped lookup from the estimate load
+      // below since cost sheets (estimates) are no longer part of the
+      // proposal numbering pool.
+      if (employee?.company_id) {
+        const { data: existingProposals } = await supabase
+          .from("proposals")
+          .select("proposal_number")
+          .eq("company_id", employee.company_id)
+          .not("proposal_number", "is", null);
+
+        let maxBase = 1000;
+        (existingProposals || []).forEach(prop => {
+          const match = prop.proposal_number?.match(/(\d+)/);
+          if (match) maxBase = Math.max(maxBase, parseInt(match[1]));
+        });
+        setNextProposalNumber(String(maxBase + 1));
+      }
+
       const { data: estimateData } = await supabase
         .from("estimates")
         .select("*")
@@ -452,11 +479,22 @@ export default function ProposalResidentialContractor() {
     }
   }
 
-  // Renders a description string as left-aligned bullet points if it contains newlines
+  // Renders a description string as left-aligned bullet points. Splits on
+  // newlines first (cost sheets written with one item per line); if the
+  // text has no newlines at all (a single run-on paragraph, e.g. "Disconnect
+  // wiring. Place generator. Install transfer switch."), falls back to
+  // splitting on sentence boundaries so scope-of-work paragraphs still
+  // render as bullets instead of one undifferentiated block. The lookahead
+  // for a capital letter after the period keeps decimals like "2.5 ton"
+  // from being split.
   const renderDescription = (text) => {
     if (!text) return null;
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    if (lines.length <= 1) return <span>{text}</span>;
+    let lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length <= 1) {
+      const sentences = text.split(/(?<=[.!?])\s+(?=[A-Z])/).map(s => s.trim()).filter(s => s.length > 0);
+      if (sentences.length <= 1) return <span>{text}</span>;
+      lines = sentences;
+    }
     return (
       <ul style={{ margin: 0, paddingLeft: 18, textAlign: 'left', listStyleType: 'disc' }}>
         {lines.map((line, i) => (
@@ -865,9 +903,7 @@ export default function ProposalResidentialContractor() {
               </div>
               <div style={styles.estimateTitle}>
                 <h2 style={styles.estimateNumber}>
-                  {proposal?.proposal_number
-                    ? `PROPOSAL #${proposal.proposal_number.replace('PROP-', '').replace('EST-', '').replace(/^\d{2}-/, '')}`
-                    : `ESTIMATE #${baseEstimate.estimate_number?.replace('EST-', '').replace(/^\d{2}-/, '')}`}
+                  {`PROPOSAL #${(proposal?.proposal_number || nextProposalNumber || baseEstimate.estimate_number || '').replace('PROP-', '').replace('EST-', '').replace(/^\d{2}-/, '')}`}
                 </h2>
               </div>
             </div>
@@ -893,30 +929,32 @@ export default function ProposalResidentialContractor() {
               )}
             </div>
 
-            {/* Scope of Work / Description — pulled from estimate */}
-            {(baseEstimate.notes || baseEstimate.description) && (
-              <div style={{
-                margin: '0 0 18px 0',
-                padding: '14px 18px',
-                background: '#f8f9fb',
-                borderLeft: '4px solid #0b3ea8',
-                borderRadius: 6,
-              }}>
-                <div style={{fontSize: 12, fontWeight: 700, color: '#0b3ea8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6}}>
-                  Scope of Work
-                </div>
-                <div style={{fontSize: 14, color: '#333', lineHeight: 1.6, whiteSpace: 'pre-line'}}>
-                  {baseEstimate.notes || baseEstimate.description}
-                </div>
-              </div>
-            )}
+            {/* NOTE (2026-10): the standalone "Scope of Work" box that used
+                to live here was removed -- it rendered the exact same text
+                (baseEstimate.notes || baseEstimate.description) as the
+                Proposal Summary section below, just in a plainer layout.
+                Showing the same content twice on one proposal was
+                confusing. Scope now renders as bullets at the top of
+                Proposal Summary instead (see the tbody below), with
+                TOTAL INVESTMENT as a single rolled-up figure beneath it
+                -- no per-item prices for scope bullets, since they are
+                not individually priced line items. */}
 
             {/* Proposal Summary Table */}
             <div className="proposal-table-section" style={styles.proposalTable}>
               <div className="table-header" style={styles.tableTitle}>PROPOSAL SUMMARY</div>
               <table style={styles.table}>
                 <tbody>
-                  {showLineItems ? (
+                  {(baseEstimate.notes || baseEstimate.description) ? (
+                    /* Scope of work exists -- render it as bullets at the top,
+                       no per-item prices (these are not individually priced
+                       line items), with a single TOTAL INVESTMENT row below. */
+                    <tr style={styles.tableRow}>
+                      <td colSpan={2} style={{...styles.td, lineHeight: 1.6, padding: "16px 0"}}>
+                        {renderDescription(baseEstimate.notes || baseEstimate.description)}
+                      </td>
+                    </tr>
+                  ) : showLineItems ? (
                     <>
                       {includeBaseBid && estimateItems.length > 0 && (
                         <>
@@ -977,7 +1015,7 @@ export default function ProposalResidentialContractor() {
                     </tr>
                   )}
 
-                  {showLineItems && !showItemPrices ? (
+                  {!(baseEstimate.notes || baseEstimate.description) && showLineItems && !showItemPrices ? (
                     /* No price column — show total inline in a single spanning cell */
                     <tr style={{...styles.tableRow, borderTop: "2px solid #333"}}>
                       <td style={{...styles.td, fontWeight: "bold", display: "flex", justifyContent: "space-between", alignItems: "center"}}>
