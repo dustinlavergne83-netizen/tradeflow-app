@@ -103,14 +103,35 @@ export default function ProposalCommercialPublic() {
       if (baseError) throw baseError;
       setBaseEstimate(baseEst);
 
-      const { data: projectData, error: projectError } = await supabase
-        .from("projects")
-        .select("*")
-        .eq("id", proposalData.project_id)
-        .single();
-
-      if (!projectError) {
+      // Look up the project record for the "For:" line. The proposal's own
+      // project_id is often null (e.g. estimates created outside the
+      // project flow), so fall back to the estimate's project_id, then to
+      // looking the project up by name, then finally to a synthetic object
+      // built from the estimate's saved project_name so "For:" still shows
+      // something instead of silently disappearing. Mirrors the same
+      // fallback chain used in ProposalResidentialContractor.jsx.
+      const lookupProjectId = proposalData.project_id || baseEst.project_id;
+      let projectData = null;
+      if (lookupProjectId) {
+        const { data: pd } = await supabase
+          .from("projects")
+          .select("*")
+          .eq("id", lookupProjectId)
+          .maybeSingle();
+        projectData = pd || null;
+      }
+      if (!projectData && baseEst.project_name) {
+        const { data: pd2 } = await supabase
+          .from("projects")
+          .select("*")
+          .eq("name", baseEst.project_name)
+          .maybeSingle();
+        projectData = pd2 || null;
+      }
+      if (projectData) {
         setProject(projectData);
+      } else if (baseEst.project_name) {
+        setProject({ name: baseEst.project_name });
       }
 
       const { data: altsData, error: altsError } = await supabase
