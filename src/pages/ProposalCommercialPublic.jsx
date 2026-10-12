@@ -19,7 +19,7 @@ export default function ProposalCommercialPublic() {
   const [searchParams] = useSearchParams();
   const { id: projectIdFromPath } = useParams();
   const navigate = useNavigate();
-  const { user, company } = useAuth();
+  const { user, employee, company } = useAuth();
   // Companies with a custom service catalog (DT Specialties) have done away
   // with the contractor/proposal-bid flow entirely and go strictly by
   // customer — this component auto-populates the customer instead of
@@ -517,6 +517,18 @@ export default function ProposalCommercialPublic() {
       return;
     }
 
+    // NOTE (2026-10): see the matching comment in
+    // ProposalResidentialContractor.jsx's handleSave — this used to
+    // hardcode `company_id: user.id` (an auth.users id, not a companies
+    // id). It only "worked" because the shared H database's
+    // proposals_company_id_fkey constraint was itself incorrectly
+    // pointing at auth.users(id) instead of companies(id); now that the
+    // constraint is fixed, this must send a real company id instead.
+    if (!employee?.company_id) {
+      notify("Your employee record isn't loaded yet. Please reload the page and try again.");
+      return;
+    }
+
     setIsSaving(true);
     try {
       const baseBidAmount = includeBaseBid ? (baseEstimate.total || 0) : 0;
@@ -526,7 +538,7 @@ export default function ProposalCommercialPublic() {
       const totalAmount = baseBidAmount + alternatesTotal + adj;
 
       const proposalData = {
-        company_id: user.id,
+        company_id: employee.company_id,
         project_id: projectId,
         // For change orders, use change_order_id instead of base_estimate_id
         // (base_estimate_id has a foreign key to the estimates table)

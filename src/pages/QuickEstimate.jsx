@@ -795,16 +795,28 @@ export default function QuickEstimate() {
           notify(`Quick Estimate updated successfully!`);
         } else {
           // CREATE new estimate
+          // NOTE (2026-10): these three sites used `user.id` (an auth
+          // user id) instead of `employee.company_id` (the real company
+          // id) -- same bug class as the proposal save fix above. Reading
+          // estimates/proposals filtered by user.id instead of the real
+          // company_id meant these queries silently matched ZERO rows for
+          // every real company, so maxBase always fell back to 1000 and
+          // every new estimate/proposal number restarted at 1001 instead
+          // of continuing the real sequence. Writing company_id: user.id
+          // on the new estimateData below also "worked" only because of
+          // the (now fixed) proposals_company_id_fkey schema bug pointing
+          // at auth.users instead of companies -- it would have started
+          // failing the same way the proposal save did.
           const { data: estimates } = await supabase
             .from("estimates")
             .select("estimate_number")
-            .eq("company_id", user.id)
+            .eq("company_id", employee?.company_id)
             .not("estimate_number", "is", null);
           
           const { data: proposals } = await supabase
             .from("proposals")
             .select("proposal_number")
-            .eq("company_id", user.id);
+            .eq("company_id", employee?.company_id);
           
           let maxBase = 1000;
           
@@ -835,7 +847,7 @@ export default function QuickEstimate() {
           const estimateNumber = String(maxBase + 1);
           
           const estimateData = {
-            company_id: user.id,
+            company_id: employee?.company_id,
             estimate_number: estimateNumber,
             project_name: projectName || "Quick Estimate",
             customer_name: customerName,

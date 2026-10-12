@@ -19,7 +19,7 @@ export default function ProposalResidentialContractor() {
   const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, employee } = useAuth();
 
   const proposalId = searchParams.get("proposalId");
   const estimateId = searchParams.get("estimateId");
@@ -484,10 +484,26 @@ export default function ProposalResidentialContractor() {
       return;
     }
 
+    // NOTE (2026-10): this used to hardcode `company_id: user.id` -- an
+    // auth.users id, NOT a row in companies. This "worked" for a long
+    // time purely by accident, because the shared H database's
+    // proposals_company_id_fkey constraint was ITSELF wrongly defined as
+    // REFERENCES auth.users(id) instead of REFERENCES companies(id) (a
+    // separate schema bug, now fixed). Once that constraint was corrected
+    // to correctly point at companies(id), this line would have started
+    // failing every save with "violates foreign key constraint
+    // proposals_company_id_fkey" / "Key is not present in table
+    // companies". Fail loudly instead of writing a user id into a
+    // company_id column.
+    if (!employee?.company_id) {
+      notify("Your employee record isn't loaded yet. Please reload the page and try again.");
+      return;
+    }
+
     setIsSaving(true);
     try {
       const proposalData = {
-        company_id: user.id,
+        company_id: employee.company_id,
         // For change orders, use change_order_id instead of base_estimate_id
         // (base_estimate_id has a foreign key to the estimates table)
         ...(coId 
