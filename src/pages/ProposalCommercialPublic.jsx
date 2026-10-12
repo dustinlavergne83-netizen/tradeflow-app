@@ -167,6 +167,11 @@ export default function ProposalCommercialPublic() {
         if (contractorData?.email) {
           setContractorEmail(contractorData.email);
           setSelectedContractor(contractorData);
+        } else if (proposalData.contractor_name) {
+          // No matching project_contractors row (or no project linked) --
+          // still show the saved contractor_name as the "To:" value instead
+          // of hiding it entirely.
+          setSelectedContractor({ id: "saved-contractor", contractor_name: proposalData.contractor_name });
         }
         
         // Also load all contractors for this project so the email form works
@@ -176,13 +181,16 @@ export default function ProposalCommercialPublic() {
           .eq("project_id", proposalData.project_id)
           .order("contractor_name");
         setContractors(allContractors || []);
+      } else if (proposalData.contractor_name) {
+        // Proposal has a contractor_name but no project_id (e.g. a
+        // standalone bid not tied to a project) -- still show it as "To:".
+        setSelectedContractor({ id: "saved-contractor", contractor_name: proposalData.contractor_name });
       }
       
       // Restore display mode from saved proposal
       setShowLineItems(proposalData.show_line_items !== false);
       setShowItemPrices(proposalData.show_item_prices !== false);
       setDepositRequired(proposalData.deposit_required === true);
-      setDepositAmount(proposalData.deposit_amount ? String(proposalData.deposit_amount) : '');
       setDepositPercent(proposalData.deposit_percent ? String(proposalData.deposit_percent) : '');
       setIsEditing(false);
     } catch (err) {
@@ -1373,8 +1381,15 @@ export default function ProposalCommercialPublic() {
                 all items specified above and assumes normal working conditions with adequate access to work areas.
               </p>
               <p style={styles.scopeText}>
-                Price is valid for 30 days from proposal date. Any changes or additions to the scope of work 
-                outlined above will require written approval and may result in additional charges.
+                All labor performed under this proposal is warranted against defects in workmanship for one (1)
+                year from the date of completion. This warranty does not cover materials supplied by others,
+                normal wear and tear, or damage caused by misuse, neglect, or acts beyond our control.
+              </p>
+              <p style={styles.scopeText}>
+                {validUntil
+                  ? `This price is valid until ${formatDate(validUntil)}.`
+                  : "Price is valid for 30 days from proposal date."} Any changes or additions to the scope of
+                work outlined above will require written approval and may result in additional charges.
               </p>
             </>
           )}
