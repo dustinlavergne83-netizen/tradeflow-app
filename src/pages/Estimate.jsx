@@ -1989,7 +1989,7 @@ export default function Estimate({ mode = "full" }) {
   const isQuick = mode === "quick";
   const { id: projectId } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, employee } = useAuth();
   
   // Get section and estimateId from URL query params
   const [searchParams] = useSearchParams();
@@ -2580,7 +2580,7 @@ export default function Estimate({ mode = "full" }) {
             .from("estimates")
             .select("*")
             .eq("project_id", projectId)
-            .eq("company_id", user.id)
+            .eq("company_id", employee?.company_id || user.id)
             .order("created_at", { ascending: false })
             .limit(1)
             .maybeSingle();
@@ -2616,7 +2616,7 @@ export default function Estimate({ mode = "full" }) {
       const { data, error } = await supabase
         .from("estimates")
         .select("estimate_number")
-        .eq("company_id", user.id)
+        .eq("company_id", employee?.company_id || user.id)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -2997,7 +2997,7 @@ for (const row of validRows) {
         const { data: estimate, error: estimateError } = await supabase
           .from("estimates")
           .insert([{
-            company_id: user.id,
+            company_id: employee?.company_id || user.id,
             project_id: projectId,
             project_name: projectName,
             estimate_number: estimateNumber,
@@ -3156,7 +3156,7 @@ for (const row of validRows) {
 
       // Create the estimate header
       const estimateData = {
-        company_id: user?.id,
+        company_id: employee?.company_id || user?.id,
         project_name: projectName,
         customer_name: customerName,
         project_location: projectLocation,

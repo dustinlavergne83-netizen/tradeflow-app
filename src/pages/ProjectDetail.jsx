@@ -22,7 +22,7 @@ export default function ProjectDetail() {
   const BRAND = { ...STATIC_BRAND, ...useBrand() };
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user, company } = useAuth();
+  const { user, employee, company } = useAuth();
   const PROJECT_TYPES = getProjectTypes(company);
   // DT Specialties (and any company with a custom service catalog) does away
   // with the "contractor" / proposal-contractor-bid workflow entirely — those
@@ -516,7 +516,7 @@ export default function ProjectDetail() {
       const { data: newAlt, error: createError } = await supabase
         .from("estimates")
         .insert([{
-          company_id: user.id,
+          company_id: employee?.company_id || user.id,
           project_name: parent.project_name,
           customer_name: parent.customer_name,
           project_location: parent.project_location,
@@ -3076,11 +3076,11 @@ async function handleAddContractor() {
                               setOpenActionMenu(null);
                               if (!await confirmDialog(`Copy estimate ${estimate.estimate_number}?`)) return;
                               try {
-                                const { data: allEsts } = await supabase.from("estimates").select("estimate_number").eq("company_id", user.id).not("estimate_number", "is", null);
+                                const { data: allEsts } = await supabase.from("estimates").select("estimate_number").eq("company_id", employee?.company_id || user.id).not("estimate_number", "is", null);
                                 let maxNum = 1000;
                                 (allEsts || []).forEach(e => { const m = (e.estimate_number || '').match(/^(\d+)/); if (m && parseInt(m[1]) > maxNum) maxNum = parseInt(m[1]); });
                                 const newNumber = String(maxNum + 1);
-                                const { data: newEst, error: estErr } = await supabase.from("estimates").insert([{ company_id: estimate.company_id || user.id, estimate_number: newNumber, project_name: estimate.project_name, customer_name: estimate.customer_name, estimate_date: new Date().toISOString().split('T')[0], subtotal: estimate.subtotal, total: estimate.total, status: 'draft', notes: estimate.notes ? `${estimate.notes} (Copy of #${estimate.estimate_number})` : `Copy of #${estimate.estimate_number}`, estimate_type: estimate.estimate_type, project_id: estimate.project_id }]).select().single();
+                                const { data: newEst, error: estErr } = await supabase.from("estimates").insert([{ company_id: estimate.company_id || employee?.company_id || user.id, estimate_number: newNumber, project_name: estimate.project_name, customer_name: estimate.customer_name, estimate_date: new Date().toISOString().split('T')[0], subtotal: estimate.subtotal, total: estimate.total, status: 'draft', notes: estimate.notes ? `${estimate.notes} (Copy of #${estimate.estimate_number})` : `Copy of #${estimate.estimate_number}`, estimate_type: estimate.estimate_type, project_id: estimate.project_id }]).select().single();
                                 if (estErr) throw estErr;
                                 const { data: items } = await supabase.from("estimate_items").select("*").eq("estimate_id", estimate.id).order("sequence");
                                 if (items?.length > 0) { const { error: ie } = await supabase.from("estimate_items").insert(items.map(i => ({ estimate_id: newEst.id, line_type: i.line_type, description: i.description, quantity: i.quantity, unit: i.unit, material_unit_cost: i.material_unit_cost, material_total: i.material_total, labor_hours: i.labor_hours, labor_rate: i.labor_rate, labor_total: i.labor_total, line_total: i.line_total, sequence: i.sequence }))); if (ie) throw ie; }
@@ -6262,7 +6262,7 @@ async function handleAddContractor() {
                     const { data: newAlt, error: createError } = await supabase
                       .from("estimates")
                       .insert([{
-                        company_id: user.id,
+                        company_id: employee?.company_id || user.id,
                         project_name: parent.project_name,
                         customer_name: parent.customer_name,
                         project_location: parent.project_location,
