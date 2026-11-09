@@ -530,6 +530,16 @@ export default function QuickEstimate() {
       return;
     }
 
+    // Guard (2026-11): company_id is required by the estimates/change_orders
+    // RLS insert policies. Without this check, a not-yet-loaded or missing
+    // employee record silently sends company_id: undefined/null, which the
+    // database rejects with an opaque "new row violates row-level security
+    // policy for table estimates" error instead of a clear message here.
+    if (!employee?.company_id) {
+      notify("Unable to save: your account isn't linked to a company yet. Please sign out and back in, or contact an admin.");
+      return;
+    }
+
     setIsSaving(true);
     try {
       // Auto-create the customer record if a name was typed that doesn't
