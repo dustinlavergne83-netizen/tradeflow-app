@@ -622,13 +622,24 @@ export default function QuickEstimate() {
 
           if (itemsError) throw itemsError;
 
-          // Only delete old items AFTER new ones are safely inserted
+          // Only delete old items AFTER new ones are safely inserted.
+          // A delete blocked by RLS does NOT raise an error -- it just
+          // removes 0 rows and returns success (2026-11 bug: this left
+          // old line items behind, doubling the list on every edit).
+          // Request the deleted rows back so a silent no-op is caught
+          // and surfaced instead of accepted as success.
           if (oldCoItemIds.length > 0) {
-            const { error: deleteError } = await supabase
+            const { data: deletedCoItems, error: deleteError } = await supabase
               .from("estimate_items")
               .delete()
-              .in("id", oldCoItemIds);
+              .in("id", oldCoItemIds)
+              .select("id");
             if (deleteError) throw deleteError;
+            if ((deletedCoItems || []).length !== oldCoItemIds.length) {
+              throw new Error(
+                `Failed to remove old line items (expected to delete ${oldCoItemIds.length}, deleted ${(deletedCoItems || []).length}). Change order NOT saved to avoid duplicate items -- please contact support.`
+              );
+            }
           }
 
           notify(`Quick Change Order updated successfully!`);
@@ -793,13 +804,24 @@ export default function QuickEstimate() {
 
           if (itemsError) throw itemsError;
 
-          // Only delete old items AFTER new ones are safely inserted
+          // Only delete old items AFTER new ones are safely inserted.
+          // A delete blocked by RLS does NOT raise an error -- it just
+          // removes 0 rows and returns success (2026-11 bug: this left
+          // old line items behind, doubling the list on every edit).
+          // Request the deleted rows back so a silent no-op is caught
+          // and surfaced instead of accepted as success.
           if (oldEstItemIds.length > 0) {
-            const { error: deleteError } = await supabase
+            const { data: deletedEstItems, error: deleteError } = await supabase
               .from("estimate_items")
               .delete()
-              .in("id", oldEstItemIds);
+              .in("id", oldEstItemIds)
+              .select("id");
             if (deleteError) throw deleteError;
+            if ((deletedEstItems || []).length !== oldEstItemIds.length) {
+              throw new Error(
+                `Failed to remove old line items (expected to delete ${oldEstItemIds.length}, deleted ${(deletedEstItems || []).length}). Estimate NOT saved to avoid duplicate items -- please contact support.`
+              );
+            }
           }
 
           notify(`Quick Estimate updated successfully!`);
